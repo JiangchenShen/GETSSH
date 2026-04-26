@@ -1,0 +1,72 @@
+{
+  "translation": {
+    "settings": {
+      "title": "偏好设置",
+      "appearance": "外观",
+      "terminal": "终端",
+      "ssh": "网络与连接",
+      "system": "系统与行为",
+      "security": "安全",
+      "plugins": "插件",
+      "about": "关于",
+      "configuration": "配置项"
+    },
+    "appearance": {
+      "uiTheme": "外观主题",
+      "auto": "跟随系统",
+      "light": "浅色",
+      "dark": "深色",
+      "bgOpacity": "背景不透明度",
+      "language": "语言",
+      "systemColor": "主题颜色"
+    },
+    "terminal": {
+      "fontFamily": "字体集",
+      "fontSize": "字号 (px)",
+      "lineHeight": "行高",
+      "cursorStyle": "光标样式",
+      "block": "方块",
+      "underline": "下划线",
+      "bar": "竖线"
+    },
+    "ssh": {
+      "port": "默认端口",
+      "keepAlive": "心跳保活间隔 (秒)",
+      "copyOnSelect": "选中后自动复制"
+    },
+    "system": {
+      "confirmQuit": "退出前确认",
+      "globalHotkey": "全局呼出快捷键"
+    },
+    "plugins": {
+      "dropzone": "将插件 .zip 文件拖拽至此安装",
+      "unpacking": "正在解包插件核心...",
+      "installed": "已安装的扩展",
+      "noPlugins": "暂未安装任何插件。",
+      "uninstall": "卸载"
+    },
+    "sidebar": {
+      "savedSessions": "主机列表",
+      "extensions": "扩展功能",
+      "newConnection": "新建连接",
+      "search": "搜索主机..."
+    },
+    "connect": {
+      "password": "密码",
+      "host": "主机 (IP / 域名)",
+      "username": "用户名",
+      "port": "端口",
+      "privateKey": "选择私钥",
+      "disconnecting": "正在断开连接...",
+      "connecting": "正在连接...",
+      "connectBtn": "连接"
+    },
+    "about": {
+      "title": "关于 GETSSH",
+      "version": "版本 1.0 (Beta)",
+      "author": "作者：沈江辰",
+      "license": "开源协议：Apache License 2.0",
+      "poweredBy": "核心驱动"
+    }
+  }
+}

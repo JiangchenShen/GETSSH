@@ -1,0 +1,72 @@
+{
+  "translation": {
+    "settings": {
+      "title": "Settings Center",
+      "appearance": "Appearance",
+      "terminal": "Terminal",
+      "ssh": "Network & SSH",
+      "system": "System & Auto",
+      "security": "Security",
+      "plugins": "Plugins",
+      "about": "About",
+      "configuration": "Configuration"
+    },
+    "appearance": {
+      "uiTheme": "UI Theme",
+      "auto": "Auto",
+      "light": "Light",
+      "dark": "Dark",
+      "bgOpacity": "Background Opacity",
+      "language": "Language",
+      "systemColor": "Theme Presets"
+    },
+    "terminal": {
+      "fontFamily": "Font Family",
+      "fontSize": "Font Size (px)",
+      "lineHeight": "Line Height",
+      "cursorStyle": "Cursor Style",
+      "block": "Block",
+      "underline": "Underline",
+      "bar": "Bar"
+    },
+    "ssh": {
+      "port": "Default Port",
+      "keepAlive": "Keep-Alive Interval (s)",
+      "copyOnSelect": "Copy on Select"
+    },
+    "system": {
+      "confirmQuit": "Prompt on Exit",
+      "globalHotkey": "Global Summon Hotkey"
+    },
+    "plugins": {
+      "dropzone": "Drop plugin .zip here to install dynamically",
+      "unpacking": "Unpacking kernel payload...",
+      "installed": "Installed Modules",
+      "noPlugins": "No plugins installed.",
+      "uninstall": "Uninstall"
+    },
+    "sidebar": {
+      "savedSessions": "Saved Sessions",
+      "extensions": "Extensions",
+      "newConnection": "New Connection",
+      "search": "Search sessions..."
+    },
+    "connect": {
+      "password": "Password",
+      "host": "IP / Domain",
+      "username": "Username",
+      "port": "Port",
+      "privateKey": "Select Private Key",
+      "disconnecting": "Disconnecting...",
+      "connecting": "Terminal Init...",
+      "connectBtn": "Initialize Secure Shell"
+    },
+    "about": {
+      "title": "About GETSSH",
+      "version": "Version 1.0 (Beta)",
+      "author": "Author: Shen Jiangchen",
+      "license": "License: Apache License 2.0",
+      "poweredBy": "Powered by"
+    }
+  }
+}

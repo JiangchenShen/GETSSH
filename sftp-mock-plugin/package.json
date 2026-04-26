@@ -1,0 +1,8 @@
+{
+  "name": "sftp-mock-plugin",
+  "version": "1.0.0",
+  "displayName": "Advanced SFTP Browser",
+  "description": "Visual drag-and-drop dual-pane SFTP extension for GETSSH.",
+  "main": "main.js",
+  "renderer": "renderer.js"
+}

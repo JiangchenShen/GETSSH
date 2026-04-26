@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary-color: 168 85 247; /* Default purple-500 equivalent */
+  }
+
+  body {
+    @apply h-screen w-screen overflow-hidden m-0 p-0 text-white font-sans;
+    background-color: transparent !important;
+  }
+}
+
+/* Make sure terminal canvas has a transparent background to let vibrancy show */
+.xterm-viewport {
+  background-color: transparent !important;
+}
+.xterm .xterm-screen {
+  background-color: transparent !important;
+}
+
+/* Minimal styling for scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Glass panel utility */
+.glass-panel {
+  @apply bg-white/5 border border-white/10 backdrop-blur-md rounded-xl shadow-xl;
+}

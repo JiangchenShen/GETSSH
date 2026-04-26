@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-electron/
+build/
+release/
+.DS_Store
+profiles.enc
+*.pem
+*.key
+sftp-mock-plugin.zip
+test-results/
