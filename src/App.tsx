@@ -83,12 +83,24 @@ function App() {
   // Crypto State
   const [cryptoMode, setCryptoMode] = useState<'idle' | 'locked' | 'setup'>('idle');
   const [masterPassword, setMasterPassword] = useState('');
+  const [encryptionDisabled, setEncryptionDisabled] = useState(false);
+  
+  const [safeAction, setSafeAction] = useState<'none'|'change'|'disable'|'enable'>('none');
+  const [safeOldPwd, setSafeOldPwd] = useState('');
+  const [safeNewPwd, setSafeNewPwd] = useState('');
+  const [safeError, setSafeError] = useState('');
 
   useEffect(() => {
     const bootCrypto = async () => {
-       const hasProfiles = await window.electronAPI.checkProfiles();
-       if (hasProfiles) {
+       const status = await window.electronAPI.checkProfiles();
+       if (status === 'encrypted') {
           setCryptoMode('locked');
+          setEncryptionDisabled(false);
+       } else if (status === 'plain') {
+          const plainSessions = await window.electronAPI.unlockProfiles('');
+          setSessions(plainSessions);
+          setEncryptionDisabled(true);
+          setCryptoMode('idle');
        } else {
           setCryptoMode('idle');
        }
@@ -229,8 +241,8 @@ function App() {
 
   const syncProfiles = async (updatedSessions: any[]) => {
     setSessions(updatedSessions);
-    if (masterPassword) {
-      await window.electronAPI.saveProfiles({ masterPassword, payload: updatedSessions });
+    if (masterPassword || encryptionDisabled) {
+      await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: updatedSessions });
     } else {
       setCryptoMode('setup');
     }
@@ -341,19 +353,19 @@ function App() {
       {/* Left Sidebar */}
       <div className={`w-64 border-r flex flex-col p-4 pt-8 shrink-0 transition-colors ${isDark ? 'border-white/10 bg-black/40' : 'border-black/5 bg-white/40'}`}>
         <div className="flex items-center gap-2 mb-6">
-          <TerminalSquare className="w-5 h-5 text-primary-500" />
+          <TerminalSquare className="w-5 h-5 text-primary" />
           <h1 className="font-bold text-lg tracking-wider">GETSSH</h1>
         </div>
 
         <div className="relative mb-4">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
-          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} type="text" placeholder={t('sidebar.search')} className={`w-full pl-9 pr-3 py-1.5 rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-white/5 border border-white/10 focus:border-primary-500 placeholder:text-white/30' : 'bg-black/5 border border-black/10 focus:border-primary-500 placeholder:text-black/30'}`} />
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} type="text" placeholder={t('sidebar.search')} className={`w-full pl-9 pr-3 py-1.5 rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-white/5 border border-white/10 focus:border-primary placeholder:text-white/30' : 'bg-black/5 border border-black/10 focus:border-primary placeholder:text-black/30'}`} />
         </div>
 
         <div className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
           <div className="text-xs font-semibold uppercase tracking-wider mb-2 opacity-50 sticky top-0 backdrop-blur-md pt-1 pb-1 z-10">{t('sidebar.savedSessions')}</div>
           {filteredSessions.map((session, idx) => (
-             <div key={idx} className={`w-full flex items-center justify-between gap-1 px-3 py-2 rounded-lg transition-all text-sm group ${selectedSessionIndex === idx ? 'bg-primary-500/20 text-primary-500 border-l-4 border-primary-500 shadow-sm' : isDark ? 'bg-white/5 hover:bg-white/10 border border-white/5 text-white/70 hover:text-white' : 'bg-white hover:bg-white/70 border border-black/5 shadow-sm text-black/70 hover:text-black'}`}>
+             <div key={idx} className={`w-full flex items-center justify-between gap-1 px-3 py-2 rounded-lg transition-all text-sm group ${selectedSessionIndex === idx ? 'bg-primary/20 text-primary border-l-4 border-primary shadow-sm' : isDark ? 'bg-white/5 hover:bg-white/10 border border-white/5 text-white/70 hover:text-white' : 'bg-white hover:bg-white/70 border border-black/5 shadow-sm text-black/70 hover:text-black'}`}>
                <button type="button" onClick={() => setSelectedSessionIndex(idx)} className="flex-1 flex items-center gap-2 truncate text-left">
                   <Server className="w-4 h-4 shrink-0" />
                   <span className="truncate flex-1">{session.username}@{session.host}</span>
@@ -397,17 +409,17 @@ function App() {
             {/* Settings Sidebar */}
             <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-gray-100'}`}>
               <h2 className="text-xl font-bold flex items-center gap-2 mb-8">
-                <Settings className="w-5 h-5 text-primary-500" />
+                <Settings className="w-5 h-5 text-primary" />
                 {t('settings.title')}
               </h2>
               <nav className="flex flex-col gap-1">
-                 <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Appearance' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-4 h-4"/>{t('settings.appearance')}</button>
-                 <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Terminal' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal')}</button>
-                 <button onClick={() => setSettingsActiveTab('SSH')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'SSH' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Network className="w-4 h-4"/>{t('settings.ssh')}</button>
-                 <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'System' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-4 h-4"/>{t('settings.system')}</button>
-                 <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left mt-2 border-t ${isDark ? 'border-white/10' : 'border-black/5'} pt-3 ${settingsActiveTab === 'Security' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-4 h-4"/>{t('settings.security')}</button>
-                 <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Plugins' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-4 h-4"/>{t('settings.plugins')}</button>
-                 <button onClick={() => setSettingsActiveTab('About')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'About' ? 'bg-primary-500/20 text-primary-500 font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Info className="w-4 h-4"/>{t('settings.about')}</button>
+                 <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Appearance' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-4 h-4"/>{t('settings.appearance')}</button>
+                 <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Terminal' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal')}</button>
+                 <button onClick={() => setSettingsActiveTab('SSH')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'SSH' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Network className="w-4 h-4"/>{t('settings.ssh')}</button>
+                 <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'System' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-4 h-4"/>{t('settings.system')}</button>
+                 <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left mt-2 border-t ${isDark ? 'border-white/10' : 'border-black/5'} pt-3 ${settingsActiveTab === 'Security' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-4 h-4"/>{t('settings.security')}</button>
+                 <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Plugins' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-4 h-4"/>{t('settings.plugins')}</button>
+                 <button onClick={() => setSettingsActiveTab('About')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'About' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Info className="w-4 h-4"/>{t('settings.about')}</button>
               </nav>
             </div>
 
@@ -460,9 +472,9 @@ function App() {
                     <div>
                       <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.uiTheme')}</label>
                       <div className="grid grid-cols-3 gap-2">
-                        <button onClick={() => updateConfig('theme', 'system')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'system' ? 'border-primary-500 bg-primary-500/20 text-primary-500' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.auto')}</button>
-                        <button onClick={() => updateConfig('theme', 'light')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'light' ? 'border-primary-500 bg-primary-500/20 text-primary-500' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.light')}</button>
-                        <button onClick={() => updateConfig('theme', 'dark')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'dark' ? 'border-primary-500 bg-primary-500/20 text-primary-500' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.dark')}</button>
+                        <button onClick={() => updateConfig('theme', 'system')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'system' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.auto')}</button>
+                        <button onClick={() => updateConfig('theme', 'light')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'light' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.light')}</button>
+                        <button onClick={() => updateConfig('theme', 'dark')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'dark' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.dark')}</button>
                       </div>
                     </div>
                     <div>
@@ -471,7 +483,7 @@ function App() {
                          type="range" min="0.1" max="1" step="0.05" 
                          value={appConfig.bgOpacity}
                          onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
-                         className="w-full accent-primary-500"
+                         className="w-full accent-primary"
                       />
                       <div className="text-xs opacity-50 text-right mt-1">{Math.round(appConfig.bgOpacity * 100)}%</div>
                     </div>
@@ -481,7 +493,7 @@ function App() {
                 {settingsActiveTab === 'Terminal' && (
                   <div className="space-y-8 max-w-xl">
                     <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={appConfig.copyOnSelect} onChange={(e) => updateConfig('copyOnSelect', e.target.checked)} className="w-4 h-4 accent-primary-500 rounded" />
+                      <input type="checkbox" checked={appConfig.copyOnSelect} onChange={(e) => updateConfig('copyOnSelect', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                       <div>
                         <div className="text-sm font-medium">{t('ssh.copyOnSelect')}</div>
                         <div className="text-xs opacity-50">Automatically copy highlighted text to system clipboard.</div>
@@ -587,7 +599,7 @@ function App() {
                     </div>
 
                     <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={appConfig.confirmQuit} onChange={(e) => updateConfig('confirmQuit', e.target.checked)} className="w-4 h-4 accent-primary-500 rounded" />
+                      <input type="checkbox" checked={appConfig.confirmQuit} onChange={(e) => updateConfig('confirmQuit', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                       <div>
                         <div className="text-sm font-medium">Prompt on Exit</div>
                         <div className="text-xs opacity-50">Show confirmation dialog before fully closing the application.</div>
@@ -605,7 +617,7 @@ function App() {
                 {settingsActiveTab === 'Security' && (
                   <div className="space-y-8 max-w-xl">
                     <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={appConfig.privacyMode} onChange={(e) => updateConfig('privacyMode', e.target.checked)} className="w-4 h-4 accent-primary-500 rounded" />
+                      <input type="checkbox" checked={appConfig.privacyMode} onChange={(e) => updateConfig('privacyMode', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                       <div>
                         <div className="text-sm font-medium flex items-center gap-2">Privacy Mode <Shield className="w-3 h-3 text-primary-400" /></div>
                         <div className="text-xs opacity-50">Enable glass blur over the entire application when it loses focus.</div>
@@ -623,6 +635,82 @@ function App() {
                       />
                       <div className="text-xs opacity-50 mt-1">Commands to automatically execute sequentially when connecting to any session.</div>
                     </div>
+
+                    <div className="pt-6 border-t border-black/10 dark:border-white/10">
+                       <h4 className="text-sm font-bold mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-primary"/> {t('security.safeStorageConfig')}</h4>
+                       <div className="space-y-3">
+                          {safeAction === 'none' ? (
+                             <>
+                               {!encryptionDisabled ? (
+                                  <>
+                                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('change'); setSafeError(''); setSafeOldPwd(''); setSafeNewPwd(''); }} className={`w-full py-2 px-3 text-sm font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}>
+                                       {t('security.changeMasterPwd')}
+                                    </button>
+                                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('disable'); setSafeError(''); setSafeOldPwd(''); }} className="w-full py-2 px-3 text-sm font-medium rounded-lg border border-red-500/50 text-red-500 hover:bg-red-500/10 transition-all">
+                                       {t('security.disableEncryption')}
+                                    </button>
+                                  </>
+                               ) : (
+                                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('enable'); setSafeError(''); setSafeNewPwd(''); }} className={`w-full py-2 px-3 text-sm font-medium rounded-lg bg-primary hover:bg-primary/80 text-white transition-all shadow-lg shadow-primary/20`}>
+                                     {t('security.enableEncryption')}
+                                  </button>
+                               )}
+                             </>
+                          ) : (
+                             <div className="p-4 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 space-y-3">
+                               {safeError && <div className="text-red-500 text-xs font-medium">{safeError}</div>}
+                               
+                               {(safeAction === 'change' || safeAction === 'disable') && (
+                                  <div>
+                                    <label className="block text-xs font-medium mb-1 opacity-70">{t('security.currentPwd')}</label>
+                                    <input autoFocus type="password" value={safeOldPwd} onChange={e => setSafeOldPwd(e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/20' : 'bg-white border-black/20'}`} />
+                                  </div>
+                               )}
+                               
+                               {(safeAction === 'change' || safeAction === 'enable') && (
+                                  <div>
+                                    <label className="block text-xs font-medium mb-1 opacity-70">{t('security.newPwd')}</label>
+                                    <input autoFocus={safeAction === 'enable'} type="password" value={safeNewPwd} onChange={e => setSafeNewPwd(e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/20' : 'bg-white border-black/20'}`} />
+                                  </div>
+                               )}
+
+                               {safeAction === 'disable' && (
+                                  <div className="text-xs text-red-500 font-medium">{t('security.warningPlaintext')}</div>
+                               )}
+
+                               <div className="flex gap-2 pt-2">
+                                  <button onClick={() => setSafeAction('none')} className={`flex-1 py-1.5 px-3 text-sm rounded-md border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}>{t('security.cancel')}</button>
+                                  <button onClick={() => {
+                                     if ((safeAction === 'change' || safeAction === 'disable') && safeOldPwd !== masterPassword) {
+                                        return setSafeError(t('security.errIncorrectPwd'));
+                                     }
+                                     if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
+                                        return setSafeError(t('security.errEmptyPwd'));
+                                     }
+                                     
+                                     if (safeAction === 'change') {
+                                        setMasterPassword(safeNewPwd);
+                                        window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                        setTimeout(() => window.alert('✅ 主密码已安全更新并重加密完成！'), 100);
+                                     } else if (safeAction === 'disable') {
+                                        setEncryptionDisabled(true);
+                                        setMasterPassword('');
+                                        window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+                                        setTimeout(() => window.alert('⚠️ 加密已解除，配置已转为明文存储。'), 100);
+                                     } else if (safeAction === 'enable') {
+                                        setEncryptionDisabled(false);
+                                        setMasterPassword(safeNewPwd);
+                                        window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                        setTimeout(() => window.alert('🔒 SafeStorage 零知识加密已启动！'), 100);
+                                     }
+                                     
+                                     setSafeAction('none');
+                                  }} className="flex-1 py-1.5 px-3 text-sm rounded-md bg-primary hover:bg-primary/80 text-white transition-all shadow-md">{t('security.confirm')}</button>
+                               </div>
+                             </div>
+                          )}
+                       </div>
+                    </div>
                   </div>
                 )}
 
@@ -633,12 +721,12 @@ function App() {
                 {settingsActiveTab === 'About' && (
                   <div className="flex flex-col items-center justify-center pt-20 max-w-xl mx-auto space-y-6 text-center">
                     <div className="relative">
-                      <div className="absolute inset-0 bg-primary-500 blur-2xl opacity-20 rounded-full animate-pulse" />
-                      <h1 className="text-6xl font-black tracking-widest bg-gradient-to-br from-primary-400 to-primary-600 bg-clip-text text-transparent relative z-10">GETSSH</h1>
+                      <div className="absolute inset-0 bg-primary blur-2xl opacity-20 rounded-full animate-pulse" />
+                      <h1 className="text-6xl font-black tracking-widest bg-gradient-to-br from-primary-400 to-primary bg-clip-text text-transparent relative z-10">GETSSH</h1>
                     </div>
                     <div className="text-xl font-medium tracking-widest opacity-80">{t('about.version')}</div>
                     
-                    <div className="w-16 h-1 bg-gradient-to-r from-transparent via-primary-500 to-transparent my-4 opacity-50" />
+                    <div className="w-16 h-1 bg-gradient-to-r from-transparent via-primary to-transparent my-4 opacity-50" />
                     
                     <div className="space-y-2 opacity-70">
                       <p>{t('about.author')}</p>
@@ -705,25 +793,25 @@ function App() {
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-2">
                       <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.host')}</label>
-                      <input required value={sessions[selectedSessionIndex].host} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].host = e.target.value; syncProfiles(updated); }} type="text" placeholder="192.168.1.1 or example.com" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary-500 focus:border-primary-500 ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
+                      <input required value={sessions[selectedSessionIndex].host} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].host = e.target.value; syncProfiles(updated); }} type="text" placeholder="192.168.1.1 or example.com" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary focus:border-primary ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
                     </div>
                     <div>
                       <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.port')}</label>
-                      <input required value={sessions[selectedSessionIndex].port ?? appConfig.defaultPort ?? 22} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].port = parseInt(e.target.value) || 22; syncProfiles(updated); }} type="number" min="1" max="65535" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary-500 focus:border-primary-500 ${isDark ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`} />
+                      <input required value={sessions[selectedSessionIndex].port ?? appConfig.defaultPort ?? 22} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].port = parseInt(e.target.value) || 22; syncProfiles(updated); }} type="number" min="1" max="65535" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary focus:border-primary ${isDark ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`} />
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.username')}</label>
-                    <input required value={sessions[selectedSessionIndex].username} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].username = e.target.value; syncProfiles(updated); }} type="text" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary-500 focus:border-primary-500 ${isDark ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`} />
+                    <input required value={sessions[selectedSessionIndex].username} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].username = e.target.value; syncProfiles(updated); }} type="text" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary focus:border-primary ${isDark ? 'bg-black/30 border-white/10' : 'bg-black/5 border-black/10'}`} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.password')}</label>
-                    <input value={sessions[selectedSessionIndex].password || ''} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].password = e.target.value; syncProfiles(updated); }} type="password" placeholder="Leave empty if using key" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary-500 focus:border-primary-500 ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
+                    <input value={sessions[selectedSessionIndex].password || ''} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].password = e.target.value; syncProfiles(updated); }} type="password" placeholder="Leave empty if using key" className={`w-full border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary focus:border-primary ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.privateKey')}</label>
                     <div className="flex gap-2">
-                      <input value={sessions[selectedSessionIndex].privateKeyPath || ''} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].privateKeyPath = e.target.value; syncProfiles(updated); }} type="text" placeholder="e.g. ~/.ssh/id_rsa" className={`flex-1 border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary-500 focus:border-primary-500 ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
+                      <input value={sessions[selectedSessionIndex].privateKeyPath || ''} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].privateKeyPath = e.target.value; syncProfiles(updated); }} type="text" placeholder="e.g. ~/.ssh/id_rsa" className={`flex-1 border rounded-lg px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary focus:border-primary ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
                       <button type="button" onClick={async () => {
                         // @ts-ignore
                         const path = await window.electronAPI.selectFile();
@@ -734,7 +822,7 @@ function App() {
                     </div>
                   </div>
                   <label className="flex items-center gap-3 cursor-pointer pt-2">
-                    <input type="checkbox" checked={sessions[selectedSessionIndex].useKeepAlive !== false} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].useKeepAlive = e.target.checked; syncProfiles(updated); }} className="w-4 h-4 accent-primary-500 rounded" />
+                    <input type="checkbox" checked={sessions[selectedSessionIndex].useKeepAlive !== false} onChange={(e) => { const updated = [...sessions]; updated[selectedSessionIndex].useKeepAlive = e.target.checked; syncProfiles(updated); }} className="w-4 h-4 accent-primary rounded" />
                     <div>
                       <div className="text-sm font-medium">Enable Keep-Alive</div>
                       <div className="text-xs opacity-50">Prevents session timeout drop</div>
@@ -742,7 +830,7 @@ function App() {
                   </label>
                 </div>
 
-                <button disabled={connecting} type="submit" className="w-full bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white font-medium py-3 mt-4 rounded-lg transition-colors shadow-lg shadow-primary-500/20">
+                <button disabled={connecting} type="submit" className="w-full bg-primary hover:bg-primary disabled:opacity-50 text-white font-medium py-3 mt-4 rounded-lg transition-colors shadow-lg shadow-primary/20">
                   {connecting ? t('connect.connecting') : t('connect.connectBtn')}
                 </button>
               </form>

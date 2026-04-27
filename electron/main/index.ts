@@ -37,7 +37,7 @@ function createWindow() {
       preload,
       nodeIntegration: false,
       contextIsolation: true,
-      backgroundThrottling: false,
+      backgroundThrottling: false // Fix xterm and SSH disconnects on blur
     },
   })
 
@@ -148,21 +148,23 @@ ipcMain.handle('select-file', async () => {
 
 // Safe Storage Encryption Payload -> Zero-Knowledge Local AES
 const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
-
-const PROFILES_JSON_PATH = join(app.getPath('userData'), 'profiles.json');
+const PROFILES_PLAIN_PATH = join(app.getPath('userData'), 'profiles.json');
 
 ipcMain.handle('check-profiles', () => {
-  if (fs.existsSync(PROFILES_ENC_PATH)) return { exists: true, encrypted: true };
-  if (fs.existsSync(PROFILES_JSON_PATH)) return { exists: true, encrypted: false };
-  return { exists: false, encrypted: false };
+  if (fs.existsSync(PROFILES_ENC_PATH)) return 'encrypted';
+  if (fs.existsSync(PROFILES_PLAIN_PATH)) return 'plain';
+  return 'none';
 });
 
 ipcMain.handle('unlock-profiles', (event, masterPassword) => {
-  if (!masterPassword && fs.existsSync(PROFILES_JSON_PATH)) {
-    return JSON.parse(fs.readFileSync(PROFILES_JSON_PATH, 'utf8'));
+  if (!masterPassword) {
+    if (fs.existsSync(PROFILES_PLAIN_PATH)) {
+      return JSON.parse(fs.readFileSync(PROFILES_PLAIN_PATH, 'utf8'));
+    }
+    return [];
   }
-  
-  if (!fs.existsSync(PROFILES_ENC_PATH)) throw new Error('No encrypted profiles found');
+
+  if (!fs.existsSync(PROFILES_ENC_PATH)) throw new Error('No profiles found');
   const buffer = fs.readFileSync(PROFILES_ENC_PATH);
   
   if (buffer.length < 44) throw new Error('Invalid encrypted profile');
@@ -188,34 +190,30 @@ ipcMain.handle('unlock-profiles', (event, masterPassword) => {
 });
 
 ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
-  const tempPath = join(app.getPath('userData'), `profiles_${Date.now()}.tmp`);
+  const tmpPath = join(app.getPath('userData'), 'profiles.tmp');
   
-  try {
-    if (!masterPassword) {
-      fs.writeFileSync(tempPath, JSON.stringify(payload));
-      fs.renameSync(tempPath, PROFILES_JSON_PATH);
-      if (fs.existsSync(PROFILES_ENC_PATH)) fs.unlinkSync(PROFILES_ENC_PATH);
-    } else {
-      const salt = crypto.randomBytes(16);
-      const iv = crypto.randomBytes(12);
-      const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
-      
-      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-      let encrypted = cipher.update(JSON.stringify(payload), 'utf8');
-      encrypted = Buffer.concat([encrypted, cipher.final()]);
-      const authTag = cipher.getAuthTag();
-      
-      const output = Buffer.concat([salt, iv, authTag, encrypted]);
-      fs.writeFileSync(tempPath, output);
-      fs.renameSync(tempPath, PROFILES_ENC_PATH);
-      if (fs.existsSync(PROFILES_JSON_PATH)) fs.unlinkSync(PROFILES_JSON_PATH);
-    }
-    return true;
-  } catch (err) {
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    throw err;
+  if (!masterPassword) {
+     fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+     fs.renameSync(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
+     if (fs.existsSync(PROFILES_ENC_PATH)) fs.unlinkSync(PROFILES_ENC_PATH);
+     return true;
   }
-});
+  
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
+  
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(JSON.stringify(payload), 'utf8');
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  
+  const output = Buffer.concat([salt, iv, authTag, encrypted]);
+  fs.writeFileSync(tmpPath, output);
+  fs.renameSync(tmpPath, PROFILES_ENC_PATH); // Atomic write
+  if (fs.existsSync(PROFILES_PLAIN_PATH)) fs.unlinkSync(PROFILES_PLAIN_PATH);
+  return true;
+})
 
 // SSH IPC Handlers
 ipcMain.handle('ssh-connect', async (event, config) => {

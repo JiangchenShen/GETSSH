@@ -11,6 +11,19 @@
       "about": "关于",
       "configuration": "配置项"
     },
+    "security": {
+      "safeStorageConfig": "SafeStorage 加密配置",
+      "changeMasterPwd": "更改主密码",
+      "disableEncryption": "关闭主密码加密",
+      "enableEncryption": "开启 SafeStorage 零知识加密",
+      "currentPwd": "当前主密码",
+      "newPwd": "新主密码",
+      "warningPlaintext": "危险警告：关闭后，您的所有 SSH 密码及配置将以完全明文的方式保存在本地磁盘！",
+      "cancel": "取消",
+      "confirm": "确认验证并执行",
+      "errIncorrectPwd": "安全校验失败：当前密码不正确！",
+      "errEmptyPwd": "新密码不可为空！"
+    },
     "appearance": {
       "uiTheme": "外观主题",
       "auto": "跟随系统",

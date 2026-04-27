@@ -13,7 +13,7 @@ declare global {
       onSshClosed: (sessionId: string, cb: () => void) => (() => void);
       updateBackendConfig: (config: any) => void;
       selectFile: () => Promise<string | null>;
-      checkProfiles: () => Promise<boolean>;
+      checkProfiles: () => Promise<'encrypted' | 'plain' | 'none'>;
       unlockProfiles: (password: string) => Promise<any>;
       saveProfiles: (payload: { masterPassword: string, payload: any }) => Promise<boolean>;
       onAppBlur: (cb: () => void) => (() => void);

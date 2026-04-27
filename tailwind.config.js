@@ -8,11 +8,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: {
-          400: 'rgb(var(--primary-color) / 0.8)',
-          500: 'rgb(var(--primary-color) / <alpha-value>)',
-          600: 'rgb(var(--primary-color) / 1)',
-        }
+        primary: 'rgb(var(--primary-color) / <alpha-value>)',
       }
     },
   },

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { WebglAddon } from 'xterm-addon-webgl';
 import 'xterm/css/xterm.css';
 
 
@@ -39,28 +38,11 @@ export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
-    // Initialize WebGL GPU Acceleration
-    let webglAddon: WebglAddon | null = null;
-    try {
-      webglAddon = new WebglAddon();
-      term.loadAddon(webglAddon);
-      webglAddon.onContextLoss((e) => {
-         console.warn("WebGL Context Lost", e);
-         webglAddon?.dispose();
-      });
-    } catch(e) {
-      console.warn("WebGL failed to initialize, falling back to canvas computation", e);
-    }
-
     term.open(terminalRef.current);
     fitAddon.fit();
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
-
-    // Attach WebGL cleanup queue ref (sneaky attachment approach)
-    // @ts-ignore
-    xtermRef.current._webgl = webglAddon;
 
     // Handle Resize
     const handleResize = () => {
@@ -74,12 +56,6 @@ export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
     // Slight delay for initial fit to ensure container layout is done
     setTimeout(handleResize, 100);
     window.addEventListener('resize', handleResize);
-
-    const handleFocus = () => {
-      term.refresh(0, term.rows - 1);
-      fitAddon.fit();
-    };
-    window.addEventListener('focus', handleFocus);
 
     // IPC Handlers
     const unsubData = window.electronAPI.onSshData(sessionId, (data: string) => {
@@ -98,19 +74,9 @@ export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('focus', handleFocus);
       if (unsubData) unsubData();
       if (unsubClosed) unsubClosed();
-      
-      // Strict WebGL Context Dipose chain
       // @ts-ignore
-      if (xtermRef.current?._webgl) {
-         try { 
-            // @ts-ignore
-            xtermRef.current._webgl.dispose(); 
-         } catch(e) {}
-      }
-
       term.dispose();
       window.electronAPI.sshDisconnect(sessionId);
     };
