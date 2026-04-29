@@ -88,6 +88,7 @@
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "uninstallDisplayName": "GETSSH Uninstaller",
