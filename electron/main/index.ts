@@ -33,6 +33,11 @@ function createWindow() {
     transparent: true,
     vibrancy: 'fullscreen-ui', // macOS vibrant glass effect
     titleBarStyle: 'hidden', // hide title bar to let web content handle drag
+    titleBarOverlay: process.platform !== 'darwin' ? {
+      color: 'rgba(0,0,0,0)',
+      symbolColor: '#a1a1aa',
+      height: 32
+    } : false,
     webPreferences: {
       preload,
       nodeIntegration: false,
