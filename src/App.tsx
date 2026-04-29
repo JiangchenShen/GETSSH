@@ -343,7 +343,13 @@ function App() {
           isDark={isDark} 
           onUnlock={handleUnlock} 
           onSetup={handleSetup} 
-          onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => setCryptoMode('idle')}
+          onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
+              if (cryptoMode === 'setup') {
+                 setEncryptionDisabled(true);
+                 window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+              }
+              setCryptoMode('idle');
+          }}
         />
       )}
       <div className="absolute top-0 left-0 right-0 h-8 z-40 flex items-center justify-center text-xs opacity-50 font-medium" style={{ WebkitAppRegion: 'drag' } as any}>
