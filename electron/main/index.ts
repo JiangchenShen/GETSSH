@@ -299,14 +299,27 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           const currentSession = sessions.get(sessionId)
           if (currentSession) currentSession.stream = stream
           
+          let isAttached = false;
+          let dataBuffer = '';
+          setTimeout(() => {
+             isAttached = true;
+             if (dataBuffer && win && !win.isDestroyed()) {
+                 win.webContents.send(`ssh-data-${sessionId}`, dataBuffer);
+             }
+          }, 800); // Wait 800ms for React to mount the Terminal Component
+
           stream.on('close', () => {
             sshClient.end()
             sessions.delete(sessionId)
             if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
           }).on('data', (data: Buffer) => {
-            if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, data.toString('utf-8'))
+            const str = data.toString('utf-8');
+            if (!isAttached) dataBuffer += str;
+            else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str)
           }).stderr.on('data', (data: Buffer) => {
-            if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, data.toString('utf-8'))
+            const str = data.toString('utf-8');
+            if (!isAttached) dataBuffer += str;
+            else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str)
           });
           stream.on('error', (streamErr: any) => {
              console.error("Stream emitted error: ", streamErr)
