@@ -838,7 +838,7 @@ function App() {
         {/* Terminals Layer (Always Mounted if tabs > 0) */}
         {tabs.length > 0 ? (
           <div className="flex flex-col h-full flex-1 relative z-10">
-            <div className={`flex items-end px-2 pt-8 gap-1 border-b ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`} style={{ WebkitAppRegion: 'drag' } as any}>
+            <div className={`flex items-end px-2 pt-8 gap-1 border-b ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`} style={{ WebkitAppRegion: (!showSettings && selectedSessionIndex === null) ? 'drag' : 'no-drag' } as any}>
               {tabs.map((tab) => {
                 const isActive = activeTabId === tab.id;
                 return (
