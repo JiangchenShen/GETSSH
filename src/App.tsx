@@ -326,6 +326,18 @@ function App() {
     }
   };
 
+  const handleReconnect = async (tab: Tab) => {
+    const res = await window.electronAPI.sshConnect(tab.config);
+    if (res.success && res.sessionId) {
+      setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
+      if (activeTabId === tab.id) {
+        setActiveTabId(res.sessionId as string);
+      }
+    } else {
+      window.alert(`Reconnect failed: ${res.error}`);
+    }
+  };
+
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Dynamic Backdrop Opacity Color
@@ -775,7 +787,7 @@ function App() {
             <div className={`flex-1 relative ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
                {tabs.map(tab => (
                  <div key={tab.id} className="absolute inset-0" style={{ display: activeTabId === tab.id ? 'block' : 'none' }}>
-                   <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} config={appConfig} />
+                   <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
                  </div>
                ))}
             </div>
@@ -860,7 +872,7 @@ function App() {
             <div className={`flex-1 relative ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
                {tabs.map(tab => (
                  <div key={tab.id} className="absolute inset-0" style={{ display: activeTabId === tab.id ? 'block' : 'none' }}>
-                   <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} config={appConfig} />
+                   <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
                  </div>
                ))}
             </div>

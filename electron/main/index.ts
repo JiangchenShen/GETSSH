@@ -290,7 +290,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
 
       establishConnection().then(() => {
         sshClient.on('ready', () => {
-          sshClient!.shell((err, stream) => {
+          sshClient!.shell({ term: 'xterm-256color' }, (err, stream) => {
           if (err) {
             sessions.delete(sessionId)
             resolve({ success: false, error: err.message })

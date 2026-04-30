@@ -7,13 +7,15 @@ import 'xterm/css/xterm.css';
 interface TerminalProps {
   sessionId: string;
   onDisconnected?: () => void;
+  onReconnect?: () => void;
   config: any; // We will use AppConfig type from App.tsx loosely here to avoid cyclic if App doesn't export
 }
 
-export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
+export function Terminal({ sessionId, onDisconnected, onReconnect, config }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const isDisconnectedRef = useRef(false);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -63,12 +65,21 @@ export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
     });
 
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
-      term.writeln('\r\n\x1b[31m[SSH Connection Closed]\x1b[0m');
+      isDisconnectedRef.current = true;
+      term.writeln('\r\n\x1b[31m[SSH Connection Closed] - Press Enter to reconnect...\x1b[0m\r\n');
       if (onDisconnected) onDisconnected();
     });
 
     // Write input to SSH
     term.onData((data) => {
+      if (isDisconnectedRef.current) {
+         if (data === '\r' && onReconnect) {
+            isDisconnectedRef.current = false;
+            term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
+            onReconnect();
+         }
+         return;
+      }
       window.electronAPI.sshWrite(sessionId, data);
     });
 
@@ -80,7 +91,7 @@ export function Terminal({ sessionId, onDisconnected, config }: TerminalProps) {
       term.dispose();
       window.electronAPI.sshDisconnect(sessionId);
     };
-  }, [sessionId, onDisconnected]); // Mount only once per SessionID
+  }, [sessionId, onDisconnected, onReconnect]); // Mount only once per SessionID
 
   // Dynamic Config Observer
   useEffect(() => {
