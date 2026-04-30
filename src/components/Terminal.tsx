@@ -17,6 +17,14 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
   const fitAddonRef = useRef<FitAddon | null>(null);
   const isDisconnectedRef = useRef(false);
 
+  const onDisconnectedRef = useRef(onDisconnected);
+  const onReconnectRef = useRef(onReconnect);
+
+  useEffect(() => {
+    onDisconnectedRef.current = onDisconnected;
+    onReconnectRef.current = onReconnect;
+  }, [onDisconnected, onReconnect]);
+
   useEffect(() => {
     if (!terminalRef.current) return;
 
@@ -67,16 +75,16 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
       isDisconnectedRef.current = true;
       term.writeln('\r\n\x1b[31m[SSH Connection Closed] - Press Enter to reconnect...\x1b[0m\r\n');
-      if (onDisconnected) onDisconnected();
+      if (onDisconnectedRef.current) onDisconnectedRef.current();
     });
 
     // Write input to SSH
     term.onData((data) => {
       if (isDisconnectedRef.current) {
-         if (data === '\r' && onReconnect) {
+         if (data === '\r' && onReconnectRef.current) {
             isDisconnectedRef.current = false;
             term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
-            onReconnect();
+            onReconnectRef.current();
          }
          return;
       }
@@ -91,7 +99,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
       term.dispose();
       window.electronAPI.sshDisconnect(sessionId);
     };
-  }, [sessionId, onDisconnected, onReconnect]); // Mount only once per SessionID
+  }, [sessionId]); // ONLY mount/dismount on SessionID change
 
   // Dynamic Config Observer
   useEffect(() => {
