@@ -305,7 +305,10 @@ ipcMain.handle('ssh-connect', async (event, config) => {
             if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
           }).on('data', (data: Buffer) => {
             if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, data.toString('utf-8'))
-          }).on('error', (streamErr: any) => {
+          }).stderr.on('data', (data: Buffer) => {
+            if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, data.toString('utf-8'))
+          });
+          stream.on('error', (streamErr: any) => {
              console.error("Stream emitted error: ", streamErr)
           })
           resolve({ success: true, sessionId })

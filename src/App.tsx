@@ -786,7 +786,7 @@ function App() {
             {/* Terminals Container */}
             <div className={`flex-1 relative ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
                {tabs.map(tab => (
-                 <div key={tab.id} className="absolute inset-0" style={{ display: activeTabId === tab.id ? 'block' : 'none' }}>
+                 <div key={tab.id} className={`absolute inset-0 transition-opacity ${activeTabId === tab.id ? 'z-10 opacity-100' : '-z-10 opacity-0 pointer-events-none'}`}>
                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
                  </div>
                ))}
@@ -871,7 +871,7 @@ function App() {
             </div>
             <div className={`flex-1 relative ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
                {tabs.map(tab => (
-                 <div key={tab.id} className="absolute inset-0" style={{ display: activeTabId === tab.id ? 'block' : 'none' }}>
+                 <div key={tab.id} className={`absolute inset-0 transition-opacity ${activeTabId === tab.id ? 'z-10 opacity-100' : '-z-10 opacity-0 pointer-events-none'}`}>
                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
                  </div>
                ))}
