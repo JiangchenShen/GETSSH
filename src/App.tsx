@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal as TerminalComponent } from './components/Terminal';
-import { TerminalSquare, Server, Plus, X, Search, Settings, Monitor, Terminal as TerminalIcon, Network, Command, Zap, Cpu, Shield, Blocks, Info } from 'lucide-react';
+import { TerminalSquare, Server, Plus, X, Search, Settings, Monitor, Terminal as TerminalIcon, Network, Command, Zap, Cpu, Shield, Blocks, Info, HardDrive } from 'lucide-react';
 import { PluginSettings } from './components/PluginSettings';
+import { SFTPManager } from './components/SFTPManager';
 import { usePluginStore } from './store/pluginStore';
 import { useTranslation } from 'react-i18next';
 import { CryptoModal } from './components/CryptoModal';
@@ -75,6 +76,8 @@ function App() {
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
   const hasAutoStarted = useRef(false);
   const [isAppBlurred, setIsAppBlurred] = useState(false);
+  const [showSFTP, setShowSFTP] = useState(false);
+  const sidebarActions = usePluginStore(state => state.sidebarActions);
 
   const [selectedSessionIndex, setSelectedSessionIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -409,7 +412,15 @@ function App() {
         </div>
 
         {/* Global Tools Slot */}
-        <div className="pt-4 mt-4 border-t border-white/10 dark:border-white/10 border-black/5 flex justify-start gap-2 items-center z-10">
+        <div className="pt-4 mt-4 border-t border-white/10 dark:border-white/10 border-black/5 flex justify-start gap-2 items-center z-10 flex-wrap">
+          {sidebarActions.map(action => (
+             <button key={action.id} onClick={action.onClick} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
+                <div dangerouslySetInnerHTML={{ __html: action.icon }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
+             </button>
+          ))}
+          <button onClick={() => setShowSFTP(!showSFTP)} className={`p-2 rounded-lg transition-colors ${showSFTP ? 'bg-primary/20 text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
+             <HardDrive className="w-5 h-5" />
+          </button>
           <button onClick={() => setShowSettings(true)} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
              <Settings className="w-5 h-5" />
           </button>
@@ -858,6 +869,14 @@ function App() {
                  </div>
                ))}
             </div>
+            
+            {/* Native SFTP Split Pane Overlay */}
+            <div className={`absolute top-0 right-0 bottom-0 w-80 z-30 transition-transform duration-300 transform ${showSFTP && activeTabId ? 'translate-x-0' : 'translate-x-full'}`}>
+               {activeTabId && showSFTP && (
+                  <SFTPManager sessionId={activeTabId} isDark={isDark} onClose={() => setShowSFTP(false)} />
+               )}
+            </div>
+
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center relative z-0">

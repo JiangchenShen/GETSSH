@@ -102,7 +102,7 @@ app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
 })
 
-const sessions = new Map<string, { client: Client, stream: any }>()
+const sessions = new Map<string, { client: Client, stream: any, sftp?: any }>()
 let sessionCounter = 0;
 let backendConfig = { confirmQuit: false, globalHotkey: '' };
 
@@ -324,6 +324,14 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           stream.on('error', (streamErr: any) => {
              console.error("Stream emitted error: ", streamErr)
           })
+
+          sshClient.sftp((err, sftp) => {
+             if (!err) {
+                const current = sessions.get(sessionId);
+                if (current) current.sftp = sftp;
+             }
+          });
+
           resolve({ success: true, sessionId })
         })
       }).on('error', (err: any) => {
@@ -340,6 +348,78 @@ ipcMain.handle('ssh-connect', async (event, config) => {
     }
   })
 })
+
+// --- SFTP Handlers ---
+ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
+  return new Promise((resolve) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
+    session.sftp.readdir(remotePath, (err: any, list: any[]) => {
+      if (err) return resolve({ success: false, error: err.message });
+      resolve({ 
+         success: true, 
+         list: list.map(item => ({
+           name: item.filename,
+           longname: item.longname,
+           type: item.attrs.isDirectory() ? 'd' : item.attrs.isFile() ? '-' : 'l',
+           size: item.attrs.size,
+           mtime: item.attrs.mtime
+         }))
+      });
+    });
+  });
+});
+
+ipcMain.handle('sftp-mkdir', (event, sessionId: string, remotePath: string) => {
+  return new Promise((resolve) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
+    session.sftp.mkdir(remotePath, (err: any) => {
+      if (err) return resolve({ success: false, error: err.message });
+      resolve({ success: true });
+    });
+  });
+});
+
+ipcMain.handle('sftp-delete', (event, sessionId: string, remotePath: string, isDir: boolean) => {
+  return new Promise((resolve) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
+    if (isDir) {
+       session.sftp.rmdir(remotePath, (err: any) => {
+         if (err) return resolve({ success: false, error: err.message });
+         resolve({ success: true });
+       });
+    } else {
+       session.sftp.unlink(remotePath, (err: any) => {
+         if (err) return resolve({ success: false, error: err.message });
+         resolve({ success: true });
+       });
+    }
+  });
+});
+
+ipcMain.handle('sftp-read-file', (event, sessionId: string, remotePath: string) => {
+  return new Promise((resolve) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
+    session.sftp.readFile(remotePath, 'utf8', (err: any, data: any) => {
+       if (err) return resolve({ success: false, error: err.message });
+       resolve({ success: true, data });
+    });
+  });
+});
+
+ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string, data: string) => {
+  return new Promise((resolve) => {
+    const session = sessions.get(sessionId);
+    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
+    session.sftp.writeFile(remotePath, data, 'utf8', (err: any) => {
+       if (err) return resolve({ success: false, error: err.message });
+       resolve({ success: true });
+    });
+  });
+});
 
 ipcMain.on('ssh-write', (event, { sessionId, data }) => {
   const session = sessions.get(sessionId)

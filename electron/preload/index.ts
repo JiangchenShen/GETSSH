@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh-write', { sessionId, data }),
   sshResize: (sessionId: string, rows: number, cols: number) => ipcRenderer.send('ssh-resize', { sessionId, rows, cols }),
   sshDisconnect: (sessionId: string) => ipcRenderer.send('ssh-disconnect', sessionId),
+  
+  // SFTP
+  sftpList: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp-list', sessionId, remotePath),
+  sftpMkdir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp-mkdir', sessionId, remotePath),
+  sftpDelete: (sessionId: string, remotePath: string, isDir: boolean) => ipcRenderer.invoke('sftp-delete', sessionId, remotePath, isDir),
+  sftpReadFile: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp-read-file', sessionId, remotePath),
+  sftpWriteFile: (sessionId: string, remotePath: string, data: string) => ipcRenderer.invoke('sftp-write-file', sessionId, remotePath, data),
   onSshData: (sessionId: string, callback: (data: string) => void) => {
     const listener = (_event: any, data: string) => callback(data)
     ipcRenderer.on(`ssh-data-${sessionId}`, listener)

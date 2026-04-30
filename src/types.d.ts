@@ -22,6 +22,11 @@ declare global {
       installPlugin: (zipPath: string) => Promise<{ success: boolean; manifest?: any; error?: string }>;
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
       getPluginRenderers: () => Promise<string[]>;
+      sftpList: (sessionId: string, remotePath: string) => Promise<any>;
+      sftpMkdir: (sessionId: string, remotePath: string) => Promise<any>;
+      sftpDelete: (sessionId: string, remotePath: string, isDir: boolean) => Promise<any>;
+      sftpReadFile: (sessionId: string, remotePath: string) => Promise<any>;
+      sftpWriteFile: (sessionId: string, remotePath: string, data: string) => Promise<any>;
     };
   }
 }
