@@ -1,6 +1,6 @@
 {
   "name": "getssh",
-  "version": "1.0.0",
+  "version": "1.0.20-beta",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
   "scripts": {
@@ -48,9 +48,17 @@
       "buildResources": "build"
     },
     "asar": true,
+    "asarUnpack": [
+      "node_modules/ssh2/**/*",
+      "node_modules/cpu-features/**/*",
+      "node_modules/socks/**/*"
+    ],
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!node_env/**/*",
+      "!**/node_modules/.cache/**/*",
+      "!**/*.map"
     ],
     "mac": {
       "target": "dmg",
@@ -84,11 +92,15 @@
         }
       ]
     },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility"
+    },
+    "compression": "maximum",
     "nsis": {
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "uninstallDisplayName": "GETSSH Uninstaller",

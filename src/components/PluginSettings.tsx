@@ -53,7 +53,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
       <div 
         onDrop={handleDrop} 
         onDragOver={(e) => e.preventDefault()}
-        className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all font-medium ${isDark ? 'border-primary-600/50 bg-primary-900/10 hover:bg-primary-900/30 text-primary-400' : 'border-primary-300 bg-primary-50/50 hover:bg-primary-100/50 text-primary-600'}`}
+        className={`border-2 border-dashed rounded-[20px] p-12 text-center cursor-pointer transition-all font-medium ${isDark ? 'border-primary-600/50 bg-primary-900/10 hover:bg-primary-900/30 text-primary-400' : 'border-primary-300 bg-primary-50/50 hover:bg-primary-100/50 text-primary-600'}`}
       >
         {loading ? t('plugins.unpacking') : t('plugins.dropzone')}
       </div>

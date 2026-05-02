@@ -46,5 +46,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPluginsList: () => ipcRenderer.invoke('get-plugin-list'),
   installPlugin: (zipPath: string) => ipcRenderer.invoke('install-plugin', zipPath),
   uninstallPlugin: (pluginName: string) => ipcRenderer.invoke('uninstall-plugin', pluginName),
-  getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers')
+  getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
+  showContextMenu: () => ipcRenderer.send('show-context-menu')
 })

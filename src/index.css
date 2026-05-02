@@ -21,7 +21,13 @@
   background-color: transparent !important;
 }
 
-/* Minimal styling for scrollbar */
+/* Hide scrollbar for terminal to make it look cleaner */
+.xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0px;
+}
+
+/* Minimal styling for global scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

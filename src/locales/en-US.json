@@ -63,7 +63,7 @@
     },
     "about": {
       "title": "About GETSSH",
-      "version": "Version 1.0 (Beta)",
+      "version": "Version 1.0.20 Beta",
       "author": "Author: Shen Jiangchen",
       "license": "License: Apache License 2.0",
       "poweredBy": "Powered by"

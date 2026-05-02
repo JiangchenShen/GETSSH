@@ -142,7 +142,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
   }, [config.copyOnSelect]);
 
   return (
-    <div className="w-full h-full p-4 flex flex-col flex-1 dark:text-gray-100 text-gray-900 transparent">
+    <div className="w-full h-full p-4 flex flex-col flex-1 dark:text-gray-100 text-gray-900 transparent" onContextMenu={(e) => { e.preventDefault(); (window as any).electronAPI.showContextMenu(); }}>
       <div className="flex-1 overflow-hidden" ref={terminalRef}></div>
     </div>
   );

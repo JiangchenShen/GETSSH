@@ -43,7 +43,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: Crypt
 
   return (
     <div className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-3xl transition-all ${isDark ? 'bg-black/80' : 'bg-white/80'}`}>
-      <div className={`w-full max-w-md p-8 rounded-2xl shadow-2xl border flex flex-col relative ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-black/10 text-black'}`}>
+      <div className={`w-full max-w-md p-8 rounded-[20px] shadow-2xl border flex flex-col relative ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-black/10 text-black'}`}>
         
         {mode === 'setup' && onCancel && (
           <button onClick={onCancel} className="absolute top-4 right-4 opacity-50 hover:opacity-100 text-sm">Cancel</button>
@@ -79,7 +79,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: Crypt
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Master Password" 
-              className={`w-full pl-10 pr-4 py-3 rounded-xl border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
+              className={`w-full pl-10 pr-4 py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
               required
             />
           </div>
@@ -92,7 +92,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: Crypt
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
                 placeholder="Confirm Master Password" 
-                className={`w-full pl-10 pr-4 py-3 rounded-xl border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
+                className={`w-full pl-10 pr-4 py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
                 required
               />
             </div>
@@ -101,7 +101,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: Crypt
           <button 
             type="submit" 
             disabled={loading || !password || (mode === 'setup' && !confirm)}
-            className="mt-4 flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-primary hover:bg-primary text-white font-medium transition-all disabled:opacity-50"
+            className="mt-4 flex items-center justify-center gap-2 w-full py-3 rounded-[20px] bg-primary hover:bg-primary text-white font-medium transition-all disabled:opacity-50"
           >
             {loading ? 'Processing...' : (mode === 'locked' ? 'Decrypt Profiles' : 'Encrypt & Save')}
             {!loading && <ArrowRight className="w-4 h-4" />}

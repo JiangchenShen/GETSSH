@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage, Menu } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -9,6 +9,10 @@ import { PluginManager } from './PluginManager'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
+
+// Prevent background throttling for SSH persistence
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
 
 process.on('uncaughtException', (err) => {
   console.error("Critical Uncaught Exception: ", err)
@@ -79,6 +83,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
   pluginManager.loadPlugins();
@@ -442,4 +447,13 @@ ipcMain.on('ssh-disconnect', (event, sessionId) => {
     if (session.client) session.client.end()
     sessions.delete(sessionId)
   }
+})
+
+ipcMain.on('show-context-menu', (event) => {
+  const template = [
+    { role: 'copy' },
+    { role: 'paste' }
+  ];
+  const menu = Menu.buildFromTemplate(template as any);
+  menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
 })

@@ -4,6 +4,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   base: './',
+  build: {
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 2000,
+  },
   plugins: [
     react(),
     electron([
@@ -11,6 +15,7 @@ export default defineConfig({
         entry: 'electron/main/index.ts',
         vite: {
           build: {
+            minify: true,
             rollupOptions: {
               external: ['ssh2'],
             },
@@ -25,6 +30,7 @@ export default defineConfig({
         },
         vite: {
           build: {
+            minify: true,
             outDir: 'dist-electron/preload',
           },
         },
