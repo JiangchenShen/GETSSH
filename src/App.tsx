@@ -340,6 +340,19 @@ function App() {
     }
   };
 
+  const closeTab = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    setTabs(prev => {
+      const remaining = prev.filter(t => t.id !== tabId);
+      if (activeTabId === tabId) {
+        const sshTabs = remaining.filter(t => t.id !== 'settings');
+        setActiveTabId(sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null);
+      }
+      return remaining;
+    });
+    window.electronAPI.sshDisconnect(tabId);
+  };
+
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Dynamic Backdrop Opacity Color
@@ -442,6 +455,23 @@ function App() {
 
       {/* Main Area - Switch Mode */}
       <div className="flex-1 flex flex-col overflow-hidden pt-8">
+
+        {/* Tab Bar */}
+        {tabs.filter(t => t.id !== 'settings').length > 0 && (
+          <div className={`flex items-end px-2 gap-1 border-b shrink-0 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`} style={{ WebkitAppRegion: 'no-drag' } as any}>
+            {tabs.filter(t => t.id !== 'settings').map((tab) => {
+              const isActive = activeTabId === tab.id;
+              return (
+                <div key={tab.id} onClick={() => { setActiveTabId(tab.id); setSelectedSessionIndex(null); }} className={`group flex items-center justify-between gap-3 px-4 py-2 rounded-t-lg border-t border-x cursor-pointer text-sm transition-all min-w-[150px] max-w-[200px] ${isActive ? (isDark ? 'bg-black/60 border-white/10 text-white shadow-md' : 'bg-white border-black/10 text-black shadow-md relative z-10') : (isDark ? 'bg-transparent border-transparent text-white/50 hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')}`}>
+                    <span className="truncate">{tab.title}</span>
+                    <button onClick={(e) => closeTab(e, tab.id)} className={`p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Settings Panel - inline switch */}
         {activeTabId === 'settings' && selectedSessionIndex === null && (
