@@ -49,16 +49,30 @@
     },
     "asar": true,
     "asarUnpack": [
-      "node_modules/ssh2/**/*",
-      "node_modules/cpu-features/**/*",
-      "node_modules/socks/**/*"
+      "node_modules/ssh2/**/*.node",
+      "node_modules/cpu-features/**/*.node"
     ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "!node_env/**/*",
-      "!**/node_modules/.cache/**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!**/*.md",
+      "!**/*.txt",
+      "!**/LICENSE*",
+      "!**/CHANGELOG*",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/__tests__/**",
+      "!**/docs/**",
+      "!**/example/**",
+      "!**/examples/**",
+      "!**/.github/**",
+      "!**/node_modules/.cache/**",
+      "!**/node_env/**",
+      "!**/sftp-mock-plugin/**",
+      "!**/@types/**"
     ],
     "mac": {
       "target": "dmg",
