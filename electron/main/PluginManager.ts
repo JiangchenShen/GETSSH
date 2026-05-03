@@ -123,21 +123,23 @@ export class PluginManager {
     });
 
     // Provide file paths so preload can inject renderer scripts
-    ipcMain.handle('get-plugin-renderers', () => {
-      return this.installedPlugins
-        .filter(p => !!p.renderer)
-        .map(p => {
-          try {
-            const pluginPath = this.getSecurePluginPath(p.name);
-            const rendererPath = path.resolve(pluginPath, p.renderer!);
-            if (!rendererPath.startsWith(pluginPath + path.sep)) {
-              throw new Error('Invalid renderer path');
+    ipcMain.handle('get-plugin-renderers', async () => {
+      return Promise.all(
+        this.installedPlugins
+          .filter((p) => !!p.renderer)
+          .map(async (p) => {
+            try {
+              const pluginPath = this.getSecurePluginPath(p.name);
+              const rendererPath = path.resolve(pluginPath, p.renderer!);
+              if (!rendererPath.startsWith(pluginPath + path.sep)) {
+                throw new Error('Invalid renderer path');
+              }
+              return await fs.promises.readFile(rendererPath, 'utf8');
+            } catch {
+              return '';
             }
-            return fs.readFileSync(rendererPath, 'utf8');
-          } catch {
-            return '';
-          }
-        });
+          })
+      );
     });
   }
 }
