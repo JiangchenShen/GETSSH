@@ -42,6 +42,49 @@ describe('useAppStore', () => {
     });
   });
 
+  // ── updateConfig ──────────────────────────────────────────────────────────
+  describe('updateConfig', () => {
+    it('updates a single configuration key-value pair correctly', () => {
+      const { updateConfig } = useAppStore.getState();
+      updateConfig('fontSize', 20);
+
+      const { appConfig } = useAppStore.getState();
+      expect(appConfig.fontSize).toBe(20);
+      // Ensure other properties are unchanged
+      expect(appConfig.language).toBe(DEFAULT_CONFIG.language);
+      expect(appConfig.theme).toBe(DEFAULT_CONFIG.theme);
+    });
+
+    it('updating with the same value does not break the state', () => {
+      const { updateConfig } = useAppStore.getState();
+      updateConfig('fontSize', DEFAULT_CONFIG.fontSize);
+
+      const { appConfig } = useAppStore.getState();
+      expect(appConfig.fontSize).toBe(DEFAULT_CONFIG.fontSize);
+      expect(appConfig).toEqual(DEFAULT_CONFIG);
+    });
+
+    it('updating multiple fields consecutively works correctly', () => {
+      const { updateConfig } = useAppStore.getState();
+      updateConfig('fontSize', 18);
+      updateConfig('theme', 'dark');
+
+      const { appConfig } = useAppStore.getState();
+      expect(appConfig.fontSize).toBe(18);
+      expect(appConfig.theme).toBe('dark');
+      // Ensure other properties remain untouched
+      expect(appConfig.lineHeight).toBe(DEFAULT_CONFIG.lineHeight);
+    });
+
+    it('updates a string key with a different value correctly', () => {
+      const { updateConfig } = useAppStore.getState();
+      updateConfig('theme', 'light');
+
+      const { appConfig } = useAppStore.getState();
+      expect(appConfig.theme).toBe('light');
+    });
+  });
+
   // ── loadStoredConfig ──────────────────────────────────────────────────────
   describe('loadStoredConfig', () => {
     test('loads appConfig from localStorage and merges with DEFAULT_CONFIG', () => {

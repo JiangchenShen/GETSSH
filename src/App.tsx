@@ -13,6 +13,7 @@ import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { CryptoModal } from './components/CryptoModal';
+import DOMPurify from 'dompurify';
 
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
@@ -370,7 +371,7 @@ function App() {
         <div className="pt-4 mt-4 border-t flex justify-start gap-2 items-center z-10 flex-wrap border-black/10 dark:border-white/10">
           {sidebarActions.map(action => (
              <button key={action.id} onClick={action.onClick} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
-                <div dangerouslySetInnerHTML={{ __html: action.icon }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(action.icon) }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
              </button>
           ))}
           <button onClick={() => usePanelStore.getState().togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
