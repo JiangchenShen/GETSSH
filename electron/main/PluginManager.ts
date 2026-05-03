@@ -114,16 +114,18 @@ export class PluginManager {
     });
 
     // Provide file paths so preload can inject renderer scripts
-    ipcMain.handle('get-plugin-renderers', () => {
-      return this.installedPlugins
-        .filter(p => !!p.renderer)
-        .map(p => {
-          try {
-            return fs.readFileSync(path.join(this.pluginsPath, p.name, p.renderer!), 'utf8');
-          } catch {
-            return '';
-          }
-        });
+    ipcMain.handle('get-plugin-renderers', async () => {
+      return Promise.all(
+        this.installedPlugins
+          .filter((p) => !!p.renderer)
+          .map(async (p) => {
+            try {
+              return await fs.promises.readFile(path.join(this.pluginsPath, p.name, p.renderer!), 'utf8');
+            } catch {
+              return '';
+            }
+          })
+      );
     });
   }
 }
