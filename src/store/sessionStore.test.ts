@@ -6,7 +6,7 @@ const sshDisconnectMock = vi.fn();
 beforeAll(() => {
   vi.stubGlobal('window', {
     electronAPI: {
-      sshDisconnect: sshDisconnectMock
+      sshDisconnect: sshDisconnectMock,
     }
   });
 });
@@ -61,7 +61,6 @@ describe('useSessionStore', () => {
 
       const newTab = { id: '2', title: 'Tab 2', config: {} };
       useSessionStore.getState().setTabs(prev => [...prev, newTab]);
-
       expect(useSessionStore.getState().tabs).toEqual([...initialTabs, newTab]);
     });
 

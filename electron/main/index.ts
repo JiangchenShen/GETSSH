@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage, Menu, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { Client } from 'ssh2'
+import { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import { SocksClient } from 'socks'
 import { HttpProxyAgent } from 'http-proxy-agent'
 import { PluginManager } from './PluginManager'
@@ -109,7 +109,7 @@ app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
 })
 
-const sessions = new Map<string, { client: Client, stream: any, sftp?: any }>()
+const sessions = new Map<string, { client: Client, stream: ClientChannel, sftp?: SFTPWrapper }>()
 let sessionCounter = 0;
 let powerSaveBlockerId: number | null = null;
 
@@ -377,9 +377,19 @@ ipcMain.handle('ssh-connect', async (event, config) => {
   })
 })
 
+
+function normalizeRemotePath(p: string): string | null {
+  if (typeof p !== 'string') return null;
+  // Safely normalize the path to resolve any traversal sequences.
+  // SFTP paths are POSIX-compliant.
+  return require('node:path').posix.normalize(p);
+}
+
 // --- SFTP Handlers ---
 ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
   return new Promise((resolve) => {
+    remotePath = normalizeRemotePath(remotePath) as string;
+    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
     const session = sessions.get(sessionId);
     if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
     session.sftp.readdir(remotePath, (err: any, list: any[]) => {
@@ -400,6 +410,8 @@ ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
 
 ipcMain.handle('sftp-mkdir', (event, sessionId: string, remotePath: string) => {
   return new Promise((resolve) => {
+    remotePath = normalizeRemotePath(remotePath) as string;
+    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
     const session = sessions.get(sessionId);
     if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
     session.sftp.mkdir(remotePath, (err: any) => {
@@ -411,6 +423,8 @@ ipcMain.handle('sftp-mkdir', (event, sessionId: string, remotePath: string) => {
 
 ipcMain.handle('sftp-delete', (event, sessionId: string, remotePath: string, isDir: boolean) => {
   return new Promise((resolve) => {
+    remotePath = normalizeRemotePath(remotePath) as string;
+    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
     const session = sessions.get(sessionId);
     if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
     if (isDir) {
@@ -429,6 +443,8 @@ ipcMain.handle('sftp-delete', (event, sessionId: string, remotePath: string, isD
 
 ipcMain.handle('sftp-read-file', (event, sessionId: string, remotePath: string) => {
   return new Promise((resolve) => {
+    remotePath = normalizeRemotePath(remotePath) as string;
+    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
     const session = sessions.get(sessionId);
     if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
     session.sftp.readFile(remotePath, 'utf8', (err: any, data: any) => {
@@ -440,6 +456,8 @@ ipcMain.handle('sftp-read-file', (event, sessionId: string, remotePath: string) 
 
 ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string, data: string) => {
   return new Promise((resolve) => {
+    remotePath = normalizeRemotePath(remotePath) as string;
+    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
     const session = sessions.get(sessionId);
     if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
     session.sftp.writeFile(remotePath, data, 'utf8', (err: any) => {
