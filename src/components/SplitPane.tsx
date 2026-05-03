@@ -1,21 +1,28 @@
 import React, { useCallback } from 'react';
 import { usePanelStore } from '../store/panelStore';
-import { useAppStore } from '../store/appStore';
-import { useSessionStore } from '../store/sessionStore';
 
 /**
  * SplitPane - A dynamic, resizable split panel engine.
  * Renders the active panel (registered via panelStore) alongside the main content.
  * Supports drag-to-resize with min/max constraints.
+ * 
+ * Props:
+ *  - isDark: current theme
+ *  - activeTabId: current active tab (passed from parent to avoid store dependency)
  */
-export const SplitPane: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const activePanel = usePanelStore(s => s.getActivePanel());
+interface SplitPaneProps {
+  children: React.ReactNode;
+  isDark: boolean;
+  activeTabId: string | null;
+}
+
+export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTabId }) => {
   const activePanelId = usePanelStore(s => s.activePanelId);
+  const panels = usePanelStore(s => s.panels);
   const panelSizes = usePanelStore(s => s.panelSizes);
   const setPanelSize = usePanelStore(s => s.setPanelSize);
-  const isDark = useAppStore(s => s.isDark);
-  const activeTabId = useSessionStore(s => s.activeTabId);
 
+  const activePanel = panels.find(p => p.id === activePanelId) ?? null;
   const currentSize = activePanelId ? (panelSizes[activePanelId] ?? 320) : 0;
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -41,16 +48,17 @@ export const SplitPane: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [activePanelId, activePanel, currentSize, setPanelSize]);
 
   const PanelComponent = activePanel?.component;
+  const showPanel = activePanelId && PanelComponent && activeTabId && activeTabId !== 'settings';
 
   return (
-    <div className="flex-1 flex overflow-hidden relative">
-      {/* Main Content */}
+    <>
+      {/* Main Content - takes remaining space */}
       <div className="flex-1 relative min-w-0">
         {children}
       </div>
 
       {/* Dynamic Panel */}
-      {activePanelId && PanelComponent && activeTabId && activeTabId !== 'settings' && (
+      {showPanel && (
         <div
           className={`shrink-0 border-l relative flex flex-col ${isDark ? 'border-white/10' : 'border-black/10'}`}
           style={{ width: currentSize }}
@@ -63,6 +71,6 @@ export const SplitPane: React.FC<{ children: React.ReactNode }> = ({ children })
           <PanelComponent sessionId={activeTabId} isDark={isDark} />
         </div>
       )}
-    </div>
+    </>
   );
 };

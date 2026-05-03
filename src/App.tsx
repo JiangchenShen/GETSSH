@@ -398,7 +398,23 @@ function App() {
       <div className="flex-1 flex flex-col overflow-hidden pt-8">
 
         {/* Tab Bar - Extracted Component */}
-        <TabBar />
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          isDark={isDark}
+          onSelectTab={(tabId) => { setActiveTabId(tabId); setSelectedSessionIndex(null); }}
+          onCloseTab={(tabId) => {
+            setTabs(prev => {
+              const remaining = prev.filter(t => t.id !== tabId);
+              if (activeTabId === tabId) {
+                const sshTabs = remaining.filter(t => t.id !== 'settings');
+                setActiveTabId(sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null);
+              }
+              return remaining;
+            });
+            window.electronAPI.sshDisconnect(tabId);
+          }}
+        />
 
         {/* Settings Panel - inline switch */}
         {activeTabId === 'settings' && selectedSessionIndex === null && (
@@ -789,8 +805,8 @@ function App() {
         {/* Terminals + Dynamic Split Pane Engine */}
         {selectedSessionIndex === null && activeTabId && activeTabId !== 'settings' && (
           <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
-            <SplitPane>
-              <div className="flex-1 relative">
+            <SplitPane isDark={isDark} activeTabId={activeTabId}>
+              <div className="absolute inset-0">
                 {tabs.filter(t => t.id !== 'settings').map(tab => (
                   <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
                     <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
