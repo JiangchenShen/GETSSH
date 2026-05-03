@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage, Menu, powerSaveBlocker } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -13,6 +13,8 @@ process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 // Prevent background throttling for SSH persistence
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
 process.on('uncaughtException', (err) => {
   console.error("Critical Uncaught Exception: ", err)
@@ -109,6 +111,16 @@ app.on('browser-window-focus', () => {
 
 const sessions = new Map<string, { client: Client, stream: any, sftp?: any }>()
 let sessionCounter = 0;
+let powerSaveBlockerId: number | null = null;
+
+const updatePowerSaveBlocker = () => {
+  if (sessions.size > 0 && powerSaveBlockerId === null) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  } else if (sessions.size === 0 && powerSaveBlockerId !== null) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+    powerSaveBlockerId = null;
+  }
+}
 let backendConfig = { confirmQuit: false, globalHotkey: '' };
 
 const registerHotkey = (key: string) => {
@@ -247,6 +259,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           connectConfig.privateKey = fs.readFileSync(keyPath)
         } catch (err: any) {
           sessions.delete(sessionId)
+          updatePowerSaveBlocker();
           resolve({ success: false, error: 'Failed to read private key: ' + err.message })
           return
         }
@@ -298,12 +311,14 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           sshClient!.shell({ term: 'xterm-256color' }, (err, stream) => {
           if (err) {
             sessions.delete(sessionId)
+            updatePowerSaveBlocker();
             resolve({ success: false, error: err.message })
             return
           }
           const currentSession = sessions.get(sessionId)
           if (currentSession) currentSession.stream = stream
-          
+          updatePowerSaveBlocker();
+
           let isAttached = false;
           let dataBuffer = '';
           setTimeout(() => {
@@ -316,6 +331,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           stream.on('close', () => {
             sshClient.end()
             sessions.delete(sessionId)
+            updatePowerSaveBlocker();
             if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
           }).on('data', (data: Buffer) => {
             const str = data.toString('utf-8');
@@ -341,11 +357,13 @@ ipcMain.handle('ssh-connect', async (event, config) => {
         })
       }).on('error', (err: any) => {
         sessions.delete(sessionId)
+        updatePowerSaveBlocker();
         if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
         resolve({ success: false, error: err.message })
       }).connect(connectConfig)
       }).catch(err => {
          sessions.delete(sessionId)
+         updatePowerSaveBlocker();
          resolve({ success: false, error: err.message })
       })
     } catch (e: any) {
@@ -446,6 +464,7 @@ ipcMain.on('ssh-disconnect', (event, sessionId) => {
     if (session.stream) session.stream.close()
     if (session.client) session.client.end()
     sessions.delete(sessionId)
+    updatePowerSaveBlocker();
   }
 })
 
