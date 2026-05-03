@@ -71,7 +71,7 @@ export class PluginManager {
        try {
           const targetDir = this.getSecurePluginPath(pluginName);
           if (fs.existsSync(targetDir)) {
-             fs.rmSync(targetDir, { recursive: true, force: true });
+             await fs.promises.rm(targetDir, { recursive: true, force: true });
           }
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
           return { success: true };
