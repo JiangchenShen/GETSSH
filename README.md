@@ -5,8 +5,11 @@
 [![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+[![Changelog](https://img.shields.io/badge/Changelog-V1.2--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
 
 **GETSSH** 不仅仅是一个 SSH 客户端，它是为追求极致效率与极致安全的开发者打造的现代化远程管理平台。在 V1.2 版本中，我们完成了核心架构的全面进化，从单一巨石转向微组件架构，并引入了工业级的安全隔离机制。
+
+📢 **[查看最近更新日志 (Changelog)](UPDATE.md)**
 
 ---
 
