@@ -1,19 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { PluginManager } from './PluginManager';
 import Module from 'module';
+import { app, ipcMain } from 'electron';
+import { PluginManager } from './PluginManager';
+import AdmZip from 'adm-zip';
 
 // Mock electron
 vi.mock('electron', () => {
   return {
     app: {
-      getPath: vi.fn((name) => `/mocked/path/${name}`)
+      getPath: vi.fn((name) => {
+        if (name === 'userData') return '/mocked/path/userData';
+        if (name === 'temp') return '/mocked/path/temp';
+        return `/mocked/path/${name}`;
+      })
     },
     ipcMain: {
       handle: vi.fn()
     },
-    Notification: vi.fn(),
+    Notification: vi.fn().mockImplementation(() => ({
+      show: vi.fn()
+    })),
     safeStorage: {
       isEncryptionAvailable: vi.fn(() => false),
       encryptString: vi.fn(),
@@ -31,6 +39,7 @@ vi.mock('fs', () => {
       readdirSync: vi.fn(),
       statSync: vi.fn(),
       readFileSync: vi.fn(),
+      rmSync: vi.fn(),
       promises: {
         access: vi.fn(),
         rm: vi.fn(),
@@ -48,25 +57,36 @@ vi.mock('fs', () => {
 
 // Mock AdmZip
 vi.mock('adm-zip', () => {
+  const mockZipInstance = {
+    getEntries: vi.fn(() => []),
+    addFile: vi.fn(),
+    writeZip: vi.fn(),
+    extractAllTo: vi.fn(),
+  };
+  // Use a regular function so it can be used with 'new'
+  const MockAdmZip = vi.fn(function() {
+    return mockZipInstance;
+  });
   return {
-    default: vi.fn()
+    default: MockAdmZip
   };
 });
 
 describe('PluginManager', () => {
   let originalRequire: any;
+  let pluginManager: PluginManager;
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default setup
+    
+    // Default setup for existsSync
     (fs.existsSync as any).mockImplementation((p: string) => {
-      // By default the plugins directory exists
       if (p === '/mocked/path/userData/plugins') return true;
       return false;
     });
 
     originalRequire = Module.prototype.require;
+    pluginManager = new PluginManager();
   });
 
   afterEach(() => {
@@ -75,8 +95,6 @@ describe('PluginManager', () => {
 
   describe('loadPlugins', () => {
     it('should catch JSON parse errors from invalid package.json', () => {
-      const pluginManager = new PluginManager();
-
       // Mock readdirSync to return one folder
       (fs.readdirSync as any).mockReturnValue(['invalid-plugin']);
 
@@ -111,8 +129,6 @@ describe('PluginManager', () => {
     });
 
     it('should catch errors thrown by plugin module activate function', () => {
-      const pluginManager = new PluginManager();
-
       // Mock readdirSync to return one folder
       (fs.readdirSync as any).mockReturnValue(['crashing-plugin']);
 
@@ -161,11 +177,86 @@ describe('PluginManager', () => {
       );
 
       // Even though it crashed on activate, it should still have been added to installed plugins
-      // since the addition happens before the activation.
       expect(pluginManager.installedPlugins).toHaveLength(1);
       expect(pluginManager.installedPlugins[0].name).toBe('crashing-plugin');
 
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('IPC Handlers (Async)', () => {
+    let installHandler: Function;
+
+    beforeEach(() => {
+      pluginManager.setupIPC();
+      const calls = (ipcMain.handle as any).mock.calls;
+      const installCall = calls.find((call: any) => call[0] === 'install-plugin');
+      installHandler = installCall[1];
+    });
+
+    it('should return error if zip file is missing package.json', async () => {
+      const mockZipPath = '/mocked/path/temp/dummy.zip';
+      const mockTempDir = '/mocked/path/temp/plugin_123';
+      
+      // Setup async mocks
+      (fs.promises.mkdtemp as any).mockResolvedValue(mockTempDir);
+      (fs.promises.readdir as any).mockResolvedValue([]); // Empty directory
+      (fs.promises.access as any).mockRejectedValue(new Error('File not found')); // package.json doesn't exist
+      
+      // Get the mocked zip instance from the mock factory
+      const mockZip = new AdmZip();
+      (mockZip.getEntries as any).mockReturnValue([
+        { entryName: 'index.js', isDirectory: false, getData: () => Buffer.from('') }
+      ]);
+
+      // Call the handler
+      const result = await installHandler({} as any, mockZipPath);
+
+      // Verify result
+      expect(result).toEqual({
+        success: false,
+        error: 'Invalid Architecture: Missing package.json manifest.'
+      });
+
+      // Verify async flow
+      expect(fs.promises.mkdtemp).toHaveBeenCalled();
+      expect(fs.promises.access).toHaveBeenCalledWith(expect.stringContaining('package.json'));
+    });
+
+    it('should handle nested plugin folder if package.json is not in root', async () => {
+      const mockZipPath = '/mocked/path/temp/nested.zip';
+      const mockTempDir = '/mocked/path/temp/plugin_nested';
+      const nestedDirName = 'plugin-v1';
+      const nestedPath = path.join(mockTempDir, nestedDirName);
+      
+      (fs.promises.mkdtemp as any).mockResolvedValue(mockTempDir);
+      
+      // First access check (root) fails
+      // Second access check (nested) succeeds
+      (fs.promises.access as any).mockImplementation((p: string) => {
+        if (p === path.join(nestedPath, 'package.json')) return Promise.resolve();
+        return Promise.reject(new Error('Not found'));
+      });
+      
+      (fs.promises.readdir as any).mockResolvedValue([nestedDirName]);
+      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
+      (fs.promises.readFile as any).mockResolvedValue(JSON.stringify({
+        name: 'nested-plugin',
+        version: '1.0.0'
+      }));
+      (fs.promises.rename as any).mockResolvedValue(undefined);
+      (fs.promises.rm as any).mockResolvedValue(undefined);
+
+      const mockZip = new AdmZip();
+      (mockZip.getEntries as any).mockReturnValue([
+        { entryName: `${nestedDirName}/package.json`, isDirectory: false, getData: () => Buffer.from('{}') }
+      ]);
+
+      const result = await installHandler({} as any, mockZipPath);
+
+      expect(result.success).toBe(true);
+      expect(result.manifest.name).toBe('nested-plugin');
+      expect(fs.promises.rename).toHaveBeenCalledWith(nestedPath, expect.any(String));
     });
   });
 });
