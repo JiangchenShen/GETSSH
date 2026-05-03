@@ -345,7 +345,7 @@ function App() {
           <div className="text-xs font-semibold uppercase tracking-wider mb-2 opacity-50 sticky top-0 backdrop-blur-md pt-1 pb-1 z-10">{t('sidebar.savedSessions')}</div>
           {filteredSessions.map((session, idx) => (
              <div key={idx} className={`w-full flex items-center justify-between gap-1 px-[15px] py-[7.5px] rounded-lg border-[1.5px] transition-all text-sm group ${selectedSessionIndex === idx ? 'bg-primary/20 text-primary border-primary shadow-sm' : isDark ? 'bg-white/5 hover:bg-white/10 border-white/5 text-white/70 hover:text-white' : 'bg-white hover:bg-white/70 border-black/5 shadow-sm text-black/70 hover:text-black'}`}>
-               <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); handleConnect(session); }} className="flex-1 flex items-center justify-start gap-[6px] truncate text-left">
+               <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-[6px] truncate text-left">
                   <Server className="w-4 h-4 shrink-0 opacity-50" />
                   <span className="truncate">{session.username}@{session.host}</span>
                </button>
@@ -424,7 +424,15 @@ function App() {
             {/* Settings Payload */}
             <div className="flex-1 flex flex-col relative bg-transparent">
 
-              
+              {/* Close Button */}
+              <button
+                onClick={() => { setActiveTabId(null); setTabs(prev => prev.filter(t => t.id !== 'settings')); }}
+                className={`absolute right-6 top-6 z-30 p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`}
+                title="Close Settings"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
               <div className="p-10 overflow-y-auto w-full h-full pb-32">
                 <h3 className="text-2xl font-bold mb-8 opacity-90">{t('settings.' + settingsActiveTab.toLowerCase() as any)} {t('settings.configuration')}</h3>
                 
