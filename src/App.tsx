@@ -834,7 +834,7 @@ function App() {
               <div className="absolute inset-0">
                 {tabs.filter(t => t.id !== 'settings').map(tab => (
                   <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
+                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} isDark={isDark} />
                   </div>
                 ))}
               </div>

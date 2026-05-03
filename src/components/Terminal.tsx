@@ -8,10 +8,11 @@ interface TerminalProps {
   sessionId: string;
   onDisconnected?: () => void;
   onReconnect?: () => void;
-  config: any; // We will use AppConfig type from App.tsx loosely here to avoid cyclic if App doesn't export
+  config: any;
+  isDark?: boolean;
 }
 
-export function Terminal({ sessionId, onDisconnected, onReconnect, config }: TerminalProps) {
+export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -37,7 +38,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
       cursorStyle: config.cursorStyle || 'block',
       theme: {
         background: 'transparent',
-        foreground: 'inherit',
+        foreground: isDark ? '#e5e7eb' : '#111827',
         cursor: 'rgba(168, 85, 247, 0.8)',
         selectionBackground: 'rgba(168, 85, 247, 0.3)',
       },
@@ -111,15 +112,21 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
     term.options.fontSize = config.fontSize;
     term.options.lineHeight = config.lineHeight;
     term.options.cursorStyle = config.cursorStyle;
-    
-    // Attempt scrollback override (may only affect new lines in some versions)
     term.options.scrollback = config.scrollback;
-    
-    // Re-trigger layout fit
+
+    // Sync theme foreground & cursor when isDark or themeColor changes
+    const themeColor = config.themeColor || '168 85 247';
+    term.options.theme = {
+      background: 'transparent',
+      foreground: isDark ? '#e5e7eb' : '#111827',
+      cursor: `rgba(${themeColor}, 0.8)`,
+      selectionBackground: `rgba(${themeColor}, 0.3)`,
+    };
+
     if (fitAddonRef.current) {
         fitAddonRef.current.fit();
     }
-  }, [config]);
+  }, [config, isDark]);
 
   // Handle Copy On Select as an intercept
   useEffect(() => {
@@ -142,7 +149,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config }: Ter
   }, [config.copyOnSelect]);
 
   return (
-    <div className="w-full h-full p-4 flex flex-col flex-1 dark:text-gray-100 text-gray-900 transparent" onContextMenu={(e) => { e.preventDefault(); (window as any).electronAPI.showContextMenu(); }}>
+    <div className="w-full h-full p-4 flex flex-col flex-1 transparent" onContextMenu={(e) => { e.preventDefault(); (window as any).electronAPI.showContextMenu(); }}>
       <div className="flex-1 overflow-hidden" ref={terminalRef}></div>
     </div>
   );
