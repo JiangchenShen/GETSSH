@@ -239,6 +239,17 @@ ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
 
 // SSH IPC Handlers
 ipcMain.handle('ssh-connect', async (event, config) => {
+  let privateKeyData: Buffer | undefined;
+
+  if (config.privateKeyPath) {
+    try {
+      const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'));
+      privateKeyData = await fs.promises.readFile(keyPath);
+    } catch (err: any) {
+      return { success: false, error: 'Failed to read private key: ' + err.message };
+    }
+  }
+
   return new Promise((resolve, reject) => {
     try {
       const sessionId = `req-${++sessionCounter}`
@@ -253,16 +264,8 @@ ipcMain.handle('ssh-connect', async (event, config) => {
         keepaliveInterval: config.keepaliveInterval !== undefined ? config.keepaliveInterval : 10000 // Heartbeat
       }
 
-      if (config.privateKeyPath) {
-        try {
-          const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'))
-          connectConfig.privateKey = fs.readFileSync(keyPath)
-        } catch (err: any) {
-          sessions.delete(sessionId)
-          updatePowerSaveBlocker();
-          resolve({ success: false, error: 'Failed to read private key: ' + err.message })
-          return
-        }
+      if (privateKeyData) {
+        connectConfig.privateKey = privateKeyData;
       } else {
         connectConfig.password = config.password
       }
