@@ -22,59 +22,64 @@ const BLOCKED_ACTIONS = new Set([
   'sftpDelete',
 ]);
 
-export function initPluginBridge() {
-  window.addEventListener('message', (event) => {
-    // Only accept messages from sandboxed iframes (origin will be 'null' for sandbox)
-    const data = event.data;
-    if (!data || !data.__getssh_plugin) return;
+function handlePluginMessage(event: MessageEvent) {
+  // Only accept messages from sandboxed iframes (origin will be 'null' for sandbox)
+  const data = event.data;
+  if (!data || !data.__getssh_plugin) return;
 
-    const { action, payload, pluginId } = data;
+  const { action, payload, pluginId } = data;
 
-    if (BLOCKED_ACTIONS.has(action)) {
-      console.warn(`[PluginBridge] BLOCKED dangerous action "${action}" from plugin "${pluginId}"`);
-      return;
-    }
+  if (BLOCKED_ACTIONS.has(action)) {
+    console.warn(`[PluginBridge] BLOCKED dangerous action "${action}" from plugin "${pluginId}"`);
+    return;
+  }
 
-    if (!ALLOWED_ACTIONS.has(action)) {
-      console.warn(`[PluginBridge] Unknown action "${action}" from plugin "${pluginId}"`);
-      return;
-    }
+  if (!ALLOWED_ACTIONS.has(action)) {
+    console.warn(`[PluginBridge] Unknown action "${action}" from plugin "${pluginId}"`);
+    return;
+  }
 
-    switch (action) {
-      case 'registerSidebarAction':
-        usePluginStore.getState().registerSidebarAction({
-          id: `plugin-${pluginId}-${payload.id}`,
-          icon: sanitizeSVG(payload.icon),
-          label: payload.label,
-          onClick: () => {
-            // Send click event back to the plugin's iframe
-            const iframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
-            if (iframe?.contentWindow) {
-              iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId: payload.id }, '*');
-            }
+  switch (action) {
+    case 'registerSidebarAction':
+      usePluginStore.getState().registerSidebarAction({
+        id: `plugin-${pluginId}-${payload.id}`,
+        icon: sanitizeSVG(payload.icon),
+        label: payload.label,
+        onClick: () => {
+          // Send click event back to the plugin's iframe
+          const iframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
+          if (iframe?.contentWindow) {
+            iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId: payload.id }, '*');
           }
-        });
-        break;
-
-      case 'showNotification':
-        if (Notification.permission === 'granted') {
-          new Notification(payload.title || 'GETSSH Plugin', { body: payload.body || '' });
         }
-        break;
+      });
+      break;
 
-      case 'getActiveSessionId':
-        // Reply back with session ID (read-only, non-sensitive)
-        if (event.source) {
-          (event.source as WindowProxy).postMessage({
-            __getssh_host: true,
-            event: 'sessionId',
-            requestId: payload.requestId,
-            sessionId: null, // Plugins get null - they cannot access raw session IDs
-          }, '*');
-        }
-        break;
-    }
-  });
+    case 'showNotification':
+      if (Notification.permission === 'granted') {
+        new Notification(payload.title || 'GETSSH Plugin', { body: payload.body || '' });
+      }
+      break;
+
+    case 'getActiveSessionId':
+      // Reply back with session ID (read-only, non-sensitive)
+      if (event.source) {
+        (event.source as WindowProxy).postMessage({
+          __getssh_host: true,
+          event: 'sessionId',
+          requestId: payload.requestId,
+          sessionId: null, // Plugins get null - they cannot access raw session IDs
+        }, '*');
+      }
+      break;
+  }
+}
+
+export function initPluginBridge() {
+  window.addEventListener('message', handlePluginMessage);
+  return () => {
+    window.removeEventListener('message', handlePluginMessage);
+  };
 }
 
 /** Strip potentially dangerous attributes from SVG icons */

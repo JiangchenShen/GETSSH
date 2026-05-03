@@ -88,7 +88,7 @@ function App() {
     } catch {}
 
     // Boot Plugins in Sandbox (secure)
-    initPluginBridge();
+    const cleanupPluginBridge = initPluginBridge();
     bootSandboxedPlugins();
 
     // Register core panels in the dynamic panel engine
@@ -126,6 +126,7 @@ function App() {
       if (unsubTheme) unsubTheme();
       if (unsubBlur) unsubBlur();
       if (unsubFocus) unsubFocus();
+      if (cleanupPluginBridge) cleanupPluginBridge();
     };
   }, []); // Run ONCE on mount
 
