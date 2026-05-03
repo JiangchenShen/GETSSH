@@ -416,9 +416,11 @@ function App() {
           }}
         />
 
-        {/* Settings Panel - inline switch */}
-        {activeTabId === 'settings' && selectedSessionIndex === null && (
-        <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-gray-50 text-black'}`}>
+        {/* Settings Panel - always mounted, shown via CSS */}
+        <div
+          className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-gray-50 text-black'}`}
+          style={{ display: (activeTabId === 'settings' && selectedSessionIndex === null) ? 'flex' : 'none' }}
+        >
             
             {/* Settings Sidebar */}
             <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-gray-100'}`}>
@@ -775,7 +777,6 @@ function App() {
               </div>
             </div>
         </div>
-        )}
 
         {/* Connect Form - always mounted, shown via CSS */}
         <div
