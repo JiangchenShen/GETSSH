@@ -251,6 +251,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
   }
 
   return new Promise((resolve, reject) => {
+    (async () => {
     try {
       const sessionId = `req-${++sessionCounter}`
       
@@ -372,6 +373,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
     } catch (e: any) {
       resolve({ success: false, error: e.message })
     }
+    })();
   })
 })
 

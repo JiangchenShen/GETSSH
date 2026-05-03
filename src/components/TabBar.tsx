@@ -17,7 +17,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
   return (
     <div
       className={`flex items-end px-2 gap-1 border-b shrink-0 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`}
-      style={{ WebkitAppRegion: 'no-drag' } as any}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
     >
       {sshTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
