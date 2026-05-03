@@ -777,9 +777,12 @@ function App() {
         </div>
         )}
 
-        {/* Connect Form - inline switch */}
-        {selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings' && (
-          <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto">
+        {/* Connect Form - always mounted, shown via CSS */}
+        <div
+          className="flex-1 flex items-center justify-center p-8 overflow-y-auto"
+          style={{ display: (selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings') ? 'flex' : 'none' }}
+        >
+          {selectedSessionIndex !== null && sessions[selectedSessionIndex] && (
             <form onSubmit={(e) => { e.preventDefault(); handleConnect(sessions[selectedSessionIndex]); }} className={`p-8 w-full max-w-md space-y-6 flex flex-col bg-transparent border-0`}>
               <div className="text-center">
                 <h2 className="text-2xl font-bold mb-2">Connect to Server</h2>
@@ -821,38 +824,36 @@ function App() {
                 {connecting ? t('connect.connecting') : t('connect.connectBtn')}
               </button>
             </form>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Terminals + Dynamic Split Pane Engine - ALWAYS MOUNTED, never unmounted */}
-        {tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && (
-          <div
-            className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
-            style={{ display: (activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
-          >
-            <SplitPane isDark={isDark} activeTabId={activeTabId}>
-              <div className="absolute inset-0">
-                {tabs.filter(t => t.id !== 'settings').map(tab => (
-                  <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                    <TerminalComponent
-                      sessionId={tab.id}
-                      onDisconnected={() => {}}
-                      onReconnect={() => handleReconnect(tab)}
-                      config={appConfig}
-                      isDark={isDark}
-                      isActive={activeTabId === tab.id}
-                    />
-                  </div>
-                ))}
-              </div>
-            </SplitPane>
-          </div>
-        )}
+        {/* Terminals - ALWAYS MOUNTED regardless of selectedSessionIndex or activeTabId */}
+        <div
+          className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
+          style={{ display: (tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
+        >
+          <SplitPane isDark={isDark} activeTabId={activeTabId}>
+            <div className="absolute inset-0">
+              {tabs.filter(t => t.id !== 'settings').map(tab => (
+                <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
+                  <TerminalComponent
+                    sessionId={tab.id}
+                    onDisconnected={() => {}}
+                    onReconnect={() => handleReconnect(tab)}
+                    config={appConfig}
+                    isDark={isDark}
+                    isActive={activeTabId === tab.id}
+                  />
+                </div>
+              ))}
+            </div>
+          </SplitPane>
+        </div>
 
-        {/* Empty State - Extracted Component */}
-        {selectedSessionIndex === null && !activeTabId && (
+        {/* Empty State - shown via CSS */}
+        <div style={{ display: (selectedSessionIndex === null && !activeTabId) ? 'flex' : 'none' }} className="flex-1">
           <EmptyState />
-        )}
+        </div>
 
       </div>
     </div>
