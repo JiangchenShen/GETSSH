@@ -10,9 +10,10 @@ interface TerminalProps {
   onReconnect?: () => void;
   config: any;
   isDark?: boolean;
+  isActive?: boolean;
 }
 
-export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true }: TerminalProps) {
+export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true, isActive = true }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -134,6 +135,21 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
         fitAddonRef.current.fit();
     }
   }, [config, isDark]);
+
+  // Re-fit when tab becomes active (restores canvas after display:none hide)
+  useEffect(() => {
+    if (!isActive || !fitAddonRef.current) return;
+    // Small delay ensures the container is fully visible before fitting
+    const timer = setTimeout(() => {
+      if (!fitAddonRef.current || !xtermRef.current) return;
+      fitAddonRef.current.fit();
+      const dims = fitAddonRef.current.proposeDimensions();
+      if (dims) {
+        window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [isActive, sessionId]);
 
   // Handle Copy On Select as an intercept
   useEffect(() => {

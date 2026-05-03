@@ -824,14 +824,24 @@ function App() {
           </div>
         )}
 
-        {/* Terminals + Dynamic Split Pane Engine */}
-        {selectedSessionIndex === null && activeTabId && activeTabId !== 'settings' && (
-          <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
+        {/* Terminals + Dynamic Split Pane Engine - ALWAYS MOUNTED, never unmounted */}
+        {tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && (
+          <div
+            className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
+            style={{ display: (activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
+          >
             <SplitPane isDark={isDark} activeTabId={activeTabId}>
               <div className="absolute inset-0">
                 {tabs.filter(t => t.id !== 'settings').map(tab => (
                   <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} isDark={isDark} />
+                    <TerminalComponent
+                      sessionId={tab.id}
+                      onDisconnected={() => {}}
+                      onReconnect={() => handleReconnect(tab)}
+                      config={appConfig}
+                      isDark={isDark}
+                      isActive={activeTabId === tab.id}
+                    />
                   </div>
                 ))}
               </div>
