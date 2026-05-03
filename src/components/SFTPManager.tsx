@@ -2,10 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+export interface SFTPFile {
+  name: string;
+  longname: string;
+  type: 'd' | '-' | 'l';
+  size: number;
+  mtime: number;
+}
+
 export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: boolean }) => {
   const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState('/');
-  const [files, setFiles] = useState<any[]>([]);
+  const [files, setFiles] = useState<SFTPFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +24,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
       // @ts-ignore
       const res = await window.electronAPI.sftpList(sessionId, path);
       if (res.success) {
-        setFiles(res.list.sort((a: any, b: any) => {
+        setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
            if (a.type === 'd' && b.type !== 'd') return -1;
            if (a.type !== 'd' && b.type === 'd') return 1;
            return a.name.localeCompare(b.name);
@@ -46,7 +54,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent, file: any) => {
+  const handleDelete = async (e: React.MouseEvent, file: SFTPFile) => {
     e.stopPropagation();
     if (!window.confirm(t('sftp.deleteConfirm', { name: file.name }))) return;
     const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
