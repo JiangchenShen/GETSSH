@@ -76,7 +76,7 @@
     },
     "about": {
       "title": "关于 GETSSH",
-      "version": "版本 1.2",
+      "version": "版本 1.2.0",
       "author": "作者：沈江辰",
       "license": "开源协议：Apache License 2.0",
       "poweredBy": "核心驱动"

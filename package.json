@@ -1,6 +1,6 @@
 {
   "name": "getssh",
-  "version": "1.2",
+  "version": "1.2.0",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
   "scripts": {
