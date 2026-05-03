@@ -9,45 +9,36 @@
 ### 🚀 正式生产版 (Production Ready)
 这是 GETSSH 历史上最重要的一次里程碑更新。我们不仅在视觉美学上达到了极致，更在内核架构、安全性、以及生产打包体积上实现了质的飞跃。
 
-### ⚠️ 核心架构重塑 (Architectural Stability)
+### ⚡ 核心性能与 I/O 革命 (New!)
+- **全异步文件系统重构**：
+  - 彻底完成了 `PluginManager` 从同步阻塞 `fs` 到异步 `fs.promises` 的底层重构。
+  - **安装/卸载性能提升**：在大规模插件环境下，安装和卸载操作不再阻塞 Electron 主进程，消除了 UI 的“假死”感。
+  - **异常安全防护**：所有异步 I/O 均配备了完善的 `try/catch` 逻辑，确保不会因未捕获的 Promise Rejection 导致主进程崩溃。
+- **Auto-Start 智能逻辑修复**：
+  - 修复了自动启动时忽略会话特定端口的 Bug。现在系统能够精准识别并使用每个连接定义的独立端口，而非强制回退到全局默认设置。
+
+### ⚠️ 架构现代代与状态驱动 (State Deduplication)
+- **Zustand 全量迁移 (Single Source of Truth)**：
+  - 完成了 `App.tsx` 从传统的 `useState` 本地状态向 Zustand 全局状态树（`useAppStore` & `useSessionStore`）的彻底迁移。
+  - **效果**：消除了“状态孤岛”，确保了 Tabs, Sessions, Config 之间的实时一致性，极大地提升了应用的可维护性。
 - **终端状态零损耗持久化**：
-  - 彻底重构了 `App.tsx` 的渲染逻辑。核心视图（Terminal、SFTP、Settings）从“条件卸载”切换为 **“CSS 常驻挂载”策略**。
-  - **效果**：现在切换设置页面、侧边栏主机或标签页时，终端进程和 DOM 实例不会被销毁。彻底解决了切换窗口导致的“黑屏、掉线、指令丢失”问题。
-- **Zustand 状态驱动引擎**：
-  - 应用逻辑完全从 React 组件中剥离，由 Zustand 状态树统一管理。实现了 Sessions, Config, Crypto, Panels 的多端数据同步。
+  - 采用 **“CSS 常驻挂载”策略** 结合状态驱动，确保在切换视图时终端进程和 DOM 实例保持活跃。彻底解决了切换页面导致的连接中断问题。
 
 ### 🔒 铁壁安全加固 (Security Hardening)
-- **Zip Slip 漏洞防御**：
-  - 重构了插件安装引擎。弃用了不安全的 `zip.extractAllTo`，引入手动路径校验逻辑，严格拦截试图跳出临时目录的恶意插件条目。
-- **插件路径穿越 (Path Traversal) 修复**：
-  - 引入 `getSecurePluginPath` 机制。对插件的卸载、安装及渲染器加载路径进行边界校验，确保插件无法读取系统级敏感文件（如 `.ssh/id_rsa`）。
-- **SVG XSS 动态过滤**：
-  - 弃用了脆弱的正则是过滤。采用 `DOMParser` 对插件图标进行深度扫描，强制移除 `<script>`、`<foreignObject>`、事件监听器（on*）及 `javascript:` 伪协议。
-- **Iframe Sandbox 隔离升级**：
-  - 插件现在运行在完全禁用了 `allow-same-origin` 的沙盒 Iframe 中，彻底切断了插件直接访问 Electron API 或父窗口 DOM 的可能性。
+- **性能与安全的完美融合**：
+  - 在异步 I/O 重构中，完整保留并加固了 **Zip Slip 漏洞防御** 和 **路径穿越 (Path Traversal) 修复** 逻辑。
+  - **getSecurePluginPath**：即使在异步模式下，系统依然会对所有插件路径进行严格的边界校验，确保插件无法越权访问 `.ssh/id_rsa` 等敏感系统文件。
+- **SVG XSS 动态过滤**：采用 `DOMParser` 对插件图标进行深度扫描，强制拦截所有潜在的 XSS 攻击向量。
+- **Iframe Sandbox 隔离**：插件运行环境彻底剥离 `allow-same-origin` 权限，实现物理级别的 API 隔离。
 
-### ⚡ 性能与打包优化 (Performance & Optimization)
-- **包体积“魔术”级瘦身**：
-  - **优化前**：~450MB (Windows), ~170MB (macOS)。
-  - **优化后**：**~73MB (Windows), ~83MB (macOS)**。
-  - **原理**：修复了旧版本中的“构建递归漏洞”；精准配置了 `files` 包含规则，剔除了所有源码、调试映射（.map）、测试用例及冗余资产；启用了 **Maximum 极限压缩算法**。
-- **异步 I/O 性能飞跃**：
-  - SSH 密钥读取逻辑由同步改为 **异步 `fs.promises.readFile`**，大幅提升了多连接并发时的响应速度。
-  - 插件渲染器加载由串行改为 **`Promise.all` 并行加载**，启动耗时缩短 60%。
-- **后台稳定性增强**：
-  - 引入 `powerSaveBlocker` 和 `app.commandLine` 稳定性参数，确保应用在最小化或后台运行时，SSH 终端连接和心跳包不会被操作系统挂起。
+### 📦 打包与体积优化
+- **包体积“魔术”级瘦身**：从 ~450MB 降低至 **~83MB (macOS)**。
+- **构建精简化**：彻底剔除了源码、测试用例、.map 文件及非生产环境依赖。
+- **极限压缩**：启用了 `maximum` 级别的 ASAR 压缩算法。
 
-### 🛠️ 质量保证体系 (Quality Assurance)
-- **Vitest 单元测试体系**：
-  - 新增全量测试套件 `src/store/appStore.test.ts`。
-  - 覆盖了 `loadStoredConfig`（配置自动合并）和 `syncConfigEffects`（主题、IPC 同步、DOM 注入）等核心副作用逻辑。
-  - 确保了 1.2.0 架构在未来的持续迭代中不会发生回归。
-
-### 🌐 全量汉化 (Localization)
-- **深度中文支持**：完成了对设置面板、系统弹窗、错误提示、插件管理器的全量中文翻译适配。
-- **系统主题同步**：优化了暗色/浅色模式的切换逻辑，现在应用会智能感应操作系统的主题变化并实时适配。
-
----
+### 🛠️ 质量保证体系 (QA)
+- **Vitest 全量覆盖**：全仓库 61 项单元测试 100% 通过。
+- **TypeScript 静态检查**：实现了零错误编译，确保了生产环境的类型安全。
 
 ---
 
@@ -60,7 +51,6 @@
 
 ### 🎨 UI/UX 优化
 - **毛玻璃美学 (Glassmorphism)**：进一步打磨背景模糊与透明度混合逻辑。
-- **原生活动菜单**：接入 Electron 原生上下文菜单，提供更符合操作系统的右键交互体验。
 
 ---
 
@@ -70,7 +60,6 @@
 - **核心 SSH 引擎**：基于 xterm.js 与 ssh2 实现的基础终端连接功能。
 - **保险箱加密 (SafeStorage)**：引入主密码概念，对本地存储的敏感凭证进行 AES-256 加密。
 - **响应式界面**：支持暗色模式/浅色模式的动态切换。
-- **基本 SFTP**：实现远程服务器目录浏览与文件下载。
 
 ---
 
