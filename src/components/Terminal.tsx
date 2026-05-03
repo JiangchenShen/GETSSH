@@ -18,6 +18,23 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   const fitAddonRef = useRef<FitAddon | null>(null);
   const isDisconnectedRef = useRef(false);
 
+  // Convert "r g b" string → "#rrggbb" hex (xterm requires solid hex for cursor)
+  const toHex = (rgbStr: string) => {
+    const [r, g, b] = rgbStr.split(' ').map(Number);
+    return '#' + [r, g, b].map(n => n.toString(16).padStart(2, '0')).join('');
+  };
+
+  // Build xterm theme object
+  const buildTheme = (themeColor: string) => ({
+    background: 'transparent',
+    foreground: isDark ? '#e5e7eb' : '#111827',
+    cursor: toHex(themeColor),
+    cursorAccent: isDark ? '#111827' : '#ffffff',
+    selectionBackground: isDark
+      ? `rgba(${themeColor}, 0.35)`
+      : `rgba(${themeColor}, 0.25)`,
+  });
+
   const onDisconnectedRef = useRef(onDisconnected);
   const onReconnectRef = useRef(onReconnect);
 
@@ -36,12 +53,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       fontSize: config.fontSize || 14,
       lineHeight: config.lineHeight || 1.2,
       cursorStyle: config.cursorStyle || 'block',
-      theme: {
-        background: 'transparent',
-        foreground: isDark ? '#e5e7eb' : '#111827',
-        cursor: 'rgba(168, 85, 247, 0.8)',
-        selectionBackground: 'rgba(168, 85, 247, 0.3)',
-      },
+      theme: buildTheme(config.themeColor || '168 85 247'),
       allowTransparency: true,
       scrollback: config.scrollback || 10000,
     });
@@ -116,12 +128,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
 
     // Sync theme foreground & cursor when isDark or themeColor changes
     const themeColor = config.themeColor || '168 85 247';
-    term.options.theme = {
-      background: 'transparent',
-      foreground: isDark ? '#e5e7eb' : '#111827',
-      cursor: `rgba(${themeColor}, 0.8)`,
-      selectionBackground: `rgba(${themeColor}, 0.3)`,
-    };
+    term.options.theme = buildTheme(themeColor);
 
     if (fitAddonRef.current) {
         fitAddonRef.current.fit();
