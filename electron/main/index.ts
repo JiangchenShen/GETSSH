@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeStorage, Menu, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
