@@ -11,6 +11,21 @@
       "about": "About",
       "configuration": "Configuration"
     },
+    "security": {
+      "safeStorageConfig": "SafeStorage Configuration",
+      "changeMasterPwd": "Change Master Password",
+      "disableEncryption": "Disable Master Password Encryption",
+      "enableEncryption": "Enable SafeStorage Zero-Knowledge Encryption",
+      "currentPwd": "Current Master Password",
+      "newPwd": "New Master Password",
+      "warningPlaintext": "DANGER: Once disabled, all your SSH passwords and configs will be stored in plain text on local disk!",
+      "cancel": "Cancel",
+      "confirm": "Verify & Execute",
+      "errIncorrectPwd": "Security Check Failed: Incorrect current password!",
+      "errEmptyPwd": "New password cannot be empty!",
+      "privacyMode": "Privacy Mode",
+      "privacyModeDesc": "Automatically blur window content when the application loses focus."
+    },
     "appearance": {
       "uiTheme": "UI Theme",
       "auto": "Auto",
@@ -27,39 +42,59 @@
       "cursorStyle": "Cursor Style",
       "block": "Block",
       "underline": "Underline",
-      "bar": "Bar"
+      "bar": "Bar",
+      "scrollback": "Scrollback Lines"
     },
     "ssh": {
       "port": "Default Port",
-      "keepAlive": "Keep-Alive Interval (s)",
-      "copyOnSelect": "Copy on Select"
+      "keepAlive": "Keep-alive Interval (Seconds)",
+      "keepAliveDesc": "Periodic heartbeats to prevent timeouts (0 to disable).",
+      "copyOnSelect": "Copy on Select",
+      "proxyType": "Proxy Type",
+      "proxyHost": "Proxy Host",
+      "proxyPort": "Proxy Port",
+      "proxyNone": "No Proxy",
+      "proxyHttp": "HTTP Proxy",
+      "proxySocks5": "SOCKS5 Proxy"
     },
     "system": {
       "confirmQuit": "Prompt on Exit",
-      "globalHotkey": "Global Summon Hotkey"
+      "confirmQuitDesc": "Show confirmation dialog before fully closing the application.",
+      "globalHotkey": "Global Summon Hotkey",
+      "globalHotkeyDesc": "Press this anywhere to show or hide the terminal (Supports: Command, Control, Option, Shift)."
     },
     "plugins": {
-      "dropzone": "Drop plugin .zip here to install dynamically",
-      "unpacking": "Unpacking kernel payload...",
-      "installed": "Installed Modules",
-      "noPlugins": "No plugins installed.",
+      "dropzone": "Drag and drop plugin .zip files here to install",
+      "unpacking": "Unpacking plugin core...",
+      "installed": "Installed Extensions",
+      "noPlugins": "No plugins installed yet.",
       "uninstall": "Uninstall"
     },
     "sidebar": {
       "savedSessions": "Saved Sessions",
       "extensions": "Extensions",
       "newConnection": "New Connection",
-      "search": "Search sessions..."
+      "search": "Search Hosts...",
+      "emptyState": "Select or create a session to connect"
     },
     "connect": {
       "password": "Password",
-      "host": "IP / Domain",
+      "host": "Host (IP / Domain)",
       "username": "Username",
       "port": "Port",
       "privateKey": "Select Private Key",
       "disconnecting": "Disconnecting...",
-      "connecting": "Terminal Init...",
-      "connectBtn": "Initialize Secure Shell"
+      "connecting": "Connecting...",
+      "connectBtn": "Connect"
+    },
+    "sftp": {
+      "title": "SFTP File Explorer",
+      "root": "root",
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified",
+      "deleteConfirm": "Are you sure you want to delete {{name}}?",
+      "deleteFailed": "Delete failed: "
     },
     "about": {
       "title": "About GETSSH",

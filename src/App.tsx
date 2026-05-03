@@ -422,10 +422,10 @@ function App() {
             
             {/* Settings Sidebar */}
             <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-gray-100'}`}>
-              <h2 className="text-xl font-bold flex items-center gap-2 mb-8">
-                <Settings className="w-5 h-5 text-primary" />
-                {t('settings.title')}
-              </h2>
+              <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+                 <Settings className="w-5 h-5 text-primary" />
+                 {t('settings.configuration')}
+              </h3>
               <nav className="flex flex-col gap-1">
                  <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Appearance' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-4 h-4"/>{t('settings.appearance')}</button>
                  <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Terminal' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal')}</button>
@@ -587,37 +587,34 @@ function App() {
                 {settingsActiveTab === 'SSH' && (
                   <div className="space-y-8 max-w-xl">
                     <div>
-                      <h4 className="text-sm font-bold mb-3 flex items-center gap-2"><Network className="w-4 h-4"/> SSH Proxy</h4>
-                      <div className="space-y-4 bg-transparent p-0 border-0">
-                         <div>
-                           <label className="block text-xs font-medium mb-1 opacity-70">Proxy Protocol</label>
-                           <select value={appConfig.proxyType} onChange={(e) => updateConfig('proxyType', e.target.value as any)} className={`w-full p-2 border rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
-                             <option value="none">Direct Connect (None)</option>
-                             <option value="socks5">SOCKS5</option>
-                             <option value="http">HTTP/HTTPS</option>
-                           </select>
-                         </div>
-                         {appConfig.proxyType !== 'none' && (
-                             <div className="grid grid-cols-4 gap-2">
-                                <div className="col-span-3">
-                                   <label className="block text-xs font-medium mb-1 opacity-70">Proxy Host</label>
-                                   <input type="text" value={appConfig.proxyHost} onChange={(e) => updateConfig('proxyHost', e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                                </div>
-                                <div className="col-span-1">
-                                   <label className="block text-xs font-medium mb-1 opacity-70">Port</label>
-                                   <input type="number" min="1" max="65535" value={appConfig.proxyPort} onChange={(e) => updateConfig('proxyPort', parseInt(e.target.value) || 1080)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                                </div>
-                             </div>
-                         )}
-                      </div>
+                       <label className="block text-sm font-medium mb-1 opacity-70">{t('ssh.proxyType')}</label>
+                       <div className="flex flex-col gap-3">
+                          <select value={appConfig.proxyType} onChange={(e) => updateConfig('proxyType', e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`}>
+                             <option value="none">{t('ssh.proxyNone')}</option>
+                             <option value="http">{t('ssh.proxyHttp')}</option>
+                             <option value="socks5">{t('ssh.proxySocks5')}</option>
+                          </select>
+                          {appConfig.proxyType !== 'none' && (
+                              <div className="grid grid-cols-4 gap-2">
+                                 <div className="col-span-3">
+                                    <label className="block text-xs font-medium mb-1 opacity-70">{t('ssh.proxyHost')}</label>
+                                    <input type="text" value={appConfig.proxyHost} onChange={(e) => updateConfig('proxyHost', e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
+                                 </div>
+                                 <div className="col-span-1">
+                                    <label className="block text-xs font-medium mb-1 opacity-70">{t('ssh.proxyPort')}</label>
+                                    <input type="number" min="1" max="65535" value={appConfig.proxyPort} onChange={(e) => updateConfig('proxyPort', parseInt(e.target.value) || 1080)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
+                                 </div>
+                              </div>
+                          )}
+                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1 opacity-70">Keep-alive Interval (Seconds)</label>
+                      <label className="block text-sm font-medium mb-1 opacity-70">{t('ssh.keepAlive')}</label>
                       <input type="number" min="0" value={appConfig.keepalive} onChange={(e) => updateConfig('keepalive', parseInt(e.target.value) || 0)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                      <div className="text-xs opacity-50 mt-1">Sends heartbeat packets to prevent server timeouts (0 to disable).</div>
+                      <div className="text-xs opacity-50 mt-1">{t('ssh.keepAliveDesc')}</div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1 opacity-70">Default SSH Port</label>
+                      <label className="block text-sm font-medium mb-1 opacity-70">{t('ssh.port')}</label>
                       <input type="number" min="1" max="65535" value={appConfig.defaultPort} onChange={(e) => updateConfig('defaultPort', parseInt(e.target.value) || 22)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
                     </div>
                   </div>
@@ -629,15 +626,15 @@ function App() {
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input type="checkbox" checked={appConfig.confirmQuit} onChange={(e) => updateConfig('confirmQuit', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                       <div>
-                        <div className="text-sm font-medium">Prompt on Exit</div>
-                        <div className="text-xs opacity-50">Show confirmation dialog before fully closing the application.</div>
+                        <div className="text-sm font-medium">{t('system.confirmQuit')}</div>
+                        <div className="text-xs opacity-50">{t('system.confirmQuitDesc')}</div>
                       </div>
                     </label>
 
                     <div>
-                      <label className="block text-sm font-medium mb-1 opacity-70">Global Summon Hotkey</label>
+                      <label className="block text-sm font-medium mb-1 opacity-70">{t('system.globalHotkey')}</label>
                       <input type="text" value={appConfig.globalHotkey} onChange={(e) => updateConfig('globalHotkey', e.target.value)} placeholder="e.g. Option+Space" className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                      <div className="text-xs opacity-50 mt-1">Press this anywhere to show or hide the terminal window. (Supports: Command, Control, Option, Shift)</div>
+                      <div className="text-xs opacity-50 mt-1">{t('system.globalHotkeyDesc')}</div>
                     </div>
                   </div>
                 )}
@@ -647,8 +644,8 @@ function App() {
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input type="checkbox" checked={appConfig.privacyMode} onChange={(e) => updateConfig('privacyMode', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                       <div>
-                        <div className="text-sm font-medium flex items-center gap-2">Privacy Mode <Shield className="w-3 h-3 text-primary-400" /></div>
-                        <div className="text-xs opacity-50">Enable glass blur over the entire application when it loses focus.</div>
+                        <div className="text-sm font-medium flex items-center gap-2">{t('security.privacyMode')} <Shield className="w-3 h-3 text-primary-400" /></div>
+                        <div className="text-xs opacity-50">{t('security.privacyModeDesc')}</div>
                       </div>
                     </label>
 

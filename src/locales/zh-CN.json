@@ -22,7 +22,9 @@
       "cancel": "取消",
       "confirm": "确认验证并执行",
       "errIncorrectPwd": "安全校验失败：当前密码不正确！",
-      "errEmptyPwd": "新密码不可为空！"
+      "errEmptyPwd": "新密码不可为空！",
+      "privacyMode": "隐私模式",
+      "privacyModeDesc": "当应用窗口失去焦点时自动模糊窗口内容，防止窥屏。"
     },
     "appearance": {
       "uiTheme": "外观主题",
@@ -40,16 +42,26 @@
       "cursorStyle": "光标样式",
       "block": "方块",
       "underline": "下划线",
-      "bar": "竖线"
+      "bar": "竖线",
+      "scrollback": "滚动回溯行数"
     },
     "ssh": {
       "port": "默认端口",
       "keepAlive": "心跳保活间隔 (秒)",
-      "copyOnSelect": "选中后自动复制"
+      "keepAliveDesc": "定期向服务器发送心跳包以防止超时断开 (0 表示禁用)。",
+      "copyOnSelect": "选中后自动复制",
+      "proxyType": "代理类型",
+      "proxyHost": "代理服务器地址",
+      "proxyPort": "代理端口",
+      "proxyNone": "不使用代理",
+      "proxyHttp": "HTTP 代理",
+      "proxySocks5": "SOCKS5 代理"
     },
     "system": {
       "confirmQuit": "退出前确认",
-      "globalHotkey": "全局呼出快捷键"
+      "confirmQuitDesc": "在完全关闭应用程序前显示确认对话框。",
+      "globalHotkey": "全局呼出快捷键",
+      "globalHotkeyDesc": "在任何地方按下此快捷键可快速显示或隐藏终端窗口 (支持: Command, Control, Option, Shift)。"
     },
     "plugins": {
       "dropzone": "将插件 .zip 文件拖拽至此安装",
@@ -62,7 +74,8 @@
       "savedSessions": "主机列表",
       "extensions": "扩展功能",
       "newConnection": "新建连接",
-      "search": "搜索主机..."
+      "search": "搜索主机...",
+      "emptyState": "选择或创建会话以连接"
     },
     "connect": {
       "password": "密码",
@@ -73,6 +86,15 @@
       "disconnecting": "正在断开连接...",
       "connecting": "正在连接...",
       "connectBtn": "连接"
+    },
+    "sftp": {
+      "title": "SFTP 文件管理器",
+      "root": "根目录",
+      "name": "文件名",
+      "size": "大小",
+      "modified": "修改时间",
+      "deleteConfirm": "确定要删除 {{name}} 吗？",
+      "deleteFailed": "删除失败: "
     },
     "about": {
       "title": "关于 GETSSH",

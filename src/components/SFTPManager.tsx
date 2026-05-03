@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: boolean }) => {
+  const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState('/');
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,14 +48,14 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
 
   const handleDelete = async (e: React.MouseEvent, file: any) => {
     e.stopPropagation();
-    if (!window.confirm(`Delete ${file.name}?`)) return;
+    if (!window.confirm(t('sftp.deleteConfirm', { name: file.name }))) return;
     const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
     // @ts-ignore
     const res = await window.electronAPI.sftpDelete(sessionId, path, file.type === 'd');
     if (res.success) {
       fetchFiles(currentPath);
     } else {
-      alert("Delete failed: " + res.error);
+      alert(t('sftp.deleteFailed') + res.error);
     }
   };
 
@@ -70,7 +72,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
       <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-white/10' : 'border-black/10'}`}>
         <h2 className="font-bold flex items-center gap-2">
           <HardDrive className="w-5 h-5 text-primary" />
-          SFTP File Explorer
+          {t('sftp.title')}
         </h2>
         <div className="flex gap-2">
           <button onClick={() => fetchFiles(currentPath)} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
@@ -78,7 +80,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
       </div>
       
       <div className={`px-4 py-2 text-xs flex items-center gap-1 font-mono opacity-80 overflow-x-auto whitespace-nowrap border-b-[1.5px] border-t-0 border-l-0 border-r-0 ${isDark ? 'bg-black/20 text-white/50 border-white/10' : 'bg-black/5 text-black/50 border-black/10'}`}>
-        <button onClick={() => fetchFiles('/')} className="hover:text-primary transition-colors cursor-pointer">root</button>
+        <button onClick={() => fetchFiles('/')} className="hover:text-primary transition-colors cursor-pointer">{t('sftp.root')}</button>
         {currentPath.split('/').filter(Boolean).map((part, idx, arr) => (
            <React.Fragment key={idx}>
              <ChevronRight className="w-3 h-3 opacity-50" />
@@ -94,9 +96,9 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
            <table className="w-full text-sm text-left">
              <thead className={`text-xs uppercase sticky top-0 z-20 shadow-sm border-b-[1.5px] border-t-0 border-l-0 border-r-0 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
                <tr>
-                 <th className={`px-2 py-2 font-medium sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>Name</th>
-                 <th className={`px-2 py-2 font-medium w-24 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>Size</th>
-                 <th className={`px-2 py-2 font-medium w-32 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>Modified</th>
+                 <th className={`px-2 py-2 font-medium sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.name')}</th>
+                 <th className={`px-2 py-2 font-medium w-24 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.size')}</th>
+                 <th className={`px-2 py-2 font-medium w-32 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.modified')}</th>
                  <th className={`px-2 py-2 font-medium w-10 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}></th>
                </tr>
              </thead>
