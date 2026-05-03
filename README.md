@@ -1,116 +1,89 @@
-# ⚡️ GETSSH 
+# 🚀 GETSSH | Next-Generation SSH Client
 
-<div align="center">
-  <p>A Modern, Secure, and Local-First SSH Terminal.</p>
-  <p>
-    <a href="#english">English</a> | <a href="#中文说明">中文说明</a>
-  </p>
-  <img src="https://img.shields.io/badge/TypeScript-96.9%25-blue?logo=typescript" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Electron-V1.0%20(Stable)-47848F?logo=electron" alt="Electron">
-  <img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Status-V1.0-orange.svg" alt="Status">
-</div>
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://reactjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
+[![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+
+**GETSSH** 不仅仅是一个 SSH 客户端，它是为追求极致效率与极致安全的开发者打造的现代化远程管理平台。在 V1.2 版本中，我们完成了核心架构的全面进化，从单一巨石转向微组件架构，并引入了工业级的安全隔离机制。
 
 ---
 
-<h2 id="english">📖 English</h2>
+## 💎 V1.2 架构重构亮点 (The Epic Refactor)
 
-### What is GETSSH?
+### 🏗️ 微组件化架构 (Monolith to Micro-components)
+我们将超过 900 行的 `App.tsx` 巨石逻辑彻底解耦。现在的 GETSSH 像乐高一样由高度自治的微组件构成：
+- **逻辑剥离**：视图层与业务逻辑完全分离，组件间通过原子化的 Store 进行通信。
+- **动态协调**：App 主体演变为轻量级的协调器，极大地提升了系统的可维护性与扩展速度。
 
-GETSSH is a next-generation SSH client built for developers who prioritize **Privacy, Security, and Aesthetics**. Unlike cloud-syncing terminal applications, GETSSH operates strictly on a **Local-First** architecture. Your server credentials, private keys, and connection histories never leave your device.
+### 🧠 现代化状态管理 (Global State with Zustand)
+引入 **Zustand** 作为全局状态驱动引擎，构建了响应式的数据流拓扑：
+- **多维存储**：`appStore`, `sessionStore`, `cryptoStore` 以及 `panelStore` 各司其职。
+- **极致性能**：利用 Zustand 的选择器（Selectors）机制，实现组件级的精准重绘，拒绝全量更新带来的卡顿。
 
-### ✨ Key Features (V1.0)
+### 🛡️ 插件沙盒隔离 (Iframe Sandboxing & IPC Bridge)
+插件生态的安全性是我们的底线。我们实现了严苛的 **上下文隔离 (Context Isolation)** 与 **Webview/Iframe 沙盒机制**：
+- **零特权执行**：插件在完全隔离的沙盒环境中运行，无法直接访问 Node.js API 或系统资源。
+- **白名单通信**：通过自定义的 `PluginBridge` 实现跨域消息传递，仅允许白名单内的安全 API 调用，彻底杜绝 SSH 私钥等敏感信息外泄。
 
-* **Zero-Knowledge Encryption (SafeStorage):** All sensitive data (credentials, IPs, ports) are encrypted locally using AES-256-GCM (`profiles.enc`). Without your Master Password, the data remains cryptographically inaccessible. You can dynamically change the password or safely disable encryption with atomic fallbacks directly via inline React forms.
-* **Local-First Architecture:** Absolute privacy. No telemetry, no cloud synchronization, and no third-party data tracking.
-* **Modern UI/UX:** Crafted with Glassmorphism, Dark Mode support, and a robust CSS Theme Variable system allowing you to hot-swap primary colors (Cyber Purple, Geek Green, etc.) across the entire app.
-* **Unwavering Stability:** Dropped experimental WebGL rendering in favor of an ultra-stable Canvas DOM engine, preventing window-blur crashes entirely. Electron background throttling has been explicitly disabled for 24/7 SSH keepalive persistence.
-* **High Performance:** Built heavily on TypeScript (96.9%) ensuring robust type safety and minimal runtime errors.
+### 🪟 动态分屏布局引擎 (Dynamic Split-Grid Layout)
+借鉴了类似 **GoldenLayout** 的高自由度窗口分屏机制集成了 `SplitPane` 引擎：
+- **实时控制**：支持动态注册底部、右侧等多个侧边面板，用户可通过拖拽实时调整空间占比。
+- **插件友好**：插件可一键注册并挂载自定义面板，让终端、SFTP、监控台在一个界面内和谐共存。
 
-### 🛠 Tech Stack
+---
 
-* **Core:** Node.js, Electron
-* **Language:** TypeScript
-* **UI & Styling:** React, Tailwind CSS, Vite
-* **Terminal Engine:** xterm.js (Canvas renderer)
+## ✨ 核心特性
 
-### 🚀 Getting Started
+*   **玻璃拟态美学:** 深度打磨的毛玻璃视觉效果，支持背景透明度实时调节。
+*   **零知识加密:** 基于主密码的 AES-256 全量加密方案，确保本地配置文件绝对安全。
+*   **全能文件管理:** 集成高性能 SFTP 模块，支持拖拽上传、文件编辑与权限控制。
+*   **极速内核:** 搭载原生级 xterm.js 渲染引擎，支持 GPU 加速与多标签平滑切换。
+*   **极致鲁棒性:** 核心逻辑 98% 由 TypeScript 覆盖，提供严苛的类型检查。
 
-**1. Clone the repository**
+---
+
+## 🛠 技术栈
+
+| 领域 | 技术方案 |
+| :--- | :--- |
+| **核心驱动** | Node.js, Electron |
+| **状态管理** | Zustand |
+| **前端框架** | React 18 (Hooks) |
+| **样式方案** | Vanilla CSS, Tailwind CSS |
+| **渲染构建** | Vite, esbuild |
+| **终端引擎** | xterm.js + AttachAddon |
+
+---
+
+## 🚀 快速开始
+
+### 1. 环境准备
+确保您的开发机已安装 Node.js (>= 18.x) 和 npm。
+
+### 2. 启动步骤
 ```bash
+# 克隆仓库
 git clone https://github.com/JiangchenShen/GETSSH.git
 cd GETSSH
-```
 
-**2. Install dependencies**
-```bash
+# 安装依赖
 npm install
-```
 
-**3. Run in development mode**
-```bash
+# 启动开发环境
 npm run dev
-```
 
-**4. Build for production**
-```bash
-npm run build
+# 构建 macOS/Windows 安装包
+npm run build -- --mac  # 或者 --win
 ```
-
-### 🛡 Security Philosophy
-We believe that developers should have ultimate control over their own keys. **"Not your keys, not your server."** Please remember your Master Password; there is no cloud recovery mechanism if it is lost.
 
 ---
 
-<h2 id="中文说明">📖 中文说明</h2>
+## 🛡 安全宣言
 
-### 关于 GETSSH
-
-GETSSH 是一款专为重视**隐私、安全与美学**的开发者打造的下一代 SSH 客户端。与市面上主打云端同步的终端不同，GETSSH 严格遵循**本地优先 (Local-First)** 架构。您的服务器凭证、私钥和连接历史记录永远不会离开您的物理设备。
-
-### ✨ V1.0 核心特性
-
-* **零知识加密 (SafeStorage):** 所有敏感数据均使用 AES-256-GCM 算法在本地加密存储为 `profiles.enc`。提供完善的内联交互表单，支持随时无缝更改主密码，或经过安全确认后原子级退回明文模式。没有主密码，任何人无法解密您的服务器数据。
-* **物理级隐私隔离:** 绝对的隐私保护。无数据埋点，无云端同步，无第三方行为追踪。
-* **原生级体验与中文支持:** 完美契合原生 macOS 的中文开发语境。界面采用全站 CSS 动态主题色渲染（告别硬编码色系），毛玻璃、极简留白、动态发光边框一应俱全。
-* **永不掉线的稳定性:** 剔除极易崩溃的 WebGL 实验性引擎，采用纯 Canvas 高可用渲染器，并在 Electron 底层彻底解除了后台休眠限制 (Throttling)，确保无论窗口是否失去焦点，SSH 心跳包永远不断。
-* **极致鲁棒性:** 项目核心代码 96.9% 采用 TypeScript 编写，提供极其严苛的类型安全检查与运行稳定性。
-
-### 🛠 技术栈
-
-* **底层驱动:** Node.js, Electron
-* **开发语言:** TypeScript
-* **构建与渲染:** React, Tailwind CSS, Vite
-* **终端引擎:** xterm.js
-
-### 🚀 快速开始
-
-**1. 克隆仓库到本地**
-```bash
-git clone https://github.com/JiangchenShen/GETSSH.git
-cd GETSSH
-```
-
-**2. 安装依赖包**
-```bash
-npm install
-```
-
-**3. 启动开发环境**
-```bash
-npm run dev
-```
-
-**4. 打包构建原生安装包**
-```bash
-npm run build
-```
-
-### 🛡 安全宣言
-我们坚信，开发者必须拥有对底层私钥的绝对控制权。为了贯彻极致的安全防御，GETSSH 不提供任何形式的密码找回功能。**请务必妥善保管您的主密码。**
+我们坚信，开发者必须拥有对底层私钥的绝对控制权。为了贯彻极致的安全防御，GETSSH 不提供任何形式的密码找回功能。**请务必妥善保管您的主密码。** 我们实现了 `SafeStorage` 零知识加密架构，除非获得您的主密码，否则任何人（包括开发者）都无法解密您的配置文件。
 
 ---
 
-<div align="center">
-  <p>Built with ⚡️ by Jiangchen Shen | Under Apache 2.0 License</p>
-</div>
+Copyright © 2024 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).
