@@ -3,32 +3,37 @@ import { usePluginStore, SidebarAction } from './pluginStore';
 
 describe('usePluginStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
+    // Reset store state before each test to ensure isolation
     usePluginStore.setState({
       installedPlugins: [],
       sidebarActions: [],
     });
   });
 
-  it('should have initial state', () => {
+  it('should initialize with correct default state', () => {
     const state = usePluginStore.getState();
     expect(state.installedPlugins).toEqual([]);
     expect(state.sidebarActions).toEqual([]);
   });
 
   describe('setPlugins', () => {
-    it('sets the installedPlugins', () => {
-      const mockPlugins = [{ name: 'test-plugin', version: '1.0.0' } as any];
+    it('sets the installedPlugins correctly', () => {
+      const mockPlugins = [
+        { name: 'test-plugin', version: '1.0.0' },
+        { name: 'another-plugin', version: '2.1.0' }
+      ];
       usePluginStore.getState().setPlugins(mockPlugins);
 
-      expect(usePluginStore.getState().installedPlugins).toEqual(mockPlugins);
+      const state = usePluginStore.getState();
+      expect(state.installedPlugins).toEqual(mockPlugins);
+      expect(state.installedPlugins).toHaveLength(2);
     });
   });
 
   describe('registerSidebarAction', () => {
-    it('adds a new action to the sidebarActions', () => {
+    it('adds a new action to the sidebarActions array', () => {
       const action: SidebarAction = {
-        id: 'action1',
+        id: 'action-unique-1',
         icon: '<svg></svg>',
         label: 'Action 1',
         onClick: vi.fn(),
@@ -36,7 +41,9 @@ describe('usePluginStore', () => {
 
       usePluginStore.getState().registerSidebarAction(action);
 
-      expect(usePluginStore.getState().sidebarActions).toEqual([action]);
+      const state = usePluginStore.getState();
+      expect(state.sidebarActions).toHaveLength(1);
+      expect(state.sidebarActions[0]).toEqual(action);
     });
 
     it('prevents duplicate registration on hot reload by updating the existing action with the same id', () => {
@@ -47,10 +54,11 @@ describe('usePluginStore', () => {
         onClick: vi.fn(),
       };
 
+      // Updated version of the same action (e.g., changed label/icon in code)
       const updatedAction1: SidebarAction = {
         ...action1,
         label: 'Updated Action 1',
-        icon: '<svg>updated</svg>',
+        icon: '<svg class="updated"></svg>',
       };
 
       const action2: SidebarAction = {
@@ -60,43 +68,59 @@ describe('usePluginStore', () => {
         onClick: vi.fn(),
       };
 
-      // Register initial actions
+      // 1. Initial registration
       usePluginStore.getState().registerSidebarAction(action1);
       usePluginStore.getState().registerSidebarAction(action2);
       
-      // Attempt to re-register action1 with updated data (simulating hot reload)
+      // 2. Simulate Hot Reload: Re-register action1 with updated data
       usePluginStore.getState().registerSidebarAction(updatedAction1);
 
-      const actions = usePluginStore.getState().sidebarActions;
+      const state = usePluginStore.getState();
+      const actions = state.sidebarActions;
+      
+      // Should still only have 2 actions total
       expect(actions).toHaveLength(2);
-      // The implementation filters out the old one and appends the new one, so order might change
-      expect(actions.find(a => a.id === 'action1')).toEqual(updatedAction1);
-      expect(actions.find(a => a.id === 'action2')).toEqual(action2);
+      
+      // The action with id "action1" should now match the updated version
+      const foundAction1 = actions.find(a => a.id === 'action1');
+      expect(foundAction1).toEqual(updatedAction1);
+      expect(foundAction1?.label).toBe('Updated Action 1');
+      
+      // The other action should remain untouched
+      expect(actions).toContainEqual(action2);
     });
 
-    it('should allow registration of multiple different sidebar actions', () => {
+    it('successfully allows registration of multiple different sidebar actions', () => {
       const action1: SidebarAction = {
-        id: 'action-1',
+        id: 'id-1',
         icon: '<svg></svg>',
         label: 'Action 1',
         onClick: vi.fn(),
       };
 
       const action2: SidebarAction = {
-        id: 'action-2',
+        id: 'id-2',
         icon: '<svg></svg>',
         label: 'Action 2',
         onClick: vi.fn(),
       };
 
+      const action3: SidebarAction = {
+        id: 'id-3',
+        icon: '<svg></svg>',
+        label: 'Action 3',
+        onClick: vi.fn(),
+      };
+
       usePluginStore.getState().registerSidebarAction(action1);
       usePluginStore.getState().registerSidebarAction(action2);
+      usePluginStore.getState().registerSidebarAction(action3);
 
       const state = usePluginStore.getState();
-      expect(state.sidebarActions).toHaveLength(2);
-      // We check for containment to be order-agnostic if the implementation changes order
+      expect(state.sidebarActions).toHaveLength(3);
       expect(state.sidebarActions).toContainEqual(action1);
       expect(state.sidebarActions).toContainEqual(action2);
+      expect(state.sidebarActions).toContainEqual(action3);
     });
   });
 });
