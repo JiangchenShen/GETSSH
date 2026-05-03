@@ -589,7 +589,7 @@ function App() {
                     <div>
                        <label className="block text-sm font-medium mb-1 opacity-70">{t('ssh.proxyType')}</label>
                        <div className="flex flex-col gap-3">
-                          <select value={appConfig.proxyType} onChange={(e) => updateConfig('proxyType', e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`}>
+                          <select value={appConfig.proxyType} onChange={(e) => updateConfig('proxyType', e.target.value as any)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`}>
                              <option value="none">{t('ssh.proxyNone')}</option>
                              <option value="http">{t('ssh.proxyHttp')}</option>
                              <option value="socks5">{t('ssh.proxySocks5')}</option>
