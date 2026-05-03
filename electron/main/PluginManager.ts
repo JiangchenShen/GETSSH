@@ -74,7 +74,7 @@ export class PluginManager {
     ipcMain.handle('install-plugin', async (event, zipPath: string) => {
       try {
         const zip = new AdmZip(zipPath);
-        const tempDir = path.join(app.getPath('temp'), `plugin_${Date.now()}`);
+        const tempDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'plugin_'));
         zip.extractAllTo(tempDir, true);
 
         let pkgPath = path.join(tempDir, 'package.json');
