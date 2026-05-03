@@ -75,7 +75,27 @@ export class PluginManager {
       try {
         const zip = new AdmZip(zipPath);
         const tempDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'plugin_'));
-        zip.extractAllTo(tempDir, true);
+
+        // Securely extract zip entries to prevent Zip Slip vulnerability
+        const resolvedTempDir = path.resolve(tempDir);
+        for (const entry of zip.getEntries()) {
+          const targetPath = path.resolve(resolvedTempDir, entry.entryName);
+          // Ensure target path is strictly within the intended temporary directory
+          if (!targetPath.startsWith(resolvedTempDir + path.sep) && targetPath !== resolvedTempDir) {
+            console.warn(`[Plugin Kernel] Skipped malicious or invalid zip entry: ${entry.entryName}`);
+            continue;
+          }
+
+          if (entry.isDirectory) {
+            fs.mkdirSync(targetPath, { recursive: true });
+          } else {
+            const dir = path.dirname(targetPath);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(targetPath, entry.getData());
+          }
+        }
 
         let pkgPath = path.join(tempDir, 'package.json');
         let sourceDir = tempDir;
