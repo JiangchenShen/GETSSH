@@ -5,7 +5,7 @@ import { PluginSettings } from './components/PluginSettings';
 import { SFTPManager } from './components/SFTPManager';
 import { usePluginStore } from './store/pluginStore';
 import { useAppStore } from './store/appStore';
-import { Tab } from './store/sessionStore';
+import { Tab, useSessionStore } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { TabBar } from './components/TabBar';
@@ -20,12 +20,23 @@ export type { AppConfig } from './store/appStore';
 
 function App() {
   const { t, i18n } = useTranslation();
-  const [sessions, setSessions] = useState<{host: string, username: string, password?: string, privateKeyPath?: string, autoStart?: boolean, port?: number, useKeepAlive?: boolean}[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  
+  // Session Store (Zustand)
+  const sessions = useSessionStore(state => state.sessions);
+  const setSessions = useSessionStore(state => state.setSessions);
+  const tabs = useSessionStore(state => state.tabs);
+  const setTabs = useSessionStore(state => state.setTabs);
+  const activeTabId = useSessionStore(state => state.activeTabId);
+  const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
+  const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
+  const searchQuery = useSessionStore(state => state.searchQuery);
+  const setSearchQuery = useSessionStore(state => state.setSearchQuery);
+  const connecting = useSessionStore(state => state.connecting);
+  const setConnecting = useSessionStore(state => state.setConnecting);
+  const error = useSessionStore(state => state.error);
+  const setError = useSessionStore(state => state.setError);
+  const closeTab = useSessionStore(state => state.closeTab);
+
   // App Store
   const appConfig = useAppStore(state => state.appConfig);
   const isDark = useAppStore(state => state.isDark);
@@ -50,10 +61,6 @@ function App() {
   const hasAutoStarted = useRef(false);
   const activePanelId = usePanelStore(state => state.activePanelId);
   const sidebarActions = usePluginStore(state => state.sidebarActions);
-
-  const [selectedSessionIndex, setSelectedSessionIndex] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
 
   // Crypto State
   const [cryptoMode, setCryptoMode] = useState<'idle' | 'locked' | 'setup'>('idle');
@@ -139,7 +146,7 @@ function App() {
                 username: autoSession.username, 
                 password: autoSession.password, 
                 privateKeyPath: autoSession.privateKeyPath,
-                port: appConfig.defaultPort,
+                port: autoSession.port || appConfig.defaultPort || 22,
                 keepaliveInterval: appConfig.keepalive * 1000,
                 // Append Proxy
                 proxyType: appConfig.proxyType,
@@ -373,17 +380,7 @@ function App() {
           activeTabId={activeTabId}
           isDark={isDark}
           onSelectTab={(tabId) => { setActiveTabId(tabId); setSelectedSessionIndex(null); }}
-          onCloseTab={(tabId) => {
-            setTabs(prev => {
-              const remaining = prev.filter(t => t.id !== tabId);
-              if (activeTabId === tabId) {
-                const sshTabs = remaining.filter(t => t.id !== 'settings');
-                setActiveTabId(sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null);
-              }
-              return remaining;
-            });
-            window.electronAPI.sshDisconnect(tabId);
-          }}
+          onCloseTab={closeTab}
         />
 
         {/* Settings Panel - always mounted, shown via CSS */}

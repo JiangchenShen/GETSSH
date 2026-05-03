@@ -1,4 +1,4 @@
-import { describe, it, test, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { useSessionStore } from './sessionStore';
 
 const sshDisconnectMock = vi.fn();
