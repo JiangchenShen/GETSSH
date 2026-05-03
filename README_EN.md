@@ -91,4 +91,4 @@ We firmly believe that developers must have absolute control over their underlyi
 
 ---
 
-Copyright © 2024 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).
+Copyright © 2026 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).

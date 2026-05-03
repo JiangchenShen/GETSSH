@@ -91,4 +91,4 @@ npm run build -- --mac  # 或者 --win
 
 ---
 
-Copyright © 2024 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).
+Copyright © 2026 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).
