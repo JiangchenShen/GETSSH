@@ -20,6 +20,7 @@ export type { AppConfig } from './store/appStore';
 
 function App() {
   const { t, i18n } = useTranslation();
+
   // Session Store (Zustand)
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
@@ -37,7 +38,7 @@ function App() {
   const setError = useSessionStore(state => state.setError);
   const closeTab = useSessionStore(state => state.closeTab);
 
-  // App Store
+  // App Store (Zustand)
   const appConfig = useAppStore(state => state.appConfig);
   const isDark = useAppStore(state => state.isDark);
   const systemIsDark = useAppStore(state => state.systemIsDark);
@@ -48,16 +49,18 @@ function App() {
   const syncConfigEffects = useAppStore(state => state.syncConfigEffects);
   const updateConfig = useAppStore(state => state.updateConfig);
   
-  // Settings modal
+  // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
+  
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About' = 'Appearance') => {
      setSettingsActiveTab(tab);
      setSelectedSessionIndex(null);
      if (!tabs.find(t => t.id === 'settings')) {
-         setTabs(prev => [...prev, { id: 'settings', title: t('settings.title'), config: { isSettings: true } }]);
+         setTabs([...tabs, { id: 'settings', title: t('settings.title'), config: { isSettings: true } as any }]);
      }
      setActiveTabId('settings');
   };
+
   const hasAutoStarted = useRef(false);
   const activePanelId = usePanelStore(state => state.activePanelId);
   const sidebarActions = usePluginStore(state => state.sidebarActions);
@@ -140,7 +143,6 @@ function App() {
         hasAutoStarted.current = true;
         const autoSessions = sessions.filter(s => s.autoStart);
         autoSessions.forEach(autoSession => {
-            // Re-use connection layer logic directly without event dependency
             const config = { 
                 host: autoSession.host, 
                 username: autoSession.username, 
@@ -158,11 +160,7 @@ function App() {
             window.electronAPI.sshConnect(config).then(res => {
                if (res.success && res.sessionId) {
                  const tabTitle = `${config.username}@${config.host}`;
-                 setTabs(prev => {
-                     // Check if not already existing
-                     if(prev.find(t => t.id === res.sessionId)) return prev;
-                     return [...prev, { id: res.sessionId as string, title: tabTitle, config }];
-                 });
+                 setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
                  setActiveTabId(res.sessionId);
                  if (config.initScript && res.sessionId) {
                      const sessionId = res.sessionId;
@@ -230,7 +228,7 @@ function App() {
 
     if (res.success && res.sessionId) {
       const tabTitle = `${config.username}@${config.host}`;
-      setTabs(prev => [...prev, { id: res.sessionId as string, title: tabTitle, config }]);
+      setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
       setActiveTabId(res.sessionId);
       setSelectedSessionIndex(null);
     } else {
@@ -257,11 +255,10 @@ function App() {
     syncProfiles(updated);
   };
   
-
   const handleReconnect = async (tab: Tab) => {
     const res = await window.electronAPI.sshConnect(tab.config);
     if (res.success && res.sessionId) {
-      setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
+      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
       if (activeTabId === tab.id) {
         setActiveTabId(res.sessionId as string);
       }
@@ -269,7 +266,6 @@ function App() {
       window.alert(`Reconnect failed: ${res.error}`);
     }
   };
-
 
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -342,9 +338,9 @@ function App() {
           
           <button type="button" onClick={() => {
               const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
-              const updated = [newSession, ...sessions];
+              const updated = [...sessions, newSession];
               syncProfiles(updated);
-              setSelectedSessionIndex(0);
+              setSelectedSessionIndex(updated.length - 1);
               setActiveTabId(null);
           }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed transition-all text-sm text-left mt-4 ${isDark ? 'border-white/20 hover:border-white/50 text-white/50 hover:text-white' : 'border-black/20 hover:border-black/50 text-black/50 hover:text-black bg-white/50'}`}>
             <Plus className="w-4 h-4 shrink-0" />
@@ -411,7 +407,7 @@ function App() {
 
               {/* Close Button */}
               <button
-                onClick={() => { setActiveTabId(null); setTabs(prev => prev.filter(t => t.id !== 'settings')); }}
+                onClick={() => { setActiveTabId(null); setTabs(tabs.filter(t => t.id !== 'settings')); }}
                 className={`absolute right-6 top-6 z-30 p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`}
                 title="Close Settings"
               >
@@ -795,7 +791,7 @@ function App() {
           )}
         </div>
 
-        {/* Terminals - ALWAYS MOUNTED regardless of selectedSessionIndex or activeTabId */}
+        {/* Terminals area with SplitPane */}
         <div
           className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
           style={{ display: (tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
@@ -818,7 +814,7 @@ function App() {
           </SplitPane>
         </div>
 
-        {/* Empty State - shown via CSS */}
+        {/* Empty State */}
         <div style={{ display: (selectedSessionIndex === null && !activeTabId) ? 'flex' : 'none' }} className="flex-1">
           <EmptyState />
         </div>
