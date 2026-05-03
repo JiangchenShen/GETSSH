@@ -309,7 +309,7 @@ function App() {
         e.preventDefault();
         window.electronAPI.showContextMenu();
       }}
-      className={`h-screen w-screen flex text-gray-900 dark:text-gray-100 backdrop-blur-xl relative overflow-hidden transition-all ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
+      className={`h-screen w-screen flex backdrop-blur-xl relative overflow-hidden transition-all ${isDark ? 'text-gray-100' : 'text-gray-900'} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
       {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
         <CryptoModal 
           mode={cryptoMode} 
@@ -468,19 +468,44 @@ function App() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.systemColor')}</label>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
                           {[
                             { name: 'Cyber Purple', color: '168 85 247', bg: 'bg-[#a855f7]' },
-                            { name: 'Geek Green', color: '34 197 94', bg: 'bg-[#22c55e]' },
-                            { name: 'Deep Blue', color: '59 130 246', bg: 'bg-[#3b82f6]' }
+                            { name: 'Geek Green',   color: '34 197 94',  bg: 'bg-[#22c55e]' },
+                            { name: 'Deep Blue',    color: '59 130 246', bg: 'bg-[#3b82f6]' },
+                            { name: 'Geek Red',     color: '239 68 68',  bg: 'bg-[#ef4444]' },
                           ].map(swatch => (
                             <button 
                               key={swatch.color}
                               onClick={() => updateConfig('themeColor', swatch.color)}
-                              className={`w-8 h-8 rounded-full border-2 transition-all ${swatch.bg} ${appConfig.themeColor === swatch.color ? 'border-white scale-110 shadow-lg' : 'border-transparent hover:scale-105'}`}
+                              className={`w-8 h-8 rounded-full border-2 transition-all ${swatch.bg} ${appConfig.themeColor === swatch.color ? 'border-white scale-110 shadow-lg shadow-black/30' : 'border-transparent hover:scale-105'}`}
                               title={swatch.name}
                             />
                           ))}
+                          {/* Custom Color Picker */}
+                          <div className="relative" title="Custom Color">
+                            <div
+                              className={`w-8 h-8 rounded-full border-2 flex items-center justify-center overflow-hidden transition-all hover:scale-105 ${
+                                !['168 85 247','34 197 94','59 130 246','239 68 68'].includes(appConfig.themeColor)
+                                  ? 'border-white scale-110 shadow-lg shadow-black/30'
+                                  : 'border-transparent'
+                              }`}
+                              style={{ background: `rgb(${appConfig.themeColor})` }}
+                            >
+                              <input
+                                type="color"
+                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                value={`#${appConfig.themeColor.split(' ').map(n => parseInt(n).toString(16).padStart(2,'0')).join('')}`}
+                                onChange={(e) => {
+                                  const hex = e.target.value;
+                                  const r = parseInt(hex.slice(1,3),16);
+                                  const g = parseInt(hex.slice(3,5),16);
+                                  const b = parseInt(hex.slice(5,7),16);
+                                  updateConfig('themeColor', `${r} ${g} ${b}`);
+                                }}
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
