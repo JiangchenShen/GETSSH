@@ -61,9 +61,7 @@ export class PluginManager {
     ipcMain.handle('uninstall-plugin', async (event, pluginName: string) => {
        try {
           const targetDir = path.join(this.pluginsPath, pluginName);
-          if (fs.existsSync(targetDir)) {
-             fs.rmSync(targetDir, { recursive: true, force: true });
-          }
+          await fs.promises.rm(targetDir, { recursive: true, force: true });
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
           return { success: true };
        } catch (err: any) {
@@ -74,7 +72,7 @@ export class PluginManager {
     ipcMain.handle('install-plugin', async (event, zipPath: string) => {
       try {
         const zip = new AdmZip(zipPath);
-        const tempDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'plugin_'));
+        const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'plugin_'));
 
         // Securely extract zip entries to prevent Zip Slip vulnerability
         const resolvedTempDir = path.resolve(tempDir);
@@ -87,41 +85,39 @@ export class PluginManager {
           }
 
           if (entry.isDirectory) {
-            fs.mkdirSync(targetPath, { recursive: true });
+            await fs.promises.mkdir(targetPath, { recursive: true });
           } else {
             const dir = path.dirname(targetPath);
-            if (!fs.existsSync(dir)) {
-              fs.mkdirSync(dir, { recursive: true });
-            }
-            fs.writeFileSync(targetPath, entry.getData());
+            await fs.promises.mkdir(dir, { recursive: true });
+            await fs.promises.writeFile(targetPath, entry.getData());
           }
         }
 
         let pkgPath = path.join(tempDir, 'package.json');
         let sourceDir = tempDir;
 
-        if (!fs.existsSync(pkgPath)) {
+        const pkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
+        if (!pkgExists) {
           // Check if it's wrapped in a single root folder
-          const subDirs = fs.readdirSync(tempDir);
+          const subDirs = await fs.promises.readdir(tempDir);
           if (subDirs.length === 1) {
             const nestedDir = path.join(tempDir, subDirs[0]);
-            if (fs.statSync(nestedDir).isDirectory()) {
+            if ((await fs.promises.stat(nestedDir)).isDirectory()) {
               pkgPath = path.join(nestedDir, 'package.json');
               sourceDir = nestedDir;
             }
           }
         }
 
-        if (!fs.existsSync(pkgPath)) throw new Error('Invalid Architecture: Missing package.json manifest.');
+        const finalPkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
+        if (!finalPkgExists) throw new Error('Invalid Architecture: Missing package.json manifest.');
         
-        const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        const manifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
         const targetDir = path.join(this.pluginsPath, manifest.name);
         
-        if (fs.existsSync(targetDir)) {
-          fs.rmSync(targetDir, { recursive: true, force: true });
-        }
+        await fs.promises.rm(targetDir, { recursive: true, force: true });
         
-        fs.renameSync(sourceDir, targetDir);
+        await fs.promises.rename(sourceDir, targetDir);
         
         if (!this.installedPlugins.find(p => p.name === manifest.name)) {
           this.installedPlugins.push(manifest);
