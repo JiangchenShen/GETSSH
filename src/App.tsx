@@ -106,18 +106,12 @@ function App() {
     let unsubTheme: (() => void) | undefined;
     let unsubBlur: (() => void) | undefined;
     let unsubFocus: (() => void) | undefined;
-    // @ts-ignore
     if (window.electronAPI && window.electronAPI.getTheme) {
-      // @ts-ignore
       window.electronAPI.getTheme().then(setSystemIsDark);
-      // @ts-ignore
       unsubTheme = window.electronAPI.onThemeChanged(setSystemIsDark);
       
-      // @ts-ignore
       if (window.electronAPI.onAppBlur) {
-        // @ts-ignore
         unsubBlur = window.electronAPI.onAppBlur(() => setIsAppBlurred(true));
-        // @ts-ignore
         unsubFocus = window.electronAPI.onAppFocus(() => setIsAppBlurred(false));
       }
     }
@@ -156,7 +150,6 @@ function App() {
                 initScript: appConfig.initScript
             };
             
-            // @ts-ignore
             window.electronAPI.sshConnect(config).then(res => {
                if (res.success && res.sessionId) {
                  const tabTitle = `${config.username}@${config.host}`;
@@ -166,10 +159,10 @@ function App() {
                      return [...prev, { id: res.sessionId as string, title: tabTitle, config }];
                  });
                  setActiveTabId(res.sessionId);
-                 if (config.initScript) {
+                 if (config.initScript && res.sessionId) {
+                     const sessionId = res.sessionId;
                      setTimeout(() => {
-                        // @ts-ignore
-                        window.electronAPI.sshWrite(res.sessionId, config.initScript + '\n');
+                        window.electronAPI.sshWrite(sessionId, config.initScript + '\n');
                      }, 1500); // Allow shell load buffer
                  }
                }
@@ -192,9 +185,7 @@ function App() {
     }
     
     // Notify Main Process for Backend intercepts 
-    // @ts-ignore
     if(window.electronAPI && window.electronAPI.updateBackendConfig) {
-      // @ts-ignore
       window.electronAPI.updateBackendConfig({ confirmQuit: appConfig.confirmQuit, globalHotkey: appConfig.globalHotkey });
     }
   }, [appConfig, systemIsDark]);
@@ -247,7 +238,6 @@ function App() {
         initScript: appConfig.initScript
     };
     
-    // @ts-ignore
     const res = await window.electronAPI.sshConnect(config);
     setConnecting(false);
 

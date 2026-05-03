@@ -13,7 +13,6 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     setLoading(true);
     setError(null);
     try {
-      // @ts-ignore
       const res = await window.electronAPI.sftpList(sessionId, path);
       if (res.success) {
         setFiles(res.list.sort((a: any, b: any) => {
@@ -50,7 +49,6 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     e.stopPropagation();
     if (!window.confirm(t('sftp.deleteConfirm', { name: file.name }))) return;
     const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
-    // @ts-ignore
     const res = await window.electronAPI.sftpDelete(sessionId, path, file.type === 'd');
     if (res.success) {
       fetchFiles(currentPath);

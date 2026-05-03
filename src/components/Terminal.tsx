@@ -109,7 +109,6 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       window.removeEventListener('resize', handleResize);
       if (unsubData) unsubData();
       if (unsubClosed) unsubClosed();
-      // @ts-ignore
       term.dispose();
       window.electronAPI.sshDisconnect(sessionId);
     };
