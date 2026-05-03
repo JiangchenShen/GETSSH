@@ -4,58 +4,18 @@ import { TerminalSquare, Server, Plus, X, Search, Settings, Monitor, Terminal as
 import { PluginSettings } from './components/PluginSettings';
 import { SFTPManager } from './components/SFTPManager';
 import { usePluginStore } from './store/pluginStore';
+import { AppConfig, DEFAULT_CONFIG } from './store/appStore';
+import { Tab } from './store/sessionStore';
+import { usePanelStore } from './store/panelStore';
+import { SplitPane } from './components/SplitPane';
+import { TabBar } from './components/TabBar';
+import { EmptyState } from './components/EmptyState';
+import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { CryptoModal } from './components/CryptoModal';
 
-interface Tab {
-  id: string; // sessionId
-  title: string;
-  config: any;
-}
-
-export interface AppConfig {
-  language: string;
-  themeColor: string;
-  theme: 'system' | 'light' | 'dark';
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  bgOpacity: number;
-  copyOnSelect: boolean;
-  cursorStyle: 'block' | 'underline' | 'bar';
-  scrollback: number;
-  keepalive: number;
-  defaultPort: number;
-  confirmQuit: boolean;
-  globalHotkey: string;
-  proxyType: 'none' | 'socks5' | 'http';
-  proxyHost: string;
-  proxyPort: number;
-  privacyMode: boolean;
-  initScript: string;
-}
-
-const DEFAULT_CONFIG: AppConfig = {
-  language: 'en-US',
-  themeColor: '168 85 247', // Default Purple
-  theme: 'system',
-  fontFamily: '"Fira Code", monospace, "Courier New", Courier',
-  fontSize: 14,
-  lineHeight: 1.2,
-  bgOpacity: 1,
-  copyOnSelect: false,
-  cursorStyle: 'block',
-  scrollback: 10000,
-  keepalive: 15,
-  defaultPort: 22,
-  confirmQuit: false,
-  globalHotkey: 'Option+Space',
-  proxyType: 'none',
-  proxyHost: '127.0.0.1',
-  proxyPort: 1080,
-  privacyMode: false,
-  initScript: ''
-};
+// Types re-exported from stores for backward compatibility
+export type { AppConfig } from './store/appStore';
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -83,8 +43,7 @@ function App() {
   };
   const hasAutoStarted = useRef(false);
   const [isAppBlurred, setIsAppBlurred] = useState(false);
-  const [showSFTP, setShowSFTP] = useState(false);
-  const [sftpWidth, setSftpWidth] = useState(320);
+  const activePanelId = usePanelStore(state => state.activePanelId);
   const sidebarActions = usePluginStore(state => state.sidebarActions);
 
   const [selectedSessionIndex, setSelectedSessionIndex] = useState<number | null>(null);
@@ -128,26 +87,20 @@ function App() {
       }
     } catch {}
 
-    // Boot Render Plugins
-    const bootPlugins = async () => {
-       const scripts = await window.electronAPI.getPluginRenderers();
-       scripts.forEach(script => {
-           if (script) {
-               try { new Function(script)(); } catch(e) { console.error('Plugin Boot Error:', e); }
-           }
-       });
-       const pluginAPI = (window as any).GETSSH_PLUGIN_API || [];
-       pluginAPI.forEach((plugin: any) => {
-           if (typeof plugin.init === 'function') {
-               plugin.init({
-                   registerSidebarAction: (id: string, icon: string, label: string, onClick: () => void) => {
-                       usePluginStore.getState().registerSidebarAction({ id, icon, label, onClick });
-                   }
-               });
-           }
-       });
-    };
-    bootPlugins();
+    // Boot Plugins in Sandbox (secure)
+    initPluginBridge();
+    bootSandboxedPlugins();
+
+    // Register core panels in the dynamic panel engine
+    usePanelStore.getState().registerPanel({
+      id: 'sftp',
+      title: 'SFTP Manager',
+      component: SFTPManager,
+      position: 'right',
+      defaultSize: 320,
+      minSize: 200,
+      maxSize: 600,
+    });
 
     // Init Theme Sync
     let unsubTheme: (() => void) | undefined;
@@ -340,18 +293,6 @@ function App() {
     }
   };
 
-  const closeTab = (e: React.MouseEvent, tabId: string) => {
-    e.stopPropagation();
-    setTabs(prev => {
-      const remaining = prev.filter(t => t.id !== tabId);
-      if (activeTabId === tabId) {
-        const sshTabs = remaining.filter(t => t.id !== 'settings');
-        setActiveTabId(sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null);
-      }
-      return remaining;
-    });
-    window.electronAPI.sshDisconnect(tabId);
-  };
 
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -441,7 +382,7 @@ function App() {
                 <div dangerouslySetInnerHTML={{ __html: action.icon }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
              </button>
           ))}
-          <button onClick={() => setShowSFTP(!showSFTP)} className={`p-2 rounded-lg transition-colors ${showSFTP ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
+          <button onClick={() => usePanelStore.getState().togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
              <HardDrive className="w-5 h-5" />
           </button>
           <button onClick={() => openSettingsTab('Appearance')} className={`p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
@@ -456,22 +397,8 @@ function App() {
       {/* Main Area - Switch Mode */}
       <div className="flex-1 flex flex-col overflow-hidden pt-8">
 
-        {/* Tab Bar */}
-        {tabs.filter(t => t.id !== 'settings').length > 0 && (
-          <div className={`flex items-end px-2 gap-1 border-b shrink-0 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`} style={{ WebkitAppRegion: 'no-drag' } as any}>
-            {tabs.filter(t => t.id !== 'settings').map((tab) => {
-              const isActive = activeTabId === tab.id;
-              return (
-                <div key={tab.id} onClick={() => { setActiveTabId(tab.id); setSelectedSessionIndex(null); }} className={`group flex items-center justify-between gap-3 px-4 py-2 rounded-t-lg border-t border-x cursor-pointer text-sm transition-all min-w-[150px] max-w-[200px] ${isActive ? (isDark ? 'bg-black/60 border-white/10 text-white shadow-md' : 'bg-white border-black/10 text-black shadow-md relative z-10') : (isDark ? 'bg-transparent border-transparent text-white/50 hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')}`}>
-                    <span className="truncate">{tab.title}</span>
-                    <button onClick={(e) => closeTab(e, tab.id)} className={`p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}>
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* Tab Bar - Extracted Component */}
+        <TabBar />
 
         {/* Settings Panel - inline switch */}
         {activeTabId === 'settings' && selectedSessionIndex === null && (
@@ -851,55 +778,24 @@ function App() {
           </div>
         )}
 
-        {/* Terminals + SFTP Split - shown when a terminal tab is active */}
+        {/* Terminals + Dynamic Split Pane Engine */}
         {selectedSessionIndex === null && activeTabId && activeTabId !== 'settings' && (
           <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}>
-            {/* Terminals keep-alive */}
-            <div className="flex-1 relative">
-              {tabs.filter(t => t.id !== 'settings').map(tab => (
-                <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                  <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
-                </div>
-              ))}
-            </div>
-            {/* Inline SFTP Panel */}
-            {showSFTP && activeTabId && (
-              <div 
-                 className={`shrink-0 border-l relative flex flex-col ${isDark ? 'border-white/10' : 'border-black/10'}`} 
-                 style={{ width: sftpWidth }}
-              >
-                {/* Resizer Handle */}
-                <div 
-                  className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-50 hover:bg-primary/50 transition-colors"
-                  onMouseDown={(e) => {
-                    const startX = e.clientX;
-                    const startWidth = sftpWidth;
-                    const onMouseMove = (moveEvent: any) => {
-                      const newWidth = Math.max(300, Math.min(600, startWidth - (moveEvent.clientX - startX)));
-                      setSftpWidth(newWidth);
-                    };
-                    const onMouseUp = () => {
-                      document.removeEventListener('mousemove', onMouseMove);
-                      document.removeEventListener('mouseup', onMouseUp);
-                    };
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
-                  }}
-                />
-                <SFTPManager sessionId={activeTabId} isDark={isDark} />
+            <SplitPane>
+              <div className="flex-1 relative">
+                {tabs.filter(t => t.id !== 'settings').map(tab => (
+                  <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
+                    <TerminalComponent sessionId={tab.id} onDisconnected={() => {}} onReconnect={() => handleReconnect(tab)} config={appConfig} />
+                  </div>
+                ))}
               </div>
-            )}
+            </SplitPane>
           </div>
         )}
 
-        {/* Empty State */}
+        {/* Empty State - Extracted Component */}
         {selectedSessionIndex === null && !activeTabId && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="opacity-30 flex flex-col items-center gap-4">
-              <TerminalIcon className="w-16 h-16" />
-              <p className="text-sm font-medium tracking-widest uppercase">Select or create a session to connect</p>
-            </div>
-          </div>
+          <EmptyState />
         )}
 
       </div>
