@@ -15,6 +15,15 @@ export class PluginManager {
     }
   }
 
+  private getSecurePluginPath(pluginName: string): string {
+    const targetPath = path.resolve(this.pluginsPath, pluginName);
+    const basePath = path.resolve(this.pluginsPath) + path.sep;
+    if (!targetPath.startsWith(basePath)) {
+      throw new Error('Invalid plugin path: Path traversal detected.');
+    }
+    return targetPath;
+  }
+
   private createMainContext(): MainContextAPI {
     return {
       showNotification: (title, body) => new Notification({ title, body }).show(),
@@ -60,7 +69,7 @@ export class PluginManager {
     
     ipcMain.handle('uninstall-plugin', async (event, pluginName: string) => {
        try {
-          const targetDir = path.join(this.pluginsPath, pluginName);
+          const targetDir = this.getSecurePluginPath(pluginName);
           if (fs.existsSync(targetDir)) {
              fs.rmSync(targetDir, { recursive: true, force: true });
           }
@@ -75,7 +84,27 @@ export class PluginManager {
       try {
         const zip = new AdmZip(zipPath);
         const tempDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'plugin_'));
-        zip.extractAllTo(tempDir, true);
+
+        // Securely extract zip entries to prevent Zip Slip vulnerability
+        const resolvedTempDir = path.resolve(tempDir);
+        for (const entry of zip.getEntries()) {
+          const targetPath = path.resolve(resolvedTempDir, entry.entryName);
+          // Ensure target path is strictly within the intended temporary directory
+          if (!targetPath.startsWith(resolvedTempDir + path.sep) && targetPath !== resolvedTempDir) {
+            console.warn(`[Plugin Kernel] Skipped malicious or invalid zip entry: ${entry.entryName}`);
+            continue;
+          }
+
+          if (entry.isDirectory) {
+            fs.mkdirSync(targetPath, { recursive: true });
+          } else {
+            const dir = path.dirname(targetPath);
+            if (!fs.existsSync(dir)) {
+              fs.mkdirSync(dir, { recursive: true });
+            }
+            fs.writeFileSync(targetPath, entry.getData());
+          }
+        }
 
         let pkgPath = path.join(tempDir, 'package.json');
         let sourceDir = tempDir;
@@ -95,7 +124,7 @@ export class PluginManager {
         if (!fs.existsSync(pkgPath)) throw new Error('Invalid Architecture: Missing package.json manifest.');
         
         const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        const targetDir = path.join(this.pluginsPath, manifest.name);
+        const targetDir = this.getSecurePluginPath(manifest.name);
         
         if (fs.existsSync(targetDir)) {
           fs.rmSync(targetDir, { recursive: true, force: true });
@@ -120,7 +149,12 @@ export class PluginManager {
           .filter((p) => !!p.renderer)
           .map(async (p) => {
             try {
-              return await fs.promises.readFile(path.join(this.pluginsPath, p.name, p.renderer!), 'utf8');
+              const pluginPath = this.getSecurePluginPath(p.name);
+              const rendererPath = path.resolve(pluginPath, p.renderer!);
+              if (!rendererPath.startsWith(pluginPath + path.sep)) {
+                throw new Error('Invalid renderer path');
+              }
+              return await fs.promises.readFile(rendererPath, 'utf8');
             } catch {
               return '';
             }

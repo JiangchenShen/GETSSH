@@ -1,29 +1,20 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, test, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { useAppStore, DEFAULT_CONFIG } from './appStore';
 
-// Mock browser globals properly
+// Mock browser globals using vi.stubGlobal (compatible with both test suites)
+const localStorageStore: Record<string, string> = {};
+const localStorageMock = {
+  getItem: vi.fn((key: string) => localStorageStore[key] || null),
+  setItem: vi.fn((key: string, value: string) => { localStorageStore[key] = value.toString(); }),
+  removeItem: vi.fn((key: string) => { delete localStorageStore[key]; }),
+  clear: vi.fn(() => { for (const key in localStorageStore) delete localStorageStore[key]; }),
+};
+
+const classListAddMock = vi.fn();
+const classListRemoveMock = vi.fn();
+
 beforeAll(() => {
-  const localStorageMock = (() => {
-    let store: Record<string, string> = {};
-    return {
-      getItem: vi.fn((key: string) => store[key] || null),
-      setItem: vi.fn((key: string, value: string) => {
-        store[key] = value.toString();
-      }),
-      removeItem: vi.fn((key: string) => {
-        delete store[key];
-      }),
-      clear: vi.fn(() => {
-        store = {};
-      }),
-    };
-  })();
-
   vi.stubGlobal('localStorage', localStorageMock);
-
-  const classListAddMock = vi.fn();
-  const classListRemoveMock = vi.fn();
-
   vi.stubGlobal('document', {
     documentElement: {
       classList: {
@@ -32,7 +23,6 @@ beforeAll(() => {
       }
     }
   });
-
   vi.stubGlobal('window', {
     electronAPI: {
       updateBackendConfig: vi.fn()
@@ -43,14 +33,58 @@ beforeAll(() => {
 describe('useAppStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const key in localStorageStore) delete localStorageStore[key];
     useAppStore.setState({
-      appConfig: DEFAULT_CONFIG,
+      appConfig: { ...DEFAULT_CONFIG },
       isDark: true,
       systemIsDark: true,
       isAppBlurred: false,
     });
   });
 
+  // ── loadStoredConfig ──────────────────────────────────────────────────────
+  describe('loadStoredConfig', () => {
+    test('loads appConfig from localStorage and merges with DEFAULT_CONFIG', () => {
+      localStorageStore['appConfig'] = JSON.stringify({ fontSize: 24, theme: 'dark' });
+
+      useAppStore.getState().loadStoredConfig();
+
+      const config = useAppStore.getState().appConfig;
+      expect(config.fontSize).toBe(24);
+      expect(config.theme).toBe('dark');
+      expect(config.language).toBe('en-US'); // default value preserved
+    });
+
+    test('loads legacy themePref if appConfig is not present', () => {
+      localStorageStore['themePref'] = 'light';
+
+      useAppStore.getState().loadStoredConfig();
+
+      const config = useAppStore.getState().appConfig;
+      expect(config.theme).toBe('light');
+      expect(config.fontSize).toBe(14); // default value preserved
+    });
+
+    test('does not throw when appConfig is invalid JSON', () => {
+      localStorageStore['appConfig'] = '{ invalid json }';
+
+      expect(() => {
+        useAppStore.getState().loadStoredConfig();
+      }).not.toThrow();
+
+      const config = useAppStore.getState().appConfig;
+      expect(config).toEqual(DEFAULT_CONFIG);
+    });
+
+    test('does nothing if no config or legacy theme is present', () => {
+      useAppStore.getState().loadStoredConfig();
+
+      const config = useAppStore.getState().appConfig;
+      expect(config).toEqual(DEFAULT_CONFIG);
+    });
+  });
+
+  // ── syncConfigEffects ─────────────────────────────────────────────────────
   describe('syncConfigEffects', () => {
     it('saves appConfig to localStorage', () => {
       const { syncConfigEffects } = useAppStore.getState();
