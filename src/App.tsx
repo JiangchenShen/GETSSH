@@ -4,7 +4,7 @@ import { TerminalSquare, Server, Plus, X, Search, Settings, Monitor, Terminal as
 import { PluginSettings } from './components/PluginSettings';
 import { SFTPManager } from './components/SFTPManager';
 import { usePluginStore } from './store/pluginStore';
-import { AppConfig, DEFAULT_CONFIG } from './store/appStore';
+import { useAppStore } from './store/appStore';
 import { Tab } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
@@ -13,6 +13,7 @@ import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { CryptoModal } from './components/CryptoModal';
+import DOMPurify from 'dompurify';
 
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
@@ -25,11 +26,16 @@ function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   
-  // Theme state
-  const [isDark, setIsDark] = useState(true);
-  const [systemIsDark, setSystemIsDark] = useState(true);
-  
-  const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  // App Store
+  const appConfig = useAppStore(state => state.appConfig);
+  const isDark = useAppStore(state => state.isDark);
+  const systemIsDark = useAppStore(state => state.systemIsDark);
+  const isAppBlurred = useAppStore(state => state.isAppBlurred);
+  const setSystemIsDark = useAppStore(state => state.setSystemIsDark);
+  const setIsAppBlurred = useAppStore(state => state.setIsAppBlurred);
+  const loadStoredConfig = useAppStore(state => state.loadStoredConfig);
+  const syncConfigEffects = useAppStore(state => state.syncConfigEffects);
+  const updateConfig = useAppStore(state => state.updateConfig);
   
   // Settings modal
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
@@ -42,7 +48,6 @@ function App() {
      setActiveTabId('settings');
   };
   const hasAutoStarted = useRef(false);
-  const [isAppBlurred, setIsAppBlurred] = useState(false);
   const activePanelId = usePanelStore(state => state.activePanelId);
   const sidebarActions = usePluginStore(state => state.sidebarActions);
 
@@ -77,15 +82,7 @@ function App() {
     };
     bootCrypto();
 
-    try {
-      const storedConf = localStorage.getItem('appConfig');
-      if (storedConf) {
-        setAppConfig({ ...DEFAULT_CONFIG, ...JSON.parse(storedConf) });
-      } else {
-        const legacyTheme = localStorage.getItem('themePref');
-        if (legacyTheme) setAppConfig(prev => ({ ...prev, theme: legacyTheme as any }));
-      }
-    } catch {}
+    loadStoredConfig();
 
     // Boot Plugins in Sandbox (secure)
     const cleanupPluginBridge = initPluginBridge();
@@ -174,26 +171,8 @@ function App() {
 
   // Sync config effect
   useEffect(() => {
-    localStorage.setItem('appConfig', JSON.stringify(appConfig));
-
-    // Force CSS Theme
-    const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';
-    setIsDark(dark);
-    if (dark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    
-    // Notify Main Process for Backend intercepts 
-    if(window.electronAPI && window.electronAPI.updateBackendConfig) {
-      window.electronAPI.updateBackendConfig({ confirmQuit: appConfig.confirmQuit, globalHotkey: appConfig.globalHotkey });
-    }
-  }, [appConfig, systemIsDark]);
-
-  const updateConfig = <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => {
-    setAppConfig(prev => ({ ...prev, [key]: val }));
-  };
+    syncConfigEffects();
+  }, [appConfig, systemIsDark, syncConfigEffects]);
 
   const syncProfiles = async (updatedSessions: any[]) => {
     setSessions(updatedSessions);
@@ -370,7 +349,7 @@ function App() {
         <div className="pt-4 mt-4 border-t flex justify-start gap-2 items-center z-10 flex-wrap border-black/10 dark:border-white/10">
           {sidebarActions.map(action => (
              <button key={action.id} onClick={action.onClick} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
-                <div dangerouslySetInnerHTML={{ __html: action.icon }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(action.icon) }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
              </button>
           ))}
           <button onClick={() => usePanelStore.getState().togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">

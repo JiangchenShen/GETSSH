@@ -15,6 +15,15 @@ export class PluginManager {
     }
   }
 
+  private getSecurePluginPath(pluginName: string): string {
+    const targetPath = path.resolve(this.pluginsPath, pluginName);
+    const basePath = path.resolve(this.pluginsPath) + path.sep;
+    if (!targetPath.startsWith(basePath)) {
+      throw new Error('Invalid plugin path: Path traversal detected.');
+    }
+    return targetPath;
+  }
+
   private createMainContext(): MainContextAPI {
     return {
       showNotification: (title, body) => new Notification({ title, body }).show(),
@@ -60,8 +69,13 @@ export class PluginManager {
     
     ipcMain.handle('uninstall-plugin', async (event, pluginName: string) => {
        try {
-          const targetDir = path.join(this.pluginsPath, pluginName);
-          await fs.promises.rm(targetDir, { recursive: true, force: true });
+          // Security: validate path boundary before deletion to prevent path traversal
+          const targetDir = this.getSecurePluginPath(pluginName);
+          // Async: use fs.promises.access to check existence before removal
+          const dirExists = await fs.promises.access(targetDir).then(() => true).catch(() => false);
+          if (dirExists) {
+             await fs.promises.rm(targetDir, { recursive: true, force: true });
+          }
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
           return { success: true };
        } catch (err: any) {
@@ -112,8 +126,10 @@ export class PluginManager {
         const finalPkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
         if (!finalPkgExists) throw new Error('Invalid Architecture: Missing package.json manifest.');
         
+        // Performance: async file read instead of blocking readFileSync
         const manifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
-        const targetDir = path.join(this.pluginsPath, manifest.name);
+        // Security: validate the plugin name from manifest against path traversal
+        const targetDir = this.getSecurePluginPath(manifest.name);
         
         await fs.promises.rm(targetDir, { recursive: true, force: true });
         
@@ -136,7 +152,12 @@ export class PluginManager {
           .filter((p) => !!p.renderer)
           .map(async (p) => {
             try {
-              return await fs.promises.readFile(path.join(this.pluginsPath, p.name, p.renderer!), 'utf8');
+              const pluginPath = this.getSecurePluginPath(p.name);
+              const rendererPath = path.resolve(pluginPath, p.renderer!);
+              if (!rendererPath.startsWith(pluginPath + path.sep)) {
+                throw new Error('Invalid renderer path');
+              }
+              return await fs.promises.readFile(rendererPath, 'utf8');
             } catch {
               return '';
             }
