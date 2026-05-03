@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, safeS
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { Client } from 'ssh2'
+import { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import { SocksClient } from 'socks'
 import { HttpProxyAgent } from 'http-proxy-agent'
 import { PluginManager } from './PluginManager'
@@ -109,7 +109,7 @@ app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
 })
 
-const sessions = new Map<string, { client: Client, stream: any, sftp?: any }>()
+const sessions = new Map<string, { client: Client, stream: ClientChannel, sftp?: SFTPWrapper }>()
 let sessionCounter = 0;
 let powerSaveBlockerId: number | null = null;
 
