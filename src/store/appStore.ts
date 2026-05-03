@@ -95,9 +95,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } else {
       document.documentElement.classList.remove('dark');
     }
-    // @ts-ignore
     if (window.electronAPI?.updateBackendConfig) {
-      // @ts-ignore
       window.electronAPI.updateBackendConfig({ confirmQuit: appConfig.confirmQuit, globalHotkey: appConfig.globalHotkey });
     }
   },
