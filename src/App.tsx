@@ -5,7 +5,7 @@ import { PluginSettings } from './components/PluginSettings';
 import { SFTPManager } from './components/SFTPManager';
 import { usePluginStore } from './store/pluginStore';
 import { useAppStore } from './store/appStore';
-import { Tab } from './store/sessionStore';
+import { Tab, useSessionStore } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { TabBar } from './components/TabBar';
@@ -13,45 +13,57 @@ import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { CryptoModal } from './components/CryptoModal';
+import DOMPurify from 'dompurify';
 
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
 
 function App() {
   const { t, i18n } = useTranslation();
-  const [sessions, setSessions] = useState<{host: string, username: string, password?: string, privateKeyPath?: string, autoStart?: boolean, port?: number, useKeepAlive?: boolean}[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  
+
+  // Session Store (Zustand)
+  const sessions = useSessionStore(state => state.sessions);
+  const setSessions = useSessionStore(state => state.setSessions);
+  const tabs = useSessionStore(state => state.tabs);
+  const setTabs = useSessionStore(state => state.setTabs);
+  const activeTabId = useSessionStore(state => state.activeTabId);
+  const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
+  const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
+  const searchQuery = useSessionStore(state => state.searchQuery);
+  const setSearchQuery = useSessionStore(state => state.setSearchQuery);
+  const connecting = useSessionStore(state => state.connecting);
+  const setConnecting = useSessionStore(state => state.setConnecting);
+  const error = useSessionStore(state => state.error);
+  const setError = useSessionStore(state => state.setError);
+  const closeTab = useSessionStore(state => state.closeTab);
+
+  // App Store (Zustand)
   const appConfig = useAppStore(state => state.appConfig);
   const isDark = useAppStore(state => state.isDark);
   const systemIsDark = useAppStore(state => state.systemIsDark);
   const isAppBlurred = useAppStore(state => state.isAppBlurred);
-  const updateConfig = useAppStore(state => state.updateConfig);
-  const setIsAppBlurred = useAppStore(state => state.setIsAppBlurred);
   const setSystemIsDark = useAppStore(state => state.setSystemIsDark);
+  const setIsAppBlurred = useAppStore(state => state.setIsAppBlurred);
   const loadStoredConfig = useAppStore(state => state.loadStoredConfig);
   const syncConfigEffects = useAppStore(state => state.syncConfigEffects);
-
-  // Settings modal
+  const updateConfig = useAppStore(state => state.updateConfig);
+  
+  // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
+  
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About' = 'Appearance') => {
      setSettingsActiveTab(tab);
      setSelectedSessionIndex(null);
      if (!tabs.find(t => t.id === 'settings')) {
-         setTabs(prev => [...prev, { id: 'settings', title: t('settings.title'), config: { isSettings: true } }]);
+         setTabs([...tabs, { id: 'settings', title: t('settings.title'), config: { isSettings: true } as any }]);
      }
      setActiveTabId('settings');
   };
+
   const hasAutoStarted = useRef(false);
   const activePanelId = usePanelStore(state => state.activePanelId);
   const sidebarActions = usePluginStore(state => state.sidebarActions);
-
-  const [selectedSessionIndex, setSelectedSessionIndex] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState(false);
 
   // Crypto State
   const [cryptoMode, setCryptoMode] = useState<'idle' | 'locked' | 'setup'>('idle');
@@ -131,13 +143,12 @@ function App() {
         hasAutoStarted.current = true;
         const autoSessions = sessions.filter(s => s.autoStart);
         autoSessions.forEach(autoSession => {
-            // Re-use connection layer logic directly without event dependency
             const config = { 
                 host: autoSession.host, 
                 username: autoSession.username, 
                 password: autoSession.password, 
                 privateKeyPath: autoSession.privateKeyPath,
-                port: appConfig.defaultPort,
+                port: autoSession.port || appConfig.defaultPort || 22,
                 keepaliveInterval: appConfig.keepalive * 1000,
                 // Append Proxy
                 proxyType: appConfig.proxyType,
@@ -149,11 +160,7 @@ function App() {
             window.electronAPI.sshConnect(config).then(res => {
                if (res.success && res.sessionId) {
                  const tabTitle = `${config.username}@${config.host}`;
-                 setTabs(prev => {
-                     // Check if not already existing
-                     if(prev.find(t => t.id === res.sessionId)) return prev;
-                     return [...prev, { id: res.sessionId as string, title: tabTitle, config }];
-                 });
+                 setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
                  setActiveTabId(res.sessionId);
                  if (config.initScript && res.sessionId) {
                      const sessionId = res.sessionId;
@@ -221,7 +228,7 @@ function App() {
 
     if (res.success && res.sessionId) {
       const tabTitle = `${config.username}@${config.host}`;
-      setTabs(prev => [...prev, { id: res.sessionId as string, title: tabTitle, config }]);
+      setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
       setActiveTabId(res.sessionId);
       setSelectedSessionIndex(null);
     } else {
@@ -248,11 +255,10 @@ function App() {
     syncProfiles(updated);
   };
   
-
   const handleReconnect = async (tab: Tab) => {
     const res = await window.electronAPI.sshConnect(tab.config);
     if (res.success && res.sessionId) {
-      setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
+      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
       if (activeTabId === tab.id) {
         setActiveTabId(res.sessionId as string);
       }
@@ -260,7 +266,6 @@ function App() {
       window.alert(`Reconnect failed: ${res.error}`);
     }
   };
-
 
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -333,9 +338,9 @@ function App() {
           
           <button type="button" onClick={() => {
               const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
-              const updated = [newSession, ...sessions];
+              const updated = [...sessions, newSession];
               syncProfiles(updated);
-              setSelectedSessionIndex(0);
+              setSelectedSessionIndex(updated.length - 1);
               setActiveTabId(null);
           }} className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed transition-all text-sm text-left mt-4 ${isDark ? 'border-white/20 hover:border-white/50 text-white/50 hover:text-white' : 'border-black/20 hover:border-black/50 text-black/50 hover:text-black bg-white/50'}`}>
             <Plus className="w-4 h-4 shrink-0" />
@@ -347,7 +352,7 @@ function App() {
         <div className="pt-4 mt-4 border-t flex justify-start gap-2 items-center z-10 flex-wrap border-black/10 dark:border-white/10">
           {sidebarActions.map(action => (
              <button key={action.id} onClick={action.onClick} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
-                <div dangerouslySetInnerHTML={{ __html: action.icon }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(action.icon) }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
              </button>
           ))}
           <button onClick={() => usePanelStore.getState().togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
@@ -371,17 +376,7 @@ function App() {
           activeTabId={activeTabId}
           isDark={isDark}
           onSelectTab={(tabId) => { setActiveTabId(tabId); setSelectedSessionIndex(null); }}
-          onCloseTab={(tabId) => {
-            setTabs(prev => {
-              const remaining = prev.filter(t => t.id !== tabId);
-              if (activeTabId === tabId) {
-                const sshTabs = remaining.filter(t => t.id !== 'settings');
-                setActiveTabId(sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null);
-              }
-              return remaining;
-            });
-            window.electronAPI.sshDisconnect(tabId);
-          }}
+          onCloseTab={closeTab}
         />
 
         {/* Settings Panel - always mounted, shown via CSS */}
@@ -412,7 +407,7 @@ function App() {
 
               {/* Close Button */}
               <button
-                onClick={() => { setActiveTabId(null); setTabs(prev => prev.filter(t => t.id !== 'settings')); }}
+                onClick={() => { setActiveTabId(null); setTabs(tabs.filter(t => t.id !== 'settings')); }}
                 className={`absolute right-6 top-6 z-30 p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`}
                 title="Close Settings"
               >
@@ -796,7 +791,7 @@ function App() {
           )}
         </div>
 
-        {/* Terminals - ALWAYS MOUNTED regardless of selectedSessionIndex or activeTabId */}
+        {/* Terminals area with SplitPane */}
         <div
           className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
           style={{ display: (tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
@@ -819,7 +814,7 @@ function App() {
           </SplitPane>
         </div>
 
-        {/* Empty State - shown via CSS */}
+        {/* Empty State */}
         <div style={{ display: (selectedSessionIndex === null && !activeTabId) ? 'flex' : 'none' }} className="flex-1">
           <EmptyState />
         </div>
