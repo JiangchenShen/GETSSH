@@ -57,7 +57,8 @@
       "node_modules/cpu-features/**/*.node"
     ],
     "files": [
-      "dist/**/*",
+      "dist/index.html",
+      "dist/assets/**/*",
       "dist-electron/**/*",
       "!**/*.map",
       "!**/*.ts",
@@ -76,10 +77,13 @@
       "!**/node_modules/.cache/**",
       "!**/node_env/**",
       "!**/sftp-mock-plugin/**",
-      "!**/@types/**"
+      "!**/@types/**",
+      "!**/.DS_Store"
     ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.developer-tools"
     },
     "dmg": {
@@ -112,6 +116,9 @@
         }
       ]
     },
+    "compression": "maximum",
+    "removePackageScripts": true,
+    "removePackageKeywords": true,
     "linux": {
       "target": [
         "AppImage",
@@ -119,7 +126,6 @@
       ],
       "category": "Utility"
     },
-    "compression": "maximum",
     "nsis": {
       "oneClick": false,
       "perMachine": true,
