@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -181,7 +181,20 @@ ipcMain.handle('check-profiles', () => {
 ipcMain.handle('unlock-profiles', (event, masterPassword) => {
   if (!masterPassword) {
     if (fs.existsSync(PROFILES_PLAIN_PATH)) {
-      return JSON.parse(fs.readFileSync(PROFILES_PLAIN_PATH, 'utf8'));
+      const data = fs.readFileSync(PROFILES_PLAIN_PATH);
+      try {
+        return JSON.parse(data.toString('utf8'));
+      } catch (e) {
+        if (safeStorage.isEncryptionAvailable()) {
+          try {
+            return JSON.parse(safeStorage.decryptString(data));
+          } catch (err) {
+            console.error('Failed to decrypt safeStorage fallback:', err);
+            return [];
+          }
+        }
+        return [];
+      }
     }
     return [];
   }
@@ -215,7 +228,13 @@ ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
   const tmpPath = join(app.getPath('userData'), 'profiles.tmp');
   
   if (!masterPassword) {
-     fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+     const payloadStr = JSON.stringify(payload, null, 2);
+     if (safeStorage.isEncryptionAvailable()) {
+       const encrypted = safeStorage.encryptString(payloadStr);
+       fs.writeFileSync(tmpPath, encrypted);
+     } else {
+       fs.writeFileSync(tmpPath, payloadStr);
+     }
      fs.renameSync(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
      if (fs.existsSync(PROFILES_ENC_PATH)) fs.unlinkSync(PROFILES_ENC_PATH);
      return true;
