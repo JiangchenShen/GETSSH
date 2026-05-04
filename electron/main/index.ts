@@ -110,9 +110,24 @@ app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
 })
 
-const sessions = new Map<string, { client: Client, stream: ClientChannel, sftp?: SFTPWrapper }>()
+const sessions = new Map<string, { client: Client, stream: ClientChannel | null, sftp?: SFTPWrapper }>()
 let sessionCounter = 0;
 let powerSaveBlockerId: number | null = null;
+const activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
+
+function cleanupSessionSftpWatchers(sessionId: string) {
+  for (const [watchId, active] of Object.entries(activeSftpWatchers)) {
+    if (watchId.startsWith(`${sessionId}_`)) {
+      active.watcher.close();
+      try {
+        if (fs.existsSync(active.tempPath)) fs.unlinkSync(active.tempPath);
+      } catch (e) {
+        console.error('[SFTP Sync] Cleanup failed', e);
+      }
+      delete activeSftpWatchers[watchId];
+    }
+  }
+}
 
 const updatePowerSaveBlocker = () => {
   if (sessions.size > 0 && powerSaveBlockerId === null) {
@@ -358,6 +373,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           sshClient!.shell({ term: 'xterm-256color' }, (err, stream) => {
           if (err) {
             sessions.delete(sessionId)
+            cleanupSessionSftpWatchers(sessionId);
             updatePowerSaveBlocker();
             resolve({ success: false, error: err.message })
             return
@@ -378,6 +394,7 @@ ipcMain.handle('ssh-connect', async (event, config) => {
           stream.on('close', () => {
             sshClient.end()
             sessions.delete(sessionId)
+            cleanupSessionSftpWatchers(sessionId);
             updatePowerSaveBlocker();
             if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
           }).on('data', (data: Buffer) => {
@@ -404,12 +421,14 @@ ipcMain.handle('ssh-connect', async (event, config) => {
         })
       }).on('error', (err: any) => {
         sessions.delete(sessionId)
+        cleanupSessionSftpWatchers(sessionId);
         updatePowerSaveBlocker();
         if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
         resolve({ success: false, error: err.message })
       }).connect(connectConfig)
       }).catch(err => {
          sessions.delete(sessionId)
+         cleanupSessionSftpWatchers(sessionId);
          updatePowerSaveBlocker();
          resolve({ success: false, error: err.message })
       })
@@ -510,7 +529,7 @@ ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string,
   });
 });
 
-const activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
+// (moved activeSftpWatchers to top of file)
 
 ipcMain.handle('sftp-edit-sync', async (event, sessionId: string, remoteFilePath: string) => {
   const session = sessions.get(sessionId); 
@@ -529,11 +548,15 @@ ipcMain.handle('sftp-edit-sync', async (event, sessionId: string, remoteFilePath
   await shell.openPath(tempPath);
 
   let timeoutId: NodeJS.Timeout;
+  let isUploading = false;
   const watcher = fs.watch(tempPath, (eventType) => {
     if (eventType === 'change') {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
+        if (isUploading) return;
+        isUploading = true;
         session.sftp!.fastPut(tempPath, remoteFilePath, (err: any) => {
+          isUploading = false;
           if (err) console.error(`[SFTP Sync] Failed to upload ${remoteFilePath}:`, err);
         });
       }, 1000);
@@ -583,6 +606,7 @@ ipcMain.on('ssh-disconnect', (event, sessionId) => {
     if (session.stream) session.stream.close()
     if (session.client) session.client.end()
     sessions.delete(sessionId)
+    cleanupSessionSftpWatchers(sessionId);
     updatePowerSaveBlocker();
   }
 })
