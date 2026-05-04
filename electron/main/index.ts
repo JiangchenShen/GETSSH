@@ -178,10 +178,10 @@ ipcMain.handle('check-profiles', () => {
   return 'none';
 });
 
-ipcMain.handle('unlock-profiles', (event, masterPassword) => {
+ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   if (!masterPassword) {
-    if (fs.existsSync(PROFILES_PLAIN_PATH)) {
-      const data = fs.readFileSync(PROFILES_PLAIN_PATH);
+    try {
+      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
       try {
         return JSON.parse(data.toString('utf8'));
       } catch (e) {
@@ -195,12 +195,17 @@ ipcMain.handle('unlock-profiles', (event, masterPassword) => {
         }
         return [];
       }
+    } catch (e) {
+      return [];
     }
-    return [];
   }
 
-  if (!fs.existsSync(PROFILES_ENC_PATH)) throw new Error('No profiles found');
-  const buffer = fs.readFileSync(PROFILES_ENC_PATH);
+  let buffer: Buffer;
+  try {
+    buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
+  } catch (e) {
+    throw new Error('No profiles found');
+  }
   
   if (buffer.length < 44) throw new Error('Invalid encrypted profile');
   

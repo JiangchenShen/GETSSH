@@ -1,18 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { sanitizeSVG } from './svgSanitizer';
 
 // Minimal mock DOM for the test environment
 if (typeof (global as any).DOMParser === 'undefined') {
   (global as any).DOMParser = class {
-    parseFromString(svg: string, type: string) {
+    parseFromString(svg: string, _type: string) {
       const elements: any[] = [];
 
       const parser = {
-        querySelector: (sel: string) => {
+        querySelector: (_sel: string) => {
             if (svg.includes('<parsererror')) return { textContent: 'error' };
             return null;
         },
-        getElementsByTagName: (tag: string) => elements,
+        getElementsByTagName: (_tag: string) => elements,
       };
 
       // Mocking tags
