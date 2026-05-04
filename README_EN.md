@@ -7,15 +7,15 @@
 [![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-V1.2--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
+[![Changelog](https://img.shields.io/badge/Changelog-V1.2.1--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
 
-**GETSSH** is more than just an SSH client; it is a modern remote management platform built for developers who demand peak efficiency and ultimate security. In V1.2, we have completed a comprehensive evolution of our core architecture, moving from a monolithic structure to a micro-component architecture and introducing industrial-grade security isolation.
+**GETSSH** is more than just an SSH client; it is a modern remote management platform built for developers who demand peak efficiency and ultimate security. In V1.2.1, we have completed a comprehensive evolution of our core architecture, moving from a monolithic structure to a micro-component architecture, introducing industrial-grade security isolation, and implementing a lightweight update mechanism.
 
 📢 **[View Latest Updates (Changelog)](UPDATE.md)**
 
 ---
 
-## 💎 V1.2 Architecture Highlights (The Epic Refactor)
+## 💎 V1.2.1 Architecture Highlights (The Epic Refactor)
 
 ### 🏗️ Micro-component Architecture (Monolith to Micro-components)
 We have completely decoupled the legacy 900+ lines of `App.tsx` logic. GETSSH is now built like LEGO from highly autonomous micro-components:

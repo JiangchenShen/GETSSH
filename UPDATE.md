@@ -4,6 +4,25 @@
 
 ---
 
+## [1.2.1] - 2026-05-04
+
+### 🚀 稳定性与体验增强补丁 (Stabilization & UX Enhancement)
+- **极轻量在线更新机制**：
+  - 新增基于 GitHub Releases API 的零依赖（Zero-Dependency）更新检查器。
+  - 完美绕过 macOS Gatekeeper 和 Windows SmartScreen 强制签名拦截。
+  - 支持后台轮询与无缝的 UI 弹窗提示，引导安全下载。
+- **SFTP 实时同步与高可用加固**：
+  - 修复了 SSH 异常断开时导致的文件监听器（Watchers）内存泄漏问题，实现 100% 实例回收。
+  - 新增了 `isUploading` 锁机制，彻底消除弱网环境下的并发上传导致的文件损坏隐患。
+- **异步 I/O 的终极进化**：
+  - 将 `unlock-profiles` 和 `save-profiles` 核心操作彻底重构为非阻塞异步（含异步 `fs.promises` 和非阻塞 `crypto.pbkdf2`），杜绝主线程 UI 卡顿。
+  - 引入了基于 UUID 的临时文件写入机制，避免多端并发写入时的 Race Condition 数据覆写。
+- **测试工程化闭环**：
+  - 新增超 70+ UI 组件与交互逻辑测试集（涵盖 `App.tsx`、`SFTPManager.tsx` 等）。
+  - 全工程 132 项单元测试 100% 绿灯，Typescript 静态类型 0 错误拦截，达到史无前例的健壮度。
+
+---
+
 ## [1.2.0] - 2026-05-03
 
 ### 🚀 正式生产版 (Production Ready)
