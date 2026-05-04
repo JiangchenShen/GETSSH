@@ -178,16 +178,19 @@ ipcMain.handle('check-profiles', () => {
   return 'none';
 });
 
-ipcMain.handle('unlock-profiles', (event, masterPassword) => {
+ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   if (!masterPassword) {
-    if (fs.existsSync(PROFILES_PLAIN_PATH)) {
-      return JSON.parse(fs.readFileSync(PROFILES_PLAIN_PATH, 'utf8'));
+    const hasPlain = await fs.promises.access(PROFILES_PLAIN_PATH).then(() => true).catch(() => false);
+    if (hasPlain) {
+      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH, 'utf8');
+      return JSON.parse(data);
     }
     return [];
   }
 
-  if (!fs.existsSync(PROFILES_ENC_PATH)) throw new Error('No profiles found');
-  const buffer = fs.readFileSync(PROFILES_ENC_PATH);
+  const hasEnc = await fs.promises.access(PROFILES_ENC_PATH).then(() => true).catch(() => false);
+  if (!hasEnc) throw new Error('No profiles found');
+  const buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
   
   if (buffer.length < 44) throw new Error('Invalid encrypted profile');
   
@@ -196,7 +199,12 @@ ipcMain.handle('unlock-profiles', (event, masterPassword) => {
   const authTag = buffer.subarray(28, 44);
   const cipherText = buffer.subarray(44);
   
-  const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
   
   try {
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
