@@ -94,27 +94,26 @@ describe('PluginManager', () => {
   });
 
   describe('loadPlugins', () => {
-    it('should catch JSON parse errors from invalid package.json', () => {
-      // Mock readdirSync to return one folder
-      (fs.readdirSync as any).mockReturnValue(['invalid-plugin']);
+    it('should catch JSON parse errors from invalid package.json', async () => {
+      // Mock readdir to return one folder
+      (fs.promises.readdir as any).mockResolvedValue(['invalid-plugin']);
 
-      // Mock statSync to say it's a directory
-      (fs.statSync as any).mockReturnValue({ isDirectory: () => true });
+      // Mock stat to say it's a directory
+      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
 
-      // Mock existsSync to say package.json exists
-      (fs.existsSync as any).mockImplementation((p: string) => {
-        if (p === '/mocked/path/userData/plugins') return true;
-        if (p.endsWith('package.json')) return true;
-        return false;
+      // Mock access to say package.json exists
+      (fs.promises.access as any).mockImplementation((p: string) => {
+        if (p.endsWith('package.json')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
       });
 
-      // Mock readFileSync to return invalid JSON
-      (fs.readFileSync as any).mockReturnValue('invalid-json-{');
+      // Mock readFile to return invalid JSON
+      (fs.promises.readFile as any).mockResolvedValue('invalid-json-{');
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // Should not throw, but should log error
-      expect(() => pluginManager.loadPlugins()).not.toThrow();
+      await pluginManager.loadPlugins();
 
       // The error should be caught and logged
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -128,23 +127,22 @@ describe('PluginManager', () => {
       consoleErrorSpy.mockRestore();
     });
 
-    it('should catch errors thrown by plugin module activate function', () => {
-      // Mock readdirSync to return one folder
-      (fs.readdirSync as any).mockReturnValue(['crashing-plugin']);
+    it('should catch errors thrown by plugin module activate function', async () => {
+      // Mock readdir to return one folder
+      (fs.promises.readdir as any).mockResolvedValue(['crashing-plugin']);
 
-      // Mock statSync to say it's a directory
-      (fs.statSync as any).mockReturnValue({ isDirectory: () => true });
+      // Mock stat to say it's a directory
+      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
 
-      // Mock existsSync to say package.json and main entry exist
-      (fs.existsSync as any).mockImplementation((p: string) => {
-        if (p === '/mocked/path/userData/plugins') return true;
-        if (p.endsWith('package.json')) return true;
-        if (p.endsWith('index.js')) return true;
-        return false;
+      // Mock access to say package.json and main entry exist
+      (fs.promises.access as any).mockImplementation((p: string) => {
+        if (p.endsWith('package.json')) return Promise.resolve();
+        if (p.endsWith('index.js')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
       });
 
-      // Mock readFileSync to return valid package.json
-      (fs.readFileSync as any).mockReturnValue(JSON.stringify({
+      // Mock readFile to return valid package.json
+      (fs.promises.readFile as any).mockResolvedValue(JSON.stringify({
         name: 'crashing-plugin',
         version: '1.0.0',
         main: 'index.js'
@@ -168,7 +166,7 @@ describe('PluginManager', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // Should not throw, but should log error
-      expect(() => pluginManager.loadPlugins()).not.toThrow();
+      await pluginManager.loadPlugins();
 
       // The error should be caught and logged
       expect(consoleErrorSpy).toHaveBeenCalledWith(

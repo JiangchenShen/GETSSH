@@ -84,11 +84,11 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
-  pluginManager.loadPlugins();
+  await pluginManager.loadPlugins();
   createWindow();
 })
 
