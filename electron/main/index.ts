@@ -76,6 +76,25 @@ function createWindow() {
     }
   })
 
+  // Security Hardening: Prevent arbitrary window spawning
+  win.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
+
+  // Security Hardening: Prevent arbitrary navigation within the main window
+  win.webContents.on('will-navigate', (event, url) => {
+    const parsedUrl = new URL(url);
+    const localUrl = process.env.VITE_DEV_SERVER_URL;
+    if (localUrl && parsedUrl.origin === new URL(localUrl).origin) {
+      return; // Allow local dev server navigation
+    }
+    if (parsedUrl.protocol === 'file:') {
+      return; // Allow local file navigation (dist/index.html)
+    }
+    event.preventDefault();
+    console.warn(`[Security] Prevented navigation to ${url}`);
+  });
+
   if (app.isPackaged) {
     win.loadFile(join(__dirname, '../../dist/index.html'))
   } else if (process.env.VITE_DEV_SERVER_URL) {
@@ -674,5 +693,14 @@ ipcMain.on('show-context-menu', (event) => {
 })
 
 ipcMain.on('open-external', (event, url) => {
-  shell.openExternal(url);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      shell.openExternal(url);
+    } else {
+      console.warn(`[Security] Blocked attempt to open non-http(s) URL: ${url}`);
+    }
+  } catch (e) {
+    console.error(`[Security] Invalid URL format rejected: ${url}`);
+  }
 })
