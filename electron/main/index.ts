@@ -49,7 +49,7 @@ function createWindow() {
       preload,
       nodeIntegration: false,
       contextIsolation: true,
-      backgroundThrottling: false // Fix xterm and SSH disconnects on blur
+      backgroundThrottling: false // Prevents xterm and SSH from disconnecting when window loses focus
     },
   })
 
