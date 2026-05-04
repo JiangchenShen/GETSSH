@@ -18,8 +18,8 @@ declare global {
       saveProfiles: (payload: { masterPassword: string, payload: any }) => Promise<boolean>;
       onAppBlur: (cb: () => void) => (() => void);
       onAppFocus: (cb: () => void) => (() => void);
-      getPluginsList: () => Promise<any[]>;
-      installPlugin: (zipPath: string) => Promise<{ success: boolean; manifest?: any; error?: string }>;
+      getPluginsList: () => Promise<import('./types/plugin').PluginManifest[]>;
+      installPlugin: (zipPath: string) => Promise<{ success: boolean; manifest?: import('./types/plugin').PluginManifest; error?: string }>;
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
       getPluginRenderers: () => Promise<string[]>;
       sftpList: (sessionId: string, remotePath: string) => Promise<any>;

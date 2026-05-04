@@ -9,25 +9,25 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    window.electronAPI.getPluginsList().then((res: any) => setPlugins(res || []));
+    window.electronAPI.getPluginsList().then((res) => setPlugins(res || []));
   }, []);
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && (file as any).path.endsWith('.zip')) {
+    const file = e.dataTransfer.files[0] as File & { path: string };
+    if (file && file.path.endsWith('.zip')) {
       setLoading(true);
       try {
-        const res = await window.electronAPI.installPlugin((file as any).path);
-        if (res.success) {
+        const res = await window.electronAPI.installPlugin(file.path);
+        if (res.success && res.manifest) {
           const newList = await window.electronAPI.getPluginsList();
           setPlugins(newList || []);
           alert(`🎉 Plugin [${res.manifest.displayName}] Installed! Restart GETSSH to initialize.`);
         } else {
           alert('❌ Install Failed: ' + res.error);
         }
-      } catch (err: any) {
-        alert('❌ Install Error: ' + err.message);
+      } catch (err: unknown) {
+        alert('❌ Install Error: ' + (err instanceof Error ? err.message : String(err)));
       }
       setLoading(false);
     }

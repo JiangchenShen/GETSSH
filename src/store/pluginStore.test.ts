@@ -19,8 +19,8 @@ describe('usePluginStore', () => {
   describe('setPlugins', () => {
     it('sets the installedPlugins correctly', () => {
       const mockPlugins = [
-        { name: 'test-plugin', version: '1.0.0' },
-        { name: 'another-plugin', version: '2.1.0' }
+        { name: 'test-plugin', version: '1.0.0', displayName: 'Test', description: 'Desc', main: 'main.js' },
+        { name: 'another-plugin', version: '2.1.0', displayName: 'Another', description: 'Desc', main: 'main.js' }
       ];
       usePluginStore.getState().setPlugins(mockPlugins);
 
