@@ -126,8 +126,12 @@ export async function bootSandboxedPlugins() {
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
       if (doc) {
         doc.open();
-        doc.write(`<html><body><script>${sdkCode}\n${script}<\/script></body></html>`);
+        doc.write('<html><body></body></html>');
         doc.close();
+
+        const scriptEl = doc.createElement('script');
+        scriptEl.textContent = `${sdkCode}\n${script}`;
+        doc.body.appendChild(scriptEl);
       }
     });
   } catch (e) {
