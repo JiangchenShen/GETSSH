@@ -73,24 +73,26 @@ describe('PluginManager', () => {
   });
 
   describe('loadPlugins', () => {
-    it('should load plugins and add to installedPlugins', () => {
-      (fs.readdirSync as any).mockReturnValue(['plugin1']);
-      (fs.statSync as any).mockReturnValue({ isDirectory: () => true });
+    it('should load plugins and add to installedPlugins', async () => {
+      (fs.promises.readdir as any).mockResolvedValue(['plugin1']);
+      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
 
-      (fs.existsSync as any).mockImplementation((p: string) => p.includes('package.json'));
-      (fs.readFileSync as any).mockReturnValue(JSON.stringify({ name: 'plugin1', main: 'main.js' }));
+      (fs.promises.access as any).mockImplementation((p: string) =>
+        p.includes('package.json') ? Promise.resolve() : Promise.reject(new Error('ENOENT'))
+      );
+      (fs.promises.readFile as any).mockResolvedValue(JSON.stringify({ name: 'plugin1', main: 'main.js' }));
 
-      pluginManager.loadPlugins();
+      await pluginManager.loadPlugins();
 
       expect(pluginManager.installedPlugins.length).toBe(1);
       expect(pluginManager.installedPlugins[0].name).toBe('plugin1');
     });
 
-    it('should ignore non-directories', () => {
-      (fs.readdirSync as any).mockReturnValue(['not-a-dir']);
-      (fs.statSync as any).mockReturnValue({ isDirectory: () => false });
+    it('should ignore non-directories', async () => {
+      (fs.promises.readdir as any).mockResolvedValue(['not-a-dir']);
+      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => false });
 
-      pluginManager.loadPlugins();
+      await pluginManager.loadPlugins();
 
       expect(pluginManager.installedPlugins.length).toBe(0);
     });

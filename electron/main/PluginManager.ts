@@ -38,29 +38,38 @@ export class PluginManager {
     };
   }
 
-  public loadPlugins() {
-    const folders = fs.readdirSync(this.pluginsPath);
-    for (const folder of folders) {
-      const pluginDir = path.join(this.pluginsPath, folder);
-      if (fs.statSync(pluginDir).isDirectory()) {
-         try {
-           const pkgPath = path.join(pluginDir, 'package.json');
-           if (!fs.existsSync(pkgPath)) continue;
-           
-           const manifest: PluginManifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-           this.installedPlugins.push(manifest);
-           
-           const mainEntryPath = path.join(pluginDir, manifest.main);
-           if (fs.existsSync(mainEntryPath)) {
-             const pluginModule = require(mainEntryPath);
-             if (typeof pluginModule.activate === 'function') {
-               pluginModule.activate(this.createMainContext());
-             }
-           }
-         } catch (err) {
-           console.error(`[Plugin Kernel] Failed to load plugin from ${folder}:`, err);
-         }
-      }
+  public async loadPlugins() {
+    try {
+      const folders = await fs.promises.readdir(this.pluginsPath);
+      await Promise.all(
+        folders.map(async (folder) => {
+          const pluginDir = path.join(this.pluginsPath, folder);
+          try {
+            const stat = await fs.promises.stat(pluginDir);
+            if (stat.isDirectory()) {
+              const pkgPath = path.join(pluginDir, 'package.json');
+              const pkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
+              if (!pkgExists) return;
+
+              const manifest: PluginManifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
+              this.installedPlugins.push(manifest);
+
+              const mainEntryPath = path.join(pluginDir, manifest.main);
+              const mainExists = await fs.promises.access(mainEntryPath).then(() => true).catch(() => false);
+              if (mainExists) {
+                const pluginModule = require(mainEntryPath);
+                if (typeof pluginModule.activate === 'function') {
+                  pluginModule.activate(this.createMainContext());
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Plugin Kernel] Failed to load plugin from ${folder}:`, err);
+          }
+        })
+      );
+    } catch (err) {
+      console.error('[Plugin Kernel] Failed to read plugins directory:', err);
     }
   }
 
