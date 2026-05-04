@@ -234,25 +234,34 @@ ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   }
 });
 
-ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
-  const tmpPath = join(app.getPath('userData'), 'profiles.tmp');
+ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
+  const tmpPath = join(app.getPath('userData'), `profiles_${crypto.randomUUID()}.tmp`);
   
   if (!masterPassword) {
      const payloadStr = JSON.stringify(payload, null, 2);
      if (safeStorage.isEncryptionAvailable()) {
        const encrypted = safeStorage.encryptString(payloadStr);
-       fs.writeFileSync(tmpPath, encrypted);
+       await fs.promises.writeFile(tmpPath, encrypted);
      } else {
-       fs.writeFileSync(tmpPath, payloadStr);
+       await fs.promises.writeFile(tmpPath, payloadStr);
      }
-     fs.renameSync(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
-     if (fs.existsSync(PROFILES_ENC_PATH)) fs.unlinkSync(PROFILES_ENC_PATH);
+     await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
+     try {
+       await fs.promises.unlink(PROFILES_ENC_PATH);
+     } catch (err: any) {
+       if (err.code !== 'ENOENT') throw err;
+     }
      return true;
   }
   
   const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(12);
-  const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
   
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   let encrypted = cipher.update(JSON.stringify(payload), 'utf8');
@@ -260,9 +269,13 @@ ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
   const authTag = cipher.getAuthTag();
   
   const output = Buffer.concat([salt, iv, authTag, encrypted]);
-  fs.writeFileSync(tmpPath, output);
-  fs.renameSync(tmpPath, PROFILES_ENC_PATH); // Atomic write
-  if (fs.existsSync(PROFILES_PLAIN_PATH)) fs.unlinkSync(PROFILES_PLAIN_PATH);
+  await fs.promises.writeFile(tmpPath, output);
+  await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
+  try {
+    await fs.promises.unlink(PROFILES_PLAIN_PATH);
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') throw err;
+  }
   return true;
 })
 
