@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -84,11 +84,11 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
-  pluginManager.loadPlugins();
+  await pluginManager.loadPlugins();
   createWindow();
 })
 
@@ -180,17 +180,32 @@ ipcMain.handle('check-profiles', () => {
 
 ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   if (!masterPassword) {
-    const hasPlain = await fs.promises.access(PROFILES_PLAIN_PATH).then(() => true).catch(() => false);
-    if (hasPlain) {
-      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH, 'utf8');
-      return JSON.parse(data);
+    try {
+      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
+      try {
+        return JSON.parse(data.toString('utf8'));
+      } catch (e) {
+        if (safeStorage.isEncryptionAvailable()) {
+          try {
+            return JSON.parse(safeStorage.decryptString(data));
+          } catch (err) {
+            console.error('Failed to decrypt safeStorage fallback:', err);
+            return [];
+          }
+        }
+        return [];
+      }
+    } catch (e) {
+      return [];
     }
-    return [];
   }
 
-  const hasEnc = await fs.promises.access(PROFILES_ENC_PATH).then(() => true).catch(() => false);
-  if (!hasEnc) throw new Error('No profiles found');
-  const buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
+  let buffer: Buffer;
+  try {
+    buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
+  } catch (e) {
+    throw new Error('No profiles found');
+  }
   
   if (buffer.length < 44) throw new Error('Invalid encrypted profile');
   
@@ -223,7 +238,13 @@ ipcMain.handle('save-profiles', (event, { masterPassword, payload }) => {
   const tmpPath = join(app.getPath('userData'), 'profiles.tmp');
   
   if (!masterPassword) {
-     fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+     const payloadStr = JSON.stringify(payload, null, 2);
+     if (safeStorage.isEncryptionAvailable()) {
+       const encrypted = safeStorage.encryptString(payloadStr);
+       fs.writeFileSync(tmpPath, encrypted);
+     } else {
+       fs.writeFileSync(tmpPath, payloadStr);
+     }
      fs.renameSync(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
      if (fs.existsSync(PROFILES_ENC_PATH)) fs.unlinkSync(PROFILES_ENC_PATH);
      return true;
