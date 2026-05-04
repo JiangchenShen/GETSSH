@@ -82,6 +82,7 @@ window.electronAPI = {
   focusWindow: vi.fn(),
   safeStorageStatus: vi.fn().mockResolvedValue('unavailable'),
   checkProfiles: vi.fn().mockResolvedValue('none'),
+  onUpdateAvailable: vi.fn(),
 } as any;
 
 describe('App Component', () => {

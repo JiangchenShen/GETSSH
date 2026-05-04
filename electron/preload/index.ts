@@ -49,5 +49,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installPlugin: (zipPath: string) => ipcRenderer.invoke('install-plugin', zipPath),
   uninstallPlugin: (pluginName: string) => ipcRenderer.invoke('uninstall-plugin', pluginName),
   getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
+  openExternal: (url: string) => ipcRenderer.send('open-external', url),
+  onUpdateAvailable: (callback: (info: { version: string, url: string }) => void) => {
+    const listener = (_event: any, info: { version: string, url: string }) => callback(info)
+    ipcRenderer.on('update-available', listener)
+    return () => ipcRenderer.removeListener('update-available', listener)
+  },
   showContextMenu: () => ipcRenderer.send('show-context-menu')
 })

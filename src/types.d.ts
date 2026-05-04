@@ -29,6 +29,8 @@ declare global {
       sftpWriteFile: (sessionId: string, remotePath: string, data: string) => Promise<any>;
       sftpEditSync: (sessionId: string, remotePath: string) => Promise<{ success: boolean; watchId?: string; error?: string }>;
       sftpEditStop: (watchId: string) => Promise<{ success: boolean; error?: string }>;
+      openExternal: (url: string) => void;
+      onUpdateAvailable: (cb: (info: { version: string; url: string }) => void) => (() => void);
       showContextMenu: () => void;
     };
   }

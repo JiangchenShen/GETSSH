@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import https from 'node:https'
 import { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import { SocksClient } from 'socks'
 import { HttpProxyAgent } from 'http-proxy-agent'
@@ -85,12 +86,64 @@ function createWindow() {
   }
 }
 
+function compareSemVer(v1: string, v2: string) {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+  const a = parse(v1);
+  const b = parse(v2);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const numA = a[i] || 0;
+    const numB = b[i] || 0;
+    if (numA > numB) return 1;
+    if (numA < numB) return -1;
+  }
+  return 0;
+}
+
+function checkForUpdates() {
+  const options = {
+    hostname: 'api.github.com',
+    path: '/repos/JiangchenShen/GETSSH/releases/latest',
+    headers: {
+      'User-Agent': 'GETSSH-Updater'
+    }
+  };
+
+  https.get(options, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        if (res.statusCode === 200) {
+          const release = JSON.parse(data);
+          const latestVersion = release.tag_name;
+          const currentVersion = app.getVersion();
+          if (compareSemVer(latestVersion, currentVersion) > 0) {
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('update-available', {
+                version: latestVersion,
+                url: release.html_url
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse release data', e);
+      }
+    });
+  }).on('error', (e) => {
+    console.error('Failed to check for updates', e);
+  });
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
   await pluginManager.loadPlugins();
   createWindow();
+  
+  checkForUpdates();
+  setInterval(checkForUpdates, 12 * 60 * 60 * 1000); // Check every 12 hours
 })
 
 app.on('window-all-closed', () => {
@@ -618,4 +671,8 @@ ipcMain.on('show-context-menu', (event) => {
   ];
   const menu = Menu.buildFromTemplate(template as any);
   menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
+})
+
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
 })

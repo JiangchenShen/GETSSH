@@ -75,6 +75,17 @@ function App() {
   const [safeNewPwd, setSafeNewPwd] = useState('');
   const [safeError, setSafeError] = useState('');
 
+  const [updateInfo, setUpdateInfo] = useState<{version: string, url: string} | null>(null);
+
+  useEffect(() => {
+    if (window.electronAPI && window.electronAPI.onUpdateAvailable) {
+      const unsub = window.electronAPI.onUpdateAvailable((info) => {
+        setUpdateInfo(info);
+      });
+      return unsub;
+    }
+  }, []);
+
   useEffect(() => {
     const bootCrypto = async () => {
        const status = await window.electronAPI.checkProfiles();
@@ -820,6 +831,30 @@ function App() {
         </div>
 
       </div>
+
+      {/* Update Toast Notification */}
+      {updateInfo && (
+        <div className={`absolute bottom-6 right-6 p-4 rounded-xl shadow-2xl border flex flex-col gap-3 z-[200] max-w-sm animate-in slide-in-from-bottom-5 fade-in duration-300 ${isDark ? 'bg-[#2a2a2a] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0">
+                <Monitor className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">GETSSH {updateInfo.version} 已发布！</h4>
+                <p className="text-xs opacity-70 mt-0.5">有新版本可供升级，体验最新特性与修复。</p>
+              </div>
+            </div>
+            <button onClick={() => setUpdateInfo(null)} className="opacity-50 hover:opacity-100 p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setUpdateInfo(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>暂不更新</button>
+            <button onClick={() => { window.electronAPI.openExternal(updateInfo.url); setUpdateInfo(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">立即下载</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
