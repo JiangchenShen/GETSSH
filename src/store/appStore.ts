@@ -77,7 +77,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const storedConf = localStorage.getItem('appConfig');
       if (storedConf) {
-        set({ appConfig: { ...DEFAULT_CONFIG, ...JSON.parse(storedConf) } });
+        const parsed = JSON.parse(storedConf);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          set({ appConfig: { ...DEFAULT_CONFIG, ...parsed } });
+        } else {
+          set({ appConfig: { ...DEFAULT_CONFIG } });
+        }
       } else {
         const legacyTheme = localStorage.getItem('themePref');
         if (legacyTheme) set((s) => ({ appConfig: { ...s.appConfig, theme: legacyTheme as any } }));

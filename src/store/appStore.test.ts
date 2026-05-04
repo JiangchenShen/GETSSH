@@ -125,6 +125,24 @@ describe('useAppStore', () => {
       const config = useAppStore.getState().appConfig;
       expect(config).toEqual(DEFAULT_CONFIG);
     });
+
+    test('ignores invalid JSON structures (arrays, primitives, null) and falls back to DEFAULT_CONFIG', () => {
+      const invalidConfigs = [
+        JSON.stringify([]),
+        JSON.stringify(null),
+        JSON.stringify("invalid string"),
+        JSON.stringify(123)
+      ];
+
+      for (const invalid of invalidConfigs) {
+        localStorageStore['appConfig'] = invalid;
+
+        useAppStore.getState().loadStoredConfig();
+
+        const config = useAppStore.getState().appConfig;
+        expect(config).toEqual(DEFAULT_CONFIG);
+      }
+    });
   });
 
   // ── syncConfigEffects ─────────────────────────────────────────────────────
