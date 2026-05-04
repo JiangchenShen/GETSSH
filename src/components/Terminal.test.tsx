@@ -138,7 +138,7 @@ describe('Terminal Component', () => {
 
   it('handles incoming SSH data', () => {
     let dataCallback: any;
-    window.electronAPI.onSshData = vi.fn().mockImplementation((id, cb) => {
+    window.electronAPI.onSshData = vi.fn().mockImplementation((_id, cb) => {
         dataCallback = cb;
         return vi.fn();
     });
@@ -178,7 +178,7 @@ describe('Terminal Component', () => {
     const onDisconnectedMock = vi.fn();
     const onReconnectMock = vi.fn();
 
-    window.electronAPI.onSshClosed = vi.fn().mockImplementation((id, cb) => {
+    window.electronAPI.onSshClosed = vi.fn().mockImplementation((_id, cb) => {
         closeCallback = cb;
         return vi.fn();
     });

@@ -25,7 +25,7 @@ const mockBody = {
 
 import { initPluginBridge, bootSandboxedPlugins } from './PluginBridge';
 import { usePluginStore } from '../store/pluginStore';
-import { sanitizeSVG } from './svgSanitizer';
+// import { sanitizeSVG } from './svgSanitizer';
 
 vi.mock('./svgSanitizer', () => ({
   sanitizeSVG: vi.fn((svg: string) => `sanitized-${svg}`),

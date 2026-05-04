@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import React from 'react';
+// import React from 'react';
 import App from './App';
 import { useSessionStore } from './store/sessionStore';
 import { useAppStore } from './store/appStore';
@@ -97,21 +97,23 @@ describe('App Component', () => {
       error: null,
     });
     useAppStore.setState({
-      appConfig: { defaultPort: 22, themeColor: "119,173,255" },
+      appConfig: { defaultPort: 22, themeColor: "119,173,255" } as any,
       isDark: true,
       systemIsDark: true,
       isAppBlurred: false,
     });
     useCryptoStore.setState({
-      cryptoMode: 'none',
+      cryptoMode: 'idle',
       masterPassword: '',
     });
     usePanelStore.setState({
-      isLeftPanelOpen: true,
-      isRightPanelOpen: false,
+      panels: [],
+      activePanelId: null,
+      panelSizes: {},
     });
     usePluginStore.setState({
-      plugins: [],
+      installedPlugins: [],
+      sidebarActions: [],
     });
   });
 
