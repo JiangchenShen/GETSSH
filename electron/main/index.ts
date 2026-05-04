@@ -214,7 +214,12 @@ ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   const authTag = buffer.subarray(28, 44);
   const cipherText = buffer.subarray(44);
   
-  const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
   
   try {
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
