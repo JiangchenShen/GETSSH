@@ -256,5 +256,19 @@ describe('PluginManager', () => {
       expect(result.manifest.name).toBe('nested-plugin');
       expect(fs.promises.rename).toHaveBeenCalledWith(nestedPath, expect.any(String));
     });
+
+    it('should catch errors thrown during installation', async () => {
+      // Setup mock to throw an error
+      (fs.promises.mkdtemp as any).mockRejectedValue(new Error('Simulated installation failure'));
+
+      // Call the handler
+      const result = await installHandler({} as any, '/mocked/path/temp/dummy.zip');
+
+      // Assert result
+      expect(result).toEqual({
+        success: false,
+        error: 'Simulated installation failure'
+      });
+    });
   });
 });
