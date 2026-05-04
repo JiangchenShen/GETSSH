@@ -27,6 +27,8 @@ declare global {
       sftpDelete: (sessionId: string, remotePath: string, isDir: boolean) => Promise<any>;
       sftpReadFile: (sessionId: string, remotePath: string) => Promise<any>;
       sftpWriteFile: (sessionId: string, remotePath: string, data: string) => Promise<any>;
+      sftpEditSync: (sessionId: string, remotePath: string) => Promise<{ success: boolean; watchId?: string; error?: string }>;
+      sftpEditStop: (watchId: string) => Promise<{ success: boolean; error?: string }>;
       showContextMenu: () => void;
     };
   }

@@ -65,6 +65,23 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     }
   };
 
+  const handleDoubleClick = async (file: SFTPFile) => {
+    if (file.type === 'd') {
+      handleNavigate(file.name);
+      return;
+    }
+    
+    try {
+      const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
+      const res = await window.electronAPI.sftpEditSync(sessionId, path);
+      if (res.success) {
+        // Optional: add UI indication or just let it be silent
+      }
+    } catch (error) {
+      console.error('Failed to start SFTP sync edit:', error);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -116,7 +133,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
                  </tr>
                )}
                {files.map(f => (
-                 <tr key={f.name} onClick={() => f.type === 'd' && handleNavigate(f.name)} className={`group transition-colors ${f.type === 'd' ? 'cursor-pointer' : ''} ${isDark ? 'hover:bg-white/5 border-white/5' : 'hover:bg-black/5 border-black/5'} border-b last:border-0`}>
+                 <tr key={f.name} onDoubleClick={() => handleDoubleClick(f)} onClick={() => f.type === 'd' && handleNavigate(f.name)} className={`group transition-colors ${f.type === 'd' ? 'cursor-pointer' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 border-white/5' : 'hover:bg-black/5 border-black/5'} border-b last:border-0`}>
                    <td className="px-2 py-2 flex items-center gap-2 truncate max-w-[200px]" title={f.name}>
                      {f.type === 'd' ? <Folder className="w-4 h-4 text-blue-400 shrink-0" /> : <File className="w-4 h-4 opacity-70 shrink-0" />}
                      <span className="truncate">{f.name}</span>

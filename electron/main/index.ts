@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
+import os from 'node:os'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { Client, ClientChannel, SFTPWrapper } from 'ssh2'
@@ -508,6 +509,59 @@ ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string,
     });
   });
 });
+
+const activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
+
+ipcMain.handle('sftp-edit-sync', async (event, sessionId: string, remoteFilePath: string) => {
+  const session = sessions.get(sessionId); 
+  if (!session || !session.sftp) throw new Error('SFTP session not available');
+
+  const fileName = require('node:path').basename(remoteFilePath);
+  const tempPath = join(os.tmpdir(), `getssh_sync_${Date.now()}_${fileName}`);
+
+  await new Promise<void>((resolve, reject) => {
+    session.sftp!.fastGet(remoteFilePath, tempPath, (err: any) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+  await shell.openPath(tempPath);
+
+  let timeoutId: NodeJS.Timeout;
+  const watcher = fs.watch(tempPath, (eventType) => {
+    if (eventType === 'change') {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        session.sftp!.fastPut(tempPath, remoteFilePath, (err: any) => {
+          if (err) console.error(`[SFTP Sync] Failed to upload ${remoteFilePath}:`, err);
+        });
+      }, 1000);
+    }
+  });
+
+  const watchId = `${sessionId}_${remoteFilePath}`;
+  activeSftpWatchers[watchId] = { watcher, tempPath };
+
+  return { success: true, watchId };
+});
+
+ipcMain.handle('sftp-edit-stop', async (event, watchId: string) => {
+  const active = activeSftpWatchers[watchId];
+  if (active) {
+    active.watcher.close();
+    try {
+      if (fs.existsSync(active.tempPath)) {
+        fs.unlinkSync(active.tempPath);
+      }
+    } catch (e) {
+      console.error('[SFTP Sync] Cleanup failed', e);
+    }
+    delete activeSftpWatchers[watchId];
+  }
+  return { success: true };
+});
+
 
 ipcMain.on('ssh-write', (event, { sessionId, data }) => {
   const session = sessions.get(sessionId)
