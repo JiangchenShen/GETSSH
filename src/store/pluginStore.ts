@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { PluginManifest } from '../types/plugin';
 
 export interface SidebarAction {
   id: string;
@@ -8,9 +9,9 @@ export interface SidebarAction {
 }
 
 interface PluginStore {
-  installedPlugins: any[];
+  installedPlugins: PluginManifest[];
   sidebarActions: SidebarAction[];
-  setPlugins: (plugins: any[]) => void;
+  setPlugins: (plugins: PluginManifest[]) => void;
   registerSidebarAction: (action: SidebarAction) => void;
 }
 
