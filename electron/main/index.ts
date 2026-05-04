@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage } from 'electron'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -84,11 +84,11 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
-  pluginManager.loadPlugins();
+  await pluginManager.loadPlugins();
   createWindow();
 })
 
@@ -178,16 +178,34 @@ ipcMain.handle('check-profiles', () => {
   return 'none';
 });
 
-ipcMain.handle('unlock-profiles', (event, masterPassword) => {
+ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
   if (!masterPassword) {
-    if (fs.existsSync(PROFILES_PLAIN_PATH)) {
-      return JSON.parse(fs.readFileSync(PROFILES_PLAIN_PATH, 'utf8'));
+    try {
+      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
+      try {
+        return JSON.parse(data.toString('utf8'));
+      } catch (e) {
+        if (safeStorage.isEncryptionAvailable()) {
+          try {
+            return JSON.parse(safeStorage.decryptString(data));
+          } catch (err) {
+            console.error('Failed to decrypt safeStorage fallback:', err);
+            return [];
+          }
+        }
+        return [];
+      }
+    } catch (e) {
+      return [];
     }
-    return [];
   }
 
-  if (!fs.existsSync(PROFILES_ENC_PATH)) throw new Error('No profiles found');
-  const buffer = fs.readFileSync(PROFILES_ENC_PATH);
+  let buffer: Buffer;
+  try {
+    buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
+  } catch (e) {
+    throw new Error('No profiles found');
+  }
   
   if (buffer.length < 44) throw new Error('Invalid encrypted profile');
   
@@ -196,7 +214,12 @@ ipcMain.handle('unlock-profiles', (event, masterPassword) => {
   const authTag = buffer.subarray(28, 44);
   const cipherText = buffer.subarray(44);
   
-  const key = crypto.pbkdf2Sync(masterPassword, salt, 100000, 32, 'sha256');
+  const key = await new Promise<Buffer>((resolve, reject) => {
+    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
   
   try {
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
@@ -215,7 +238,13 @@ ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
   const tmpPath = join(app.getPath('userData'), `profiles_${crypto.randomUUID()}.tmp`);
   
   if (!masterPassword) {
-     await fs.promises.writeFile(tmpPath, JSON.stringify(payload, null, 2));
+     const payloadStr = JSON.stringify(payload, null, 2);
+     if (safeStorage.isEncryptionAvailable()) {
+       const encrypted = safeStorage.encryptString(payloadStr);
+       await fs.promises.writeFile(tmpPath, encrypted);
+     } else {
+       await fs.promises.writeFile(tmpPath, payloadStr);
+     }
      await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
      try {
        await fs.promises.unlink(PROFILES_ENC_PATH);
