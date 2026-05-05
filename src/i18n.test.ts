@@ -1,5 +1,4 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-// import i18n from 'i18next';
 
 vi.mock('./locales/en-US.json', () => ({
   default: {
