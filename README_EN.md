@@ -43,7 +43,8 @@ Inspired by mechanisms like **GoldenLayout**, we've integrated a flexible `Split
 
 *   **Glassmorphism Aesthetics**: Polished frosted glass visual effects with real-time background opacity adjustment.
 *   **Zero-Knowledge Encryption**: AES-256 full encryption based on a Master Password, ensuring local config files remain absolutely secure.
-*   **Full SFTP Management**: High-performance SFTP module with drag-and-drop uploads, file editing, and permission control.
+*   **Full SFTP Management**: High-performance SFTP module with drag-and-drop, direct address bar navigation, and symlink support.
+*   **Silent Update Mechanism**: Zero-dependency GitHub OTA checker with background badge notifications and one-click upgrades.
 *   **High-Speed Core**: Powered by xterm.js for native-grade terminal rendering with GPU acceleration and smooth tab switching.
 *   **Extreme Robustness**: 98% of the core logic is written in TypeScript for strict type safety.
 
