@@ -96,16 +96,7 @@ describe('PluginManager', () => {
   describe('loadPlugins', () => {
     it('should catch JSON parse errors from invalid package.json', async () => {
       // Mock readdir to return one folder
-      (fs.promises.readdir as any).mockResolvedValue(['invalid-plugin']);
-
-      // Mock stat to say it's a directory
-      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
-
-      // Mock access to say package.json exists
-      (fs.promises.access as any).mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return Promise.resolve();
-        return Promise.reject(new Error('ENOENT'));
-      });
+      (fs.promises.readdir as any).mockResolvedValue([{ name: 'invalid-plugin', isDirectory: () => true }]);
 
       // Mock readFile to return invalid JSON
       (fs.promises.readFile as any).mockResolvedValue('invalid-json-{');
@@ -129,17 +120,7 @@ describe('PluginManager', () => {
 
     it('should catch errors thrown by plugin module activate function', async () => {
       // Mock readdir to return one folder
-      (fs.promises.readdir as any).mockResolvedValue(['crashing-plugin']);
-
-      // Mock stat to say it's a directory
-      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
-
-      // Mock access to say package.json and main entry exist
-      (fs.promises.access as any).mockImplementation((p: string) => {
-        if (p.endsWith('package.json')) return Promise.resolve();
-        if (p.endsWith('index.js')) return Promise.resolve();
-        return Promise.reject(new Error('ENOENT'));
-      });
+      (fs.promises.readdir as any).mockResolvedValue([{ name: 'crashing-plugin', isDirectory: () => true }]);
 
       // Mock readFile to return valid package.json
       (fs.promises.readFile as any).mockResolvedValue(JSON.stringify({

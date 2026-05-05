@@ -40,31 +40,41 @@ export class PluginManager {
 
   public async loadPlugins() {
     try {
-      const folders = await fs.promises.readdir(this.pluginsPath);
+      const dirents = await fs.promises.readdir(this.pluginsPath, { withFileTypes: true });
       await Promise.all(
-        folders.map(async (folder) => {
-          const pluginDir = path.join(this.pluginsPath, folder);
+        dirents.map(async (dirent) => {
+          if (!dirent.isDirectory()) return;
+          const pluginDir = path.join(this.pluginsPath, dirent.name);
           try {
-            const stat = await fs.promises.stat(pluginDir);
-            if (stat.isDirectory()) {
-              const pkgPath = path.join(pluginDir, 'package.json');
-              const pkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
-              if (!pkgExists) return;
+            const pkgPath = path.join(pluginDir, 'package.json');
+            let manifestRaw: string;
+            try {
+              manifestRaw = await fs.promises.readFile(pkgPath, 'utf8');
+            } catch (err: any) {
+              if (err.code === 'ENOENT') return; // Package.json does not exist
+              throw err;
+            }
 
-              const manifest: PluginManifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
-              this.installedPlugins.push(manifest);
+            const manifest: PluginManifest = JSON.parse(manifestRaw);
 
-              const mainEntryPath = path.join(pluginDir, manifest.main);
-              const mainExists = await fs.promises.access(mainEntryPath).then(() => true).catch(() => false);
-              if (mainExists) {
-                const pluginModule = require(mainEntryPath);
-                if (typeof pluginModule.activate === 'function') {
-                  pluginModule.activate(this.createMainContext());
-                }
+            this.installedPlugins.push(manifest);
+
+            const mainEntryPath = path.join(pluginDir, manifest.main);
+            try {
+              const pluginModule = require(mainEntryPath);
+              if (typeof pluginModule.activate === 'function') {
+                pluginModule.activate(this.createMainContext());
               }
+            } catch (requireErr: any) {
+              // Only ignore MODULE_NOT_FOUND if it's the main entry point missing,
+              // not a missing dependency within the plugin itself.
+              if (requireErr.code === 'MODULE_NOT_FOUND' && requireErr.message.includes(manifest.main)) {
+                return;
+              }
+              throw requireErr;
             }
           } catch (err) {
-            console.error(`[Plugin Kernel] Failed to load plugin from ${folder}:`, err);
+            console.error(`[Plugin Kernel] Failed to load plugin from ${dirent.name}:`, err);
           }
         })
       );

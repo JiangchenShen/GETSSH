@@ -10,3 +10,4 @@ profiles.enc
 sftp-mock-plugin.zip
 test-results/
 REFACTORING_PLAN.md
+mock_userData

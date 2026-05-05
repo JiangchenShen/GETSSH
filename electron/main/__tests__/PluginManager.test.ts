@@ -74,12 +74,8 @@ describe('PluginManager', () => {
 
   describe('loadPlugins', () => {
     it('should load plugins and add to installedPlugins', async () => {
-      (fs.promises.readdir as any).mockResolvedValue(['plugin1']);
-      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => true });
+      (fs.promises.readdir as any).mockResolvedValue([{ name: 'plugin1', isDirectory: () => true }]);
 
-      (fs.promises.access as any).mockImplementation((p: string) =>
-        p.includes('package.json') ? Promise.resolve() : Promise.reject(new Error('ENOENT'))
-      );
       (fs.promises.readFile as any).mockResolvedValue(JSON.stringify({ name: 'plugin1', main: 'main.js' }));
 
       await pluginManager.loadPlugins();
@@ -89,8 +85,7 @@ describe('PluginManager', () => {
     });
 
     it('should ignore non-directories', async () => {
-      (fs.promises.readdir as any).mockResolvedValue(['not-a-dir']);
-      (fs.promises.stat as any).mockResolvedValue({ isDirectory: () => false });
+      (fs.promises.readdir as any).mockResolvedValue([{ name: 'not-a-dir', isDirectory: () => false }]);
 
       await pluginManager.loadPlugins();
 
