@@ -152,7 +152,7 @@ describe('PluginManager', () => {
 
         mockAdmZipInstance.getEntries.mockReturnValue([
           { entryName: 'package.json', isDirectory: false, getData: () => Buffer.from(JSON.stringify(mockManifest)) },
-          { entryName: 'main.js', isDirectory: false, getData: () => Buffer.from('console.log("main")') }
+          { entryName: 'main.js', isDirectory: false, getData: () => Buffer.from('// main') }
         ] as any);
 
         (fs.promises.mkdtemp as any).mockResolvedValue('/mock/temp/plugin_123');
@@ -192,7 +192,7 @@ describe('PluginManager', () => {
         const handler = (ipcMain.handle as any).mock.calls.find((call: any) => call[0] === 'install-plugin')[1];
 
         mockAdmZipInstance.getEntries.mockReturnValue([
-          { entryName: 'main.js', isDirectory: false, getData: () => Buffer.from('console.log("main")') }
+          { entryName: 'main.js', isDirectory: false, getData: () => Buffer.from('// main') }
         ] as any);
 
         (fs.promises.mkdtemp as any).mockResolvedValue('/mock/temp/plugin_123');
@@ -246,11 +246,11 @@ describe('PluginManager', () => {
           { name: 'plugin2', main: 'main.js' } // no renderer
         ];
 
-        (fs.promises.readFile as any).mockResolvedValue('console.log("renderer")');
+        (fs.promises.readFile as any).mockResolvedValue('// renderer');
 
         const result = await handler();
 
-        expect(result).toEqual(['console.log("renderer")']);
+        expect(result).toEqual(['// renderer']);
         expect(fs.promises.readFile).toHaveBeenCalledWith(path.join('/mock/userData/plugins/plugin1', 'renderer.js'), 'utf8');
       });
 
