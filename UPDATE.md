@@ -22,6 +22,13 @@
   - 移除了所有硬编码的版本号，统一由 `package.json` 驱动。
   - 解决了 Refactoring 过程中的所有 Typescript 类型告警，全工程静态校验 0 错误。
 
+### 🐛 Bug 修复 (Bug Fixes)
+- **SFTP 目录解析修复**：修复了在 Oracle Cloud (Ubuntu) 等环境下因 `ssh2` 属性对象缺失 `isDirectory` 方法导致的文件列表渲染失败。
+- **符号链接支持**：解决了 SFTP 无法识别与进入软链接目录的问题，现在支持点击跳转。
+- **更新算法修正**：修正了 `compareSemVer` 对 GitHub Tag 前缀大小写的兼容性问题（如 `V1.2.0` vs `1.2.1`）。
+- **交互死锁修复**：彻底移除了在 macOS 上可能导致 UI 进程挂起的 `window.prompt` 调用，改用受控的 React Modal。
+- **连接稳定性**：优化了 SSH Heartbeat 逻辑，修复了在某些网络波动环境下连接意外断开后状态未同步的问题。
+
 ---
 
 ## [1.2.0] - 2026-05-03
