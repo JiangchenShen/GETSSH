@@ -32,6 +32,7 @@ declare global {
       openExternal: (url: string) => void;
       onUpdateAvailable: (cb: (info: { version: string; url: string }) => void) => (() => void);
       showContextMenu: () => void;
+      checkForUpdates: () => Promise<{ hasUpdate: boolean; version?: string; url?: string; error?: string }>;
     };
   }
 }

@@ -4,22 +4,23 @@
 
 ---
 
-## [1.2.1] - 2026-05-04
+## [1.2.1] - 2026-05-05
 
-### 🚀 稳定性与体验增强补丁 (Stabilization & UX Enhancement)
-- **极轻量在线更新机制**：
-  - 新增基于 GitHub Releases API 的零依赖（Zero-Dependency）更新检查器。
-  - 完美绕过 macOS Gatekeeper 和 Windows SmartScreen 强制签名拦截。
-  - 支持后台轮询与无缝的 UI 弹窗提示，引导安全下载。
-- **SFTP 实时同步与高可用加固**：
-  - 修复了 SSH 异常断开时导致的文件监听器（Watchers）内存泄漏问题，实现 100% 实例回收。
-  - 新增了 `isUploading` 锁机制，彻底消除弱网环境下的并发上传导致的文件损坏隐患。
-- **异步 I/O 的终极进化**：
-  - 将 `unlock-profiles` 和 `save-profiles` 核心操作彻底重构为非阻塞异步（含异步 `fs.promises` 和非阻塞 `crypto.pbkdf2`），杜绝主线程 UI 卡顿。
-  - 引入了基于 UUID 的临时文件写入机制，避免多端并发写入时的 Race Condition 数据覆写。
-- **测试工程化闭环**：
-  - 新增超 70+ UI 组件与交互逻辑测试集（涵盖 `App.tsx`、`SFTPManager.tsx` 等）。
-  - 全工程 132 项单元测试 100% 绿灯，Typescript 静态类型 0 错误拦截，达到史无前例的健壮度。
+### 🚀 架构重构与生产力跃迁 (Refactoring & Productivity Leap)
+- **主进程极致模块化**：
+  - 彻底拆解了臃肿的 `electron/main/index.ts`（从 ~700 行缩减至 ~250 行）。
+  - 抽象出 `ConnectionManager` (会话管理)、`sshHandler` (终端逻辑)、`sftpHandler` (文件逻辑) 和 `cryptoHandler` (加密逻辑) 独立模块。
+  - 架构清晰度大幅提升，为后续多进程架构与插件深度集成奠定基础。
+- **SFTP 功能全方位补全**：
+  - **原生新建支持**：新增“新建文件”与“新建文件夹”功能，采用美观的 React 内置 Modal 替换系统原生 Prompt，交互更丝滑。
+  - **快速路径导航**：地址栏现在支持点击直接输入（Address Bar），支持输入绝对路径一键跳转。
+  - **健壮性修复**：修复了在特定 Linux 发行版（如 Oracle Cloud）下目录解析失败的 Bug，并完美支持了 SFTP 软链接（Symlink）图标显示与穿透访问。
+- **静默更新与实时提醒**：
+  - 实现了后台全自动版本检查，发现新版本时在侧边栏“设置”图标显示**红点提示 (Badge)**，并伴随轻量级 **Toast 气泡通知**。
+  - 优化了版本对比正则逻辑，完美兼容 GitHub API 的 `V` 前缀 Tag 解析。
+- **代码工程化**：
+  - 移除了所有硬编码的版本号，统一由 `package.json` 驱动。
+  - 解决了 Refactoring 过程中的所有 Typescript 类型告警，全工程静态校验 0 错误。
 
 ---
 

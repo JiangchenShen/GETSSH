@@ -49,12 +49,14 @@ interface AppStore {
   isDark: boolean;
   systemIsDark: boolean;
   isAppBlurred: boolean;
+  updateAvailable: { version: string; url: string } | null;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
   setIsDark: (dark: boolean) => void;
   setSystemIsDark: (dark: boolean) => void;
   setIsAppBlurred: (blurred: boolean) => void;
+  setUpdateAvailable: (info: { version: string; url: string } | null) => void;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
 }
@@ -64,6 +66,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isDark: true,
   systemIsDark: true,
   isAppBlurred: false,
+  updateAvailable: null,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -72,6 +75,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setIsDark: (dark) => set({ isDark: dark }),
   setSystemIsDark: (dark) => set({ systemIsDark: dark }),
   setIsAppBlurred: (blurred) => set({ isAppBlurred: blurred }),
+  setUpdateAvailable: (info) => set({ updateAvailable: info }),
 
   loadStoredConfig: () => {
     try {

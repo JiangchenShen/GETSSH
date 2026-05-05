@@ -4,10 +4,10 @@ import os from 'node:os'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import https from 'node:https'
-import { Client, ClientChannel, SFTPWrapper } from 'ssh2'
-import { SocksClient } from 'socks'
-import { HttpProxyAgent } from 'http-proxy-agent'
 import { PluginManager } from './PluginManager'
+import { registerCryptoHandlers } from './handlers/cryptoHandler'
+import { registerSshHandlers } from './handlers/sshHandler'
+import { registerSftpHandlers } from './handlers/sftpHandler'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
@@ -106,7 +106,7 @@ function createWindow() {
 }
 
 function compareSemVer(v1: string, v2: string) {
-  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+  const parse = (v: string) => v.replace(/^[vV]/, '').split('.').map(Number);
   const a = parse(v1);
   const b = parse(v2);
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -118,47 +118,74 @@ function compareSemVer(v1: string, v2: string) {
   return 0;
 }
 
-function checkForUpdates() {
-  const options = {
-    hostname: 'api.github.com',
-    path: '/repos/JiangchenShen/GETSSH/releases/latest',
-    headers: {
-      'User-Agent': 'GETSSH-Updater'
-    }
-  };
-
-  https.get(options, (res) => {
-    let data = '';
-    res.on('data', chunk => data += chunk);
-    res.on('end', () => {
-      try {
-        if (res.statusCode === 200) {
-          const release = JSON.parse(data);
-          const latestVersion = release.tag_name;
-          const currentVersion = app.getVersion();
-          if (compareSemVer(latestVersion, currentVersion) > 0) {
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('update-available', {
-                version: latestVersion,
-                url: release.html_url
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Failed to parse release data', e);
+function checkLatestRelease(): Promise<{ version: string, url: string } | null> {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/JiangchenShen/GETSSH/releases/latest',
+      headers: {
+        'User-Agent': 'GETSSH-Updater'
       }
+    };
+
+    https.get(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          if (res.statusCode === 200) {
+            const release = JSON.parse(data);
+            const latestVersion = release.tag_name;
+            const currentVersion = app.getVersion();
+            if (compareSemVer(latestVersion, currentVersion) > 0) {
+              resolve({ version: latestVersion, url: release.html_url });
+            } else {
+              resolve(null);
+            }
+          } else {
+            resolve(null);
+          }
+        } catch (e) {
+          console.error('Failed to parse release data', e);
+          resolve(null);
+        }
+      });
+    }).on('error', (e) => {
+      console.error('Failed to check for updates', e);
+      resolve(null);
     });
-  }).on('error', (e) => {
-    console.error('Failed to check for updates', e);
   });
 }
+
+async function checkForUpdates() {
+  const update = await checkLatestRelease();
+  if (update && win && !win.isDestroyed()) {
+    win.webContents.send('update-available', update);
+  }
+}
+
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const update = await checkLatestRelease();
+    if (update) {
+      return { hasUpdate: true, version: update.version, url: update.url };
+    } else {
+      return { hasUpdate: false };
+    }
+  } catch (e: any) {
+    return { hasUpdate: false, error: e.message };
+  }
+});
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
   await pluginManager.loadPlugins();
+  
+  registerCryptoHandlers(ipcMain, app);
+  registerSshHandlers(ipcMain, app, () => win);
+  registerSftpHandlers(ipcMain);
   createWindow();
   
   checkForUpdates();
@@ -182,33 +209,6 @@ app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
 })
 
-const sessions = new Map<string, { client: Client, stream: ClientChannel | null, sftp?: SFTPWrapper }>()
-let sessionCounter = 0;
-let powerSaveBlockerId: number | null = null;
-const activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
-
-function cleanupSessionSftpWatchers(sessionId: string) {
-  for (const [watchId, active] of Object.entries(activeSftpWatchers)) {
-    if (watchId.startsWith(`${sessionId}_`)) {
-      active.watcher.close();
-      try {
-        if (fs.existsSync(active.tempPath)) fs.unlinkSync(active.tempPath);
-      } catch (e) {
-        console.error('[SFTP Sync] Cleanup failed', e);
-      }
-      delete activeSftpWatchers[watchId];
-    }
-  }
-}
-
-const updatePowerSaveBlocker = () => {
-  if (sessions.size > 0 && powerSaveBlockerId === null) {
-    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
-  } else if (sessions.size === 0 && powerSaveBlockerId !== null) {
-    powerSaveBlocker.stop(powerSaveBlockerId);
-    powerSaveBlockerId = null;
-  }
-}
 let backendConfig = { confirmQuit: false, globalHotkey: '' };
 
 const registerHotkey = (key: string) => {
@@ -256,432 +256,7 @@ ipcMain.handle('select-file', async () => {
   return null
 })
 
-// Safe Storage Encryption Payload -> Zero-Knowledge Local AES
-const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
-const PROFILES_PLAIN_PATH = join(app.getPath('userData'), 'profiles.json');
-
-ipcMain.handle('check-profiles', () => {
-  if (fs.existsSync(PROFILES_ENC_PATH)) return 'encrypted';
-  if (fs.existsSync(PROFILES_PLAIN_PATH)) return 'plain';
-  return 'none';
-});
-
-ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
-  if (!masterPassword) {
-    try {
-      const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
-      try {
-        return JSON.parse(data.toString('utf8'));
-      } catch (e) {
-        if (safeStorage.isEncryptionAvailable()) {
-          try {
-            return JSON.parse(safeStorage.decryptString(data));
-          } catch (err) {
-            console.error('Failed to decrypt safeStorage fallback:', err);
-            return [];
-          }
-        }
-        return [];
-      }
-    } catch (e) {
-      return [];
-    }
-  }
-
-  let buffer: Buffer;
-  try {
-    buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
-  } catch (e) {
-    throw new Error('No profiles found');
-  }
-  
-  if (buffer.length < 44) throw new Error('Invalid encrypted profile');
-  
-  const salt = buffer.subarray(0, 16);
-  const iv = buffer.subarray(16, 28);
-  const authTag = buffer.subarray(28, 44);
-  const cipherText = buffer.subarray(44);
-  
-  const key = await new Promise<Buffer>((resolve, reject) => {
-    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
-      if (err) reject(err);
-      else resolve(derivedKey);
-    });
-  });
-  
-  try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
-    
-    let decrypted = decipher.update(cipherText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    
-    return JSON.parse(decrypted.toString('utf8'));
-  } catch (e) {
-    throw new Error('Invalid master password or corrupted file');
-  }
-});
-
-ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
-  const tmpPath = join(app.getPath('userData'), `profiles_${crypto.randomUUID()}.tmp`);
-  
-  if (!masterPassword) {
-     const payloadStr = JSON.stringify(payload, null, 2);
-     if (safeStorage.isEncryptionAvailable()) {
-       const encrypted = safeStorage.encryptString(payloadStr);
-       await fs.promises.writeFile(tmpPath, encrypted);
-     } else {
-       await fs.promises.writeFile(tmpPath, payloadStr);
-     }
-     await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
-     try {
-       await fs.promises.unlink(PROFILES_ENC_PATH);
-     } catch (err: any) {
-       if (err.code !== 'ENOENT') throw err;
-     }
-     return true;
-  }
-  
-  const salt = crypto.randomBytes(16);
-  const iv = crypto.randomBytes(12);
-  const key = await new Promise<Buffer>((resolve, reject) => {
-    crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
-      if (err) reject(err);
-      else resolve(derivedKey);
-    });
-  });
-  
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  let encrypted = cipher.update(JSON.stringify(payload), 'utf8');
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  
-  const output = Buffer.concat([salt, iv, authTag, encrypted]);
-  await fs.promises.writeFile(tmpPath, output);
-  await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
-  try {
-    await fs.promises.unlink(PROFILES_PLAIN_PATH);
-  } catch (err: any) {
-    if (err.code !== 'ENOENT') throw err;
-  }
-  return true;
-})
-
-// SSH IPC Handlers
-ipcMain.handle('ssh-connect', async (event, config) => {
-  let privateKeyData: Buffer | undefined;
-
-  if (config.privateKeyPath) {
-    try {
-      const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'));
-      privateKeyData = await fs.promises.readFile(keyPath);
-    } catch (err: any) {
-      return { success: false, error: 'Failed to read private key: ' + err.message };
-    }
-  }
-
-  return new Promise((resolve, reject) => {
-    (async () => {
-    try {
-      const sessionId = `req-${++sessionCounter}`
-      
-      const sshClient = new Client()
-      sessions.set(sessionId, { client: sshClient, stream: null })
-
-      let connectConfig: any = {
-        host: config.host,
-        port: config.port || 22,
-        username: config.username,
-        keepaliveInterval: config.keepaliveInterval !== undefined ? config.keepaliveInterval : 10000 // Heartbeat
-      }
-
-      if (privateKeyData) {
-        connectConfig.privateKey = privateKeyData;
-      } else {
-        connectConfig.password = config.password
-      }
-
-      // Proxy Attachment
-      const establishConnection = async () => {
-         if (config.proxyType === 'socks5') {
-            const proxyOptions = {
-              proxy: {
-                host: config.proxyHost,
-                port: parseInt(config.proxyPort) || 1080,
-                type: 5 // Socks5
-              },
-              command: 'connect' as any,
-              destination: {
-                host: connectConfig.host,
-                port: connectConfig.port
-              }
-            };
-            const info = await SocksClient.createConnection(proxyOptions);
-            connectConfig.sock = info.socket;
-         } else if (config.proxyType === 'http') {
-            const agent = new HttpProxyAgent(`http://${config.proxyHost}:${config.proxyPort || 8080}`);
-            // Wait, ssh2 expects a raw `net.Socket` stream for sock
-            // http-proxy-agent usually provides agent. But directly using it for ssh2
-            // We can resolve a socket using native net connect through proxy or generic stream
-            // Node HTTP CONNECT tunnel
-            const net = require('net');
-            const sock = await new Promise<any>((sockResolve, sockReject) => {
-               const req = require('http').request({
-                 host: config.proxyHost,
-                 port: config.proxyPort || 8080,
-                 method: 'CONNECT',
-                 path: `${connectConfig.host}:${connectConfig.port}`
-               });
-               req.on('connect', (res: any, socket: any, head: any) => sockResolve(socket));
-               req.on('error', sockReject);
-               req.end();
-            });
-            connectConfig.sock = sock;
-         }
-      }
-
-      establishConnection().then(() => {
-        sshClient.on('ready', () => {
-          sshClient!.shell({ term: 'xterm-256color' }, (err, stream) => {
-          if (err) {
-            sessions.delete(sessionId)
-            cleanupSessionSftpWatchers(sessionId);
-            updatePowerSaveBlocker();
-            resolve({ success: false, error: err.message })
-            return
-          }
-          const currentSession = sessions.get(sessionId)
-          if (currentSession) currentSession.stream = stream
-          updatePowerSaveBlocker();
-
-          let isAttached = false;
-          let dataBuffer = '';
-          setTimeout(() => {
-             isAttached = true;
-             if (dataBuffer && win && !win.isDestroyed()) {
-                 win.webContents.send(`ssh-data-${sessionId}`, dataBuffer);
-             }
-          }, 800); // Wait 800ms for React to mount the Terminal Component
-
-          stream.on('close', () => {
-            sshClient.end()
-            sessions.delete(sessionId)
-            cleanupSessionSftpWatchers(sessionId);
-            updatePowerSaveBlocker();
-            if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
-          }).on('data', (data: Buffer) => {
-            const str = data.toString('utf-8');
-            if (!isAttached) dataBuffer += str;
-            else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str)
-          }).stderr.on('data', (data: Buffer) => {
-            const str = data.toString('utf-8');
-            if (!isAttached) dataBuffer += str;
-            else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str)
-          });
-          stream.on('error', (streamErr: any) => {
-             console.error("Stream emitted error: ", streamErr)
-          })
-
-          sshClient.sftp((err, sftp) => {
-             if (!err) {
-                const current = sessions.get(sessionId);
-                if (current) current.sftp = sftp;
-             }
-          });
-
-          resolve({ success: true, sessionId })
-        })
-      }).on('error', (err: any) => {
-        sessions.delete(sessionId)
-        cleanupSessionSftpWatchers(sessionId);
-        updatePowerSaveBlocker();
-        if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`)
-        resolve({ success: false, error: err.message })
-      }).connect(connectConfig)
-      }).catch(err => {
-         sessions.delete(sessionId)
-         cleanupSessionSftpWatchers(sessionId);
-         updatePowerSaveBlocker();
-         resolve({ success: false, error: err.message })
-      })
-    } catch (e: any) {
-      resolve({ success: false, error: e.message })
-    }
-    })();
-  })
-})
-
-
-function normalizeRemotePath(p: string): string | null {
-  if (typeof p !== 'string') return null;
-  // Safely normalize the path to resolve any traversal sequences.
-  // SFTP paths are POSIX-compliant.
-  return require('node:path').posix.normalize(p);
-}
-
-// --- SFTP Handlers ---
-ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
-  return new Promise((resolve) => {
-    remotePath = normalizeRemotePath(remotePath) as string;
-    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
-    const session = sessions.get(sessionId);
-    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-    session.sftp.readdir(remotePath, (err: any, list: any[]) => {
-      if (err) return resolve({ success: false, error: err.message });
-      resolve({ 
-         success: true, 
-         list: list.map(item => ({
-           name: item.filename,
-           longname: item.longname,
-           type: item.attrs.isDirectory() ? 'd' : item.attrs.isFile() ? '-' : 'l',
-           size: item.attrs.size,
-           mtime: item.attrs.mtime
-         }))
-      });
-    });
-  });
-});
-
-ipcMain.handle('sftp-mkdir', (event, sessionId: string, remotePath: string) => {
-  return new Promise((resolve) => {
-    remotePath = normalizeRemotePath(remotePath) as string;
-    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
-    const session = sessions.get(sessionId);
-    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-    session.sftp.mkdir(remotePath, (err: any) => {
-      if (err) return resolve({ success: false, error: err.message });
-      resolve({ success: true });
-    });
-  });
-});
-
-ipcMain.handle('sftp-delete', (event, sessionId: string, remotePath: string, isDir: boolean) => {
-  return new Promise((resolve) => {
-    remotePath = normalizeRemotePath(remotePath) as string;
-    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
-    const session = sessions.get(sessionId);
-    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-    if (isDir) {
-       session.sftp.rmdir(remotePath, (err: any) => {
-         if (err) return resolve({ success: false, error: err.message });
-         resolve({ success: true });
-       });
-    } else {
-       session.sftp.unlink(remotePath, (err: any) => {
-         if (err) return resolve({ success: false, error: err.message });
-         resolve({ success: true });
-       });
-    }
-  });
-});
-
-ipcMain.handle('sftp-read-file', (event, sessionId: string, remotePath: string) => {
-  return new Promise((resolve) => {
-    remotePath = normalizeRemotePath(remotePath) as string;
-    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
-    const session = sessions.get(sessionId);
-    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-    session.sftp.readFile(remotePath, 'utf8', (err: any, data: any) => {
-       if (err) return resolve({ success: false, error: err.message });
-       resolve({ success: true, data });
-    });
-  });
-});
-
-ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string, data: string) => {
-  return new Promise((resolve) => {
-    remotePath = normalizeRemotePath(remotePath) as string;
-    if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
-    const session = sessions.get(sessionId);
-    if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-    session.sftp.writeFile(remotePath, data, 'utf8', (err: any) => {
-       if (err) return resolve({ success: false, error: err.message });
-       resolve({ success: true });
-    });
-  });
-});
-
-// (moved activeSftpWatchers to top of file)
-
-ipcMain.handle('sftp-edit-sync', async (event, sessionId: string, remoteFilePath: string) => {
-  const session = sessions.get(sessionId); 
-  if (!session || !session.sftp) throw new Error('SFTP session not available');
-
-  const fileName = require('node:path').basename(remoteFilePath);
-  const tempPath = join(os.tmpdir(), `getssh_sync_${Date.now()}_${fileName}`);
-
-  await new Promise<void>((resolve, reject) => {
-    session.sftp!.fastGet(remoteFilePath, tempPath, (err: any) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-
-  await shell.openPath(tempPath);
-
-  let timeoutId: NodeJS.Timeout;
-  let isUploading = false;
-  const watcher = fs.watch(tempPath, (eventType) => {
-    if (eventType === 'change') {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        if (isUploading) return;
-        isUploading = true;
-        session.sftp!.fastPut(tempPath, remoteFilePath, (err: any) => {
-          isUploading = false;
-          if (err) console.error(`[SFTP Sync] Failed to upload ${remoteFilePath}:`, err);
-        });
-      }, 1000);
-    }
-  });
-
-  const watchId = `${sessionId}_${remoteFilePath}`;
-  activeSftpWatchers[watchId] = { watcher, tempPath };
-
-  return { success: true, watchId };
-});
-
-ipcMain.handle('sftp-edit-stop', async (event, watchId: string) => {
-  const active = activeSftpWatchers[watchId];
-  if (active) {
-    active.watcher.close();
-    try {
-      if (fs.existsSync(active.tempPath)) {
-        fs.unlinkSync(active.tempPath);
-      }
-    } catch (e) {
-      console.error('[SFTP Sync] Cleanup failed', e);
-    }
-    delete activeSftpWatchers[watchId];
-  }
-  return { success: true };
-});
-
-
-ipcMain.on('ssh-write', (event, { sessionId, data }) => {
-  const session = sessions.get(sessionId)
-  if (session && session.stream) {
-    session.stream.write(data)
-  }
-})
-
-ipcMain.on('ssh-resize', (event, { sessionId, cols, rows }) => {
-  const session = sessions.get(sessionId)
-  if (session && session.stream && session.stream.setWindow) {
-    session.stream.setWindow(rows, cols, 0, 0)
-  }
-})
-
-ipcMain.on('ssh-disconnect', (event, sessionId) => {
-  const session = sessions.get(sessionId)
-  if (session) {
-    if (session.stream) session.stream.close()
-    if (session.client) session.client.end()
-    sessions.delete(sessionId)
-    cleanupSessionSftpWatchers(sessionId);
-    updatePowerSaveBlocker();
-  }
-})
+// Safe Storage Encryption Payload -> Zero-Knowledge Local AES has been extracted to cryptoHandler.ts
 
 ipcMain.on('show-context-menu', (event) => {
   const template = [

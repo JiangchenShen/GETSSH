@@ -9,3 +9,4 @@ profiles.enc
 *.key
 sftp-mock-plugin.zip
 test-results/
+REFACTORING_PLAN.md

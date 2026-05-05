@@ -55,5 +55,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update-available', listener)
     return () => ipcRenderer.removeListener('update-available', listener)
   },
-  showContextMenu: () => ipcRenderer.send('show-context-menu')
+  showContextMenu: () => ipcRenderer.send('show-context-menu'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates')
 })
