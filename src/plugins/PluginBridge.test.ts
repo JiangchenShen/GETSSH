@@ -264,6 +264,17 @@ describe('PluginBridge', () => {
       expect(mockError).toHaveBeenCalledWith('[PluginBridge] Failed to boot sandboxed plugins:', mockErrorObj);
     });
 
+    it('should handle synchronous errors during boot gracefully', async () => {
+      const mockErrorObj = new Error('Synchronous error');
+      (global as any).window.electronAPI.getPluginRenderers.mockImplementation(() => {
+        throw mockErrorObj;
+      });
+
+      await bootSandboxedPlugins();
+
+      expect(mockError).toHaveBeenCalledWith('[PluginBridge] Failed to boot sandboxed plugins:', mockErrorObj);
+    });
+
     it('should ignore empty scripts', async () => {
       (global as any).window.electronAPI.getPluginRenderers.mockResolvedValue(['script 1', null, 'script 2']);
 
