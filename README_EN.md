@@ -7,88 +7,94 @@
 [![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-V1.2.1--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
 
-**GETSSH** is more than just an SSH client; it is a modern remote management platform built for developers who demand peak efficiency and ultimate security. In V1.2.1, we have completed a comprehensive evolution of our core architecture, moving from a monolithic structure to a micro-component architecture, introducing industrial-grade security isolation, and implementing a lightweight update mechanism.
+**GETSSH** is a next-generation, cross-platform **SSH / SFTP client** built for developers who demand peak efficiency, industrial-grade security, and state-of-the-art modern aesthetics.
 
-📢 **[View Latest Updates (Changelog)](UPDATE.md)**
-
----
-
-## 💎 V1.2.1 Architecture Highlights (The Epic Refactor)
-
-### 🏗️ Micro-component Architecture (Monolith to Micro-components)
-We have completely decoupled the legacy 900+ lines of `App.tsx` logic. GETSSH is now built like LEGO from highly autonomous micro-components:
-- **Logic Decoupling**: View layers and business logic are fully separated, communicating through atomic Stores.
-- **Dynamic Orchestration**: The main App body has evolved into a lightweight orchestrator, significantly improving maintainability and development speed.
-
-### 🧠 Modern State Management (Global State with Zustand)
-Introduced **Zustand** as the global state driving engine, building a responsive data flow topology:
-- **Multi-dimensional Storage**: `appStore`, `sessionStore`, `cryptoStore`, and `panelStore` each manage specific domains.
-- **Extreme Performance**: Leverages Zustand's selector mechanism for precise component-level re-renders, eliminating lag from full-tree updates.
-
-### 🛡️ Plugin Sandbox Isolation (Iframe Sandboxing & IPC Bridge)
-Security of the plugin ecosystem is our bottom line. We have implemented strict **Context Isolation** and **Webview/Iframe Sandboxing**:
-- **Zero-Privilege Execution**: Plugins run in a fully isolated sandbox without direct access to Node.js APIs or system resources.
-- **Whitelisted Communication**: A custom `PluginBridge` handles cross-origin message passing, allowing only safe API calls and preventing SSH credential leaks.
-
-### 🪟 Dynamic Split-Grid Layout Engine
-Inspired by mechanisms like **GoldenLayout**, we've integrated a flexible `SplitPane` engine:
-- **Real-time Control**: Supports dynamic registration of bottom and right side panels, with drag-to-resize functionality.
-- **Plugin Friendly**: Plugins can easily register and mount custom panels, allowing Terminals, SFTP, and Monitors to coexist harmoniously.
+We break away from the dull, rigid constraints of traditional terminal tools by pairing a meticulously crafted **Glassmorphism design** with zero-knowledge cryptographic credential protection. Under the hood, GETSSH features a highly optimized, low-latency micro-component architecture to provide an unprecedented remote development and server management experience.
 
 ---
 
 ## ✨ Core Features
 
-*   **Glassmorphism Aesthetics**: Polished frosted glass visual effects with real-time background opacity adjustment.
-*   **Zero-Knowledge Encryption**: AES-256 full encryption based on a Master Password, ensuring local config files remain absolutely secure.
-*   **Full SFTP Management**: High-performance SFTP module with drag-and-drop, direct address bar navigation, and symlink support.
-*   **Silent Update Mechanism**: Zero-dependency GitHub OTA checker with background badge notifications and one-click upgrades.
-*   **High-Speed Core**: Powered by xterm.js for native-grade terminal rendering with GPU acceleration and smooth tab switching.
-*   **Extreme Robustness**: 98% of the core logic is written in TypeScript for strict type safety.
+### 💎 1. Glassmorphism Visual Aesthetics
+- **Immersive Frosted Glass**: Meticulously designed with modern frosted glass and physical acrylic textures to present a premium, elegant visual hierarchy.
+- **Dynamic Custom Opacity**: Real-time, seamless adjustments for background transparency and blur, blending beautifully with any desktop wallpaper.
+- **Fluid Micro-interactions**: Every button, card, and sidebar is packed with buttery-smooth transition animations and hover effects, making every click highly responsive and satisfying.
+
+### 📁 2. Full-Featured SFTP File Management System
+*GETSSH integrates a high-performance, developer-focused SFTP management suite, liberating you from tedious CLI file manipulation:*
+- **🫳 Native Drag-and-Drop**: Effortlessly upload files and folders by dragging them directly into the remote SFTP file panel, and download them by dragging them back.
+- **✏️ Interactive Local Editing & Sync**: Open and edit remote configuration files or code locally with your favorite editor; GETSSH automatically uploads changes silently on save and performs secure temporary file cleanup on close.
+- **🔍 Dual-Mode Address Bar Navigation**:
+  - *Breadcrumbs Mode*: Visual path navigation with one-click upward folder jumping.
+  - *Editable Mode*: Click the empty space to toggle an absolute path input box (e.g., `/home/ubuntu/project`), type, and press `Enter` to navigate instantly.
+- **📁 Creation & Symbolic Link Support**: Create new files and directories directly within SFTP using a gorgeous, fully-controlled React Modal, with built-in indicators and seamless double-click traversal for Symbolic Links (Symlinks).
+
+### 🖥️ 3. GPU-Accelerated Terminal Kernel
+- **Ultra-Fast Performance**: Driven by the native `xterm.js` core with hardware-accelerated GPU rendering, maintaining flawless performance even during intense text-heavy outputs.
+- **Modern Tabbed Sessions**: Switch between terminal tabs just like a modern web browser—maintain parallel sessions without having to reconnect constantly.
+- **Intelligent Keep-Alive**: Built-in heartbeat detection and main-process keeping, ensuring that your background terminal sessions never drop when switching windows.
+
+### 🔒 4. Zero-Knowledge Local Cryptographic Defense
+- **Full AES-256 Encryption**: Your server connection profiles are fully encrypted locally using the robust AES-256 algorithm, driven entirely by your Master Password.
+- **Absolute Ownership**: There are no cloud servers and no password-recovery backdoors. **Keep your Master Password safe**; without it, even the developers cannot access or decrypt your credentials.
+- **Context-Isolated Plugin Sandbox**: All plugins run in a strictly-isolated context sandbox (Iframe Sandboxing) communicating via an IPC whitelist gateway, keeping high-privilege credentials like private keys completely safe from leaks.
+
+### 🧩 5. Dynamic Grid Splitting & Extensible Plugin Ecosystem
+- **Responsive Split Layout**: Built on a flexible grid splitter, allowing you to display Terminals, SFTP view, and monitor panels side-by-side at any custom sizing.
+- **Hot-Pluggable Plugins**: Third-party plugins can easily mount onto the bottom or right sidebar, offering limitless possibilities for your remote server workflows.
 
 ---
 
 ## 🛠 Tech Stack
 
-| Domain | Solution |
-| :--- | :--- |
-| **Core Engine** | Node.js, Electron |
-| **State Management** | Zustand |
-| **Frontend Framework** | React 18 (Hooks) |
-| **Styling** | Vanilla CSS, Tailwind CSS |
-| **Bundler** | Vite, esbuild |
-| **Terminal Engine** | xterm.js + AttachAddon |
+| Category | Solution | Purpose & Value |
+| :--- | :--- | :--- |
+| **App Shell** | **Electron** | Cross-platform desktop integration and main process performance |
+| **State Engine** | **Zustand** | Multi-dimensional state topology with precise, selective component re-renders |
+| **Front-End View** | **React 18 + TS** | Type-safe, reusable micro-components for maximum maintainability |
+| **Styling** | **Vanilla CSS & Tailwind** | Atomic CSS utility meets absolute design system freedom |
+| **Bundling** | **Vite + esbuild** | Near-instant hot reloading in development and ultra-compact production sizes |
+| **Terminal Core** | **xterm.js** | Native-grade terminal rendering with high-throughput text capabilities |
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
-Ensure you have Node.js (>= 18.x) and npm installed.
+Ensure you have **Node.js (>= 18.x)** and npm installed.
 
-### 2. Steps
+### 2. Run Locally
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/JiangchenShen/GETSSH.git
 cd GETSSH
 
-# Install dependencies
+# 2. Install dependencies
 npm install
 
-# Start development mode
+# 3. Spin up development mode (Vite HMR)
 npm run dev
+```
 
-# Build production package
-npm run build -- --mac  # or --win
+### 3. Build Desktop App
+Due to our architecture-specific build configuration, you can compile highly optimized, minimal installers for your specific machine:
+```bash
+# Build macOS DMG (both Apple Silicon & Intel)
+npm run build -- --mac
+
+# Build Windows Setup EXE (both x64 & ARM64)
+npm run build -- --win
+
+# Build Linux AppImage & Debian package
+npm run build -- --linux
 ```
 
 ---
 
-## 🛡 Security Declaration
+## 🛡 Security & Privacy
 
-We firmly believe that developers must have absolute control over their underlying private keys. To implement ultimate security defense, GETSSH does not provide any form of password recovery. **Please keep your Master Password safe.** Our `SafeStorage` zero-knowledge encryption ensures that no one (including the developer) can decrypt your configuration files without your password.
+We strongly believe that productivity tools should respect your digital sovereignty. All of your SSH private keys, credentials, and session logs **never leave your local machine**. We do not, and will never, collect or harvest any of your sensitive information.
 
 ---
 
