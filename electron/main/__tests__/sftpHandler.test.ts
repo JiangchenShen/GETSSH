@@ -8,6 +8,7 @@ import os from 'node:os';
 vi.mock('electron', () => ({
   shell: {
     openPath: vi.fn(),
+    showItemInFolder: vi.fn(),
   },
   powerSaveBlocker: {
     start: vi.fn(),
@@ -21,6 +22,13 @@ vi.mock('node:fs', () => {
       watch: vi.fn(),
       existsSync: vi.fn(),
       unlinkSync: vi.fn(),
+      constants: {
+        F_OK: 0,
+      },
+      promises: {
+        access: vi.fn(),
+        unlink: vi.fn(),
+      }
     }
   };
 });
@@ -276,7 +284,7 @@ describe('sftpHandler', () => {
       const result = await handlers['sftp-edit-sync']({} as any, 'session-id', '/remote/file.txt');
 
       expect(sftpMock.fastGet).toHaveBeenCalledWith('/remote/file.txt', expect.stringContaining('/tmp/getssh_sync_12345_file.txt'), expect.any(Function));
-      expect(shell.openPath).toHaveBeenCalledWith(expect.stringContaining('/tmp/getssh_sync_12345_file.txt'));
+      expect(shell.showItemInFolder).toHaveBeenCalledWith(expect.stringContaining('/tmp/getssh_sync_12345_file.txt'));
       expect(fs.watch).toHaveBeenCalledWith(expect.stringContaining('/tmp/getssh_sync_12345_file.txt'), expect.any(Function));
 
       const watchId = 'session-id_/remote/file.txt';
@@ -315,13 +323,14 @@ describe('sftpHandler', () => {
         tempPath: '/tmp/file.txt',
       };
 
-      (fs.existsSync as any).mockReturnValue(true);
+      (fs.promises.access as any).mockResolvedValue(undefined);
+      (fs.promises.unlink as any).mockResolvedValue(undefined);
 
       const result = await handlers['sftp-edit-stop']({} as any, 'watch-id');
 
       expect(watcherMock.close).toHaveBeenCalled();
-      expect(fs.existsSync).toHaveBeenCalledWith('/tmp/file.txt');
-      expect(fs.unlinkSync).toHaveBeenCalledWith('/tmp/file.txt');
+      expect(fs.promises.access).toHaveBeenCalledWith('/tmp/file.txt', 0);
+      expect(fs.promises.unlink).toHaveBeenCalledWith('/tmp/file.txt');
       expect(connectionManager.activeSftpWatchers['watch-id']).toBeUndefined();
       expect(result).toEqual({ success: true });
     });
@@ -333,10 +342,8 @@ describe('sftpHandler', () => {
         tempPath: '/tmp/file.txt',
       };
 
-      (fs.existsSync as any).mockReturnValue(true);
-      (fs.unlinkSync as any).mockImplementation(() => {
-        throw new Error('unlink failed');
-      });
+      (fs.promises.access as any).mockResolvedValue(undefined);
+      (fs.promises.unlink as any).mockRejectedValue(new Error('unlink failed'));
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
