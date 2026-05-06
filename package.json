@@ -3,6 +3,7 @@
   "version": "1.2.1",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
+  "author": "Shen Jiangchen <shenjiangchen@example.com>",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
@@ -86,7 +87,13 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools"
     },
@@ -112,12 +119,7 @@
     },
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
+        "nsis"
       ]
     },
     "compression": "maximum",
@@ -125,8 +127,20 @@
     "removePackageKeywords": true,
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "Utility"
     },
@@ -137,7 +151,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "uninstallDisplayName": "GETSSH Uninstaller",
-      "shortcutName": "GETSSH"
+      "shortcutName": "GETSSH",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     }
   }
 }
