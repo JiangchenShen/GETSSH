@@ -7,8 +7,11 @@
 [![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
+[![Changelog](https://img.shields.io/badge/Changelog-V1.2.1--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
 
 **GETSSH** 是一款专为追求极致效率、极致安全与现代美学的开发者打造的**下一代跨平台 SSH / SFTP 客户端**。
+
+📢 **[查看最新更新日志 (Update Log)](UPDATE.md)**
 
 我们打破了传统终端工具沉闷、死板的固有印象，将深度打磨的**毛玻璃拟态美学 (Glassmorphism)** 与工业级**零知识安全机密保护**完美融合，并在底层重构为高性能、低延迟的微组件架构，为您提供史无前例的远程开发与运维体验。
 
