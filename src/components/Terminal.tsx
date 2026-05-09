@@ -105,10 +105,26 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       window.electronAPI.sshWrite(sessionId, data);
     });
 
+    // Right-click: smart copy/paste
+    // If text is selected → copy it; otherwise → paste from clipboard
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      const selection = term.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      } else {
+        navigator.clipboard.readText().then((text) => {
+          if (text) term.paste(text);
+        }).catch(() => {});
+      }
+    };
+    terminalRef.current.addEventListener('contextmenu', handleContextMenu);
+
     return () => {
       window.removeEventListener('resize', handleResize);
       if (unsubData) unsubData();
       if (unsubClosed) unsubClosed();
+      terminalRef.current?.removeEventListener('contextmenu', handleContextMenu);
       term.dispose();
       window.electronAPI.sshDisconnect(sessionId);
     };
@@ -171,7 +187,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   }, [config.copyOnSelect]);
 
   return (
-    <div className="w-full h-full p-4 flex flex-col flex-1 transparent" onContextMenu={(e) => { e.preventDefault(); (window as any).electronAPI.showContextMenu(); }}>
+    <div className="w-full h-full p-4 flex flex-col flex-1 transparent">
       <div className="flex-1 overflow-hidden" ref={terminalRef}></div>
     </div>
   );

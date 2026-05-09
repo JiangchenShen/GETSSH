@@ -3,15 +3,18 @@ import { render, act, fireEvent } from '@testing-library/react';
 import { Terminal } from './Terminal';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
+let capturedContainer: HTMLElement | null = null;
+
 const mockTermInstance = {
   loadAddon: vi.fn(),
-  open: vi.fn(),
+  open: vi.fn().mockImplementation((el: HTMLElement) => { capturedContainer = el; }),
   dispose: vi.fn(),
   write: vi.fn(),
   writeln: vi.fn(),
   onData: vi.fn(),
   onSelectionChange: vi.fn(),
-  getSelection: vi.fn(),
+  getSelection: vi.fn().mockReturnValue(''),
+  paste: vi.fn(),
   options: {},
 };
 
@@ -26,6 +29,7 @@ vi.mock('xterm', () => {
       onData = mockTermInstance.onData;
       onSelectionChange = mockTermInstance.onSelectionChange;
       getSelection = mockTermInstance.getSelection;
+      paste = mockTermInstance.paste;
       options = mockTermInstance.options;
     }
   };
@@ -61,12 +65,23 @@ describe('Terminal Component', () => {
       showContextMenu: vi.fn(),
     } as any;
 
+    // Mock clipboard API
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+        readText: vi.fn().mockResolvedValue('clipboard text'),
+      },
+      writable: true,
+      configurable: true,
+    });
+
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    capturedContainer = null;
   });
 
   it('renders without crashing', () => {
@@ -121,19 +136,39 @@ describe('Terminal Component', () => {
     expect(window.electronAPI.sshResize).toHaveBeenCalledWith('test-session', 24, 80);
   });
 
-  it('shows custom context menu on right click', () => {
-    const { container } = render(
-      <Terminal sessionId="test-session" config={mockConfig} />
-    );
+  it('right-click pastes from clipboard when nothing is selected', async () => {
+    mockTermInstance.getSelection.mockReturnValue('');
 
-    const wrapper = container.firstChild as Element;
-    fireEvent.contextMenu(wrapper);
+    render(<Terminal sessionId="test-session" config={mockConfig} />);
 
-    expect(window.electronAPI.showContextMenu).toHaveBeenCalled();
+    // capturedContainer is the DOM node passed to term.open() — same node that has the native listener
+    act(() => {
+      capturedContainer!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    });
+
+    await act(async () => { await Promise.resolve(); });
+
+    expect(navigator.clipboard.readText).toHaveBeenCalled();
+    expect(mockTermInstance.paste).toHaveBeenCalledWith('clipboard text');
+
+    act(() => { vi.runAllTimers(); });
+  });
+
+  it('right-click copies selection when text is selected', async () => {
+    mockTermInstance.getSelection.mockReturnValue('selected text');
+
+    render(<Terminal sessionId="test-session" config={mockConfig} />);
 
     act(() => {
-        vi.runAllTimers();
+      capturedContainer!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     });
+
+    await act(async () => { await Promise.resolve(); });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('selected text');
+    expect(mockTermInstance.paste).not.toHaveBeenCalled();
+
+    act(() => { vi.runAllTimers(); });
   });
 
   it('handles incoming SSH data', () => {
