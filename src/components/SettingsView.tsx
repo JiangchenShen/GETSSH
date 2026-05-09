@@ -369,7 +369,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <Upload className="w-4 h-4 text-primary" /> 配置文件管理
                 </h4>
                 <p className="text-xs opacity-50 mb-4">
-                  导出的 JSON 文件中，主机名/用户名等信息为明文，密码/私钥将使用当前主密码加密保护。
+                  导出需要先设置主密码，以确保密码/私钥路径得到 AES-256 加密保护。主机名、用户名等基础信息将以明文保存，方便阅读。
                 </p>
 
                 {profilesStatus && (
@@ -382,8 +382,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 )}
 
+                {/* No master password → show locked hint for export */}
+                {encryptionDisabled && (
+                  <div className={`mb-3 px-4 py-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                    isDark ? 'bg-yellow-500/10 text-yellow-400' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'
+                  }`}>
+                    <Shield className="w-3.5 h-3.5 shrink-0" />
+                    <span>导出功能需要主密码。请先在上方"SafeStorage 加密配置"中设置主密码，再进行导出。</span>
+                  </div>
+                )}
+
                 <div className="flex gap-3">
-                  {/* Export */}
+                  {/* Export — only available when master password is set */}
                   <button
                     onClick={async () => {
                       setProfilesStatus(null);
@@ -397,15 +407,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         setProfilesStatus({ type: 'error', msg: `❌ 导出失败：${res.reason}` });
                       }
                     }}
-                    disabled={sessions.length === 0}
-                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all disabled:opacity-40 ${
+                    disabled={encryptionDisabled || sessions.length === 0}
+                    title={encryptionDisabled ? '请先设置主密码后再导出' : '导出所有服务器配置'}
+                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                       isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
                     }`}
                   >
                     <Download className="w-4 h-4" /> 导出配置
                   </button>
 
-                  {/* Import */}
+                  {/* Import — always available */}
                   <button
                     onClick={() => {
                       setProfilesStatus(null);
