@@ -33,6 +33,8 @@ declare global {
       onUpdateAvailable: (cb: (info: { version: string; url: string }) => void) => (() => void);
       showContextMenu: () => void;
       checkForUpdates: () => Promise<{ hasUpdate: boolean; version?: string; url?: string; error?: string }>;
+      exportProfiles: (payload: { sessions: any[]; masterPassword: string }) => Promise<{ success: boolean; count?: number; reason?: string }>;
+      importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; profiles?: any[]; reason?: string }>;
     };
   }
 }

@@ -8,6 +8,7 @@ import { PluginManager } from './PluginManager'
 import { registerCryptoHandlers } from './handlers/cryptoHandler'
 import { registerSshHandlers } from './handlers/sshHandler'
 import { registerSftpHandlers } from './handlers/sftpHandler'
+import { registerProfileHandlers } from './handlers/profileHandler'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
@@ -186,6 +187,7 @@ app.whenReady().then(async () => {
   registerCryptoHandlers(ipcMain, app);
   registerSshHandlers(ipcMain, app, () => win);
   registerSftpHandlers(ipcMain);
+  registerProfileHandlers(ipcMain);
   createWindow();
   
   checkForUpdates();
