@@ -10,4 +10,9 @@ profiles.enc
 sftp-mock-plugin.zip
 test-results/
 REFACTORING_PLAN.md
+
+# Test files (run locally, not needed in public repo)
+**/*.test.ts
+**/*.test.tsx
+**/__tests__/
 mock_userData
