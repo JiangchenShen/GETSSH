@@ -25,7 +25,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
-            className={`group flex items-center justify-between gap-3 px-4 py-2 rounded-t-lg border-t border-x cursor-pointer text-sm transition-all min-w-[150px] max-w-[200px] ${isActive
+            className={`group flex items-center justify-between gap-3 px-4 py-2 rounded-none border-t border-x cursor-pointer text-sm transition-all min-w-[150px] max-w-[200px] ${isActive
               ? (isDark ? 'bg-black/60 border-white/10 text-white shadow-md' : 'bg-white border-black/10 text-black shadow-md relative z-10')
               : (isDark ? 'bg-transparent border-transparent text-white/50 hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
             }`}

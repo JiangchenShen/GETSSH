@@ -292,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                  <div className="space-y-3">
                     {safeAction === 'none' ? (
                        <>
-                         {!encryptionDisabled ? (
+                         {!encryptionDisabled && !!masterPassword ? (
                             <>
                               <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('change'); setSafeError(''); setSafeOldPwd(''); setSafeNewPwd(''); }} className={`py-2 px-3 text-sm font-medium rounded-lg border-0 transition-all ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
                                  {t('security.changeMasterPwd')}

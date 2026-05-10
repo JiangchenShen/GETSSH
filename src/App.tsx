@@ -105,10 +105,10 @@ function App() {
       id: 'sftp',
       title: 'SFTP Manager',
       component: SFTPManager,
-      position: 'right',
-      defaultSize: 320,
-      minSize: 200,
-      maxSize: 600,
+      position: 'bottom',
+      defaultSize: 280,
+      minSize: 180,
+      maxSize: 520,
     });
 
     // Init Theme Sync
@@ -344,7 +344,11 @@ function App() {
           mode={cryptoMode} 
           isDark={isDark} 
           onUnlock={handleUnlock} 
-          onSetup={handleSetup} 
+          onSetup={handleSetup}
+          onSkip={cryptoMode === 'setup' ? () => {
+            // Skip this time — modal will show again next time a new session is added
+            setCryptoMode('idle');
+          } : undefined}
           onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
               if (cryptoMode === 'setup') {
                  setEncryptionDisabled(true);

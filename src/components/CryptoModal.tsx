@@ -6,10 +6,11 @@ interface CryptoModalProps {
   isDark: boolean;
   onUnlock: (password: string) => Promise<boolean>;
   onSetup: (password: string) => Promise<void>;
-  onCancel?: () => void;
+  onCancel?: () => void;   // Permanently skip (no more prompts)
+  onSkip?: () => void;     // Skip this time only
 }
 
-export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: CryptoModalProps) {
+export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip }: CryptoModalProps) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -45,8 +46,28 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel }: Crypt
     <div className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-3xl transition-all ${isDark ? 'bg-black/80' : 'bg-white/80'}`}>
       <div className={`w-full max-w-md p-8 rounded-[20px] shadow-2xl border flex flex-col relative ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-black/10 text-black'}`}>
         
-        {mode === 'setup' && onCancel && (
-          <button onClick={onCancel} className="absolute top-4 right-4 opacity-50 hover:opacity-100 text-sm">Cancel</button>
+        {/* Top-right action buttons for setup mode */}
+        {mode === 'setup' && (onSkip || onCancel) && (
+          <div className="absolute top-4 right-4 flex items-center gap-3">
+            {onSkip && (
+              <button
+                onClick={onSkip}
+                className="opacity-50 hover:opacity-100 text-sm transition-opacity"
+                title="Skip for now — will be prompted again next time"
+              >
+                Skip
+              </button>
+            )}
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                className="opacity-50 hover:opacity-100 text-sm transition-opacity"
+                title="Cancel — won't be prompted again"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         )}
 
         <div className="flex justify-center mb-6">
