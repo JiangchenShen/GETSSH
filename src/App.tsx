@@ -82,6 +82,8 @@ function App() {
        const status = await window.electronAPI.checkProfiles();
        if (status === 'encrypted') {
           setEncryptionDisabled(false);
+          // Render the modal first to blur the background, then prompt biometric
+          setCryptoMode('locked');
           const bioRes = await window.electronAPI.promptBiometricUnlock();
           if (bioRes.success && bioRes.masterPassword) {
             try {
@@ -94,7 +96,7 @@ function App() {
                console.warn('Biometric unlock failed to decrypt:', e);
             }
           }
-          setCryptoMode('locked');
+          // If biometric fails, modal is already shown for manual entry fallback.
        } else if (status === 'plain') {
           const plainSessions = await window.electronAPI.unlockProfiles('');
           setSessions(plainSessions);

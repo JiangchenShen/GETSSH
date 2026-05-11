@@ -43,7 +43,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip 
   };
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-3xl transition-all ${isDark ? 'bg-black/80' : 'bg-white/80'}`}>
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-[10px] bg-black/50 transition-all`}>
       <div className={`w-full max-w-md p-8 rounded-[20px] shadow-2xl border flex flex-col relative ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-black/10 text-black'}`}>
         
         {/* Top-right action buttons for setup mode */}
