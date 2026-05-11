@@ -3,7 +3,6 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
-
 interface TerminalProps {
   sessionId: string;
   onDisconnected?: () => void;
@@ -12,6 +11,9 @@ interface TerminalProps {
   isDark?: boolean;
   isActive?: boolean;
 }
+
+// Global cache to preserve xterm instances and DOM nodes across React unmounts
+const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; element: HTMLDivElement; }>();
 
 export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true, isActive = true }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -47,28 +49,39 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    // Initialize xterm with config defaults
-    const term = new XTerm({
-      cursorBlink: true,
-      fontFamily: config.fontFamily || '"Fira Code", monospace, "Courier New", Courier',
-      fontSize: config.fontSize || 14,
-      lineHeight: config.lineHeight || 1.2,
-      cursorStyle: config.cursorStyle || 'block',
-      theme: buildTheme(config.themeColor || '168 85 247'),
-      allowTransparency: true,
-      scrollback: config.scrollback || 10000,
-    });
-    
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
+    let cache = xtermCache.get(sessionId);
+    let isNew = false;
 
-    term.open(terminalRef.current);
-    fitAddon.fit();
+    if (!cache) {
+      isNew = true;
+      const element = document.createElement('div');
+      element.className = "w-full h-full overflow-hidden";
+      const term = new XTerm({
+        cursorBlink: true,
+        fontFamily: config.fontFamily || '"Fira Code", monospace, "Courier New", Courier',
+        fontSize: config.fontSize || 14,
+        lineHeight: config.lineHeight || 1.2,
+        cursorStyle: config.cursorStyle || 'block',
+        theme: buildTheme(config.themeColor || '168 85 247'),
+        allowTransparency: true,
+        scrollback: config.scrollback || 10000,
+      });
+      
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(element);
+      
+      cache = { term, fitAddon, element };
+      xtermCache.set(sessionId, cache);
+    }
+
+    const { term, fitAddon, element } = cache;
+    terminalRef.current.appendChild(element);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Handle Resize
+    // Handle Resize via ResizeObserver
     const handleResize = () => {
       fitAddon.fit();
       const dims = fitAddon.proposeDimensions();
@@ -77,9 +90,11 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       }
     };
     
-    // Slight delay for initial fit to ensure container layout is done
-    setTimeout(handleResize, 100);
-    window.addEventListener('resize', handleResize);
+    // Initial fit
+    setTimeout(handleResize, 50);
+    
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(terminalRef.current);
 
     // IPC Handlers
     const unsubData = window.electronAPI.onSshData(sessionId, (data: string) => {
@@ -90,23 +105,26 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       isDisconnectedRef.current = true;
       term.writeln('\r\n\x1b[31m[SSH Connection Closed] - Press Enter to reconnect...\x1b[0m\r\n');
       if (onDisconnectedRef.current) onDisconnectedRef.current();
+      xtermCache.delete(sessionId);
+      term.dispose();
     });
 
-    // Write input to SSH
-    term.onData((data) => {
-      if (isDisconnectedRef.current) {
-         if (data === '\r' && onReconnectRef.current) {
-            isDisconnectedRef.current = false;
-            term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
-            onReconnectRef.current();
-         }
-         return;
-      }
-      window.electronAPI.sshWrite(sessionId, data);
-    });
+    if (isNew) {
+      // Write input to SSH (bind only once per term instance)
+      term.onData((data) => {
+        if (isDisconnectedRef.current) {
+           if (data === '\r' && onReconnectRef.current) {
+              isDisconnectedRef.current = false;
+              term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
+              onReconnectRef.current();
+           }
+           return;
+        }
+        window.electronAPI.sshWrite(sessionId, data);
+      });
+    }
 
     // Right-click: smart copy/paste
-    // If text is selected → copy it; otherwise → paste from clipboard
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       const selection = term.getSelection();
@@ -118,15 +136,21 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
         }).catch(() => {});
       }
     };
-    terminalRef.current.addEventListener('contextmenu', handleContextMenu);
+    element.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       if (unsubData) unsubData();
       if (unsubClosed) unsubClosed();
-      terminalRef.current?.removeEventListener('contextmenu', handleContextMenu);
-      term.dispose();
-      window.electronAPI.sshDisconnect(sessionId);
+      element.removeEventListener('contextmenu', handleContextMenu);
+      
+      // Preserve the element in cache, just remove it from the React container
+      if (terminalRef.current && element.parentNode === terminalRef.current) {
+        terminalRef.current.removeChild(element);
+      }
+      
+      // DO NOT DISCONNECT SSH OR DISPOSE TERM ON UNMOUNT
+      // window.electronAPI.sshDisconnect(sessionId);
     };
   }, [sessionId]); // ONLY mount/dismount on SessionID change
 
@@ -187,8 +211,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   }, [config.copyOnSelect]);
 
   return (
-    <div className="w-full h-full p-4 flex flex-col flex-1 transparent">
-      <div className="flex-1 overflow-hidden" ref={terminalRef}></div>
+    <div className="w-full h-full p-0 flex flex-col flex-1 transparent relative group">
+      <div className="flex-1 w-full h-full" ref={terminalRef}></div>
     </div>
   );
 }

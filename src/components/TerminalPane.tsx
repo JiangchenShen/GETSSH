@@ -30,45 +30,44 @@ const LeafPane: React.FC<{
 
   return (
     <div
-      className={`relative flex flex-col w-full h-full min-w-0 min-h-0 transition-all ${
-        isActive
-          ? 'ring-1 ring-inset ring-primary/60'
-          : 'ring-1 ring-inset ring-transparent'
-      }`}
+      className="relative flex flex-col w-full h-full min-w-0 min-h-0 transition-all bg-transparent"
       onClick={() => setActivePaneId(node.paneId)}
     >
-      {/* Pane toolbar — only visible when focused */}
-      {isActive && (
-        <div
-          className={`absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-md px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${
-            isDark ? 'bg-black/60' : 'bg-white/80'
-          }`}
-          style={{ opacity: 1 }}
-          onClick={(e) => e.stopPropagation()}
-        >
+      {/* Pane header with title and toolbar */}
+      <div
+        className={`flex-none flex items-center justify-between px-2 py-1 text-xs select-none transition-colors ${
+          isActive 
+            ? (isDark ? 'bg-primary/20 text-white' : 'bg-primary/10 text-primary') 
+            : (isDark ? 'bg-black/20 text-white/50' : 'bg-black/5 text-black/50')
+        }`}
+      >
+        <span className="truncate opacity-70 font-medium">
+           {node.config.username}@{node.config.host}
+        </span>
+        <div className="flex items-center gap-1">
           <button
             title="Split Right"
-            onClick={() => onSplit(node.paneId, 'hsplit')}
-            className={`p-1 rounded hover:bg-primary/20 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-black/50 hover:text-black'}`}
+            onClick={(e) => { e.stopPropagation(); onSplit(node.paneId, 'hsplit'); }}
+            className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
           >
             <Columns className="w-3.5 h-3.5" />
           </button>
           <button
             title="Split Down"
-            onClick={() => onSplit(node.paneId, 'vsplit')}
-            className={`p-1 rounded hover:bg-primary/20 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-black/50 hover:text-black'}`}
+            onClick={(e) => { e.stopPropagation(); onSplit(node.paneId, 'vsplit'); }}
+            className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
           >
             <Rows className="w-3.5 h-3.5" />
           </button>
           <button
             title="Close Pane"
-            onClick={() => onClosePane(node.paneId)}
-            className={`p-1 rounded hover:bg-red-500/20 transition-colors ${isDark ? 'text-white/40 hover:text-red-400' : 'text-black/40 hover:text-red-500'}`}
+            onClick={(e) => { e.stopPropagation(); onClosePane(node.paneId); }}
+            className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-red-500/30 text-white/70 hover:text-red-400' : 'hover:bg-red-500/20 text-black/70 hover:text-red-500'}`}
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-      )}
+      </div>
 
       <TerminalComponent
         sessionId={node.sessionId}
@@ -218,6 +217,7 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
   if (node.type === 'leaf') {
     return (
       <LeafPane
+        key={node.sessionId}
         node={node}
         tabId={props.tabId}
         appConfig={props.appConfig}
