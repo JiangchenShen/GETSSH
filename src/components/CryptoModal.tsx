@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, ShieldAlert, KeyRound, ArrowRight } from 'lucide-react';
+import { Lock, ShieldAlert, KeyRound, ArrowRight, Fingerprint } from 'lucide-react';
 
 interface CryptoModalProps {
   mode: 'locked' | 'setup';
@@ -8,9 +8,10 @@ interface CryptoModalProps {
   onSetup: (password: string) => Promise<void>;
   onCancel?: () => void;   // Permanently skip (no more prompts)
   onSkip?: () => void;     // Skip this time only
+  onRetryBiometric?: () => void; // Manually retry TouchID
 }
 
-export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip }: CryptoModalProps) {
+export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip, onRetryBiometric }: CryptoModalProps) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -100,9 +101,19 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip 
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Master Password" 
-              className={`w-full pl-10 pr-4 py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
+              className={`w-full pl-10 ${mode === 'locked' && onRetryBiometric ? 'pr-12' : 'pr-4'} py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
               required
             />
+            {mode === 'locked' && onRetryBiometric && (
+              <button
+                type="button"
+                onClick={onRetryBiometric}
+                className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isDark ? 'hover:bg-white/10 text-primary' : 'hover:bg-black/5 text-primary'}`}
+                title="Retry TouchID"
+              >
+                <Fingerprint className="w-5 h-5" />
+              </button>
+            )}
           </div>
 
           {mode === 'setup' && (

@@ -370,6 +370,19 @@ function App() {
               }
               setCryptoMode('idle');
           }}
+          onRetryBiometric={async () => {
+             const bioRes = await window.electronAPI.promptBiometricUnlock();
+             if (bioRes.success && bioRes.masterPassword) {
+               try {
+                  const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                  setMasterPassword(bioRes.masterPassword);
+                  setSessions(decrypted);
+                  setCryptoMode('idle');
+               } catch (e) {
+                  console.warn('Biometric unlock failed on manual retry:', e);
+               }
+             }
+          }}
         />
       )}
       <div className="absolute top-0 left-0 right-0 h-8 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px]" style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
