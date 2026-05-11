@@ -43,7 +43,7 @@ const LeafPane: React.FC<{
       <div
         className={`flex-none flex items-center justify-between px-2 py-1 text-xs select-none transition-colors ${
           isActive 
-            ? (isDark ? 'bg-primary/20 text-white' : 'bg-primary/10 text-primary') 
+            ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black') 
             : (isDark ? 'bg-black/20 text-white/50' : 'bg-black/5 text-black/50')
         }`}
       >
@@ -162,7 +162,8 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
 
 function patchLeafToPlugin(node: PaneNode, paneId: string): PaneNode {
   if (node.type === 'leaf') {
-    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { pluginUrl: './plugins/sysmon/index.html' } } : node;
+    const isPackaged = window.location.protocol === 'file:';
+    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { pluginUrl: isPackaged ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html' } } : node;
   }
   return {
     ...node,

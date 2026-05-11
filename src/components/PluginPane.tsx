@@ -6,7 +6,9 @@ interface PluginPaneProps {
   isDark: boolean;
 }
 
-export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = './plugins/sysmon/index.html', isDark }) => {
+const DEFAULT_PLUGIN_URL = window.location.protocol === 'file:' ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html';
+
+export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFAULT_PLUGIN_URL, isDark }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -17,12 +19,12 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = './p
         return;
       }
 
-      const { type, payload, nonce } = event.data || {};
+      const { type, payload } = event.data || {};
       if (!type) return;
 
       // Handle Ping from Plugin
-      if (type === 'ping') {
-        console.log(`[PluginBridge] Received Ping from Plugin (${paneId}):`, payload, 'Nonce:', nonce);
+      if (type === 'sysmon:alive') {
+        console.log('[Host] 收到插件心跳:', payload);
       }
       
       // Here we could handle other generic plugin actions like 'open-tab', 'show-notification', etc.
