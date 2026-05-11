@@ -81,8 +81,20 @@ function App() {
     const bootCrypto = async () => {
        const status = await window.electronAPI.checkProfiles();
        if (status === 'encrypted') {
-          setCryptoMode('locked');
           setEncryptionDisabled(false);
+          const bioRes = await window.electronAPI.promptBiometricUnlock();
+          if (bioRes.success && bioRes.masterPassword) {
+            try {
+               const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+               setMasterPassword(bioRes.masterPassword);
+               setSessions(decrypted);
+               setCryptoMode('idle');
+               return; // Successfully unlocked biometrically
+            } catch (e) {
+               console.warn('Biometric unlock failed to decrypt:', e);
+            }
+          }
+          setCryptoMode('locked');
        } else if (status === 'plain') {
           const plainSessions = await window.electronAPI.unlockProfiles('');
           setSessions(plainSessions);

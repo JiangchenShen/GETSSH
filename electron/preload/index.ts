@@ -59,4 +59,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   exportProfiles: (payload: { sessions: any[], masterPassword: string }) => ipcRenderer.invoke('export-profiles', payload),
   importProfiles: (payload: { masterPassword: string }) => ipcRenderer.invoke('import-profiles', payload),
+  promptBiometricUnlock: () => ipcRenderer.invoke('prompt-biometric-unlock'),
 })
