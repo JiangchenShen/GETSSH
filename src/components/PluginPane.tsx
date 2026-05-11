@@ -6,7 +6,7 @@ interface PluginPaneProps {
   isDark: boolean;
 }
 
-export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = '/plugins/sysmon/index.html', isDark }) => {
+export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = './plugins/sysmon/index.html', isDark }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
