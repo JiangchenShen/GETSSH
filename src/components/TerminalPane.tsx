@@ -11,6 +11,8 @@ interface TerminalPaneProps {
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
+  onConnectInPane: (paneId: string, session: any) => void;
+  sessions: any[];
 }
 
 // ── Leaf Pane ─────────────────────────────────────────────────────────────
@@ -23,7 +25,9 @@ const LeafPane: React.FC<{
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane }) => {
+  onConnectInPane: (paneId: string, session: any) => void;
+  sessions: any[];
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane, sessions }) => {
   const activePaneId = useSessionStore(s => s.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
@@ -42,7 +46,7 @@ const LeafPane: React.FC<{
         }`}
       >
         <span className="truncate opacity-70 font-medium">
-           {node.config.username}@{node.config.host}
+           {node.paneType === 'welcome' ? 'Select Host' : (node.paneType === 'plugin' ? 'Plugin' : `${node.config?.username || ''}@${node.config?.host || ''}`)}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -69,26 +73,57 @@ const LeafPane: React.FC<{
         </div>
       </div>
 
-      <TerminalComponent
-        sessionId={node.sessionId}
-        onDisconnected={() => {}}
-        onReconnect={() => {
-          window.electronAPI.sshConnect(node.config).then(res => {
-            if (res.success && res.sessionId) {
-              // Patch the pane tree: replace the leaf's sessionId
-              useSessionStore.setState(state => ({
-                tabs: state.tabs.map(tab => {
-                  if (tab.id !== tabId || !tab.paneTree) return tab;
-                  return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
-                }),
-              }));
-            }
-          });
-        }}
-        config={appConfig}
-        isDark={isDark}
-        isActive={isTabActive && isActive}
-      />
+      {node.paneType === 'terminal' && node.sessionId && (
+        <TerminalComponent
+          sessionId={node.sessionId}
+          onDisconnected={() => {}}
+          onReconnect={() => {
+            window.electronAPI.sshConnect(node.config).then(res => {
+              if (res.success && res.sessionId) {
+                // Patch the pane tree: replace the leaf's sessionId
+                useSessionStore.setState(state => ({
+                  tabs: state.tabs.map(tab => {
+                    if (tab.id !== tabId || !tab.paneTree) return tab;
+                    return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
+                  }),
+                }));
+              }
+            });
+          }}
+          config={appConfig}
+          isDark={isDark}
+          isActive={isTabActive && isActive}
+        />
+      )}
+
+      {node.paneType === 'welcome' && (
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
+          <h2 className="text-xl font-bold mb-6 opacity-80">Connect to Host</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+            {sessions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onConnectInPane(node.paneId, s)}
+                className={`p-4 rounded-xl border text-left transition-all ${isDark ? 'bg-black/20 border-white/10 hover:border-primary/50 hover:bg-white/5' : 'bg-white/50 border-black/10 hover:border-primary/50 hover:bg-black/5'}`}
+              >
+                <div className="font-semibold text-sm truncate">{s.host}</div>
+                <div className="text-xs opacity-60 truncate">{s.username}</div>
+              </button>
+            ))}
+            {sessions.length === 0 && (
+              <div className="col-span-full text-center opacity-50 py-8 text-sm">
+                No saved sessions. Please add one in the main connection panel.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {node.paneType === 'plugin' && (
+        <div className="flex-1 flex items-center justify-center opacity-50">
+          Plugin Placeholder
+        </div>
+      )}
     </div>
   );
 };
@@ -135,7 +170,9 @@ const SplitPaneNode: React.FC<{
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane }) => {
+  onConnectInPane: (paneId: string, session: any) => void;
+  sessions: any[];
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane, sessions }) => {
   const updatePaneSizes = useSessionStore(s => s.updatePaneSizes);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -186,6 +223,8 @@ const SplitPaneNode: React.FC<{
           isTabActive={isTabActive}
           onSplit={onSplit}
           onClosePane={onClosePane}
+          onConnectInPane={onConnectInPane}
+          sessions={sessions}
         />
       </div>
 
@@ -203,6 +242,8 @@ const SplitPaneNode: React.FC<{
           isTabActive={isTabActive}
           onSplit={onSplit}
           onClosePane={onClosePane}
+          onConnectInPane={onConnectInPane}
+          sessions={sessions}
         />
       </div>
     </div>
@@ -225,6 +266,8 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
         isTabActive={props.isTabActive}
         onSplit={props.onSplit}
         onClosePane={props.onClosePane}
+        onConnectInPane={props.onConnectInPane}
+        sessions={props.sessions}
       />
     );
   }
@@ -238,6 +281,8 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
       isTabActive={props.isTabActive}
       onSplit={props.onSplit}
       onClosePane={props.onClosePane}
+      onConnectInPane={props.onConnectInPane}
+      sessions={props.sessions}
     />
   );
 };

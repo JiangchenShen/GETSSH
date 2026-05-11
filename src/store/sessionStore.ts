@@ -13,8 +13,9 @@ import { create } from 'zustand';
 export interface PaneLeaf {
   type: 'leaf';
   paneId: string;      // unique per pane, used as React key / activePaneId
-  sessionId: string;   // SSH session id
-  config: any;         // SSH config (host, user, …)
+  paneType: 'welcome' | 'terminal' | 'plugin';
+  sessionId: string | null;   // SSH session id
+  config: any | null;         // SSH config (host, user, …)
 }
 
 export interface PaneSplit {
@@ -82,7 +83,7 @@ interface SessionStore {
 
 /** Recursively collect all sessionIds from a PaneNode tree */
 export function collectSessionIds(node: PaneNode): string[] {
-  if (node.type === 'leaf') return [node.sessionId];
+  if (node.type === 'leaf') return node.sessionId ? [node.sessionId] : [];
   return [...collectSessionIds(node.children[0]), ...collectSessionIds(node.children[1])];
 }
 

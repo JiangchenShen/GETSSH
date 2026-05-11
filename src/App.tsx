@@ -245,7 +245,7 @@ function App() {
     if (res.success && res.sessionId) {
       const tabTitle = `${config.username}@${config.host}`;
       const rootPaneId = res.sessionId;
-      const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, sessionId: res.sessionId, config };
+      const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
       setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
       setActiveTabId(res.sessionId);
       setActivePaneId(rootPaneId);
@@ -278,7 +278,7 @@ function App() {
     const res = await window.electronAPI.sshConnect(tab.config);
     if (res.success && res.sessionId) {
       // For legacy tabs without paneTree, also rebuild a leaf
-      const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, sessionId: res.sessionId, config: tab.config };
+      const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: tab.config };
       setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string, paneTree } : t));
       if (activeTabId === tab.id) {
         setActiveTabId(res.sessionId as string);
@@ -291,29 +291,49 @@ function App() {
 
   // ── Split Pane Logic ──────────────────────────────────────────────────
 
-  /** Insert a new split into the tree at the target pane, connecting a new SSH session */
+  /** Insert a new split into the tree at the target pane, rendering a welcome screen */
   const splitPane = async (paneId: string, direction: 'hsplit' | 'vsplit') => {
     const tab = tabs.find(t => t.id === activeTabId);
     if (!tab?.paneTree) return;
 
-    // Find the leaf to get its config
-    const leaf = findLeaf(tab.paneTree, paneId);
-    if (!leaf) return;
-
-    const res = await window.electronAPI.sshConnect(leaf.config);
-    if (!res.success || !res.sessionId) {
-      window.alert(`Split failed: ${res.error}`);
-      return;
-    }
-
-    const newPaneId = res.sessionId;
-    const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, sessionId: res.sessionId, config: leaf.config };
+    const newPaneId = `pane-${Date.now()}`;
+    const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, paneType: 'welcome', sessionId: null, config: null };
 
     setTabs(tabs.map(t => {
       if (t.id !== activeTabId || !t.paneTree) return t;
       return { ...t, paneTree: insertSplit(t.paneTree, paneId, direction, newLeaf) };
     }));
     setActivePaneId(newPaneId);
+  };
+
+  /** Connect a session within an existing Welcome pane */
+  const connectInPane = async (paneId: string, targetSession: any) => {
+    setConnecting(true);
+    setError(null);
+    const config = { 
+        host: targetSession.host, 
+        username: targetSession.username, 
+        password: targetSession.password, 
+        privateKeyPath: targetSession.privateKeyPath,
+        port: targetSession.port || appConfig.defaultPort || 22,
+        keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
+        proxyType: appConfig.proxyType,
+        proxyHost: appConfig.proxyHost,
+        proxyPort: appConfig.proxyPort,
+        initScript: appConfig.initScript
+    };
+    
+    const res = await window.electronAPI.sshConnect(config);
+    setConnecting(false);
+
+    if (res.success && res.sessionId) {
+      setTabs(tabs.map(t => {
+        if (t.id !== activeTabId || !t.paneTree) return t;
+        return { ...t, paneTree: updateLeafInTree(t.paneTree, paneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
+      }));
+    } else {
+      window.alert(`Connection failed: ${res.error}`);
+    }
   };
 
   /** Close a pane; if it's the last pane, close the entire tab */
@@ -323,7 +343,7 @@ function App() {
 
     // Find session to disconnect
     const leaf = findLeaf(tab.paneTree, paneId);
-    if (leaf) window.electronAPI.sshDisconnect(leaf.sessionId);
+    if (leaf && leaf.sessionId) window.electronAPI.sshDisconnect(leaf.sessionId);
 
     const newTree = removePane(tab.paneTree, paneId);
     if (!newTree) {
@@ -469,6 +489,8 @@ function App() {
                       isTabActive={activeTabId === tab.id}
                       onSplit={splitPane}
                       onClosePane={closePaneInTab}
+                      onConnectInPane={connectInPane}
+                      sessions={sessions}
                     />
                   ) : (
                     /* Legacy fallback for tabs without paneTree */
@@ -527,6 +549,22 @@ function App() {
 function findLeaf(node: PaneNode, paneId: string): PaneLeaf | null {
   if (node.type === 'leaf') return node.paneId === paneId ? node : null;
   return findLeaf(node.children[0], paneId) ?? findLeaf(node.children[1], paneId);
+}
+
+function updateLeafInTree(node: PaneNode, targetPaneId: string, updates: Partial<PaneLeaf>): PaneNode {
+  if (node.type === 'leaf') {
+    if (node.paneId === targetPaneId) {
+      return { ...node, ...updates } as PaneLeaf;
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: [
+      updateLeafInTree(node.children[0], targetPaneId, updates),
+      updateLeafInTree(node.children[1], targetPaneId, updates),
+    ] as [PaneNode, PaneNode],
+  };
 }
 
 function findFirstLeaf(node: PaneNode): PaneLeaf | null {
