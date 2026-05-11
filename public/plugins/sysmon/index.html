@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Monitor Demo Plugin</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      transition: background-color 0.3s, color 0.3s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .dark {
+      background-color: #1a1b26;
+      color: #a9b1d6;
+    }
+    .light {
+      background-color: #f3f4f6;
+      color: #374151;
+    }
+    .card {
+      background: inherit;
+      border: 1px solid rgba(128, 128, 128, 0.2);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      max-width: 100%;
+    }
+    .title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    .log-container {
+      margin-top: 16px;
+      font-size: 0.85rem;
+      font-family: monospace;
+      opacity: 0.7;
+      max-height: 100px;
+      overflow-y: auto;
+      text-align: left;
+      width: 100%;
+    }
+  </style>
+</head>
+<body class="dark">
+  <div class="card">
+    <div class="title">System Monitor (Demo)</div>
+    <div style="opacity: 0.8; font-size: 0.9rem;">Sandboxed iframe plugin running...</div>
+    <div class="log-container" id="logs"></div>
+  </div>
+
+  <script>
+    const logs = document.getElementById('logs');
+    function log(msg) {
+      const el = document.createElement('div');
+      el.textContent = `> ${msg}`;
+      logs.prepend(el);
+      if (logs.children.length > 5) {
+        logs.removeChild(logs.lastChild);
+      }
+    }
+
+    log('Plugin initialized');
+
+    // Listen to messages from Host
+    window.addEventListener('message', (event) => {
+      // Allow receiving messages from parent frame
+      if (event.source !== window.parent) return;
+
+      const data = event.data;
+      if (!data || !data.type) return;
+
+      log(`Received: ${data.type}`);
+
+      if (data.type === 'theme-change') {
+        const isDark = data.payload.isDark;
+        document.body.className = isDark ? 'dark' : 'light';
+        log(`Theme changed to ${isDark ? 'dark' : 'light'}`);
+      }
+    });
+
+    // Notify Host that we are alive every second
+    setInterval(() => {
+      const msg = {
+        type: 'ping',
+        payload: 'Plugin is alive!',
+        nonce: Date.now().toString()
+      };
+      // Send to parent frame (host)
+      window.parent.postMessage(msg, '*');
+    }, 1000);
+  </script>
+</body>
+</html>

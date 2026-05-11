@@ -3,6 +3,8 @@ import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore } from '../store/sessionStore';
 import { Columns, Rows, X } from 'lucide-react';
 
+import { PluginPane } from './PluginPane';
+
 interface TerminalPaneProps {
   node: PaneNode;
   tabId: string;
@@ -98,7 +100,26 @@ const LeafPane: React.FC<{
 
       {node.paneType === 'welcome' && (
         <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-          <h2 className="text-xl font-bold mb-6 opacity-80">Connect to Host</h2>
+          <div className="flex w-full max-w-2xl justify-between items-end mb-6">
+            <h2 className="text-xl font-bold opacity-80">Connect to Host</h2>
+            <button 
+              onClick={() => {
+                 // Direct store mutation for demo purposes
+                 useSessionStore.setState(state => ({
+                    tabs: state.tabs.map(t => {
+                      if (t.id !== tabId || !t.paneTree) return t;
+                      return { 
+                        ...t, 
+                        paneTree: patchLeafToPlugin(t.paneTree, node.paneId)
+                      };
+                    })
+                 }));
+              }}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70' : 'border-black/20 hover:bg-black/5 text-black/70'}`}
+            >
+              Launch Demo Plugin
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
             {sessions.map((s, i) => (
               <button
@@ -120,9 +141,7 @@ const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'plugin' && (
-        <div className="flex-1 flex items-center justify-center opacity-50">
-          Plugin Placeholder
-        </div>
+        <PluginPane paneId={node.paneId} isDark={isDark} pluginUrl={node.config?.pluginUrl} />
       )}
     </div>
   );
@@ -137,6 +156,19 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
     children: [
       patchLeafSessionId(node.children[0], paneId, newSessionId),
       patchLeafSessionId(node.children[1], paneId, newSessionId),
+    ] as [PaneNode, PaneNode],
+  };
+}
+
+function patchLeafToPlugin(node: PaneNode, paneId: string): PaneNode {
+  if (node.type === 'leaf') {
+    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { pluginUrl: '/plugins/sysmon/index.html' } } : node;
+  }
+  return {
+    ...node,
+    children: [
+      patchLeafToPlugin(node.children[0], paneId),
+      patchLeafToPlugin(node.children[1], paneId),
     ] as [PaneNode, PaneNode],
   };
 }
