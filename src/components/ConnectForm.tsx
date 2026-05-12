@@ -58,7 +58,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.privateKey')}</label>
           <div className="flex gap-2">
             <input value={session.privateKeyPath || ''} onChange={(e) => handleUpdate({ privateKeyPath: e.target.value })} type="text" placeholder="e.g. ~/.ssh/id_rsa" className={`flex-1 border rounded-lg px-4 py-2 text-sm outline-none ${isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'}`} />
-            <button type="button" onClick={async () => { const path = await (window as any).electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className={`px-3 border rounded-lg text-sm shrink-0 ${isDark ? 'bg-white/10 hover:bg-white/20 border-white/10' : 'bg-white hover:bg-black/10 border-black/10'}`}>Browse</button>
+            <button type="button" onClick={async () => { const path = await window.electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className={`px-3 border rounded-lg text-sm shrink-0 ${isDark ? 'bg-white/10 hover:bg-white/20 border-white/10' : 'bg-white hover:bg-black/10 border-black/10'}`}>Browse</button>
           </div>
         </div>
         <label className="flex items-center gap-3 cursor-pointer pt-2">
