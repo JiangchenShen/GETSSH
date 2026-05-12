@@ -89,7 +89,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       } else {
         const legacyTheme = localStorage.getItem('themePref');
-        if (legacyTheme) set((s) => ({ appConfig: { ...s.appConfig, theme: legacyTheme as any } }));
+        if (legacyTheme === 'system' || legacyTheme === 'light' || legacyTheme === 'dark') {
+          set((s) => ({ appConfig: { ...s.appConfig, theme: legacyTheme } }));
+        }
       }
     } catch (error) {
       console.error('Failed to load stored config:', error);
