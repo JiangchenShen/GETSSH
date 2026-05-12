@@ -345,6 +345,20 @@ function App() {
     const leaf = findLeaf(tab.paneTree, paneId);
     if (leaf && leaf.sessionId) window.electronAPI.sshDisconnect(leaf.sessionId);
 
+    // If this is the ONLY pane in the tree, we convert it to welcome pane instead of closing the tab
+    if (tab.paneTree.type === 'leaf' && tab.paneTree.paneId === paneId) {
+      setTabs(tabs.map(t => {
+        if (t.id === activeTabId) {
+          return {
+            ...t,
+            paneTree: { ...tab.paneTree, paneType: 'welcome', sessionId: null, config: null } as PaneLeaf
+          };
+        }
+        return t;
+      }));
+      return; // Stop here, do not remove the tab
+    }
+
     const newTree = removePane(tab.paneTree, paneId);
     if (!newTree) {
       // Last pane → close the whole tab

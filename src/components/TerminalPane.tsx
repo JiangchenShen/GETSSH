@@ -78,7 +78,7 @@ const LeafPane: React.FC<{
       {node.paneType === 'terminal' && node.sessionId && (
         <TerminalComponent
           sessionId={node.sessionId}
-          onDisconnected={() => {}}
+          onDisconnected={() => { onClosePane(node.paneId); }}
           onReconnect={() => {
             window.electronAPI.sshConnect(node.config).then(res => {
               if (res.success && res.sessionId) {

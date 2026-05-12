@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { WebglAddon } from 'xterm-addon-webgl';
+import { LigaturesAddon } from 'xterm-addon-ligatures';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -13,7 +15,7 @@ interface TerminalProps {
 }
 
 // Global cache to preserve xterm instances and DOM nodes across React unmounts
-const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; element: HTMLDivElement; }>();
+const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; webglAddon?: WebglAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
 
 export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true, isActive = true }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       const element = document.createElement('div');
       element.className = "w-full h-full overflow-hidden";
       const term = new XTerm({
+        allowProposedApi: true,
         cursorBlink: true,
         fontFamily: config.fontFamily || '"Fira Code", monospace, "Courier New", Courier',
         fontSize: config.fontSize || 14,
@@ -70,8 +73,32 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(element);
+
+      let ligaturesAddon: LigaturesAddon | undefined;
+      // Load Ligatures Addon (Geek visual enhancement)
+      try {
+        ligaturesAddon = new LigaturesAddon();
+        term.loadAddon(ligaturesAddon);
+      } catch (e) {
+        console.warn('[Terminal] Ligatures addon failed to load:', e);
+      }
+
+      let webglAddon: WebglAddon | undefined;
+      // Load WebGL Addon (Hardware Acceleration)
+      try {
+        webglAddon = new WebglAddon();
+        // Handle webgl context loss gracefully
+        webglAddon.onContextLoss(() => {
+          if (webglAddon) webglAddon.dispose();
+          console.warn('[Terminal] WebGL context lost. Downgrading to native canvas renderer.');
+        });
+        term.loadAddon(webglAddon);
+        console.log('[Terminal] WebGL addon loaded successfully');
+      } catch (e) {
+        console.warn('[Terminal] WebGL addon failed to load, downgrading to native canvas:', e);
+      }
       
-      cache = { term, fitAddon, element };
+      cache = { term, fitAddon, webglAddon, ligaturesAddon, element };
       xtermCache.set(sessionId, cache);
     }
 
@@ -103,8 +130,14 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
 
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
       isDisconnectedRef.current = true;
-      term.writeln('\r\n\x1b[31m[SSH Connection Closed] - Press Enter to reconnect...\x1b[0m\r\n');
       if (onDisconnectedRef.current) onDisconnectedRef.current();
+      
+      const cacheEntry = xtermCache.get(sessionId);
+      if (cacheEntry) {
+        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+        cacheEntry.fitAddon.dispose();
+      }
       xtermCache.delete(sessionId);
       term.dispose();
     });
@@ -149,8 +182,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
         terminalRef.current.removeChild(element);
       }
       
-      // DO NOT DISCONNECT SSH OR DISPOSE TERM ON UNMOUNT
-      // window.electronAPI.sshDisconnect(sessionId);
+      // Memory cleanup if component is actually destroyed
+      // But we cache instances, so we don't dispose them here unless we evict cache
     };
   }, [sessionId]); // ONLY mount/dismount on SessionID change
 
