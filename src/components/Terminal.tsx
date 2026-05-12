@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebglAddon } from 'xterm-addon-webgl';
@@ -22,6 +22,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const isDisconnectedRef = useRef(false);
+  const [isDisconnected, setIsDisconnected] = useState(false);
 
   // Convert "r g b" string → "#rrggbb" hex (xterm requires solid hex for cursor)
   const toHex = (rgbStr: string) => {
@@ -130,16 +131,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
 
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
       isDisconnectedRef.current = true;
-      if (onDisconnectedRef.current) onDisconnectedRef.current();
-      
-      const cacheEntry = xtermCache.get(sessionId);
-      if (cacheEntry) {
-        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
-        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
-        cacheEntry.fitAddon.dispose();
-      }
-      xtermCache.delete(sessionId);
-      term.dispose();
+      setIsDisconnected(true);
+      term.writeln('\r\n\x1b[31m[SSH Connection Closed]\x1b[0m\r\n');
     });
 
     if (isNew) {
@@ -148,8 +141,28 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
         if (isDisconnectedRef.current) {
            if (data === '\r' && onReconnectRef.current) {
               isDisconnectedRef.current = false;
+              setIsDisconnected(false);
               term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
+              // Remove from cache BEFORE reconnecting so the new session gets a fresh terminal
+              const cacheEntry = xtermCache.get(sessionId);
+              if (cacheEntry) {
+                 if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+                 if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+                 cacheEntry.fitAddon.dispose();
+              }
+              xtermCache.delete(sessionId);
+              term.dispose();
               onReconnectRef.current();
+           } else if (data === '\x1b' && onDisconnectedRef.current) {
+              const cacheEntry = xtermCache.get(sessionId);
+              if (cacheEntry) {
+                 if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+                 if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+                 cacheEntry.fitAddon.dispose();
+              }
+              xtermCache.delete(sessionId);
+              term.dispose();
+              onDisconnectedRef.current();
            }
            return;
         }
@@ -246,6 +259,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 transparent relative group">
       <div className="flex-1 w-full h-full" ref={terminalRef}></div>
+      {isDisconnected && (
+        <div className="absolute top-0 left-0 w-full h-full bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-10 transition-all animate-in fade-in duration-300">
+          <div className="bg-black/60 text-white/90 px-6 py-4 rounded-xl shadow-2xl border border-white/10 flex flex-col items-center space-y-2 backdrop-blur-md">
+            <span className="font-bold text-lg text-red-400">Session Closed</span>
+            <span className="text-sm opacity-80">Press <kbd className="px-2 py-1 bg-white/10 rounded mx-1 text-xs">Enter</kbd> to Reconnect</span>
+            <span className="text-sm opacity-80">Press <kbd className="px-2 py-1 bg-white/10 rounded mx-1 text-xs">Esc</kbd> to Return to Menu</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
