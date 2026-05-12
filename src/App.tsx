@@ -112,7 +112,7 @@ function App() {
 
     // Boot Plugins in Sandbox (secure)
     const cleanupPluginBridge = initPluginBridge();
-    bootSandboxedPlugins();
+    bootSandboxedPlugins().catch(e => console.error('Failed to boot plugins:', e));
 
     // Register core panels in the dynamic panel engine
     usePanelStore.getState().registerPanel({
