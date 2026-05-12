@@ -6,7 +6,7 @@ interface PluginPaneProps {
   isDark: boolean;
 }
 
-const DEFAULT_PLUGIN_URL = window.location.protocol === 'file:' ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html';
+const DEFAULT_PLUGIN_URL = "data:text/html;charset=utf-8,<html><body style='color:#666;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;'>Plugin Slot Ready</body></html>";
 
 export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFAULT_PLUGIN_URL, isDark }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -40,10 +40,11 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFA
   // 2. Push theme state to plugin whenever it changes
   useEffect(() => {
     if (iframeRef.current && iframeRef.current.contentWindow) {
+      const currentTheme = isDark ? 'dark' : 'light';
       // Send theme state to plugin
       iframeRef.current.contentWindow.postMessage(
-        { type: 'theme-change', payload: { isDark }, nonce: Date.now().toString() },
-        '*' // We use '*' because iframe is sandboxed and we might not know its exact origin, but it's safe to broadcast to our own iframe reference.
+        { type: 'host:theme-change', payload: currentTheme },
+        '*'
       );
     }
   }, [isDark]);

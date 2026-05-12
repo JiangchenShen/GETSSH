@@ -162,8 +162,7 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
 
 function patchLeafToPlugin(node: PaneNode, paneId: string): PaneNode {
   if (node.type === 'leaf') {
-    const isPackaged = window.location.protocol === 'file:';
-    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { pluginUrl: isPackaged ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html' } } : node;
+    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { ...node.config } } : node;
   }
   return {
     ...node,
