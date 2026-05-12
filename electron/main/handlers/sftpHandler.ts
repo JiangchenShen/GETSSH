@@ -143,11 +143,11 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     if (active) {
       active.watcher.close();
       try {
-        if (fs.existsSync(active.tempPath)) {
-          fs.unlinkSync(active.tempPath);
+        await fs.promises.unlink(active.tempPath);
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') {
+          console.error('[SFTP Sync] Cleanup failed', e);
         }
-      } catch (e) {
-        console.error('[SFTP Sync] Cleanup failed', e);
       }
       delete connectionManager.activeSftpWatchers[watchId];
     }

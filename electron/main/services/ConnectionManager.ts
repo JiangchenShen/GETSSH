@@ -27,23 +27,34 @@ class ConnectionManager {
     }
   }
 
-  cleanupSessionSftpWatchers(sessionId: string) {
+  async cleanupSessionSftpWatchers(sessionId: string) {
+    const cleanupPromises = [];
+
     for (const [watchId, active] of Object.entries(this.activeSftpWatchers)) {
       if (watchId.startsWith(`${sessionId}_`)) {
         active.watcher.close();
-        try {
-          if (fs.existsSync(active.tempPath)) fs.unlinkSync(active.tempPath);
-        } catch (e) {
-          console.error('[SFTP Sync] Cleanup failed', e);
-        }
+
+        const cleanup = (async () => {
+          try {
+            await fs.promises.unlink(active.tempPath);
+          } catch (e: any) {
+            if (e.code !== 'ENOENT') {
+              console.error('[SFTP Sync] Cleanup failed', e);
+            }
+          }
+        })();
+
+        cleanupPromises.push(cleanup);
         delete this.activeSftpWatchers[watchId];
       }
     }
+
+    await Promise.all(cleanupPromises);
   }
 
-  removeSession(sessionId: string) {
+  async removeSession(sessionId: string) {
     this.sessions.delete(sessionId);
-    this.cleanupSessionSftpWatchers(sessionId);
+    await this.cleanupSessionSftpWatchers(sessionId);
     this.updatePowerSaveBlocker();
   }
 }
