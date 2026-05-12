@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { app, ipcMain, Notification, safeStorage } from 'electron';
 import AdmZip from 'adm-zip';
+import pLimit from 'p-limit';
 import type { PluginManifest, MainContextAPI } from '../../src/types/plugin';
 
 export class PluginManager {
@@ -109,7 +110,11 @@ export class PluginManager {
 
         // Securely extract zip entries to prevent Zip Slip vulnerability
         const resolvedTempDir = path.resolve(tempDir);
-        for (const entry of zip.getEntries()) {
+        const entries = zip.getEntries();
+        const validFileEntries = [];
+        const directoriesToCreate = new Set<string>();
+
+        for (const entry of entries) {
           const targetPath = path.resolve(resolvedTempDir, entry.entryName);
           // Ensure target path is strictly within the intended temporary directory
           if (!targetPath.startsWith(resolvedTempDir + path.sep) && targetPath !== resolvedTempDir) {
@@ -118,13 +123,29 @@ export class PluginManager {
           }
 
           if (entry.isDirectory) {
-            await fs.promises.mkdir(targetPath, { recursive: true });
+            directoriesToCreate.add(targetPath);
           } else {
-            const dir = path.dirname(targetPath);
-            await fs.promises.mkdir(dir, { recursive: true });
-            await fs.promises.writeFile(targetPath, entry.getData());
+            directoriesToCreate.add(path.dirname(targetPath));
+            validFileEntries.push({ entry, targetPath });
           }
         }
+
+        // Concurrent directory creation
+        await Promise.all(
+          Array.from(directoriesToCreate).map(dir => fs.promises.mkdir(dir, { recursive: true }))
+        );
+
+        // Concurrent file writing with concurrency limit
+        // Using p-limit to prevent EMFILE, memory exhaustion from `getData()` and unresponsiveness.
+        const limit = pLimit(10);
+        await Promise.all(
+          validFileEntries.map(({ entry, targetPath }) =>
+            limit(async () => {
+              // Decompress and write inside the limited callback to avoid memory spike and UI freezing.
+              await fs.promises.writeFile(targetPath, entry.getData());
+            })
+          )
+        );
 
         let pkgPath = path.join(tempDir, 'package.json');
         let sourceDir = tempDir;
