@@ -136,5 +136,6 @@ export async function bootSandboxedPlugins() {
     });
   } catch (e) {
     console.error('[PluginBridge] Failed to boot sandboxed plugins:', e);
+    throw e;
   }
 }
