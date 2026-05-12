@@ -1,7 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore } from '../store/sessionStore';
-import { Columns, Rows, X } from 'lucide-react';
+import { Columns, Rows, X, Terminal as TerminalIcon, Cpu } from 'lucide-react';
 
 import { PluginPane } from './PluginPane';
 
@@ -99,44 +99,60 @@ const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'welcome' && (
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-          <div className="flex w-full max-w-2xl justify-between items-end mb-6">
-            <h2 className="text-xl font-bold opacity-80">Connect to Host</h2>
-            <button 
-              onClick={() => {
-                 // Direct store mutation for demo purposes
-                 useSessionStore.setState(state => ({
-                    tabs: state.tabs.map(t => {
-                      if (t.id !== tabId || !t.paneTree) return t;
-                      return { 
-                        ...t, 
-                        paneTree: patchLeafToPlugin(t.paneTree, node.paneId)
-                      };
-                    })
-                 }));
-              }}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70' : 'border-black/20 hover:bg-black/5 text-black/70'}`}
-            >
-              Launch Demo Plugin
-            </button>
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center space-y-10">
+          
+          {/* Remote Sessions Section */}
+          <div className="w-full max-w-3xl flex flex-col space-y-4">
+             <div className={`flex items-center space-x-2 text-lg font-bold opacity-80 border-b pb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
+                <TerminalIcon className="w-5 h-5" />
+                <span>Remote Sessions</span>
+             </div>
+             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {sessions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onConnectInPane(node.paneId, s)}
+                    className={`p-4 rounded-xl border text-left transition-all ${isDark ? 'bg-black/20 border-white/10 hover:border-primary/50 hover:bg-white/5 shadow-sm' : 'bg-white/50 border-black/10 hover:border-primary/50 hover:bg-black/5 shadow-sm'} group flex flex-col`}
+                  >
+                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{s.host}</div>
+                    <div className="text-xs opacity-60 truncate mt-1">{s.username}</div>
+                  </button>
+                ))}
+                {sessions.length === 0 && (
+                  <div className={`col-span-full text-center opacity-40 py-6 text-sm rounded-xl border border-dashed ${isDark ? 'bg-black/5 border-white/10' : 'bg-white/5 border-black/10'}`}>
+                    No saved sessions available.
+                  </div>
+                )}
+             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
-            {sessions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => onConnectInPane(node.paneId, s)}
-                className={`p-4 rounded-xl border text-left transition-all ${isDark ? 'bg-black/20 border-white/10 hover:border-primary/50 hover:bg-white/5' : 'bg-white/50 border-black/10 hover:border-primary/50 hover:bg-black/5'}`}
-              >
-                <div className="font-semibold text-sm truncate">{s.host}</div>
-                <div className="text-xs opacity-60 truncate">{s.username}</div>
-              </button>
-            ))}
-            {sessions.length === 0 && (
-              <div className="col-span-full text-center opacity-50 py-8 text-sm">
-                No saved sessions. Please add one in the main connection panel.
-              </div>
-            )}
+
+          {/* Local Plugins Section */}
+          <div className="w-full max-w-3xl flex flex-col space-y-4">
+             <div className={`flex items-center space-x-2 text-lg font-bold opacity-80 border-b pb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
+                <Cpu className="w-5 h-5" />
+                <span>Local Plugins</span>
+             </div>
+             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                <button
+                  onClick={() => {
+                     useSessionStore.setState(state => ({
+                        tabs: state.tabs.map(t => {
+                          if (t.id !== tabId || !t.paneTree) return t;
+                          return { 
+                            ...t, 
+                            paneTree: patchLeafToPlugin(t.paneTree, node.paneId)
+                          };
+                        })
+                     }));
+                  }}
+                  className={`p-4 rounded-xl border text-left transition-all ${isDark ? 'bg-black/20 border-white/10 hover:border-blue-500/50 hover:bg-white/5 hover:shadow-[0_0_15px_rgba(59,130,246,0.2)] shadow-sm' : 'bg-white/50 border-black/10 hover:border-blue-500/50 hover:bg-black/5 hover:shadow-[0_0_15px_rgba(59,130,246,0.2)] shadow-sm'} group flex flex-col`}
+                >
+                  <div className="font-semibold text-sm truncate group-hover:text-blue-400 transition-colors">Plugin Sandbox Ready</div>
+                  <div className="text-xs opacity-60 truncate mt-1">Experimental Local Container</div>
+                </button>
+             </div>
           </div>
+
         </div>
       )}
 
