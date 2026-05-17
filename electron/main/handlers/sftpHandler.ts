@@ -114,7 +114,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       });
     });
 
-    await shell.openPath(tempPath);
+    shell.showItemInFolder(tempPath);
 
     let timeoutId: NodeJS.Timeout;
     let isUploading = false;

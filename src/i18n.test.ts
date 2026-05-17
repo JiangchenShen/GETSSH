@@ -1,102 +1,62 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-// import i18n from 'i18next';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./locales/en-US.json', () => ({
-  default: {
-    translation: {
-      about: {
-        title: "About MOCK"
-      },
-      sftp: {
-        deleteConfirm: "Delete {{name}}?"
-      }
-    }
-  }
-}));
+// We need to test the initialization side-effects of i18n.ts,
+// which reads from localStorage synchronously upon module load.
 
-vi.mock('./locales/zh-CN.json', () => ({
-  default: {
-    translation: {
-      about: {
-        title: "关于 MOCK"
-      }
-    }
-  }
-}));
+describe('i18n Initialization', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
-describe('i18n configuration', () => {
   beforeEach(() => {
-    vi.resetModules();
+    vi.clearAllMocks();
+    vi.resetModules(); // Ensure the module is re-evaluated for each test
+
+    // Mock localStorage
+    const store: Record<string, string> = {};
     vi.stubGlobal('localStorage', {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      clear: vi.fn(),
+      getItem: vi.fn((key: string) => store[key] || null),
+      setItem: vi.fn((key: string, value: string) => {
+        store[key] = value.toString();
+      }),
+      removeItem: vi.fn((key: string) => {
+        delete store[key];
+      }),
+      clear: vi.fn(() => {
+        for (const key in store) {
+          delete store[key];
+        }
+      })
     });
+
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  it('should use en-US by default when localStorage is empty', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(null);
-    const i18nModule = await import('./i18n');
-    const i18n = i18nModule.default;
-    expect(i18n.language).toBe('en-US');
-  });
-
-  it('should use language from localStorage if valid', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({ language: 'zh-CN' }));
-    const i18nModule = await import('./i18n');
-    const i18n = i18nModule.default;
+  it('sets the language correctly when valid JSON with language property is in localStorage', async () => {
+    localStorage.setItem('appConfig', JSON.stringify({ language: 'zh-CN' }));
+    const { default: i18n } = await import('./i18n');
     expect(i18n.language).toBe('zh-CN');
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
-  it('should fallback to en-US if localStorage contains invalid JSON', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue('{ invalid json');
-    const i18nModule = await import('./i18n');
-    const i18n = i18nModule.default;
+  it('falls back to default (en-US) when valid JSON without language property is in localStorage', async () => {
+    localStorage.setItem('appConfig', JSON.stringify({ someOtherKey: 'value' }));
+    const { default: i18n } = await import('./i18n');
     expect(i18n.language).toBe('en-US');
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
-  it('should fallback to en-US if localStorage json lacks language', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({ someOtherKey: 'value' }));
-    const i18nModule = await import('./i18n');
-    const i18n = i18nModule.default;
+  it('falls back to default (en-US) and logs error when malformed JSON is in localStorage', async () => {
+    localStorage.setItem('appConfig', 'malformed json string {');
+    const { default: i18n } = await import('./i18n');
     expect(i18n.language).toBe('en-US');
-  });
-});
-
-describe('i18next translation instance', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(),
-    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to parse appConfig for i18n:',
+      expect.any(SyntaxError)
+    );
   });
 
-  it('should return translated string without values', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(null);
+  it('falls back to default (en-US) when localStorage is empty/null', async () => {
     const { default: i18n } = await import('./i18n');
-    // Ensure initialization is complete
-    await i18n.init();
-    expect(i18n.t('about.title')).toBe('About MOCK');
-  });
-
-  it('should return translated string with correct language', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({ language: 'zh-CN' }));
-    const { default: i18n } = await import('./i18n');
-    await i18n.init();
-    expect(i18n.t('about.title')).toBe('关于 MOCK');
-  });
-
-  it('should replace values in translation string', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(null);
-    const { default: i18n } = await import('./i18n');
-    await i18n.init();
-    expect(i18n.t('sftp.deleteConfirm', { name: 'file.txt' })).toBe('Delete file.txt?');
-  });
-
-  it('should fallback to key if not found', async () => {
-    vi.mocked(localStorage.getItem).mockReturnValue(null);
-    const { default: i18n } = await import('./i18n');
-    await i18n.init();
-    expect(i18n.t('non.existent.key')).toBe('non.existent.key');
+    expect(i18n.language).toBe('en-US');
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

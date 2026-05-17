@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -31,6 +31,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const setTabs = useSessionStore(state => state.setTabs);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const sessions = useSessionStore(state => state.sessions);
+  const setSessions = useSessionStore(state => state.setSessions);
 
   const [safeAction, setSafeAction] = useState<'none'|'change'|'disable'|'enable'>('none');
   const [safeOldPwd, setSafeOldPwd] = useState('');
@@ -38,7 +39,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [safeError, setSafeError] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  // Import/Export state
+  const [importPwdModal, setImportPwdModal] = useState(false);
+  const [importPwd, setImportPwd] = useState('');
+  const [profilesStatus, setProfilesStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
   return (
+    <>
     <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-gray-50 text-black'}`}>
       {/* Settings Sidebar */}
       <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-gray-100'}`}>
@@ -285,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                  <div className="space-y-3">
                     {safeAction === 'none' ? (
                        <>
-                         {!encryptionDisabled ? (
+                         {!encryptionDisabled && !!masterPassword ? (
                             <>
                               <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('change'); setSafeError(''); setSafeOldPwd(''); setSafeNewPwd(''); }} className={`py-2 px-3 text-sm font-medium rounded-lg border-0 transition-all ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
                                  {t('security.changeMasterPwd')}
@@ -334,17 +341,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                
                                if (safeAction === 'change') {
                                   setMasterPassword(safeNewPwd);
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
                                   setTimeout(() => window.alert('✅ 主密码已安全更新并重加密完成！'), 100);
                                } else if (safeAction === 'disable') {
                                   setEncryptionDisabled(true);
                                   setMasterPassword('');
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
                                   setTimeout(() => window.alert('⚠️ 加密已解除，配置已转为明文存储。'), 100);
                                } else if (safeAction === 'enable') {
                                   setEncryptionDisabled(false);
                                   setMasterPassword(safeNewPwd);
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
                                   setTimeout(() => window.alert('🔒 SafeStorage 零知识加密已启动！'), 100);
                                }
                                
@@ -354,6 +361,75 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                        </div>
                     )}
                  </div>
+              </div>
+
+              {/* ── Profile Import / Export ──────────────────────────── */}
+              <div className="pt-6">
+                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-primary" /> 配置文件管理
+                </h4>
+                <p className="text-xs opacity-50 mb-4">
+                  导出需要先设置主密码，以确保密码/私钥路径得到 AES-256 加密保护。主机名、用户名等基础信息将以明文保存，方便阅读。
+                </p>
+
+                {profilesStatus && (
+                  <div className={`mb-3 px-4 py-2 rounded-lg text-xs font-medium ${
+                    profilesStatus.type === 'success'
+                      ? 'bg-green-500/15 text-green-400'
+                      : 'bg-red-500/15 text-red-400'
+                  }`}>
+                    {profilesStatus.msg}
+                  </div>
+                )}
+
+                {/* No master password → show locked hint for export */}
+                {encryptionDisabled && (
+                  <div className={`mb-3 px-4 py-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                    isDark ? 'bg-yellow-500/10 text-yellow-400' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'
+                  }`}>
+                    <Shield className="w-3.5 h-3.5 shrink-0" />
+                    <span>导出功能需要主密码。请先在上方"SafeStorage 加密配置"中设置主密码，再进行导出。</span>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  {/* Export — only available when master password is set */}
+                  <button
+                    onClick={async () => {
+                      setProfilesStatus(null);
+                      const res = await window.electronAPI.exportProfiles({
+                        sessions,
+                        masterPassword,
+                      });
+                      if (res.success) {
+                        setProfilesStatus({ type: 'success', msg: `✅ 已成功导出 ${res.count} 个配置！` });
+                      } else if (res.reason !== 'canceled') {
+                        setProfilesStatus({ type: 'error', msg: `❌ 导出失败：${res.reason}` });
+                      }
+                    }}
+                    disabled={encryptionDisabled || sessions.length === 0}
+                    title={encryptionDisabled ? '请先设置主密码后再导出' : '导出所有服务器配置'}
+                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
+                    }`}
+                  >
+                    <Download className="w-4 h-4" /> 导出配置
+                  </button>
+
+                  {/* Import — always available */}
+                  <button
+                    onClick={() => {
+                      setProfilesStatus(null);
+                      setImportPwd('');
+                      setImportPwdModal(true);
+                    }}
+                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all ${
+                      isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4" /> 导入配置
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -421,5 +497,76 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
     </div>
+
+    {/* ── Import Password Modal ───────────────────────────────────────── */}
+    {importPwdModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className={`w-80 p-6 rounded-2xl shadow-2xl border space-y-4 ${isDark ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5 text-primary" />
+            <h3 className="text-sm font-bold">导入配置</h3>
+          </div>
+          <p className="text-xs opacity-60">
+            如果导出文件已加密，请输入当前主密码以解密凭证；如为明文导出，留空即可。
+          </p>
+          <input
+            autoFocus
+            type="password"
+            placeholder="主密码（可选）"
+            value={importPwd}
+            onChange={(e) => setImportPwd(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.closest('div')?.querySelector<HTMLButtonElement>('[data-confirm]')?.click()}
+            className={`w-full p-2 border rounded-lg text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-gray-50 border-black/10'}`}
+          />
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => { setImportPwdModal(false); setImportPwd(''); }}
+              className={`flex-1 py-2 text-sm rounded-xl border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
+            >
+              取消
+            </button>
+            <button
+              data-confirm
+              onClick={async () => {
+                setImportPwdModal(false);
+                const res = await window.electronAPI.importProfiles({ masterPassword: importPwd });
+
+                if (!res.success) {
+                  const msgs: Record<string, string> = {
+                    canceled:         '操作已取消。',
+                    invalid_format:   '文件格式无效，请选择 GETSSH 导出的 JSON 文件。',
+                    password_required:'该文件已加密，请输入主密码。',
+                    wrong_password:   '主密码错误，解密失败。',
+                  };
+                  setProfilesStatus({ type: 'error', msg: `❌ ${msgs[res.reason ?? ''] ?? res.reason}` });
+                  return;
+                }
+
+                if (res.profiles && res.profiles.length > 0) {
+                  // Merge: avoid exact duplicates (same host + username)
+                  const existing = new Set(sessions.map(s => `${s.host}::${s.username}`));
+                  const newOnes  = res.profiles.filter(p => !existing.has(`${p.host}::${p.username}`));
+                  const merged   = [...sessions, ...newOnes];
+                  setSessions(merged);
+                  // Persist to disk
+                  await window.electronAPI.saveProfiles({ masterPassword, payload: merged });
+                  setProfilesStatus({
+                    type: 'success',
+                    msg: `✅ 成功导入 ${newOnes.length} 个新配置（跳过 ${res.profiles.length - newOnes.length} 个重复）！`,
+                  });
+                } else {
+                  setProfilesStatus({ type: 'success', msg: '✅ 文件读取成功，但没有新配置需要导入。' });
+                }
+                setImportPwd('');
+              }}
+              className="flex-1 py-2 text-sm rounded-xl bg-primary hover:bg-primary/80 text-white transition-all shadow-md"
+            >
+              选择文件并导入
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 };

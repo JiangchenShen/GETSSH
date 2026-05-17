@@ -8,6 +8,7 @@ import { PluginManager } from './PluginManager'
 import { registerCryptoHandlers } from './handlers/cryptoHandler'
 import { registerSshHandlers } from './handlers/sshHandler'
 import { registerSftpHandlers } from './handlers/sftpHandler'
+import { registerProfileHandlers } from './handlers/profileHandler'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
@@ -76,6 +77,11 @@ function createWindow() {
     }
   })
 
+  // Capture console logs from the renderer
+  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[Renderer] ${message}`);
+  });
+
   // Security Hardening: Prevent arbitrary window spawning
   win.webContents.setWindowOpenHandler(() => {
     return { action: 'deny' };
@@ -99,7 +105,7 @@ function createWindow() {
     win.loadFile(join(__dirname, '../../dist/index.html'))
   } else if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(url!)
-    // win.webContents.openDevTools({ mode: 'detach' })
+    win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(indexHtml)
   }
@@ -186,6 +192,7 @@ app.whenReady().then(async () => {
   registerCryptoHandlers(ipcMain, app);
   registerSshHandlers(ipcMain, app, () => win);
   registerSftpHandlers(ipcMain);
+  registerProfileHandlers(ipcMain);
   createWindow();
   
   checkForUpdates();

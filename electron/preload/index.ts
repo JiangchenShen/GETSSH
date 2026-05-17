@@ -56,5 +56,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('update-available', listener)
   },
   showContextMenu: () => ipcRenderer.send('show-context-menu'),
-  checkForUpdates: () => ipcRenderer.invoke('check-for-updates')
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  exportProfiles: (payload: { sessions: any[], masterPassword: string }) => ipcRenderer.invoke('export-profiles', payload),
+  importProfiles: (payload: { masterPassword: string }) => ipcRenderer.invoke('import-profiles', payload),
+  promptBiometricUnlock: () => ipcRenderer.invoke('prompt-biometric-unlock'),
 })

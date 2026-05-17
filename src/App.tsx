@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal as TerminalComponent } from './components/Terminal';
+import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
 import { useAppStore } from './store/appStore';
-import { Tab, useSessionStore } from './store/sessionStore';
+import { Tab, PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { TabBar } from './components/TabBar';
@@ -27,6 +28,7 @@ function App() {
   const setTabs = useSessionStore(state => state.setTabs);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const setActivePaneId = useSessionStore(state => state.setActivePaneId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const connecting = useSessionStore(state => state.connecting);
@@ -79,8 +81,22 @@ function App() {
     const bootCrypto = async () => {
        const status = await window.electronAPI.checkProfiles();
        if (status === 'encrypted') {
-          setCryptoMode('locked');
           setEncryptionDisabled(false);
+          // Render the modal first to blur the background, then prompt biometric
+          setCryptoMode('locked');
+          const bioRes = await window.electronAPI.promptBiometricUnlock();
+          if (bioRes.success && bioRes.masterPassword) {
+            try {
+               const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+               setMasterPassword(bioRes.masterPassword);
+               setSessions(decrypted);
+               setCryptoMode('idle');
+               return; // Successfully unlocked biometrically
+            } catch (e) {
+               console.warn('Biometric unlock failed to decrypt:', e);
+            }
+          }
+          // If biometric fails, modal is already shown for manual entry fallback.
        } else if (status === 'plain') {
           const plainSessions = await window.electronAPI.unlockProfiles('');
           setSessions(plainSessions);
@@ -96,17 +112,17 @@ function App() {
 
     // Boot Plugins in Sandbox (secure)
     const cleanupPluginBridge = initPluginBridge();
-    bootSandboxedPlugins();
+    bootSandboxedPlugins().catch(e => console.error('Failed to boot plugins:', e));
 
     // Register core panels in the dynamic panel engine
     usePanelStore.getState().registerPanel({
       id: 'sftp',
       title: 'SFTP Manager',
       component: SFTPManager,
-      position: 'right',
-      defaultSize: 320,
-      minSize: 200,
-      maxSize: 600,
+      position: 'bottom',
+      defaultSize: 280,
+      minSize: 180,
+      maxSize: 520,
     });
 
     // Init Theme Sync
@@ -228,8 +244,11 @@ function App() {
 
     if (res.success && res.sessionId) {
       const tabTitle = `${config.username}@${config.host}`;
-      setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
+      const rootPaneId = res.sessionId;
+      const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
+      setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
       setActiveTabId(res.sessionId);
+      setActivePaneId(rootPaneId);
       setSelectedSessionIndex(null);
     } else {
       setError(res.error || 'Connection failed');
@@ -258,13 +277,100 @@ function App() {
   const handleReconnect = async (tab: Tab) => {
     const res = await window.electronAPI.sshConnect(tab.config);
     if (res.success && res.sessionId) {
-      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string } : t));
+      // For legacy tabs without paneTree, also rebuild a leaf
+      const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: tab.config };
+      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string, paneTree } : t));
       if (activeTabId === tab.id) {
         setActiveTabId(res.sessionId as string);
+        setActivePaneId(res.sessionId as string);
       }
     } else {
       window.alert(`Reconnect failed: ${res.error}`);
     }
+  };
+
+  // ── Split Pane Logic ──────────────────────────────────────────────────
+
+  /** Insert a new split into the tree at the target pane, rendering a welcome screen */
+  const splitPane = async (paneId: string, direction: 'hsplit' | 'vsplit') => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab?.paneTree) return;
+
+    const newPaneId = `pane-${Date.now()}`;
+    const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, paneType: 'welcome', sessionId: null, config: null };
+
+    setTabs(tabs.map(t => {
+      if (t.id !== activeTabId || !t.paneTree) return t;
+      return { ...t, paneTree: insertSplit(t.paneTree, paneId, direction, newLeaf) };
+    }));
+    setActivePaneId(newPaneId);
+  };
+
+  /** Connect a session within an existing Welcome pane */
+  const connectInPane = async (paneId: string, targetSession: any) => {
+    setConnecting(true);
+    setError(null);
+    const config = { 
+        host: targetSession.host, 
+        username: targetSession.username, 
+        password: targetSession.password, 
+        privateKeyPath: targetSession.privateKeyPath,
+        port: targetSession.port || appConfig.defaultPort || 22,
+        keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
+        proxyType: appConfig.proxyType,
+        proxyHost: appConfig.proxyHost,
+        proxyPort: appConfig.proxyPort,
+        initScript: appConfig.initScript
+    };
+    
+    const res = await window.electronAPI.sshConnect(config);
+    setConnecting(false);
+
+    if (res.success && res.sessionId) {
+      setTabs(tabs.map(t => {
+        if (t.id !== activeTabId || !t.paneTree) return t;
+        return { ...t, paneTree: updateLeafInTree(t.paneTree, paneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
+      }));
+    } else {
+      window.alert(`Connection failed: ${res.error}`);
+    }
+  };
+
+  /** Close a pane; if it's the last pane, close the entire tab */
+  const closePaneInTab = (paneId: string) => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab?.paneTree) return;
+
+    // Find session to disconnect
+    const leaf = findLeaf(tab.paneTree, paneId);
+    if (leaf && leaf.sessionId) window.electronAPI.sshDisconnect(leaf.sessionId);
+
+    // If this is the ONLY pane in the tree, we convert it to welcome pane instead of closing the tab
+    if (tab.paneTree.type === 'leaf' && tab.paneTree.paneId === paneId) {
+      setTabs(tabs.map(t => {
+        if (t.id === activeTabId) {
+          return {
+            ...t,
+            paneTree: { ...tab.paneTree, paneType: 'welcome', sessionId: null, config: null } as PaneLeaf
+          };
+        }
+        return t;
+      }));
+      return; // Stop here, do not remove the tab
+    }
+
+    const newTree = removePane(tab.paneTree, paneId);
+    if (!newTree) {
+      // Last pane → close the whole tab
+      closeTab(tab.id);
+      return;
+    }
+
+    setTabs(tabs.map(t => t.id === activeTabId ? { ...t, paneTree: newTree } : t));
+
+    // Focus first remaining leaf
+    const firstLeaf = findFirstLeaf(newTree);
+    if (firstLeaf) setActivePaneId(firstLeaf.paneId);
   };
 
   // Dynamic Backdrop Opacity Color
@@ -286,13 +392,30 @@ function App() {
           mode={cryptoMode} 
           isDark={isDark} 
           onUnlock={handleUnlock} 
-          onSetup={handleSetup} 
+          onSetup={handleSetup}
+          onSkip={cryptoMode === 'setup' ? () => {
+            // Skip this time — modal will show again next time a new session is added
+            setCryptoMode('idle');
+          } : undefined}
           onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
               if (cryptoMode === 'setup') {
                  setEncryptionDisabled(true);
                  window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
               }
               setCryptoMode('idle');
+          }}
+          onRetryBiometric={async () => {
+             const bioRes = await window.electronAPI.promptBiometricUnlock();
+             if (bioRes.success && bioRes.masterPassword) {
+               try {
+                  const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                  setMasterPassword(bioRes.masterPassword);
+                  setSessions(decrypted);
+                  setCryptoMode('idle');
+               } catch (e) {
+                  console.warn('Biometric unlock failed on manual retry:', e);
+               }
+             }
           }}
         />
       )}
@@ -362,7 +485,7 @@ function App() {
           )}
         </div>
 
-        {/* Terminals area with SplitPane */}
+        {/* Terminals area with pane tree renderer */}
         <div
           className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
           style={{ display: (tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
@@ -371,14 +494,29 @@ function App() {
             <div className="absolute inset-0">
               {tabs.filter(t => t.id !== 'settings').map(tab => (
                 <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                  <TerminalComponent
-                    sessionId={tab.id}
-                    onDisconnected={() => {}}
-                    onReconnect={() => handleReconnect(tab)}
-                    config={appConfig}
-                    isDark={isDark}
-                    isActive={activeTabId === tab.id}
-                  />
+                  {tab.paneTree ? (
+                    <TerminalPaneRenderer
+                      node={tab.paneTree}
+                      tabId={tab.id}
+                      appConfig={appConfig}
+                      isDark={isDark}
+                      isTabActive={activeTabId === tab.id}
+                      onSplit={splitPane}
+                      onClosePane={closePaneInTab}
+                      onConnectInPane={connectInPane}
+                      sessions={sessions}
+                    />
+                  ) : (
+                    /* Legacy fallback for tabs without paneTree */
+                    <TerminalComponent
+                      sessionId={tab.id}
+                      onDisconnected={() => {}}
+                      onReconnect={() => handleReconnect(tab)}
+                      config={appConfig}
+                      isDark={isDark}
+                      isActive={activeTabId === tab.id}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -417,6 +555,73 @@ function App() {
       )}
     </div>
   );
+}
+
+
+// ── Pane Tree Helpers (module-level, no hooks) ────────────────────────────
+
+function findLeaf(node: PaneNode, paneId: string): PaneLeaf | null {
+  if (node.type === 'leaf') return node.paneId === paneId ? node : null;
+  return findLeaf(node.children[0], paneId) ?? findLeaf(node.children[1], paneId);
+}
+
+function updateLeafInTree(node: PaneNode, targetPaneId: string, updates: Partial<PaneLeaf>): PaneNode {
+  if (node.type === 'leaf') {
+    if (node.paneId === targetPaneId) {
+      return { ...node, ...updates } as PaneLeaf;
+    }
+    return node;
+  }
+  return {
+    ...node,
+    children: [
+      updateLeafInTree(node.children[0], targetPaneId, updates),
+      updateLeafInTree(node.children[1], targetPaneId, updates),
+    ] as [PaneNode, PaneNode],
+  };
+}
+
+function findFirstLeaf(node: PaneNode): PaneLeaf | null {
+  if (node.type === 'leaf') return node;
+  return findFirstLeaf(node.children[0]);
+}
+
+function insertSplit(
+  node: PaneNode,
+  targetPaneId: string,
+  direction: 'hsplit' | 'vsplit',
+  newLeaf: PaneLeaf,
+): PaneNode {
+  if (node.type === 'leaf') {
+    if (node.paneId !== targetPaneId) return node;
+    return {
+      type: direction,
+      paneId: `split-${targetPaneId}-${newLeaf.paneId}`,
+      children: [node, newLeaf],
+      sizes: [50, 50],
+    };
+  }
+  return {
+    ...node,
+    children: [
+      insertSplit(node.children[0], targetPaneId, direction, newLeaf),
+      insertSplit(node.children[1], targetPaneId, direction, newLeaf),
+    ] as [PaneNode, PaneNode],
+  };
+}
+
+/** Remove a pane from the tree; returns null if the tree becomes empty */
+function removePane(node: PaneNode, paneId: string): PaneNode | null {
+  if (node.type === 'leaf') return node.paneId === paneId ? null : node;
+
+  const left  = removePane(node.children[0], paneId);
+  const right = removePane(node.children[1], paneId);
+
+  if (!left && !right) return null;
+  if (!left)  return right;
+  if (!right) return left;
+
+  return { ...node, children: [left, right] };
 }
 
 export default App;

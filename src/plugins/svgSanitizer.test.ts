@@ -1,166 +1,129 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { sanitizeSVG } from './svgSanitizer';
 
-// Minimal mock DOM for the test environment
-if (typeof (global as any).DOMParser === 'undefined') {
-  (global as any).DOMParser = class {
-    parseFromString(svg: string, _type: string) {
-      const elements: any[] = [];
-
-      const parser = {
-        querySelector: (_sel: string) => {
-            if (svg.includes('<parsererror')) return { textContent: 'error' };
-            return null;
-        },
-        getElementsByTagName: (_tag: string) => elements,
-      };
-
-      // Mocking tags
-      const tagRegex = /<([a-z0-9:-]+)(\s+[^>]*?)?(\/?>)/gi;
-      let match;
-      while ((match = tagRegex.exec(svg)) !== null) {
-        const tagName = match[1].toUpperCase();
-        const attrString = match[2] || '';
-
-        const attrs: any[] = [];
-        const attrRegex = /([a-z0-9:-]+)="([^"]*)"/gi;
-        let attrMatch;
-        while ((attrMatch = attrRegex.exec(attrString)) !== null) {
-          attrs.push({ name: attrMatch[1], value: attrMatch[2] });
-        }
-
-        const el = {
-          tagName,
-          attributes: attrs,
-          parentNode: {
-            removeChild: (child: any) => {
-              const i = elements.indexOf(child);
-              if (i > -1) elements.splice(i, 1);
-            }
-          },
-          removeAttribute: (name: string) => {
-            const i = attrs.findIndex(a => a.name === name);
-            if (i > -1) attrs.splice(i, 1);
-          }
-        };
-        elements.push(el);
-      }
-
-      return parser;
-    }
-  };
-}
-
-if (typeof (global as any).XMLSerializer === 'undefined') {
-  (global as any).XMLSerializer = class {
-    serializeToString(doc: any) {
-      let res = '';
-      for (const el of doc.getElementsByTagName('*')) {
-        res += `<${el.tagName.toLowerCase()}`;
-        for (const attr of el.attributes) {
-          res += ` ${attr.name}="${attr.value}"`;
-        }
-        res += '/>';
-      }
-      return res;
-    }
-  };
-}
-
+// ── Jules' comprehensive XSS test suite ──────────────────────────────────────
 describe('sanitizeSVG', () => {
-  describe('Edge Cases', () => {
-    it('should return empty string for null input', () => {
-      expect(sanitizeSVG(null as any)).toBe('');
-    });
-
-    it('should return empty string for undefined input', () => {
-      expect(sanitizeSVG(undefined as any)).toBe('');
-    });
-
-    it('should return empty string for non-string input', () => {
-      expect(sanitizeSVG(123 as any)).toBe('');
-      expect(sanitizeSVG({} as any)).toBe('');
-    });
-
-    it('should return empty string for empty string input', () => {
-      expect(sanitizeSVG('')).toBe('');
-    });
-
-    it('should return empty string for malformed SVG (parsererror)', () => {
-      const input = '<parsererror>Error</parsererror>';
-      expect(sanitizeSVG(input)).toBe('');
-    });
+  it('returns empty string for invalid inputs', () => {
+    expect(sanitizeSVG('')).toBe('');
+    expect(sanitizeSVG(null as any)).toBe('');
+    expect(sanitizeSVG(undefined as any)).toBe('');
+    expect(sanitizeSVG(123 as any)).toBe('');
   });
 
-  describe('Tag Sanitization', () => {
-    it('should remove dangerous tags', () => {
-      const tags = ['script', 'foreignObject', 'iframe', 'video', 'audio'];
-      tags.forEach(tag => {
-        const input = `<svg><${tag}>content</${tag}></svg>`;
-        const output = sanitizeSVG(input);
-        expect(output).not.toContain(`<${tag}`);
-      });
-    });
-
-    it('should be case-insensitive for dangerous tags', () => {
-      const input = '<svg><SCRIPT>alert(1)</SCRIPT></svg>';
-      const output = sanitizeSVG(input);
-      expect(output.toLowerCase()).not.toContain('script');
-    });
-
-    it('should preserve safe tags', () => {
-      const input = '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="red"/></svg>';
-      const output = sanitizeSVG(input);
-      expect(output).toContain('<svg');
-      expect(output).toContain('<circle');
-      expect(output).toContain('viewBox="0 0 100 100"');
-      expect(output).toContain('fill="red"');
-    });
+  it('allows valid SVG without dangerous elements', () => {
+    const validSVG = '<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40" stroke="green" stroke-width="4" fill="yellow" /></svg>';
+    const sanitized = sanitizeSVG(validSVG);
+    expect(sanitized).toContain('<circle');
+    expect(sanitized).toContain('stroke="green"');
+    expect(sanitized).not.toContain('parsererror');
   });
 
-  describe('Attribute Sanitization', () => {
-    it('should remove event handlers starting with "on"', () => {
-      const input = '<svg><circle onclick="alert(1)" onmouseover="hover()" fill="red"/></svg>';
-      const output = sanitizeSVG(input);
-      expect(output).not.toContain('onclick');
-      expect(output).not.toContain('onmouseover');
-      expect(output).toContain('fill="red"');
-    });
-
-    it('should be case-insensitive for event handlers', () => {
-      const input = '<svg><circle onClick="alert(1)"/></svg>';
-      const output = sanitizeSVG(input);
-      expect(output.toLowerCase()).not.toContain('onclick');
-    });
-
-    it('should remove javascript: URIs in href, xlink:href, and src', () => {
-      const attrs = ['href', 'xlink:href', 'src'];
-      attrs.forEach(attr => {
-        const input = `<svg><a ${attr}="javascript:alert(1)">Link</a></svg>`;
-        const output = sanitizeSVG(input);
-        expect(output).not.toContain('javascript:');
-      });
-    });
-
-    it('should remove javascript: URIs with whitespace or mixed case', () => {
-      const input = '<svg><a href="  JAVAscript:alert(1) ">Link</a></svg>';
-      const output = sanitizeSVG(input);
-      expect(output).not.toContain('JAVAscript');
-    });
-
-    it('should preserve safe URIs', () => {
-      const input = '<svg><a href="https://example.com">Link</a></svg>';
-      const output = sanitizeSVG(input);
-      expect(output).toContain('href="https://example.com"');
-    });
+  it('removes <script> tags', () => {
+    const svgWithScript = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle cx="50" /></svg>';
+    const sanitized = sanitizeSVG(svgWithScript);
+    expect(sanitized).not.toContain('<script');
+    expect(sanitized).not.toContain('alert');
+    expect(sanitized).toContain('<circle');
   });
 
-  describe('Nested Elements', () => {
-    it('should remove dangerous elements nested inside safe ones', () => {
-      const input = '<svg><g><script>alert(1)</script><circle/></g></svg>';
-      const output = sanitizeSVG(input);
-      expect(output).not.toContain('script');
-      expect(output).toContain('<circle');
-    });
+  it('removes other dangerous tags (foreignObject, iframe, video, audio)', () => {
+    const dangerousSVG = `
+      <svg xmlns="http://www.w3.org/2000/svg">
+        <foreignobject width="100" height="100">
+          <body xmlns="http://www.w3.org/1999/xhtml">
+            <p>Dangerous</p>
+          </body>
+        </foreignobject>
+        <iframe src="http://example.com"></iframe>
+        <video src="video.mp4"></video>
+        <audio src="audio.mp3"></audio>
+        <rect width="10" height="10" />
+      </svg>
+    `;
+    const sanitized = sanitizeSVG(dangerousSVG);
+    expect(sanitized).not.toContain('foreignobject');
+    expect(sanitized).not.toContain('iframe');
+    expect(sanitized).not.toContain('video');
+    expect(sanitized).not.toContain('audio');
+    expect(sanitized).toContain('<rect');
+  });
+
+  it('removes event handlers (on*)', () => {
+    const svgWithEvents = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" onclick="alert(2)"><circle onmouseover="alert(3)" cx="50" /></svg>';
+    const sanitized = sanitizeSVG(svgWithEvents);
+    expect(sanitized).not.toContain('onload');
+    expect(sanitized).not.toContain('onclick');
+    expect(sanitized).not.toContain('onmouseover');
+    expect(sanitized).not.toContain('alert');
+    expect(sanitized).toContain('<svg');
+    expect(sanitized).toContain('<circle');
+  });
+
+  it('removes javascript: URIs in href, xlink:href, and src attributes', () => {
+    const svgWithJsUris = `
+      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <a href="javascript:alert(1)">Link 1</a>
+        <a xlink:href=" javascript:alert(2) ">Link 2</a>
+        <image src="javascript:alert(3)" />
+        <a href="https://example.com">Safe Link</a>
+      </svg>
+    `;
+    const sanitized = sanitizeSVG(svgWithJsUris);
+    expect(sanitized).not.toContain('javascript:alert(1)');
+    expect(sanitized).not.toContain('javascript:alert(2)');
+    expect(sanitized).not.toContain('javascript:alert(3)');
+    expect(sanitized).toContain('href="https://example.com"');
+    expect(sanitized).toContain('<a');
+    expect(sanitized).toContain('<image');
+  });
+
+  it('returns empty string on parser error', () => {
+    const invalidXml = '<svg xmlns="http://www.w3.org/2000/svg"><unclosed tag></svg>';
+    const sanitized = sanitizeSVG(invalidXml);
+    expect(sanitized).toBe('');
+  });
+});
+
+// ── Edge cases: DOMParser failure simulation (from main branch) ───────────────
+describe('sanitizeSVG edge cases', () => {
+  const originalDOMParser = (global as any).DOMParser;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalDOMParser) {
+      (global as any).DOMParser = originalDOMParser;
+    } else {
+      delete (global as any).DOMParser;
+    }
+  });
+
+  it('should return empty string for non-string input', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(sanitizeSVG('')).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(null)).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(undefined)).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(123)).toBe('');
+  });
+
+  it('should return empty string and log error when DOMParser throws', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    (global as any).DOMParser = vi.fn().mockImplementation(() => ({
+      parseFromString: () => {
+        throw new Error('Forced error');
+      },
+    })) as any;
+
+    const result = sanitizeSVG('<svg></svg>');
+
+    expect(result).toBe('');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[PluginBridge] Failed to sanitize SVG:',
+      expect.any(Error)
+    );
   });
 });

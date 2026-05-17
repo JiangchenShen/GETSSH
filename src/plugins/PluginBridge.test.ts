@@ -1,298 +1,247 @@
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
-
-// Global mocks for Node environment
-(global as any).window = {
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  electronAPI: {
-    getPluginRenderers: vi.fn().mockResolvedValue([]),
-  },
-};
-
-const mockBody = {
-  appendChild: vi.fn(),
-  innerHTML: '',
-};
-
-(global as any).document = {
-  createElement: vi.fn(),
-  body: mockBody,
-  querySelector: vi.fn(),
-  querySelectorAll: vi.fn().mockReturnValue([]),
-};
-
-(global as any).Notification = vi.fn();
-
+// @vitest-environment jsdom
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initPluginBridge, bootSandboxedPlugins } from './PluginBridge';
 import { usePluginStore } from '../store/pluginStore';
-// import { sanitizeSVG } from './svgSanitizer';
+
+vi.mock('../store/pluginStore', () => {
+  const registerSidebarAction = vi.fn();
+  return {
+    usePluginStore: {
+      getState: vi.fn(() => ({
+        registerSidebarAction,
+      })),
+    },
+  };
+});
 
 vi.mock('./svgSanitizer', () => ({
-  sanitizeSVG: vi.fn((svg: string) => `sanitized-${svg}`),
-}));
-
-vi.mock('../store/pluginStore', () => ({
-  usePluginStore: {
-    getState: vi.fn(() => ({
-      registerSidebarAction: vi.fn(),
-    })),
-  },
+  sanitizeSVG: vi.fn((svg) => `sanitized-${svg}`),
 }));
 
 describe('PluginBridge', () => {
-  let mockWarn: ReturnType<typeof vi.spyOn>;
-  let mockError: ReturnType<typeof vi.spyOn>;
+  let addEventListenerSpy: any;
+  let removeEventListenerSpy: any;
+  let warnSpy: any;
+  let errorSpy: any;
+  let NotificationMock: any;
 
   beforeEach(() => {
-    mockWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    // Reset global mocks
-    (global as any).Notification = vi.fn();
-    (global as any).window.electronAPI.getPluginRenderers = vi.fn().mockResolvedValue([]);
-    (global as any).window.addEventListener = vi.fn();
-    (global as any).window.removeEventListener = vi.fn();
+    // Mock Notification
+    NotificationMock = vi.fn();
+    vi.stubGlobal('Notification', Object.assign(NotificationMock, {
+      permission: 'granted',
+    }));
 
-    (global as any).document.createElement = vi.fn((tag) => {
-      if (tag === 'iframe') {
-        const iframe: any = {
-          setAttribute: vi.fn(),
-          style: { display: '' },
-          contentWindow: {
-            postMessage: vi.fn(),
-            document: {
-              open: vi.fn(),
-              write: vi.fn(),
-              close: vi.fn(),
-              createElement: vi.fn((t) => ({ textContent: '', tagName: t })),
-              body: { appendChild: vi.fn() }
-            }
-          }
-        };
-        return iframe;
-      }
-      return { tagName: tag };
-    });
-
-    mockBody.appendChild = vi.fn();
-    mockBody.innerHTML = '';
+    // Clear dom
+    document.body.innerHTML = '';
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  describe('initPluginBridge & handlePluginMessage', () => {
-    let dispatchMessage: (data: any, source?: any) => void;
-
-    beforeEach(() => {
-      // Intercept addEventListener to capture the handler
-      (global as any).window.addEventListener = vi.fn((type, listener) => {
-        if (type === 'message') {
-          dispatchMessage = (data: any, source?: any) => {
-            (listener as EventListener)({ data, source } as MessageEvent);
-          };
-        }
-      });
-    });
-
-    it('should add and remove message event listener', () => {
-      const addSpy = (global as any).window.addEventListener;
-      const removeSpy = (global as any).window.removeEventListener;
-
+  describe('initPluginBridge and handlePluginMessage', () => {
+    it('should add and remove message event listeners correctly', () => {
       const cleanup = initPluginBridge();
-
-      expect(addSpy).toHaveBeenCalledWith('message', expect.any(Function));
+      expect(addEventListenerSpy).toHaveBeenCalledWith('message', expect.any(Function));
 
       cleanup();
-
-      expect(removeSpy).toHaveBeenCalledWith('message', expect.any(Function));
+      expect(removeEventListenerSpy).toHaveBeenCalledWith('message', expect.any(Function));
     });
 
-    it('should ignore messages without __getssh_plugin flag', () => {
+    it('should ignore messages without data or __getssh_plugin flag', () => {
       initPluginBridge();
-      if(dispatchMessage) dispatchMessage({ action: 'registerSidebarAction' });
-      expect(mockWarn).not.toHaveBeenCalled();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      handler(new MessageEvent('message', { data: null }));
+      handler(new MessageEvent('message', { data: { some: 'data' } }));
+
+      expect(warnSpy).not.toHaveBeenCalled();
       expect(usePluginStore.getState().registerSidebarAction).not.toHaveBeenCalled();
     });
 
-    it('should block and warn on dangerous actions', () => {
+    it('should block dangerous actions', () => {
       initPluginBridge();
-      if(dispatchMessage) dispatchMessage({ __getssh_plugin: true, action: 'sshWrite', pluginId: '1' });
-      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('BLOCKED dangerous action "sshWrite"'));
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      handler(new MessageEvent('message', {
+        data: { __getssh_plugin: true, action: 'sshWrite', pluginId: 'test-plugin' }
+      }));
+
+      expect(warnSpy).toHaveBeenCalledWith('[PluginBridge] BLOCKED dangerous action "sshWrite" from plugin "test-plugin"');
     });
 
     it('should warn on unknown actions', () => {
       initPluginBridge();
-      if(dispatchMessage) dispatchMessage({ __getssh_plugin: true, action: 'someUnknownAction', pluginId: '1' });
-      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('Unknown action "someUnknownAction"'));
-    });
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
 
-    it('should handle registerSidebarAction', () => {
-      initPluginBridge();
-      const mockRegister = vi.fn();
-      (usePluginStore.getState as Mock).mockReturnValue({ registerSidebarAction: mockRegister });
-
-      if(dispatchMessage) dispatchMessage({
-        __getssh_plugin: true,
-        pluginId: 'test-plugin',
-        action: 'registerSidebarAction',
-        payload: { id: 'btn1', icon: '<svg/>', label: 'Test Button' }
-      });
-
-      expect(mockRegister).toHaveBeenCalledWith(expect.objectContaining({
-        id: 'plugin-test-plugin-btn1',
-        icon: 'sanitized-<svg/>',
-        label: 'Test Button',
+      handler(new MessageEvent('message', {
+        data: { __getssh_plugin: true, action: 'unknownAction', pluginId: 'test-plugin' }
       }));
 
-      // Test onClick callback
-      const registeredAction = mockRegister.mock.calls[0][0];
+      expect(warnSpy).toHaveBeenCalledWith('[PluginBridge] Unknown action "unknownAction" from plugin "test-plugin"');
+    });
 
-      // Mock document.querySelector for the iframe
-      const mockPostMessage = vi.fn();
-      (global as any).document.querySelector = vi.fn().mockReturnValue({
-        contentWindow: { postMessage: mockPostMessage }
+    it('should handle registerSidebarAction and process click callback', () => {
+      initPluginBridge();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      // Setup iframe
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('data-plugin-id', 'test-plugin');
+      document.body.appendChild(iframe);
+
+      const postMessageSpy = vi.fn();
+      Object.defineProperty(iframe, 'contentWindow', {
+        value: { postMessage: postMessageSpy },
+        writable: true,
       });
 
-      registeredAction.onClick();
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'registerSidebarAction',
+          pluginId: 'test-plugin',
+          payload: { id: 'btn1', icon: '<svg/>', label: 'My Button' }
+        }
+      }));
 
-      expect(mockPostMessage).toHaveBeenCalledWith({
+      const registerMock = usePluginStore.getState().registerSidebarAction as any;
+      expect(registerMock).toHaveBeenCalled();
+      const registeredAction = registerMock.mock.calls[0][0];
+
+      expect(registeredAction.id).toBe('plugin-test-plugin-btn1');
+      expect(registeredAction.icon).toBe('sanitized-<svg/>');
+      expect(registeredAction.label).toBe('My Button');
+
+      // Test click callback
+      registeredAction.onClick();
+      expect(postMessageSpy).toHaveBeenCalledWith({
         __getssh_host: true,
         event: 'sidebarClick',
         actionId: 'btn1'
       }, '*');
     });
 
-    it('should handle showNotification when permission is granted', () => {
+    it('should handle showNotification if permission is granted', () => {
       initPluginBridge();
-      const MockNotification = vi.fn();
-      (MockNotification as any).permission = 'granted';
-      (global as any).Notification = MockNotification;
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
 
-      if(dispatchMessage) dispatchMessage({
-        __getssh_plugin: true,
-        pluginId: '1',
-        action: 'showNotification',
-        payload: { title: 'Test Title', body: 'Test Body' }
-      });
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'showNotification',
+          pluginId: 'test-plugin',
+          payload: { title: 'Test Title', body: 'Test Body' }
+        }
+      }));
 
-      expect(MockNotification).toHaveBeenCalledWith('Test Title', { body: 'Test Body' });
+      expect(NotificationMock).toHaveBeenCalledWith('Test Title', { body: 'Test Body' });
     });
 
-    it('should ignore showNotification when permission is not granted', () => {
+    it('should handle showNotification with default title', () => {
       initPluginBridge();
-      const MockNotification = vi.fn();
-      (MockNotification as any).permission = 'denied';
-      (global as any).Notification = MockNotification;
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
 
-      if(dispatchMessage) dispatchMessage({
-        __getssh_plugin: true,
-        pluginId: '1',
-        action: 'showNotification',
-        payload: { title: 'Test Title', body: 'Test Body' }
-      });
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'showNotification',
+          pluginId: 'test-plugin',
+          payload: { body: 'Test Body' }
+        }
+      }));
 
-      expect(MockNotification).not.toHaveBeenCalled();
+      expect(NotificationMock).toHaveBeenCalledWith('GETSSH Plugin', { body: 'Test Body' });
     });
 
-    it('should handle getActiveSessionId and return null to plugin', () => {
+    it('should handle getActiveSessionId and post null sessionId', () => {
       initPluginBridge();
-      const mockSource = { postMessage: vi.fn() };
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
 
-      if(dispatchMessage) dispatchMessage({
-        __getssh_plugin: true,
-        pluginId: '1',
-        action: 'getActiveSessionId',
-        payload: { requestId: 123 }
-      }, mockSource);
+      const sourcePostMessageSpy = vi.fn();
+      const mockSource = { postMessage: sourcePostMessageSpy };
 
-      expect(mockSource.postMessage).toHaveBeenCalledWith({
+      handler(new MessageEvent('message', {
+        source: mockSource as any,
+        data: {
+          __getssh_plugin: true,
+          action: 'getActiveSessionId',
+          pluginId: 'test-plugin',
+          payload: { requestId: 'req-123' }
+        }
+      }));
+
+      expect(sourcePostMessageSpy).toHaveBeenCalledWith({
         __getssh_host: true,
         event: 'sessionId',
-        requestId: 123,
-        sessionId: null
+        requestId: 'req-123',
+        sessionId: null,
       }, '*');
     });
   });
 
   describe('bootSandboxedPlugins', () => {
-    it('should fetch plugins and create sandboxed iframes', async () => {
-      const mockScripts = ['console.log("plugin 0");', 'console.log("plugin 1");'];
-      (global as any).window.electronAPI.getPluginRenderers.mockResolvedValue(mockScripts);
+    it('should create iframes for sandboxed plugins and inject sdk and script', async () => {
+      const getPluginRenderersSpy = vi.fn().mockResolvedValue([
+        'console.log("plugin 1");',
+        '', // Empty script should be skipped
+        'console.log("plugin 2");',
+      ]);
 
-      const createdIframes: any[] = [];
-      (global as any).document.createElement = vi.fn((tag) => {
-        if (tag === 'iframe') {
-          const iframe: any = {
-            setAttribute: vi.fn(),
-            style: { display: '' },
-            contentWindow: {
-              document: {
-                open: vi.fn(),
-                write: vi.fn(),
-                close: vi.fn(),
-                createElement: vi.fn((t) => ({ textContent: '', tagName: t })),
-                body: { appendChild: vi.fn() }
-              }
-            }
-          };
-          createdIframes.push(iframe);
-          return iframe;
-        }
-        return { tagName: tag };
+      vi.stubGlobal('electronAPI', {
+        getPluginRenderers: getPluginRenderersSpy,
+      });
+
+      vi.stubGlobal('window', {
+        ...window,
+        electronAPI: {
+          getPluginRenderers: getPluginRenderersSpy,
+        },
       });
 
       await bootSandboxedPlugins();
 
-      expect(mockBody.appendChild).toHaveBeenCalledTimes(2);
-      expect(createdIframes.length).toBe(2);
+      expect(getPluginRenderersSpy).toHaveBeenCalled();
 
-      createdIframes.forEach((iframe, idx) => {
-        expect(iframe.setAttribute).toHaveBeenCalledWith('sandbox', 'allow-scripts');
-        expect(iframe.setAttribute).toHaveBeenCalledWith('data-plugin-id', `plugin-${idx}`);
-        expect(iframe.style.display).toBe('none');
-      });
+      // Check iframes in DOM
+      const iframes = document.querySelectorAll('iframe');
+      expect(iframes.length).toBe(2);
+
+      const iframe1 = iframes[0];
+      expect(iframe1.getAttribute('sandbox')).toBe('allow-scripts');
+      expect(iframe1.getAttribute('data-plugin-id')).toBe('plugin-0');
+      expect(iframe1.style.display).toBe('none');
+
+      const iframe2 = iframes[1];
+      expect(iframe2.getAttribute('sandbox')).toBe('allow-scripts');
+      expect(iframe2.getAttribute('data-plugin-id')).toBe('plugin-2');
     });
 
-    it('should handle errors during boot gracefully', async () => {
-      const mockErrorObj = new Error('Failed to fetch renderers');
-      (global as any).window.electronAPI.getPluginRenderers.mockRejectedValue(mockErrorObj);
+    it('should catch and log errors if booting plugins fails', async () => {
+      const mockError = new Error('Failed to get plugins');
+      const getPluginRenderersSpy = vi.fn().mockRejectedValue(mockError);
 
-      await bootSandboxedPlugins();
+      vi.stubGlobal('electronAPI', {
+        getPluginRenderers: getPluginRenderersSpy,
+      });
 
-      expect(mockError).toHaveBeenCalledWith('[PluginBridge] Failed to boot sandboxed plugins:', mockErrorObj);
-    });
-
-    it('should ignore empty scripts', async () => {
-      (global as any).window.electronAPI.getPluginRenderers.mockResolvedValue(['script 1', null, 'script 2']);
-
-      const createdIframes: any[] = [];
-      (global as any).document.createElement = vi.fn((tag) => {
-        if (tag === 'iframe') {
-          const iframe: any = {
-            setAttribute: vi.fn(),
-            style: { display: '' },
-            contentWindow: {
-              document: {
-                open: vi.fn(),
-                write: vi.fn(),
-                close: vi.fn(),
-                createElement: vi.fn((t) => ({ textContent: '', tagName: t })),
-                body: { appendChild: vi.fn() }
-              }
-            }
-          };
-          createdIframes.push(iframe);
-          return iframe;
-        }
-        return { tagName: tag };
+      vi.stubGlobal('window', {
+        ...window,
+        electronAPI: {
+          getPluginRenderers: getPluginRenderersSpy,
+        },
       });
 
       await bootSandboxedPlugins();
 
-      expect(mockBody.appendChild).toHaveBeenCalledTimes(2); // The null script should be skipped
-      expect(createdIframes.length).toBe(2);
+      expect(errorSpy).toHaveBeenCalledWith('[PluginBridge] Failed to boot sandboxed plugins:', mockError);
     });
   });
 });

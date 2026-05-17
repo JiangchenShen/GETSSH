@@ -1,8 +1,9 @@
 {
   "name": "getssh",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
+  "author": "Shen Jiangchen <shenjiangchen@example.com>",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
@@ -14,6 +15,7 @@
     "adm-zip": "^0.5.17",
     "dompurify": "^3.4.2",
     "http-proxy-agent": "^9.0.0",
+    "p-limit": "^7.3.0",
     "socks": "^2.8.7",
     "ssh2": "^1.15.0"
   },
@@ -23,6 +25,7 @@
     "@types/adm-zip": "^0.5.8",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^20.10.0",
+    "@types/p-limit": "^2.1.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@types/ssh2": "^1.11.19",
@@ -43,7 +46,7 @@
     "vite": "^5.0.10",
     "vite-plugin-electron": "^0.15.5",
     "vite-plugin-electron-renderer": "^0.14.5",
-    "vitest": "^4.1.5",
+    "vitest": "^4.1.6",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "xterm-addon-webgl": "^0.16.0",
@@ -63,6 +66,7 @@
     "files": [
       "dist/index.html",
       "dist/assets/**/*",
+      "dist/plugins/**/*",
       "dist-electron/**/*",
       "!**/*.map",
       "!**/*.ts",
@@ -86,7 +90,13 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools"
     },
@@ -112,12 +122,7 @@
     },
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
+        "nsis"
       ]
     },
     "compression": "maximum",
@@ -125,8 +130,20 @@
     "removePackageKeywords": true,
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "Utility"
     },
@@ -137,7 +154,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "uninstallDisplayName": "GETSSH Uninstaller",
-      "shortcutName": "GETSSH"
+      "shortcutName": "GETSSH",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     }
   }
 }

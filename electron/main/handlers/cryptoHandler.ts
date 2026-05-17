@@ -1,4 +1,4 @@
-import { safeStorage } from 'electron';
+import { safeStorage, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { join } from 'node:path';
@@ -6,6 +6,34 @@ import { join } from 'node:path';
 export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
   const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
   const PROFILES_PLAIN_PATH = join(app.getPath('userData'), 'profiles.json');
+  const PROFILES_KEY_PATH = join(app.getPath('userData'), 'profiles.key');
+
+  ipcMain.handle('prompt-biometric-unlock', async () => {
+    try {
+      if (!fs.existsSync(PROFILES_KEY_PATH)) return { success: false, reason: 'no_key' };
+      
+      if (process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
+        try {
+          await systemPreferences.promptTouchID('Unlock GETSSH Profiles');
+        } catch (err) {
+          return { success: false, reason: 'touchid_failed' };
+        }
+      } else if (process.platform === 'win32') {
+        // Windows DPAPI is implicit via user login, so proceed
+      } else {
+        return { success: false, reason: 'unsupported' };
+      }
+
+      const encryptedKey = await fs.promises.readFile(PROFILES_KEY_PATH);
+      if (safeStorage.isEncryptionAvailable()) {
+        const masterPassword = safeStorage.decryptString(encryptedKey);
+        return { success: true, masterPassword };
+      }
+      return { success: false, reason: 'safeStorage_unavailable' };
+    } catch (e: any) {
+      return { success: false, reason: e.message };
+    }
+  });
 
   ipcMain.handle('check-profiles', () => {
     if (fs.existsSync(PROFILES_ENC_PATH)) return 'encrypted';
@@ -86,6 +114,11 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
        } catch (err: any) {
          if (err.code !== 'ENOENT') throw err;
        }
+       try {
+         await fs.promises.unlink(PROFILES_KEY_PATH);
+       } catch (err: any) {
+         if (err.code !== 'ENOENT') throw err;
+       }
        return true;
     }
     
@@ -111,6 +144,17 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     } catch (err: any) {
       if (err.code !== 'ENOENT') throw err;
     }
+    
+    // Save master password for biometric unlock
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        const encryptedKey = safeStorage.encryptString(masterPassword);
+        await fs.promises.writeFile(PROFILES_KEY_PATH, encryptedKey);
+      } catch (err) {
+        console.error('Failed to securely store master password:', err);
+      }
+    }
+    
     return true;
   });
 }
