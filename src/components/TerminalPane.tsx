@@ -35,10 +35,14 @@ const LeafPane: React.FC<{
   const isActive = activePaneId === node.paneId;
   const welcomeRef = useRef<HTMLDivElement>(null);
 
-  // Auto-focus the welcome pane when it becomes active (e.g. after Esc from terminal)
+  // Auto-focus the welcome pane when it appears.
+  // setTimeout pushes focus() past React batching AND Electron paint cycle.
   useEffect(() => {
     if (node.paneType === 'welcome') {
-      welcomeRef.current?.focus();
+      const timer = setTimeout(() => {
+        welcomeRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [node.paneType]);
 
@@ -118,6 +122,7 @@ const LeafPane: React.FC<{
         <div
           ref={welcomeRef}
           tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); welcomeRef.current?.focus(); }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
@@ -125,7 +130,7 @@ const LeafPane: React.FC<{
               onClosePane(node.paneId);
             }
           }}
-          className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-8 focus:outline-none"
+          className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-8 focus:outline-none cursor-default"
         >
 
           {/* ─── Command Center Header ─────────────────── */}
