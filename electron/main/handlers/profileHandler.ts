@@ -66,9 +66,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
     if (canceled || !filePath) return { success: false, reason: 'canceled' };
 
     try {
-      const exported: any[] = [];
-
-      for (const s of sessions) {
+      const exported: any[] = await Promise.all(sessions.map(async (s: any) => {
         const entry: any = {
           // ── Plaintext metadata ──
           name:         (s as any).name         ?? '',
@@ -92,8 +90,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
           if (s.privateKeyPath) entry.privateKeyPath = s.privateKeyPath;
         }
 
-        exported.push(entry);
-      }
+        return entry;
+      }));
 
       const payload = {
         _format:    'getssh-profiles-v1',

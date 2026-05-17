@@ -13,7 +13,9 @@ if (baseConfig) {
         if (parsed.language) {
             initialLang = parsed.language;
         }
-    } catch {}
+    } catch (error) {
+        console.error('Failed to parse appConfig for i18n:', error);
+    }
 }
 
 const resources = {

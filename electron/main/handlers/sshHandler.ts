@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import fs from 'node:fs';
+import http from 'node:http';
 import { Client } from 'ssh2';
 import { SocksClient } from 'socks';
 import { connectionManager } from '../services/ConnectionManager';
@@ -56,9 +57,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               const info = await SocksClient.createConnection(proxyOptions);
               connectConfig.sock = info.socket;
            } else if (config.proxyType === 'http') {
-              const net = require('net');
               const sock = await new Promise<any>((sockResolve, sockReject) => {
-                 const req = require('http').request({
+                 const req = http.request({
                    host: config.proxyHost,
                    port: config.proxyPort || 8080,
                    method: 'CONNECT',

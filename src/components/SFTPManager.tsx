@@ -26,7 +26,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     setError(null);
     try {
       const res = await window.electronAPI.sftpList(sessionId, path);
-      if (res.success) {
+      if (res.success && res.list) {
         setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
            if (a.type === 'd' && b.type !== 'd') return -1;
            if (a.type !== 'd' && b.type === 'd') return 1;
@@ -34,7 +34,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
         }));
         setCurrentPath(path);
       } else {
-        setError(res.error);
+        setError(res.error || 'Failed to list files');
       }
     } catch (err: any) {
       setError(err.message);

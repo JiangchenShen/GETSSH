@@ -1,7 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore } from '../store/sessionStore';
-import { Columns, Rows, X } from 'lucide-react';
+import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
 
 import { PluginPane } from './PluginPane';
 
@@ -78,7 +78,7 @@ const LeafPane: React.FC<{
       {node.paneType === 'terminal' && node.sessionId && (
         <TerminalComponent
           sessionId={node.sessionId}
-          onDisconnected={() => {}}
+          onDisconnected={() => { onClosePane(node.paneId); }}
           onReconnect={() => {
             window.electronAPI.sshConnect(node.config).then(res => {
               if (res.success && res.sessionId) {
@@ -99,44 +99,129 @@ const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'welcome' && (
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center">
-          <div className="flex w-full max-w-2xl justify-between items-end mb-6">
-            <h2 className="text-xl font-bold opacity-80">Connect to Host</h2>
-            <button 
-              onClick={() => {
-                 // Direct store mutation for demo purposes
-                 useSessionStore.setState(state => ({
+        <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-8">
+
+          {/* ─── Command Center Header ─────────────────── */}
+          <div className="w-full max-w-3xl">
+            <p className={`text-xs font-semibold tracking-[0.2em] uppercase mb-1 ${
+              isDark ? 'text-white/30' : 'text-black/30'
+            }`}>GETSSH Command Center</p>
+            <h1 className={`text-2xl font-bold tracking-tight ${
+              isDark ? 'text-white/90' : 'text-black/90'
+            }`}>Where do you want to go?</h1>
+          </div>
+
+          {/* ─── Section A: Remote Infrastructure ────── */}
+          <div className="w-full max-w-3xl flex flex-col gap-3">
+            <div className={`flex items-center gap-2.5 pb-2.5 border-b ${
+              isDark ? 'border-white/10' : 'border-black/10'
+            }`}>
+              <div className={`p-1.5 rounded-lg ${
+                isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-500/10 text-emerald-600'
+              }`}>
+                <Server className="w-3.5 h-3.5" />
+              </div>
+              <span className={`text-sm font-semibold tracking-wide ${
+                isDark ? 'text-white/70' : 'text-black/70'
+              }`}>Remote Infrastructure</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ml-auto ${
+                isDark ? 'bg-white/5 text-white/30' : 'bg-black/5 text-black/30'
+              }`}>{sessions.length} host{sessions.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+              {sessions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => onConnectInPane(node.paneId, s)}
+                  className={`group relative p-4 rounded-xl border text-left transition-all duration-200 ${
+                    isDark
+                      ? 'bg-black/20 border-white/8 hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)]'
+                      : 'bg-white/60 border-black/8 hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)]'
+                  }`}
+                >
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center mb-3 transition-colors ${
+                    isDark ? 'bg-white/5 group-hover:bg-emerald-500/20' : 'bg-black/5 group-hover:bg-emerald-500/15'
+                  }`}>
+                    <TerminalIcon className={`w-3.5 h-3.5 transition-colors ${
+                      isDark ? 'text-white/40 group-hover:text-emerald-400' : 'text-black/40 group-hover:text-emerald-600'
+                    }`} />
+                  </div>
+                  <div className={`font-semibold text-sm truncate transition-colors ${
+                    isDark ? 'text-white/80 group-hover:text-emerald-300' : 'text-black/80 group-hover:text-emerald-700'
+                  }`}>{s.host}</div>
+                  <div className={`text-xs truncate mt-0.5 ${
+                    isDark ? 'text-white/35' : 'text-black/35'
+                  }`}>{s.username}</div>
+                </button>
+              ))}
+              {sessions.length === 0 && (
+                <div className={`col-span-full text-center py-8 text-sm rounded-xl border border-dashed ${
+                  isDark ? 'text-white/25 border-white/8' : 'text-black/25 border-black/8'
+                }`}>
+                  No saved sessions. Add one in the sidebar.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ─── Section B: Local Extensions ─────────── */}
+          <div className="w-full max-w-3xl flex flex-col gap-3">
+            <div className={`flex items-center gap-2.5 pb-2.5 border-b ${
+              isDark ? 'border-white/10' : 'border-black/10'
+            }`}>
+              <div className={`p-1.5 rounded-lg ${
+                isDark ? 'bg-blue-500/15 text-blue-400' : 'bg-blue-500/10 text-blue-600'
+              }`}>
+                <Cpu className="w-3.5 h-3.5" />
+              </div>
+              <span className={`text-sm font-semibold tracking-wide ${
+                isDark ? 'text-white/70' : 'text-black/70'
+              }`}>Local Extensions</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+              {/* System Monitor Demo Card */}
+              <button
+                onClick={() => {
+                  useSessionStore.setState(state => ({
                     tabs: state.tabs.map(t => {
                       if (t.id !== tabId || !t.paneTree) return t;
-                      return { 
-                        ...t, 
-                        paneTree: patchLeafToPlugin(t.paneTree, node.paneId)
+                      return {
+                        ...t,
+                        paneTree: patchLeafToPlugin(t.paneTree, node.paneId, '/plugins/sysmon/index.html'),
                       };
-                    })
-                 }));
-              }}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70' : 'border-black/20 hover:bg-black/5 text-black/70'}`}
-            >
-              Launch Demo Plugin
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
-            {sessions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => onConnectInPane(node.paneId, s)}
-                className={`p-4 rounded-xl border text-left transition-all ${isDark ? 'bg-black/20 border-white/10 hover:border-primary/50 hover:bg-white/5' : 'bg-white/50 border-black/10 hover:border-primary/50 hover:bg-black/5'}`}
+                    }),
+                  }));
+                }}
+                className={`group relative p-4 rounded-xl border text-left transition-all duration-200 ${
+                  isDark
+                    ? 'bg-black/20 border-white/8 hover:border-blue-500/40 hover:bg-blue-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)]'
+                    : 'bg-white/60 border-black/8 hover:border-blue-500/40 hover:bg-blue-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)]'
+                }`}
               >
-                <div className="font-semibold text-sm truncate">{s.host}</div>
-                <div className="text-xs opacity-60 truncate">{s.username}</div>
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center mb-3 transition-colors ${
+                  isDark ? 'bg-blue-500/10 group-hover:bg-blue-500/25' : 'bg-blue-500/10 group-hover:bg-blue-500/20'
+                }`}>
+                  <Activity className="w-3.5 h-3.5 text-blue-400" />
+                </div>
+                <div className={`font-semibold text-sm truncate transition-colors ${
+                  isDark ? 'text-white/80 group-hover:text-blue-300' : 'text-black/80 group-hover:text-blue-700'
+                }`}>System Monitor</div>
+                <div className={`text-xs truncate mt-0.5 ${
+                  isDark ? 'text-white/35' : 'text-black/35'
+                }`}>Local sandboxed resource monitor.</div>
               </button>
-            ))}
-            {sessions.length === 0 && (
-              <div className="col-span-full text-center opacity-50 py-8 text-sm">
-                No saved sessions. Please add one in the main connection panel.
+
+              {/* Future plugins placeholder */}
+              <div className={`p-4 rounded-xl border border-dashed flex flex-col items-center justify-center gap-2 ${
+                isDark ? 'border-white/8 text-white/15' : 'border-black/8 text-black/15'
+              }`}>
+                <span className="text-xs">More plugins coming soon</span>
               </div>
-            )}
+            </div>
           </div>
+
         </div>
       )}
 
@@ -160,16 +245,17 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
   };
 }
 
-function patchLeafToPlugin(node: PaneNode, paneId: string): PaneNode {
+function patchLeafToPlugin(node: PaneNode, paneId: string, pluginUrl?: string): PaneNode {
   if (node.type === 'leaf') {
-    const isPackaged = window.location.protocol === 'file:';
-    return node.paneId === paneId ? { ...node, paneType: 'plugin', config: { pluginUrl: isPackaged ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html' } } : node;
+    return node.paneId === paneId
+      ? { ...node, paneType: 'plugin', config: { ...(node.config || {}), pluginUrl } }
+      : node;
   }
   return {
     ...node,
     children: [
-      patchLeafToPlugin(node.children[0], paneId),
-      patchLeafToPlugin(node.children[1], paneId),
+      patchLeafToPlugin(node.children[0], paneId, pluginUrl),
+      patchLeafToPlugin(node.children[1], paneId, pluginUrl),
     ] as [PaneNode, PaneNode],
   };
 }

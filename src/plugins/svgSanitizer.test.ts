@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { sanitizeSVG } from './svgSanitizer';
 
+// ── Jules' comprehensive XSS test suite ──────────────────────────────────────
 describe('sanitizeSVG', () => {
   it('returns empty string for invalid inputs', () => {
     expect(sanitizeSVG('')).toBe('');
@@ -81,5 +82,48 @@ describe('sanitizeSVG', () => {
     const invalidXml = '<svg xmlns="http://www.w3.org/2000/svg"><unclosed tag></svg>';
     const sanitized = sanitizeSVG(invalidXml);
     expect(sanitized).toBe('');
+  });
+});
+
+// ── Edge cases: DOMParser failure simulation (from main branch) ───────────────
+describe('sanitizeSVG edge cases', () => {
+  const originalDOMParser = (global as any).DOMParser;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalDOMParser) {
+      (global as any).DOMParser = originalDOMParser;
+    } else {
+      delete (global as any).DOMParser;
+    }
+  });
+
+  it('should return empty string for non-string input', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(sanitizeSVG('')).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(null)).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(undefined)).toBe('');
+    // @ts-expect-error
+    expect(sanitizeSVG(123)).toBe('');
+  });
+
+  it('should return empty string and log error when DOMParser throws', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    (global as any).DOMParser = vi.fn().mockImplementation(() => ({
+      parseFromString: () => {
+        throw new Error('Forced error');
+      },
+    })) as any;
+
+    const result = sanitizeSVG('<svg></svg>');
+
+    expect(result).toBe('');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[PluginBridge] Failed to sanitize SVG:',
+      expect.any(Error)
+    );
   });
 });

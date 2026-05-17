@@ -341,17 +341,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                
                                if (safeAction === 'change') {
                                   setMasterPassword(safeNewPwd);
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
                                   setTimeout(() => window.alert('✅ 主密码已安全更新并重加密完成！'), 100);
                                } else if (safeAction === 'disable') {
                                   setEncryptionDisabled(true);
                                   setMasterPassword('');
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
                                   setTimeout(() => window.alert('⚠️ 加密已解除，配置已转为明文存储。'), 100);
                                } else if (safeAction === 'enable') {
                                   setEncryptionDisabled(false);
                                   setMasterPassword(safeNewPwd);
-                                  (window as any).electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
                                   setTimeout(() => window.alert('🔒 SafeStorage 零知识加密已启动！'), 100);
                                }
                                

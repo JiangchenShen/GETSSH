@@ -6,10 +6,22 @@ interface PluginPaneProps {
   isDark: boolean;
 }
 
-const DEFAULT_PLUGIN_URL = window.location.protocol === 'file:' ? './plugins/sysmon/index.html' : '/plugins/sysmon/index.html';
+const PLACEHOLDER_URL = "data:text/html;charset=utf-8,<html><body style='color:#666;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:monospace;'>Plugin Slot Ready</body></html>";
 
-export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFAULT_PLUGIN_URL, isDark }) => {
+function resolvePluginUrl(pluginUrl?: string): string {
+  if (!pluginUrl) return PLACEHOLDER_URL;
+  // In production (file:// protocol), resolve relative to the app's public dir
+  if (window.location.protocol === 'file:') {
+    const base = window.location.href.replace(/\/[^/]*$/, '');
+    return `${base}${pluginUrl}`;
+  }
+  // In dev (http://), Vite serves public/ at root
+  return pluginUrl;
+}
+
+export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDark }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const resolvedUrl = resolvePluginUrl(pluginUrl);
 
   useEffect(() => {
     // 1. Set up the event listener for messages coming from the iframe
@@ -40,10 +52,11 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFA
   // 2. Push theme state to plugin whenever it changes
   useEffect(() => {
     if (iframeRef.current && iframeRef.current.contentWindow) {
+      const currentTheme = isDark ? 'dark' : 'light';
       // Send theme state to plugin
       iframeRef.current.contentWindow.postMessage(
-        { type: 'theme-change', payload: { isDark }, nonce: Date.now().toString() },
-        '*' // We use '*' because iframe is sandboxed and we might not know its exact origin, but it's safe to broadcast to our own iframe reference.
+        { type: 'host:theme-change', payload: currentTheme },
+        '*'
       );
     }
   }, [isDark]);
@@ -52,7 +65,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl = DEFA
     <div className="flex-1 w-full h-full relative">
       <iframe
         ref={iframeRef}
-        src={pluginUrl}
+        src={resolvedUrl}
         className="w-full h-full border-none"
         sandbox="allow-scripts" // Strict security baseline: only allow scripts, no popups/navigation
         title={`plugin-${paneId}`}

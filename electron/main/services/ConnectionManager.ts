@@ -8,7 +8,7 @@ export interface SessionData {
   sftp?: SFTPWrapper;
 }
 
-class ConnectionManager {
+export class ConnectionManager {
   sessions = new Map<string, SessionData>();
   sessionCounter = 0;
   powerSaveBlockerId: number | null = null;
