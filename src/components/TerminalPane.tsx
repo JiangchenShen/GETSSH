@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore, patchLeafDisconnected } from '../store/sessionStore';
 import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
@@ -33,6 +33,14 @@ const LeafPane: React.FC<{
   const activePaneId = useSessionStore(s => s.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
+  const welcomeRef = useRef<HTMLDivElement>(null);
+
+  // Auto-focus the welcome pane when it becomes active (e.g. after Esc from terminal)
+  useEffect(() => {
+    if (node.paneType === 'welcome') {
+      welcomeRef.current?.focus();
+    }
+  }, [node.paneType]);
 
   return (
     <div
@@ -107,7 +115,18 @@ const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'welcome' && (
-        <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-8">
+        <div
+          ref={welcomeRef}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              onClosePane(node.paneId);
+            }
+          }}
+          className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center gap-8 focus:outline-none"
+        >
 
           {/* ─── Command Center Header ─────────────────── */}
           <div className="w-full max-w-3xl">
