@@ -18,7 +18,7 @@ export function sanitizeSVG(svg: string): string {
       const el = elements[i];
 
       // Remove <script> and other dangerous tags
-      if (['script', 'foreignObject', 'iframe', 'video', 'audio'].includes(el.tagName.toLowerCase())) {
+      if (['script', 'foreignobject', 'iframe', 'video', 'audio'].includes(el.tagName.toLowerCase())) {
         el.parentNode?.removeChild(el);
         i--;
         continue;
