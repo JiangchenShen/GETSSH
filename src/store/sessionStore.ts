@@ -16,6 +16,7 @@ export interface PaneLeaf {
   paneType: 'welcome' | 'terminal' | 'plugin';
   sessionId: string | null;   // SSH session id
   config: any | null;         // SSH config (host, user, …)
+  isDisconnected?: boolean;   // persisted disconnect state — survives re-renders
 }
 
 export interface PaneSplit {
@@ -85,6 +86,20 @@ interface SessionStore {
 export function collectSessionIds(node: PaneNode): string[] {
   if (node.type === 'leaf') return node.sessionId ? [node.sessionId] : [];
   return [...collectSessionIds(node.children[0]), ...collectSessionIds(node.children[1])];
+}
+
+/** Recursively update isDisconnected flag on a specific leaf */
+export function patchLeafDisconnected(node: PaneNode, paneId: string, isDisconnected: boolean): PaneNode {
+  if (node.type === 'leaf') {
+    return node.paneId === paneId ? { ...node, isDisconnected } : node;
+  }
+  return {
+    ...node,
+    children: [
+      patchLeafDisconnected(node.children[0], paneId, isDisconnected),
+      patchLeafDisconnected(node.children[1], paneId, isDisconnected),
+    ] as [PaneNode, PaneNode],
+  };
 }
 
 /** Recursively update sizes on a specific split node */

@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
-import { PaneLeaf, PaneSplit, PaneNode, useSessionStore } from '../store/sessionStore';
+import { PaneLeaf, PaneSplit, PaneNode, useSessionStore, patchLeafDisconnected } from '../store/sessionStore';
 import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
 
 import { PluginPane } from './PluginPane';
@@ -78,11 +78,19 @@ const LeafPane: React.FC<{
       {node.paneType === 'terminal' && node.sessionId && (
         <TerminalComponent
           sessionId={node.sessionId}
+          isDisconnected={node.isDisconnected ?? false}
+          onDisconnectedChange={(val) => {
+            useSessionStore.setState(state => ({
+              tabs: state.tabs.map(tab => {
+                if (tab.id !== tabId || !tab.paneTree) return tab;
+                return { ...tab, paneTree: patchLeafDisconnected(tab.paneTree, node.paneId, val) };
+              }),
+            }));
+          }}
           onDisconnected={() => { onClosePane(node.paneId); }}
           onReconnect={() => {
             window.electronAPI.sshConnect(node.config).then(res => {
               if (res.success && res.sessionId) {
-                // Patch the pane tree: replace the leaf's sessionId
                 useSessionStore.setState(state => ({
                   tabs: state.tabs.map(tab => {
                     if (tab.id !== tabId || !tab.paneTree) return tab;

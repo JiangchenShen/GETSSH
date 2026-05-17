@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebglAddon } from 'xterm-addon-webgl';
@@ -9,6 +9,8 @@ interface TerminalProps {
   sessionId: string;
   onDisconnected?: () => void;
   onReconnect?: () => void;
+  onDisconnectedChange?: (val: boolean) => void; // notify parent to persist in Zustand
+  isDisconnected?: boolean;   // driven from Zustand PaneLeaf — survives re-renders
   config: any;
   isDark?: boolean;
   isActive?: boolean;
@@ -17,12 +19,12 @@ interface TerminalProps {
 // Global cache to preserve xterm instances and DOM nodes across React unmounts
 const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; webglAddon?: WebglAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
 
-export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDark = true, isActive = true }: TerminalProps) {
+export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnectedChange, isDisconnected = false, config, isDark = true, isActive = true }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const isDisconnectedRef = useRef(false);
-  const [isDisconnected, setIsDisconnected] = useState(false);
+  const isDisconnectedRef = useRef(isDisconnected);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   // Convert "r g b" string → "#rrggbb" hex (xterm requires solid hex for cursor)
   const toHex = (rgbStr: string) => {
@@ -131,41 +133,18 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
 
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
       isDisconnectedRef.current = true;
-      setIsDisconnected(true);
+      // Persist state in Zustand so it survives layout re-renders
+      if (onDisconnectedChange) onDisconnectedChange(true);
       term.writeln('\r\n\x1b[31m[SSH Connection Closed]\x1b[0m\r\n');
     });
 
     if (isNew) {
       // Write input to SSH (bind only once per term instance)
+      // When disconnected, xterm still receives data events — but we only handle
+      // reconnect/escape via the overlay's onKeyDown for reliable DOM focus control.
+      // This branch just blocks accidental input from reaching the SSH channel.
       term.onData((data) => {
-        if (isDisconnectedRef.current) {
-           if (data === '\r' && onReconnectRef.current) {
-              isDisconnectedRef.current = false;
-              setIsDisconnected(false);
-              term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
-              // Remove from cache BEFORE reconnecting so the new session gets a fresh terminal
-              const cacheEntry = xtermCache.get(sessionId);
-              if (cacheEntry) {
-                 if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
-                 if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
-                 cacheEntry.fitAddon.dispose();
-              }
-              xtermCache.delete(sessionId);
-              term.dispose();
-              onReconnectRef.current();
-           } else if (data === '\x1b' && onDisconnectedRef.current) {
-              const cacheEntry = xtermCache.get(sessionId);
-              if (cacheEntry) {
-                 if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
-                 if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
-                 cacheEntry.fitAddon.dispose();
-              }
-              xtermCache.delete(sessionId);
-              term.dispose();
-              onDisconnectedRef.current();
-           }
-           return;
-        }
+        if (isDisconnectedRef.current) return; // overlay handles keys via DOM
         window.electronAPI.sshWrite(sessionId, data);
       });
     }
@@ -256,15 +235,69 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, config, isDar
     }
   }, [config.copyOnSelect]);
 
+  // Sync the ref used inside xterm's onData closure whenever the prop changes
+  useEffect(() => {
+    isDisconnectedRef.current = isDisconnected;
+  }, [isDisconnected]);
+
+  // Auto-focus the overlay when it appears so keyboard events land on it
+  useEffect(() => {
+    if (isDisconnected && overlayRef.current) {
+      overlayRef.current.focus();
+    }
+  }, [isDisconnected]);
+
+  // Overlay keyboard handler — intercepts Enter (reconnect) and Esc (return to menu)
+  const handleOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isDisconnected) return;
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onDisconnectedChange) onDisconnectedChange(false);
+      isDisconnectedRef.current = false;
+      const cacheEntry = xtermCache.get(sessionId);
+      if (cacheEntry) {
+        cacheEntry.term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
+        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+        cacheEntry.fitAddon.dispose();
+        xtermCache.delete(sessionId);
+        cacheEntry.term.dispose();
+      }
+      if (onReconnectRef.current) onReconnectRef.current();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onDisconnectedChange) onDisconnectedChange(false);
+      isDisconnectedRef.current = false;
+      const cacheEntry = xtermCache.get(sessionId);
+      if (cacheEntry) {
+        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+        cacheEntry.fitAddon.dispose();
+        xtermCache.delete(sessionId);
+        cacheEntry.term.dispose();
+      }
+      if (onDisconnectedRef.current) onDisconnectedRef.current();
+    }
+  };
+
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 transparent relative group">
       <div className="flex-1 w-full h-full" ref={terminalRef}></div>
       {isDisconnected && (
-        <div className="absolute top-0 left-0 w-full h-full bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-10 transition-all animate-in fade-in duration-300">
-          <div className="bg-black/60 text-white/90 px-6 py-4 rounded-xl shadow-2xl border border-white/10 flex flex-col items-center space-y-2 backdrop-blur-md">
-            <span className="font-bold text-lg text-red-400">Session Closed</span>
-            <span className="text-sm opacity-80">Press <kbd className="px-2 py-1 bg-white/10 rounded mx-1 text-xs">Enter</kbd> to Reconnect</span>
-            <span className="text-sm opacity-80">Press <kbd className="px-2 py-1 bg-white/10 rounded mx-1 text-xs">Esc</kbd> to Return to Menu</span>
+        <div
+          ref={overlayRef}
+          tabIndex={0}
+          onKeyDown={handleOverlayKeyDown}
+          className="absolute top-0 left-0 w-full h-full bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-10 outline-none"
+        >
+          <div className="bg-black/70 text-white/90 px-7 py-5 rounded-2xl shadow-2xl border border-white/10 flex flex-col items-center space-y-3 backdrop-blur-md">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse mb-1" />
+            <span className="font-bold text-base text-red-400 tracking-wide">Session Closed</span>
+            <span className="text-sm opacity-75">Press <kbd className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">Enter</kbd> to Reconnect</span>
+            <span className="text-sm opacity-75">Press <kbd className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">Esc</kbd> to Return to Menu</span>
           </div>
         </div>
       )}
