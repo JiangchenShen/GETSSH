@@ -143,7 +143,6 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     if (active) {
       active.watcher.close();
       try {
-        await fs.promises.access(active.tempPath, fs.constants.F_OK);
         await fs.promises.unlink(active.tempPath);
       } catch (e: any) {
         if (e.code !== 'ENOENT') {

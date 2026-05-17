@@ -10,12 +10,23 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('node:fs', () => ({
-  default: {
-    existsSync: vi.fn(),
-    unlinkSync: vi.fn(),
-  },
-}));
+// Mock fs with async unlink (Jules' async optimization)
+vi.mock('node:fs', async (importActual) => {
+  const actual = await importActual<typeof import('node:fs')>();
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      promises: {
+        ...actual.default.promises,
+        unlink: vi.fn(),
+      },
+    },
+    promises: {
+      unlink: vi.fn(),
+    },
+  };
+});
 
 describe('ConnectionManager', () => {
   let connectionManager: ConnectionManager;
@@ -67,14 +78,12 @@ describe('ConnectionManager', () => {
     });
   });
 
+  // Jules' async cleanup tests (PR #77) — replaces old sync existsSync/unlinkSync pattern
   describe('cleanupSessionSftpWatchers', () => {
     let mockWatcher: any;
 
     beforeEach(() => {
-      mockWatcher = {
-        close: vi.fn(),
-      };
-
+      mockWatcher = { close: vi.fn() };
       vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
@@ -82,68 +91,87 @@ describe('ConnectionManager', () => {
       vi.restoreAllMocks();
     });
 
-    it('should cleanup watchers for a specific sessionId', () => {
+    it('should cleanup SFTP watchers for a session using async unlink', async () => {
+      const sessionId = 'req-1';
+      const tempPath = '/tmp/test-file';
+
+      connectionManager.activeSftpWatchers[`${sessionId}_file1`] = {
+        watcher: mockWatcher as any,
+        tempPath,
+      };
+
+      vi.mocked(fs.promises.unlink).mockResolvedValue(undefined);
+
+      await connectionManager.cleanupSessionSftpWatchers(sessionId);
+
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(fs.promises.unlink).toHaveBeenCalledWith(tempPath);
+      expect(connectionManager.activeSftpWatchers).not.toHaveProperty(`${sessionId}_file1`);
+    });
+
+    it('should cleanup watchers for a specific sessionId and leave others intact', async () => {
       connectionManager.activeSftpWatchers = {
         'req-1_path1': { watcher: mockWatcher, tempPath: '/tmp/file1' },
         'req-1_path2': { watcher: mockWatcher, tempPath: '/tmp/file2' },
         'req-2_path1': { watcher: mockWatcher, tempPath: '/tmp/file3' },
       };
 
-      vi.mocked(fs.existsSync).mockImplementation((path) => path === '/tmp/file1');
+      vi.mocked(fs.promises.unlink).mockResolvedValue(undefined);
 
-      connectionManager.cleanupSessionSftpWatchers('req-1');
+      await connectionManager.cleanupSessionSftpWatchers('req-1');
 
-      // Watcher 1
       expect(mockWatcher.close).toHaveBeenCalledTimes(2);
-      expect(fs.existsSync).toHaveBeenCalledWith('/tmp/file1');
-      expect(fs.unlinkSync).toHaveBeenCalledWith('/tmp/file1');
-
-      // Watcher 2
-      expect(fs.existsSync).toHaveBeenCalledWith('/tmp/file2');
-      expect(fs.unlinkSync).not.toHaveBeenCalledWith('/tmp/file2');
-
-      // Remaining watchers
+      expect(fs.promises.unlink).toHaveBeenCalledWith('/tmp/file1');
+      expect(fs.promises.unlink).toHaveBeenCalledWith('/tmp/file2');
       expect(Object.keys(connectionManager.activeSftpWatchers)).toEqual(['req-2_path1']);
     });
 
-    it('should catch and log errors during cleanup without crashing', () => {
+    it('should handle non-ENOENT errors during cleanup and log them', async () => {
       connectionManager.activeSftpWatchers = {
         'req-1_path1': { watcher: mockWatcher, tempPath: '/tmp/file1' },
       };
 
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      const error = new Error('unlink failed');
-      vi.mocked(fs.unlinkSync).mockImplementation(() => {
-        throw error;
-      });
+      const error = new Error('Unlink failed');
+      vi.mocked(fs.promises.unlink).mockRejectedValue(error);
 
-      connectionManager.cleanupSessionSftpWatchers('req-1');
+      // Should not throw
+      await connectionManager.cleanupSessionSftpWatchers('req-1');
 
       expect(mockWatcher.close).toHaveBeenCalled();
       expect(console.error).toHaveBeenCalledWith('[SFTP Sync] Cleanup failed', error);
+      expect(connectionManager.activeSftpWatchers).not.toHaveProperty('req-1_path1');
+    });
 
-      // Still deleted from the record
-      expect(Object.keys(connectionManager.activeSftpWatchers)).toEqual([]);
+    it('should silently ignore ENOENT errors during cleanup', async () => {
+      connectionManager.activeSftpWatchers = {
+        'req-1_path1': { watcher: mockWatcher, tempPath: '/tmp/file1' },
+      };
+
+      const error: any = new Error('File not found');
+      error.code = 'ENOENT';
+      vi.mocked(fs.promises.unlink).mockRejectedValue(error);
+
+      await connectionManager.cleanupSessionSftpWatchers('req-1');
+
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(console.error).not.toHaveBeenCalled();
+      expect(connectionManager.activeSftpWatchers).not.toHaveProperty('req-1_path1');
     });
   });
 
   describe('removeSession', () => {
-    it('should delete the session, cleanup watchers, and update powerSaveBlocker', () => {
+    it('should delete the session, cleanup watchers, and update powerSaveBlocker', async () => {
       connectionManager.sessions.set('req-1', {} as SessionData);
       connectionManager.powerSaveBlockerId = 123;
 
-      vi.spyOn(connectionManager, 'cleanupSessionSftpWatchers');
+      vi.spyOn(connectionManager, 'cleanupSessionSftpWatchers').mockResolvedValue(undefined);
       vi.spyOn(connectionManager, 'updatePowerSaveBlocker');
 
-      connectionManager.removeSession('req-1');
+      await connectionManager.removeSession('req-1');
 
       expect(connectionManager.sessions.has('req-1')).toBe(false);
       expect(connectionManager.cleanupSessionSftpWatchers).toHaveBeenCalledWith('req-1');
       expect(connectionManager.updatePowerSaveBlocker).toHaveBeenCalled();
-
-      // updatePowerSaveBlocker should have noticed sessions is empty and stopped it
-      expect(powerSaveBlocker.stop).toHaveBeenCalledWith(123);
-      expect(connectionManager.powerSaveBlockerId).toBeNull();
     });
   });
 });

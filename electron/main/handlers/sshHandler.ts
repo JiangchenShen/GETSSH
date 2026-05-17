@@ -74,9 +74,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
         establishConnection().then(() => {
           sshClient.on('ready', () => {
-            sshClient.shell({ term: 'xterm-256color' }, (err, stream) => {
+            sshClient.shell({ term: 'xterm-256color' }, async (err, stream) => {
             if (err) {
-              connectionManager.removeSession(sessionId);
+              await connectionManager.removeSession(sessionId);
               resolve({ success: false, error: err.message });
               return;
             }
@@ -94,9 +94,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                }
             }, 800); // Wait 800ms for React to mount the Terminal Component
 
-            stream.on('close', () => {
+            stream.on('close', async () => {
               sshClient.end();
-              connectionManager.removeSession(sessionId);
+              await connectionManager.removeSession(sessionId);
               const win = getWindow();
               if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
             }).on('data', (data: Buffer) => {
@@ -123,14 +123,14 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
             resolve({ success: true, sessionId });
           });
-        }).on('error', (err: any) => {
-          connectionManager.removeSession(sessionId);
+        }).on('error', async (err: any) => {
+          await connectionManager.removeSession(sessionId);
           const win = getWindow();
           if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
           resolve({ success: false, error: err.message });
         }).connect(connectConfig);
-        }).catch(err => {
-           connectionManager.removeSession(sessionId);
+        }).catch(async (err) => {
+           await connectionManager.removeSession(sessionId);
            resolve({ success: false, error: err.message });
         });
       } catch (e: any) {
@@ -154,12 +154,12 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     }
   });
 
-  ipcMain.on('ssh-disconnect', (event, sessionId) => {
+  ipcMain.on('ssh-disconnect', async (event, sessionId) => {
     const session = connectionManager.sessions.get(sessionId);
     if (session) {
       if (session.stream) session.stream.close();
       if (session.client) session.client.end();
-      connectionManager.removeSession(sessionId);
+      await connectionManager.removeSession(sessionId);
     }
   });
 }
