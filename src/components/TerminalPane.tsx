@@ -161,35 +161,37 @@ const LeafPane: React.FC<{
               }`}>{sessions.length} host{sessions.length !== 1 ? 's' : ''}</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {sessions.map((s, i) => (
                 <button
                   key={i}
                   onClick={() => onConnectInPane(node.paneId, s)}
-                  className={`group relative p-4 rounded-xl border text-left transition-all duration-200 ${
+                  className={`group relative p-4 rounded-2xl border text-left transition-all duration-200 flex items-center gap-4 ${
                     isDark
-                      ? 'bg-black/20 border-white/8 hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)]'
-                      : 'bg-white/60 border-black/8 hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(16,185,129,0.12)]'
+                      ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      : 'bg-black/5 border-black/10 hover:bg-black/10 hover:border-black/20'
                   }`}
                 >
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center mb-3 transition-colors ${
-                    isDark ? 'bg-white/5 group-hover:bg-emerald-500/20' : 'bg-black/5 group-hover:bg-emerald-500/15'
+                  <div className={`shrink-0 p-2.5 rounded-xl transition-colors ${
+                    isDark ? 'bg-white/5 group-hover:bg-white/10' : 'bg-black/5 group-hover:bg-black/10'
                   }`}>
-                    <TerminalIcon className={`w-3.5 h-3.5 transition-colors ${
-                      isDark ? 'text-white/40 group-hover:text-emerald-400' : 'text-black/40 group-hover:text-emerald-600'
+                    <TerminalIcon className={`w-5 h-5 transition-colors ${
+                      isDark ? 'text-white/60 group-hover:text-white/90' : 'text-black/60 group-hover:text-black/90'
                     }`} />
                   </div>
-                  <div className={`font-semibold text-sm truncate transition-colors ${
-                    isDark ? 'text-white/80 group-hover:text-emerald-300' : 'text-black/80 group-hover:text-emerald-700'
-                  }`}>{s.host}</div>
-                  <div className={`text-xs truncate mt-0.5 ${
-                    isDark ? 'text-white/35' : 'text-black/35'
-                  }`}>{s.username}</div>
+                  <div className="flex flex-col min-w-0">
+                    <div className={`font-medium text-sm truncate transition-colors ${
+                      isDark ? 'text-white/90' : 'text-black/90'
+                    }`}>{s.host}</div>
+                    <div className={`text-xs truncate mt-0.5 ${
+                      isDark ? 'text-white/40' : 'text-black/40'
+                    }`}>{s.username}</div>
+                  </div>
                 </button>
               ))}
               {sessions.length === 0 && (
-                <div className={`col-span-full text-center py-8 text-sm rounded-xl border border-dashed ${
-                  isDark ? 'text-white/25 border-white/8' : 'text-black/25 border-black/8'
+                <div className={`col-span-full text-center py-6 text-sm rounded-2xl border border-dashed flex items-center justify-center ${
+                  isDark ? 'text-white/30 border-white/10 bg-white/5' : 'text-black/30 border-black/10 bg-black/5'
                 }`}>
                   No saved sessions. Add one in the sidebar.
                 </div>
@@ -212,7 +214,7 @@ const LeafPane: React.FC<{
               }`}>Local Extensions</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* System Monitor Demo Card */}
               <button
                 onClick={() => {
@@ -226,28 +228,32 @@ const LeafPane: React.FC<{
                     }),
                   }));
                 }}
-                className={`group relative p-4 rounded-xl border text-left transition-all duration-200 ${
+                className={`group relative p-4 rounded-2xl border text-left transition-all duration-200 flex items-center gap-4 ${
                   isDark
-                    ? 'bg-black/20 border-white/8 hover:border-blue-500/40 hover:bg-blue-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)]'
-                    : 'bg-white/60 border-black/8 hover:border-blue-500/40 hover:bg-blue-500/5 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(59,130,246,0.15)]'
+                    ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    : 'bg-black/5 border-black/10 hover:bg-black/10 hover:border-black/20'
                 }`}
               >
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center mb-3 transition-colors ${
-                  isDark ? 'bg-blue-500/10 group-hover:bg-blue-500/25' : 'bg-blue-500/10 group-hover:bg-blue-500/20'
+                <div className={`shrink-0 p-2.5 rounded-xl transition-colors ${
+                  isDark ? 'bg-white/5 group-hover:bg-white/10' : 'bg-black/5 group-hover:bg-black/10'
                 }`}>
-                  <Activity className="w-3.5 h-3.5 text-blue-400" />
+                  <Activity className={`w-5 h-5 transition-colors ${
+                    isDark ? 'text-white/60 group-hover:text-white/90' : 'text-black/60 group-hover:text-black/90'
+                  }`} />
                 </div>
-                <div className={`font-semibold text-sm truncate transition-colors ${
-                  isDark ? 'text-white/80 group-hover:text-blue-300' : 'text-black/80 group-hover:text-blue-700'
-                }`}>System Monitor</div>
-                <div className={`text-xs truncate mt-0.5 ${
-                  isDark ? 'text-white/35' : 'text-black/35'
-                }`}>Local sandboxed resource monitor.</div>
+                <div className="flex flex-col min-w-0">
+                  <div className={`font-medium text-sm truncate transition-colors ${
+                    isDark ? 'text-white/90' : 'text-black/90'
+                  }`}>System Monitor</div>
+                  <div className={`text-xs truncate mt-0.5 ${
+                    isDark ? 'text-white/40' : 'text-black/40'
+                  }`}>Local sandboxed resource monitor.</div>
+                </div>
               </button>
 
               {/* Future plugins placeholder */}
-              <div className={`p-4 rounded-xl border border-dashed flex flex-col items-center justify-center gap-2 ${
-                isDark ? 'border-white/8 text-white/15' : 'border-black/8 text-black/15'
+              <div className={`p-4 rounded-2xl border border-dashed flex items-center justify-center gap-2 ${
+                isDark ? 'border-white/10 text-white/30 bg-white/5' : 'border-black/10 text-black/30 bg-black/5'
               }`}>
                 <span className="text-xs">More plugins coming soon</span>
               </div>
