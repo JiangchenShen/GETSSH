@@ -26,17 +26,11 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   const isDisconnectedRef = useRef(isDisconnected);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Convert "r g b" string → "#rrggbb" hex (xterm requires solid hex for cursor)
-  const toHex = (rgbStr: string) => {
-    const [r, g, b] = rgbStr.split(' ').map(Number);
-    return '#' + [r, g, b].map(n => n.toString(16).padStart(2, '0')).join('');
-  };
-
   // Build xterm theme object
   const buildTheme = (themeColor: string) => ({
-    background: 'transparent',
-    foreground: '#ffffff',
-    cursor: toHex(themeColor),
+    background: '#000000',
+    foreground: '#FFFFFF',
+    cursor: '#FFFFFF',
     cursorAccent: '#000000',
     selectionBackground: `rgba(${themeColor}, 0.35)`,
   });

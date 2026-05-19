@@ -11,9 +11,6 @@ export class PluginManager {
 
   constructor() {
     this.pluginsPath = path.join(app.getPath('userData'), 'plugins');
-    if (!fs.existsSync(this.pluginsPath)) {
-      fs.mkdirSync(this.pluginsPath, { recursive: true });
-    }
   }
 
   private getSecurePluginPath(pluginName: string): string {
@@ -41,6 +38,7 @@ export class PluginManager {
 
   public async loadPlugins() {
     try {
+      await fs.promises.mkdir(this.pluginsPath, { recursive: true });
       const dirents = await fs.promises.readdir(this.pluginsPath, { withFileTypes: true });
       await Promise.all(
         dirents.map(async (dirent) => {
@@ -57,6 +55,7 @@ export class PluginManager {
             }
 
             const manifest: PluginManifest = JSON.parse(manifestRaw);
+            manifest.localPath = pluginDir;
 
             this.installedPlugins.push(manifest);
 
@@ -175,6 +174,7 @@ export class PluginManager {
         
         await fs.promises.rename(sourceDir, targetDir);
         
+        manifest.localPath = targetDir;
         if (!this.installedPlugins.find(p => p.name === manifest.name)) {
           this.installedPlugins.push(manifest);
         }

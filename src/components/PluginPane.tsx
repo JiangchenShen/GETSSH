@@ -11,7 +11,7 @@ const PLACEHOLDER_URL = "data:text/html;charset=utf-8,<html><body style='color:#
 function resolvePluginUrl(pluginUrl?: string): string {
   if (!pluginUrl) return PLACEHOLDER_URL;
   // If it's an absolute URL or our custom protocol, don't touch it
-  if (pluginUrl.startsWith('http://') || pluginUrl.startsWith('https://') || pluginUrl.startsWith('getssh-plugin://') || pluginUrl.startsWith('data:')) {
+  if (pluginUrl.startsWith('http://') || pluginUrl.startsWith('https://') || pluginUrl.startsWith('getssh-plugin://') || pluginUrl.startsWith('data:') || pluginUrl.startsWith('file://')) {
     return encodeURI(pluginUrl);
   }
   // In production (file:// protocol), resolve relative to the app's public dir

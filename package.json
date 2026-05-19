@@ -89,7 +89,8 @@
       "!**/node_env/**",
       "!**/sftp-mock-plugin/**",
       "!**/@types/**",
-      "!**/.DS_Store"
+      "!**/.DS_Store",
+      "!src/**/*"
     ],
     "mac": {
       "target": [
@@ -105,6 +106,7 @@
     },
     "dmg": {
       "title": "Install GETSSH",
+      "format": "ULFO",
       "background": "build/background.png",
       "contents": [
         {

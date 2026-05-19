@@ -229,8 +229,8 @@ const LeafPane: React.FC<{
                       tabs: state.tabs.map(t => {
                         if (t.id !== tabId || !t.paneTree) return t;
                         
-                        // We construct a custom protocol URL to load the plugin locally
-                        const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
+                        // We construct a file:// protocol URL to load the plugin locally
+                        const pluginUrl = `file://${plugin.localPath}/${plugin.main}`;
                         
                         return {
                           ...t,

@@ -6,6 +6,7 @@ export interface PluginManifest {
   description: string;
   main: string;
   renderer?: string;
+  localPath?: string;
 }
 
 export interface MainContextAPI {

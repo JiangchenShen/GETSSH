@@ -7,6 +7,7 @@ import { useAppStore } from './store/appStore';
 import { Tab, PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
+import { usePluginStore } from './store/pluginStore';
 import { TabBar } from './components/TabBar';
 import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
@@ -109,6 +110,13 @@ function App() {
     bootCrypto();
 
     loadStoredConfig();
+
+    // Fetch plugins as early as possible so UI (Welcome/Sidebar) is responsive instantly
+    if (window.electronAPI && window.electronAPI.getPluginsList) {
+      window.electronAPI.getPluginsList().then((res) => {
+        usePluginStore.getState().setPlugins(res || []);
+      });
+    }
 
     // Boot Plugins in Sandbox (secure)
     const cleanupPluginBridge = initPluginBridge();
