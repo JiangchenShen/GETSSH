@@ -62,7 +62,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
   }, [isDark]);
 
   return (
-    <div className="flex-1 w-full h-full relative">
+    <div className="flex-1 w-full h-full relative overflow-hidden min-h-0">
       <iframe
         ref={iframeRef}
         src={resolvedUrl}

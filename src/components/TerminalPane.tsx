@@ -53,7 +53,7 @@ const LeafPane: React.FC<{
     >
       {/* Pane header with title and toolbar */}
       <div
-        className={`flex-none flex items-center justify-between px-2 py-1 text-xs select-none transition-colors ${
+        className={`relative z-10 flex-none flex items-center justify-between px-2 py-1 text-xs select-none transition-colors ${
           isActive 
             ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black') 
             : (isDark ? 'bg-black/20 text-white/50' : 'bg-black/5 text-black/50')
