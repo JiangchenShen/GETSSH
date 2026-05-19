@@ -191,15 +191,20 @@ export class PluginManager {
         this.installedPlugins
           .filter((p) => !!p.renderer)
           .map(async (p) => {
+            if (p._rendererContentCache !== undefined) {
+              return p._rendererContentCache;
+            }
             try {
               const pluginPath = this.getSecurePluginPath(p.name);
               const rendererPath = path.resolve(pluginPath, p.renderer!);
               if (!rendererPath.startsWith(pluginPath + path.sep)) {
                 throw new Error('Invalid renderer path');
               }
-              return await fs.promises.readFile(rendererPath, 'utf8');
+              p._rendererContentCache = await fs.promises.readFile(rendererPath, 'utf8');
+              return p._rendererContentCache;
             } catch {
-              return '';
+              p._rendererContentCache = '';
+              return p._rendererContentCache;
             }
           })
       );
