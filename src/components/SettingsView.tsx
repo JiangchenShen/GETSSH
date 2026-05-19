@@ -46,9 +46,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <>
-    <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-gray-50 text-black'}`}>
+    <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-slate-50 text-slate-800'}`}>
       {/* Settings Sidebar */}
-      <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-gray-100'}`}>
+      <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-100/50'}`}>
         <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
            <Settings className="w-5 h-5 text-primary" />
            {t('settings.configuration')}
@@ -86,7 +86,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <select 
                     value={appConfig.language}
                     onChange={(e) => updateConfig('language', e.target.value)}
-                    className={`w-full p-2 border rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                    className={`w-full p-2 border rounded-lg text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
                   >
                     <option value="en-US">English</option>
                     <option value="zh-CN">简体中文</option>
@@ -104,17 +104,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <button 
                         key={swatch.color}
                         onClick={() => updateConfig('themeColor', swatch.color)}
-                        className={`w-8 h-8 rounded-full border-2 transition-all ${swatch.bg} ${appConfig.themeColor === swatch.color ? 'border-white scale-110 shadow-lg shadow-black/30' : 'border-transparent hover:scale-105'}`}
+                        className={`w-8 h-8 rounded-full transition-all ${swatch.bg} ${
+                          appConfig.themeColor === swatch.color 
+                            ? 'ring-2 ring-offset-2 ring-primary dark:ring-offset-[#1e1e1e] ring-offset-slate-50 scale-105' 
+                            : 'hover:scale-105'
+                        }`}
                         title={swatch.name}
                       />
                     ))}
                     {/* Custom Color Picker */}
                     <div className="relative" title="Custom Color">
                       <div
-                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center overflow-hidden transition-all hover:scale-105 ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center overflow-hidden transition-all hover:scale-105 ${
                           !['168 85 247','34 197 94','59 130 246','239 68 68'].includes(appConfig.themeColor)
-                            ? 'border-white scale-110 shadow-lg shadow-black/30'
-                            : 'border-transparent'
+                            ? 'ring-2 ring-offset-2 ring-primary dark:ring-offset-[#1e1e1e] ring-offset-slate-50 scale-105'
+                            : ''
                         }`}
                         style={{ background: `rgb(${appConfig.themeColor})` }}
                       >
@@ -136,20 +140,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.uiTheme')}</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button onClick={() => updateConfig('theme', 'system')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'system' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.auto')}</button>
-                  <button onClick={() => updateConfig('theme', 'light')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'light' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.light')}</button>
-                  <button onClick={() => updateConfig('theme', 'dark')} className={`py-1.5 rounded-lg text-sm border transition-all ${appConfig.theme === 'dark' ? 'border-primary bg-primary/20 text-primary' : 'border-current opacity-50 hover:opacity-100'}`}>{t('appearance.dark')}</button>
+                <label className="block text-sm font-medium mb-2 opacity-70">{t('appearance.uiTheme')}</label>
+                <div className={`flex p-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-slate-200/50'}`}>
+                  {(['system', 'light', 'dark'] as const).map(themeOpt => {
+                     const active = appConfig.theme === themeOpt;
+                     return (
+                        <button 
+                           key={themeOpt}
+                           onClick={() => updateConfig('theme', themeOpt)} 
+                           className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                              active 
+                                 ? (isDark ? 'bg-white/10 text-white shadow-sm' : 'bg-white text-slate-900 shadow-sm') 
+                                 : (isDark ? 'text-white/50 hover:text-white/80' : 'text-slate-500 hover:text-slate-700')
+                           }`}
+                        >
+                           {t(`appearance.${themeOpt === 'system' ? 'auto' : themeOpt}`)}
+                        </button>
+                     );
+                  })}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.bgOpacity')}</label>
+                <label className="block text-sm font-medium mb-3 opacity-70">{t('appearance.bgOpacity')}</label>
                 <input 
                    type="range" min="0.1" max="1" step="0.05" 
                    value={appConfig.bgOpacity || 1}
                    onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
-                   className="w-full accent-primary"
+                   className="w-full h-1.5 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary"
                 />
                 <div className="text-xs opacity-50 text-right mt-1">{Math.round(appConfig.bgOpacity * 100)}%</div>
               </div>
