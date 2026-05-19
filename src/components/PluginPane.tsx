@@ -44,8 +44,16 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
 
     window.addEventListener('message', handleMessage);
 
+    // Forward sysmon data from main process to iframe if this is the sysmon plugin
+    const unsubscribeSysmon = window.electronAPI.onSysmonData((data) => {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage({ type: 'sysmon:data', payload: data }, '*');
+      }
+    });
+
     return () => {
       window.removeEventListener('message', handleMessage);
+      unsubscribeSysmon();
     };
   }, [paneId]);
 

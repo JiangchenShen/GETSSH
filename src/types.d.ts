@@ -1,5 +1,10 @@
 export {};
 
+declare module '*.png' {
+  const value: string;
+  export default value;
+}
+
 declare global {
   interface SSHConnectConfig {
     host: string;
@@ -50,6 +55,7 @@ declare global {
       exportProfiles: (payload: { sessions: import('./store/sessionStore').SessionProfile[]; masterPassword: string }) => Promise<{ success: boolean; count?: number; reason?: string }>;
       importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; profiles?: import('./store/sessionStore').SessionProfile[]; reason?: string }>;
       promptBiometricUnlock: () => Promise<{ success: boolean; masterPassword?: string; reason?: string }>;
+      onSysmonData: (cb: (data: any) => void) => (() => void);
     };
   }
 }

@@ -58,6 +58,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showContextMenu: () => ipcRenderer.send('show-context-menu'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   exportProfiles: (payload: { sessions: any[], masterPassword: string }) => ipcRenderer.invoke('export-profiles', payload),
+  onSysmonData: (callback: (data: any) => void) => {
+    const listener = (_event: any, data: any) => callback(data)
+    ipcRenderer.on('sysmon:data', listener)
+    return () => ipcRenderer.removeListener('sysmon:data', listener)
+  },
   importProfiles: (payload: { masterPassword: string }) => ipcRenderer.invoke('import-profiles', payload),
   promptBiometricUnlock: () => ipcRenderer.invoke('prompt-biometric-unlock'),
 })

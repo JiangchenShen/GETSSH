@@ -101,6 +101,16 @@ function createWindow() {
     console.warn(`[Security] Prevented navigation to ${url}`);
   });
 
+  // System Monitor Stream
+  setInterval(() => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('sysmon:data', {
+        cpus: os.cpus(),
+        mem: { total: os.totalmem(), free: os.freemem() }
+      });
+    }
+  }, 1000);
+
   if (app.isPackaged) {
     win.loadFile(join(__dirname, '../../dist/index.html'))
   } else if (process.env.VITE_DEV_SERVER_URL) {
