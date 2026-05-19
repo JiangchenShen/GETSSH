@@ -75,7 +75,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="p-10 overflow-y-auto w-full h-full pb-32">
+        <div className="p-10 overflow-y-auto w-full max-w-3xl mx-auto h-full pb-32">
           <h3 className="text-2xl font-bold mb-8 opacity-90">{t('settings.' + settingsActiveTab.toLowerCase() as any)} {t('settings.configuration')}</h3>
           
           {settingsActiveTab === 'Appearance' && (
@@ -163,7 +163,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex flex-col gap-2 pt-2 border-t border-black/5 dark:border-white/5">
                 <div className="flex items-center justify-between">
                   <label className={`text-sm font-medium ${!isDark ? 'opacity-40' : 'opacity-70'}`}>
-                    Enable Glassmorphism
+                    {t('appearance.enableGlassmorphism', '启用毛玻璃特效')}
                   </label>
                   <button 
                     disabled={!isDark}
@@ -173,10 +173,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-full transition-transform ${appConfig.enableGlassmorphism && isDark ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
                 </div>
-                {!isDark && (
+                {!isDark ? (
                   <div className="text-xs text-orange-500/80 font-medium">
-                    * Glassmorphism is only available in Dark Mode.
+                    * {t('appearance.glassmorphismOnlyDark', '毛玻璃特效仅在深色模式下可用')}
                   </div>
+                ) : (
+                  appConfig.enableGlassmorphism && (
+                    <div className="mt-4">
+                      <div className="flex justify-between items-center mb-3">
+                        <label className="text-sm font-medium opacity-70">{t('appearance.glassmorphismOpacity', '毛玻璃不透明度')}</label>
+                        <span className="text-xs font-bold opacity-50">{Math.round((appConfig.bgOpacity || 1) * 100)}%</span>
+                      </div>
+                      <input 
+                        type="range" min="0.3" max="1" step="0.05" 
+                        value={appConfig.bgOpacity || 1}
+                        onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
+                        className="w-full h-1.5 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary"
+                      />
+                    </div>
+                  )
                 )}
               </div>
             </div>
