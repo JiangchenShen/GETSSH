@@ -1,7 +1,0 @@
-{
-  "id": "com.getssh.sysmon",
-  "name": "系统监控",
-  "version": "1.0.0",
-  "description": "本地沙盒化资源监控插件",
-  "entry": "index.html"
-}

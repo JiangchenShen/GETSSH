@@ -1,0 +1,11 @@
+{
+  "name": "system-monitor",
+  "version": "1.0.0",
+  "description": "本地沙盒化资源监控插件",
+  "main": "index.html", 
+  "author": "GETSSH",
+  "getssh": {
+    "pluginId": "com.getssh.sysmon",
+    "type": "sandbox"
+  }
+}
