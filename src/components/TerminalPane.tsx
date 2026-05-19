@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useEffect } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore, patchLeafDisconnected } from '../store/sessionStore';
 import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { PluginPane } from './PluginPane';
 
@@ -29,8 +30,11 @@ const LeafPane: React.FC<{
   onClosePane: (paneId: string) => void;
   onConnectInPane: (paneId: string, session: any) => void;
   sessions: any[];
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane, sessions }) => {
-  const activePaneId = useSessionStore(s => s.activePaneId);
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane,  onConnectInPane,
+  sessions
+}) => {
+  const { t } = useTranslation();
+  const activePaneId = useSessionStore(state => state.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
   const welcomeRef = useRef<HTMLDivElement>(null);
@@ -60,7 +64,7 @@ const LeafPane: React.FC<{
         }`}
       >
         <span className="truncate opacity-70 font-medium">
-           {node.paneType === 'welcome' ? 'Select Host' : (node.paneType === 'plugin' ? 'Plugin' : `${node.config?.username || ''}@${node.config?.host || ''}`)}
+           {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? 'Plugin' : `${node.config?.username || ''}@${node.config?.host || ''}`)}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -137,10 +141,10 @@ const LeafPane: React.FC<{
           <div className="w-full max-w-3xl">
             <p className={`text-xs font-semibold tracking-[0.2em] uppercase mb-1 ${
               isDark ? 'text-white/30' : 'text-black/30'
-            }`}>GETSSH Command Center</p>
+            }`}>GETSSH {t('welcome.commandCenter', 'Command Center')}</p>
             <h1 className={`text-2xl font-bold tracking-tight ${
               isDark ? 'text-white/90' : 'text-black/90'
-            }`}>Where do you want to go?</h1>
+            }`}>{t('welcome.whereTo', 'Where do you want to go?')}</h1>
           </div>
 
           {/* ─── Section A: Remote Infrastructure ────── */}
@@ -155,10 +159,10 @@ const LeafPane: React.FC<{
               </div>
               <span className={`text-sm font-semibold tracking-wide ${
                 isDark ? 'text-white/70' : 'text-black/70'
-              }`}>Remote Infrastructure</span>
+              }`}>{t('welcome.remoteInfrastructure', '远程服务器')}</span>
               <span className={`text-xs px-2 py-0.5 rounded-full ml-auto ${
                 isDark ? 'bg-white/5 text-white/30' : 'bg-black/5 text-black/30'
-              }`}>{sessions.length} host{sessions.length !== 1 ? 's' : ''}</span>
+              }`}>{t('welcome.hostsCount', `${sessions.length} 个主机`, { count: sessions.length })}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -193,7 +197,7 @@ const LeafPane: React.FC<{
                 <div className={`col-span-full text-center py-6 text-sm rounded-2xl border border-dashed flex items-center justify-center ${
                   isDark ? 'text-white/30 border-white/10 bg-white/5' : 'text-black/30 border-black/10 bg-black/5'
                 }`}>
-                  No saved sessions. Add one in the sidebar.
+                  {t('welcome.noSavedSessions', 'No saved sessions. Add one in the sidebar.')}
                 </div>
               )}
             </div>
@@ -211,7 +215,7 @@ const LeafPane: React.FC<{
               </div>
               <span className={`text-sm font-semibold tracking-wide ${
                 isDark ? 'text-white/70' : 'text-black/70'
-              }`}>Local Extensions</span>
+              }`}>{t('welcome.localExtensions', '本地工具 & 插件')}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -244,10 +248,10 @@ const LeafPane: React.FC<{
                 <div className="flex flex-col min-w-0">
                   <div className={`font-medium text-sm truncate transition-colors ${
                     isDark ? 'text-white/90' : 'text-black/90'
-                  }`}>System Monitor</div>
+                  }`}>{t('welcome.systemMonitor', '系统监控')}</div>
                   <div className={`text-xs truncate mt-0.5 ${
                     isDark ? 'text-white/40' : 'text-black/40'
-                  }`}>Local sandboxed resource monitor.</div>
+                  }`}>{t('welcome.sysmonDesc', '本地沙盒化资源监控。')}</div>
                 </div>
               </button>
 
@@ -255,7 +259,7 @@ const LeafPane: React.FC<{
               <div className={`p-4 rounded-2xl border border-dashed flex items-center justify-center gap-2 ${
                 isDark ? 'border-white/10 text-white/30 bg-white/5' : 'border-black/10 text-black/30 bg-black/5'
               }`}>
-                <span className="text-xs">More plugins coming soon</span>
+                <span className="text-xs">{t('welcome.morePlugins', '更多插件敬请期待...')}</span>
               </div>
             </div>
           </div>
