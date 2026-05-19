@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage, shell, protocol, net } from 'electron'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import os from 'node:os'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -12,10 +13,6 @@ import { registerProfileHandlers } from './handlers/profileHandler'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
-
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'getssh-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }
-])
 
 // Prevent background throttling for SSH persistence
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
@@ -208,7 +205,7 @@ app.whenReady().then(async () => {
     const url = request.url.substring('getssh-plugin://'.length);
     const decodedUrl = decodeURIComponent(url);
     const pluginPath = path.join(app.getPath('userData'), 'plugins', decodedUrl);
-    return net.fetch('file://' + pluginPath);
+    return net.fetch(pathToFileURL(pluginPath).toString());
   });
   
   registerCryptoHandlers(ipcMain, app);
