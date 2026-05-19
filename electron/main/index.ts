@@ -13,6 +13,10 @@ import { registerProfileHandlers } from './handlers/profileHandler'
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'getssh-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }
+])
+
 // Prevent background throttling for SSH persistence
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')

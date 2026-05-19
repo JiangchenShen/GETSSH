@@ -10,6 +10,7 @@ const PLACEHOLDER_URL = "data:text/html;charset=utf-8,<html><body style='color:#
 
 function resolvePluginUrl(pluginUrl?: string): string {
   if (!pluginUrl) return PLACEHOLDER_URL;
+  if (pluginUrl.startsWith('getssh-plugin://')) return pluginUrl;
   // In production (file:// protocol), resolve relative to the app's public dir
   if (window.location.protocol === 'file:') {
     const base = window.location.href.replace(/\/[^/]*$/, '');
@@ -75,7 +76,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         ref={iframeRef}
         src={resolvedUrl}
         className="w-full h-full border-none"
-        sandbox="allow-scripts" // Strict security baseline: only allow scripts, no popups/navigation
+        sandbox="allow-scripts allow-same-origin" // Strict security baseline: allow scripts and same-origin for custom protocol
         title={`plugin-${paneId}`}
       />
     </div>
