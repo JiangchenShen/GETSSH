@@ -1,11 +1,12 @@
 import React from 'react';
-import { TerminalSquare, Search, Server, Plus, Edit2, Zap, X, HardDrive, Settings, Info } from 'lucide-react';
+import { Search, Server, Plus, Edit2, Zap, X, HardDrive, Settings, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { usePanelStore } from '../store/panelStore';
 import { usePluginStore } from '../store/pluginStore';
+import logoSrc from '../assets/logo.png';
 
 interface SidebarProps {
   onAddSession: () => void;
@@ -41,9 +42,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
-    <div className={`w-64 border-r flex flex-col p-4 pt-8 shrink-0 transition-colors ${isDark ? 'bg-transparent border-white/10' : 'bg-white/40 border-black/10 shadow-[inset_0_0_20px_rgba(255,255,255,0.5)]'}`}>
+    <div className={`w-64 border-r flex flex-col p-4 pt-8 shrink-0 transition-colors bg-transparent ${isDark ? 'border-white/10' : 'border-black/10'}`}>
       <div className="flex items-center gap-2 mb-6">
-        <img src="/logo.png" alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
+        <img src={logoSrc} alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
         <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
       </div>
 
@@ -92,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         
         <button type="button" onClick={onAddSession} className="flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-100 transition-all font-medium text-sm">
           <Plus className="w-4 h-4 shrink-0" />
-          <span style={{ color: 'red' }}>{t('sidebar.newConnection')} - TEXT OVERRIDE TEST</span>
+          <span>{t('sidebar.newConnection')}</span>
         </button>
       </div>
 

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { PluginSettings } from './PluginSettings';
+import logoSrc from '../assets/logo.png';
 
 interface SettingsViewProps {
   settingsActiveTab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About';
@@ -482,7 +483,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {settingsActiveTab === 'About' && (
             <div className="flex flex-col items-center justify-center pt-16 max-w-xl mx-auto space-y-6 text-center">
               <div className="flex flex-col items-center gap-1">
-                <img src="/logo.png" alt="GETSSH Logo" className={`w-20 h-20 rounded-[1.25rem] shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
+                <img src={logoSrc} alt="GETSSH Logo" className={`w-20 h-20 rounded-[1.25rem] shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
                 <span className="text-3xl font-black tracking-tighter text-primary">GETSSH</span>
                 <div className={`text-sm font-medium tracking-widest ${isDark ? 'text-white/50' : 'text-black/50'}`}>
                   {t('about.version')}
