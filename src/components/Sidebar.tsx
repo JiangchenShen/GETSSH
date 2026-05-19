@@ -54,7 +54,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onChange={e => setSearchQuery(e.target.value)} 
           type="text" 
           placeholder={t('sidebar.search')} 
-          className={`w-full pl-9 pr-3 py-1.5 rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-white/5 border border-white/10 focus:border-primary placeholder:text-white/30' : 'bg-black/5 border border-black/10 focus:border-primary placeholder:text-black/30'}`} 
+          className={`w-full pl-9 pr-3 py-1.5 rounded-md text-sm outline-none transition-colors border ${
+            isDark 
+              ? 'bg-black/40 border-white/10 text-white focus:bg-black/60 focus:border-primary placeholder:text-white/30' 
+              : 'bg-white/60 border-slate-200 text-slate-900 focus:bg-white focus:border-primary placeholder:text-slate-400'
+          }`} 
         />
       </div>
 

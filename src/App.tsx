@@ -376,8 +376,8 @@ function App() {
   // Dynamic Backdrop Opacity Color
   const appBgStyle = {
       backgroundColor: isDark 
-        ? `rgba(0, 0, 0, ${appConfig.bgOpacity})` 
-        : `rgba(255, 255, 255, ${appConfig.bgOpacity})`
+        ? `rgba(15, 23, 42, ${appConfig.bgOpacity})` 
+        : `rgba(248, 250, 252, ${appConfig.bgOpacity})`
   };
 
   return (
@@ -386,7 +386,11 @@ function App() {
         e.preventDefault();
         window.electronAPI.showContextMenu();
       }}
-      className={`h-screen w-screen flex backdrop-blur-xl relative overflow-hidden transition-all ${isDark ? 'text-gray-100' : 'text-gray-900'} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
+      className={`h-screen w-screen flex backdrop-blur-2xl relative overflow-hidden transition-all ${
+        isDark 
+          ? 'text-gray-100 border border-white/10 shadow-xl' 
+          : 'text-slate-900 border border-white/40 shadow-sm'
+      } ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
       {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
         <CryptoModal 
           mode={cryptoMode} 
