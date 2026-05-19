@@ -385,7 +385,7 @@ function App() {
     containerClasses = 'bg-[#1A1A1A] text-gray-100 border border-white/5 shadow-xl';
   } else {
     // Dark Mode (Glass on): Semi-transparent, blur
-    appBgStyle = { backgroundColor: `rgba(15, 23, 42, ${appConfig.bgOpacity})` };
+    appBgStyle = { backgroundColor: `rgba(0, 0, 0, ${appConfig.bgOpacity})` };
     containerClasses = 'backdrop-blur-2xl text-gray-100 border border-white/10 shadow-xl';
   }
 
