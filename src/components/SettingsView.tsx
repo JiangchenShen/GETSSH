@@ -439,23 +439,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
 
           {settingsActiveTab === 'About' && (
-            <div className="flex flex-col items-center justify-center pt-20 max-w-xl mx-auto space-y-6 text-center">
-              <div className="relative">
-                <div className="absolute inset-0 bg-primary blur-2xl opacity-20 rounded-full" />
-                <div className="relative z-10 flex flex-col items-center gap-3">
-                  <span className="text-5xl font-black tracking-tighter bg-gradient-to-br from-primary/80 to-primary bg-clip-text text-transparent">GETSSH</span>
+            <div className="flex flex-col items-center justify-center pt-16 max-w-xl mx-auto space-y-6 text-center">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-5xl font-black tracking-tighter text-primary">GETSSH</span>
+                <div className={`text-sm font-medium tracking-widest ${isDark ? 'text-white/50' : 'text-black/50'}`}>
+                  {t('about.version')}
                 </div>
               </div>
-              <div className="text-xl font-medium tracking-widest opacity-80">{t('about.version')}</div>
               
-              <div className="w-16 h-1 bg-gradient-to-r from-transparent via-primary to-transparent my-4 opacity-50" />
-              
-              <div className="space-y-2 opacity-70">
+              <div className={`space-y-1 text-sm ${isDark ? 'text-white/50' : 'text-black/50'}`}>
                 <p>{t('about.author')}</p>
                 <p>{t('about.license')}</p>
               </div>
 
-              <div className="mt-6">
+              <div>
                 <button 
                   onClick={async () => {
                     setCheckingUpdate(true);
@@ -476,17 +473,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     }
                   }}
                   disabled={checkingUpdate}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all shadow-md ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-black'}`}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                    isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-black'
+                  }`}
                 >
                   {checkingUpdate ? '正在检查...' : '检查更新'}
                 </button>
               </div>
 
-              <div className="mt-12 w-full">
-                <h3 className="text-xs font-bold uppercase tracking-widest opacity-40 mb-4">{t('about.poweredBy')}</h3>
-                <div className="flex flex-wrap justify-center gap-3">
+              <div className="w-full max-w-md pt-6">
+                <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  {t('about.poweredBy')}
+                </h3>
+                <div className="flex flex-wrap justify-center gap-2">
                   {['Electron', 'Node.js', 'HTML/CSS', 'React/TS', 'xterm.js', 'i18next', 'Tailwind'].map(tech => (
-                    <span key={tech} className={`px-3 py-1.5 rounded-md text-xs font-medium border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-black/5 border-black/10 text-black/70'}`}>
+                    <span key={tech} className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-default ${
+                      isDark ? 'bg-white/5 border-white/10 text-white/60 hover:text-white' : 'bg-black/5 border-black/10 text-black/60 hover:text-black'
+                    }`}>
                       {tech}
                     </span>
                   ))}
