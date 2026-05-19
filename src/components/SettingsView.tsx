@@ -160,15 +160,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   })}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-3 opacity-70">{t('appearance.bgOpacity')}</label>
-                <input 
-                   type="range" min="0.3" max="1" step="0.05" 
-                   value={appConfig.bgOpacity || 1}
-                   onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
-                   className="w-full h-1.5 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary"
-                />
-                <div className="text-xs opacity-50 text-right mt-1">{Math.round(appConfig.bgOpacity * 100)}%</div>
+              <div className="flex flex-col gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+                <div className="flex items-center justify-between">
+                  <label className={`text-sm font-medium ${!isDark ? 'opacity-40' : 'opacity-70'}`}>
+                    Enable Glassmorphism
+                  </label>
+                  <button 
+                    disabled={!isDark}
+                    onClick={() => updateConfig('enableGlassmorphism', !appConfig.enableGlassmorphism)}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${!isDark ? 'bg-slate-200 cursor-not-allowed' : appConfig.enableGlassmorphism ? 'bg-primary' : 'bg-black/20 dark:bg-white/10'}`}
+                  >
+                    <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-full transition-transform ${appConfig.enableGlassmorphism && isDark ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+                {!isDark && (
+                  <div className="text-xs text-orange-500/80 font-medium">
+                    * Glassmorphism is only available in Dark Mode.
+                  </div>
+                )}
               </div>
             </div>
           )}

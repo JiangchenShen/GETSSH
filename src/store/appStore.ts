@@ -8,6 +8,7 @@ export interface AppConfig {
   fontSize: number;
   lineHeight: number;
   bgOpacity: number;
+  enableGlassmorphism: boolean;
   copyOnSelect: boolean;
   cursorStyle: 'block' | 'underline' | 'bar';
   scrollback: number;
@@ -30,6 +31,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   fontSize: 14,
   lineHeight: 1.2,
   bgOpacity: 1,
+  enableGlassmorphism: true,
   copyOnSelect: false,
   cursorStyle: 'block',
   scrollback: 10000,

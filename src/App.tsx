@@ -373,12 +373,21 @@ function App() {
     if (firstLeaf) setActivePaneId(firstLeaf.paneId);
   };
 
-  // Dynamic Backdrop Opacity Color
-  const appBgStyle = {
-      backgroundColor: isDark 
-        ? `rgba(15, 23, 42, ${appConfig.bgOpacity})` 
-        : `rgba(255, 255, 255, ${appConfig.bgOpacity})`
-  };
+  // Global Background & Glassmorphism Logic
+  let appBgStyle = {};
+  let containerClasses = '';
+
+  if (!isDark) {
+    // Light Mode: Solid, no blur
+    containerClasses = 'bg-slate-50 text-slate-900 border border-black/5 shadow-sm';
+  } else if (!appConfig.enableGlassmorphism) {
+    // Dark Mode (Glass off): Solid, no blur
+    containerClasses = 'bg-[#1A1A1A] text-gray-100 border border-white/5 shadow-xl';
+  } else {
+    // Dark Mode (Glass on): Semi-transparent, blur
+    appBgStyle = { backgroundColor: `rgba(15, 23, 42, ${appConfig.bgOpacity})` };
+    containerClasses = 'backdrop-blur-2xl text-gray-100 border border-white/10 shadow-xl';
+  }
 
   return (
     <div 
@@ -386,11 +395,7 @@ function App() {
         e.preventDefault();
         window.electronAPI.showContextMenu();
       }}
-      className={`h-screen w-screen flex backdrop-blur-2xl relative overflow-hidden transition-all ${
-        isDark 
-          ? 'text-gray-100 border border-white/10 shadow-xl' 
-          : 'text-slate-900 border border-white/40 shadow-sm'
-      } ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
+      className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
       {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
         <CryptoModal 
           mode={cryptoMode} 
