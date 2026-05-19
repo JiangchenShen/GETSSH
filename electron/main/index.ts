@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage, shell, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, safeStorage, shell, protocol, net } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import os from 'node:os'
