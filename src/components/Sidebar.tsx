@@ -54,18 +54,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onChange={e => setSearchQuery(e.target.value)} 
           type="text" 
           placeholder={t('sidebar.search')} 
-          className={`w-full pl-9 pr-3 py-1.5 rounded-md text-sm outline-none transition-colors border ${
+          className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm outline-none transition-all border border-transparent ${
             isDark 
-              ? 'bg-black/40 border-white/10 text-white focus:bg-black/60 focus:border-primary placeholder:text-white/30' 
-              : 'bg-white/60 border-slate-200 text-slate-900 focus:bg-white focus:border-primary placeholder:text-slate-400'
+              ? 'bg-black/20 text-white focus:bg-black/40 focus:border-primary placeholder:text-white/30' 
+              : 'bg-slate-200/50 text-slate-900 focus:bg-white focus:border-primary placeholder:text-slate-400 shadow-sm'
           }`} 
         />
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
-        <div className="text-xs font-semibold uppercase tracking-wider mb-2 opacity-50 sticky top-0 backdrop-blur-md pt-1 pb-1 z-10">{t('sidebar.savedSessions')}</div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">{t('sidebar.savedSessions')}</div>
         {filteredSessions.map((session, idx) => (
-           <div key={idx} className={`w-full flex items-center justify-between gap-1 px-[15px] py-[7.5px] rounded-lg border-[1.5px] transition-all text-sm group ${selectedSessionIndex === idx ? 'bg-primary/20 text-primary border-primary shadow-sm' : isDark ? 'bg-white/5 hover:bg-white/10 border-white/5 text-white/70 hover:text-white' : 'bg-white hover:bg-white/70 border-black/5 shadow-sm text-black/70 hover:text-black'}`}>
+           <div key={idx} className={`w-full flex items-center justify-between gap-1 px-3 py-2 rounded-xl border transition-all duration-200 text-sm group ${
+             selectedSessionIndex === idx 
+               ? 'bg-primary/20 text-primary border-primary shadow-sm' 
+               : isDark 
+                 ? 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200' 
+                 : 'bg-white/40 hover:bg-white/80 border-slate-200/50 text-slate-700 shadow-sm'
+           }`}>
              <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-[6px] truncate text-left">
                 <Server className="w-4 h-4 shrink-0 opacity-50" />
                 <span className="truncate">{session.username}@{session.host}</span>
@@ -84,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         ))}
         
-        <button type="button" onClick={onAddSession} className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed transition-all text-sm text-left mt-4 ${isDark ? 'border-white/20 hover:border-white/50 text-white/50 hover:text-white' : 'border-black/20 hover:border-black/50 text-black/50 hover:text-black bg-white/50'}`}>
+        <button type="button" onClick={onAddSession} className="flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-400 transition-all font-medium text-sm">
           <Plus className="w-4 h-4 shrink-0" />
           <span>{t('sidebar.newConnection')}</span>
         </button>
