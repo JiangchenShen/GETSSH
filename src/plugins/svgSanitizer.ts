@@ -1,3 +1,6 @@
+const DANGEROUS_TAGS = new Set(['script', 'foreignobject', 'iframe', 'video', 'audio']);
+const SAFE_URL_ATTRS = new Set(['href', 'xlink:href', 'src']);
+
 /** Strip potentially dangerous attributes from SVG icons */
 export function sanitizeSVG(svg: string): string {
   if (!svg || typeof svg !== 'string') return '';
@@ -18,7 +21,7 @@ export function sanitizeSVG(svg: string): string {
       const el = elements[i];
 
       // Remove <script> and other dangerous tags
-      if (['script', 'foreignobject', 'iframe', 'video', 'audio'].includes(el.tagName.toLowerCase())) {
+      if (DANGEROUS_TAGS.has(el.tagName.toLowerCase())) {
         el.parentNode?.removeChild(el);
         i--;
         continue;
@@ -31,7 +34,7 @@ export function sanitizeSVG(svg: string): string {
         if (attrName.startsWith('on')) {
           el.removeAttribute(attrs[j].name);
           j--;
-        } else if (['href', 'xlink:href', 'src'].includes(attrName)) {
+        } else if (SAFE_URL_ATTRS.has(attrName)) {
           // Remove javascript: URIs
           const value = attrs[j].value.toLowerCase().trim();
           if (value.startsWith('javascript:')) {
