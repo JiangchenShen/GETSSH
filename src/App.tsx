@@ -377,7 +377,7 @@ function App() {
   const appBgStyle = {
       backgroundColor: isDark 
         ? `rgba(15, 23, 42, ${appConfig.bgOpacity})` 
-        : `rgba(248, 250, 252, ${appConfig.bgOpacity})`
+        : `rgba(255, 255, 255, ${appConfig.bgOpacity})`
   };
 
   return (

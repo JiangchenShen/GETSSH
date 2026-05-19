@@ -163,7 +163,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div>
                 <label className="block text-sm font-medium mb-3 opacity-70">{t('appearance.bgOpacity')}</label>
                 <input 
-                   type="range" min="0.1" max="1" step="0.05" 
+                   type="range" min="0.3" max="1" step="0.05" 
                    value={appConfig.bgOpacity || 1}
                    onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
                    className="w-full h-1.5 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-primary"
