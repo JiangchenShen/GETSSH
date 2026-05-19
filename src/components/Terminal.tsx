@@ -35,12 +35,10 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   // Build xterm theme object
   const buildTheme = (themeColor: string) => ({
     background: 'transparent',
-    foreground: isDark ? '#e5e7eb' : '#111827',
+    foreground: '#ffffff',
     cursor: toHex(themeColor),
-    cursorAccent: isDark ? '#111827' : '#ffffff',
-    selectionBackground: isDark
-      ? `rgba(${themeColor}, 0.35)`
-      : `rgba(${themeColor}, 0.25)`,
+    cursorAccent: '#000000',
+    selectionBackground: `rgba(${themeColor}, 0.35)`,
   });
 
   const onDisconnectedRef = useRef(onDisconnected);
@@ -60,7 +58,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     if (!cache) {
       isNew = true;
       const element = document.createElement('div');
-      element.className = "w-full h-full overflow-hidden";
+      element.className = "w-full h-full overflow-hidden text-white dark:text-white";
+      element.style.color = 'white';
       const term = new XTerm({
         allowProposedApi: true,
         cursorBlink: true,
@@ -284,8 +283,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   };
 
   return (
-    <div className="w-full h-full p-0 flex flex-col flex-1 transparent relative group">
-      <div className="flex-1 w-full h-full" ref={terminalRef}></div>
+    <div className="w-full h-full p-0 flex flex-col flex-1 transparent relative group text-white dark:text-white" style={{ color: 'white' }}>
+      <div className="flex-1 w-full h-full text-white" ref={terminalRef} style={{ color: 'white' }}></div>
       {isDisconnected && (
         <div
           ref={overlayRef}
