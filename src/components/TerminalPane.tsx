@@ -3,6 +3,7 @@ import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore, patchLeafDisconnected } from '../store/sessionStore';
 import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { usePluginStore } from '../store/pluginStore';
 
 import { PluginPane } from './PluginPane';
 
@@ -34,6 +35,7 @@ const LeafPane: React.FC<{
   sessions
 }) => {
   const { t } = useTranslation();
+  const installedPlugins = usePluginStore(state => state.installedPlugins);
   const activePaneId = useSessionStore(state => state.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
@@ -219,41 +221,47 @@ const LeafPane: React.FC<{
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* System Monitor Demo Card */}
-              <button
-                onClick={() => {
-                  useSessionStore.setState(state => ({
-                    tabs: state.tabs.map(t => {
-                      if (t.id !== tabId || !t.paneTree) return t;
-                      return {
-                        ...t,
-                        paneTree: patchLeafToPlugin(t.paneTree, node.paneId, '/plugins/sysmon/index.html'),
-                      };
-                    }),
-                  }));
-                }}
-                className={`group relative p-4 rounded-2xl border text-left transition-all duration-200 flex items-center gap-4 ${
-                  isDark
-                    ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                    : 'bg-black/5 border-black/10 hover:bg-black/10 hover:border-black/20'
-                }`}
-              >
-                <div className={`shrink-0 p-2.5 rounded-xl transition-colors ${
-                  isDark ? 'bg-white/5 group-hover:bg-white/10' : 'bg-black/5 group-hover:bg-black/10'
-                }`}>
-                  <Activity className={`w-5 h-5 transition-colors ${
-                    isDark ? 'text-white/60 group-hover:text-white/90' : 'text-black/60 group-hover:text-black/90'
-                  }`} />
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <div className={`font-medium text-sm truncate transition-colors ${
-                    isDark ? 'text-white/90' : 'text-black/90'
-                  }`}>{t('welcome.systemMonitor', '系统监控')}</div>
-                  <div className={`text-xs truncate mt-0.5 ${
-                    isDark ? 'text-white/40' : 'text-black/40'
-                  }`}>{t('welcome.sysmonDesc', '本地沙盒化资源监控。')}</div>
-                </div>
-              </button>
+              {installedPlugins.map(plugin => (
+                <button
+                  key={plugin.name}
+                  onClick={() => {
+                    useSessionStore.setState(state => ({
+                      tabs: state.tabs.map(t => {
+                        if (t.id !== tabId || !t.paneTree) return t;
+                        
+                        // We construct a custom protocol URL to load the plugin locally
+                        const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
+                        
+                        return {
+                          ...t,
+                          paneTree: patchLeafToPlugin(t.paneTree, node.paneId, pluginUrl),
+                        };
+                      }),
+                    }));
+                  }}
+                  className={`group relative p-4 rounded-2xl border text-left transition-all duration-200 flex items-center gap-4 ${
+                    isDark
+                      ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      : 'bg-black/5 border-black/10 hover:bg-black/10 hover:border-black/20'
+                  }`}
+                >
+                  <div className={`shrink-0 p-2.5 rounded-xl transition-colors ${
+                    isDark ? 'bg-white/5 group-hover:bg-white/10' : 'bg-black/5 group-hover:bg-black/10'
+                  }`}>
+                    <Activity className={`w-5 h-5 transition-colors ${
+                      isDark ? 'text-white/60 group-hover:text-white/90' : 'text-black/60 group-hover:text-black/90'
+                    }`} />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <div className={`font-medium text-sm truncate transition-colors ${
+                      isDark ? 'text-white/90' : 'text-black/90'
+                    }`}>{(plugin as any).getssh?.name || plugin.displayName || plugin.name}</div>
+                    <div className={`text-xs truncate mt-0.5 ${
+                      isDark ? 'text-white/40' : 'text-black/40'
+                    }`}>{plugin.description}</div>
+                  </div>
+                </button>
+              ))}
 
               {/* Future plugins placeholder */}
               <div className={`p-4 rounded-2xl border border-dashed flex items-center justify-center gap-2 ${

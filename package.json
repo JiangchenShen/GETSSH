@@ -18,7 +18,8 @@
     "http-proxy-agent": "^9.0.0",
     "p-limit": "^7.3.0",
     "socks": "^2.8.7",
-    "ssh2": "^1.15.0"
+    "ssh2": "^1.15.0",
+    "xterm-addon-ligatures": "^0.7.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

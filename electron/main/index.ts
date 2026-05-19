@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, powerSaveBlocker, safeStorage, shell, protocol, net } from 'electron'
 import { join } from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -198,6 +198,14 @@ app.whenReady().then(async () => {
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
   await pluginManager.loadPlugins();
+  
+  protocol.handle('getssh-plugin', (request) => {
+    // getssh-plugin://pluginName/entryPath
+    const url = request.url.substring('getssh-plugin://'.length);
+    const decodedUrl = decodeURIComponent(url);
+    const pluginPath = path.join(app.getPath('userData'), 'plugins', decodedUrl);
+    return net.fetch('file://' + pluginPath);
+  });
   
   registerCryptoHandlers(ipcMain, app);
   registerSshHandlers(ipcMain, app, () => win);

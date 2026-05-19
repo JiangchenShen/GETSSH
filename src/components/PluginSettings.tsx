@@ -66,7 +66,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
         {installedPlugins.map(p => (
           <div key={p.name} className={`flex flex-col p-4 border rounded-xl shadow-sm ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/50'}`}>
             <div className="flex items-center justify-between">
-              <h4 className="font-bold cursor-default">{p.displayName} <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-mono opacity-70 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>v{p.version}</span></h4>
+              <h4 className="font-bold cursor-default">{(p as any).getssh?.name || p.displayName || p.name} <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-mono opacity-70 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>v{p.version}</span></h4>
               <button onClick={() => handleUninstall(p.name)} className="text-red-500/50 hover:text-red-500 hover:bg-red-500/10 p-1.5 rounded-md transition-all" title={t('plugins.uninstall')}>
                 <Trash className="w-4 h-4" />
               </button>
