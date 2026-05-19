@@ -13,8 +13,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
       try {
         const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'));
         privateKeyData = await fs.promises.readFile(keyPath);
-      } catch (err: any) {
-        return { success: false, error: 'Failed to read private key: ' + err.message };
+      } catch (err: unknown) {
+        return { success: false, error: 'Failed to read private key: ' + (err instanceof Error ? err.message : String(err)) };
       }
     }
 

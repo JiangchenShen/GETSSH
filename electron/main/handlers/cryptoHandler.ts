@@ -111,13 +111,13 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
        await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
        try {
          await fs.promises.unlink(PROFILES_ENC_PATH);
-       } catch (err: any) {
-         if (err.code !== 'ENOENT') throw err;
+       } catch (err: unknown) {
+         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
        }
        try {
          await fs.promises.unlink(PROFILES_KEY_PATH);
-       } catch (err: any) {
-         if (err.code !== 'ENOENT') throw err;
+       } catch (err: unknown) {
+         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
        }
        return true;
     }
@@ -141,8 +141,8 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
     try {
       await fs.promises.unlink(PROFILES_PLAIN_PATH);
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') throw err;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
     
     // Save master password for biometric unlock

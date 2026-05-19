@@ -49,8 +49,8 @@ export class PluginManager {
             let manifestRaw: string;
             try {
               manifestRaw = await fs.promises.readFile(pkgPath, 'utf8');
-            } catch (err: any) {
-              if (err.code === 'ENOENT') return; // Package.json does not exist
+            } catch (err: unknown) {
+              if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // Package.json does not exist
               throw err;
             }
 
@@ -97,8 +97,8 @@ export class PluginManager {
           }
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
           return { success: true };
-       } catch (err: any) {
-          return { success: false, error: err.message };
+       } catch (err: unknown) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) };
        }
     });
     
@@ -180,8 +180,8 @@ export class PluginManager {
         }
         
         return { success: true, manifest };
-      } catch (err: any) {
-        return { success: false, error: err.message };
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
 
