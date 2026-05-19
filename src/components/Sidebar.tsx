@@ -41,7 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const filteredSessions = sessions.filter(s => `${s.username}@${s.host}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
-    <div className={`w-64 border-r flex flex-col p-4 pt-8 shrink-0 transition-colors bg-transparent ${isDark ? 'border-white/10' : 'border-black/10'}`}>
+    <div className={`w-64 border-r flex flex-col p-4 pt-8 shrink-0 transition-colors ${isDark ? 'bg-transparent border-white/10' : 'bg-white/40 border-black/10 shadow-[inset_0_0_20px_rgba(255,255,255,0.5)]'}`}>
       <div className="flex items-center gap-2 mb-6">
         <img src="/logo.png" alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
         <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
@@ -92,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         
         <button type="button" onClick={onAddSession} className="flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-100 transition-all font-medium text-sm">
           <Plus className="w-4 h-4 shrink-0" />
-          <span>{t('sidebar.newConnection')}</span>
+          <span style={{ color: 'red' }}>{t('sidebar.newConnection')} - TEXT OVERRIDE TEST</span>
         </button>
       </div>
 
