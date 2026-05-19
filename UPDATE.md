@@ -4,6 +4,30 @@
 
 ---
 
+## [1.3.0] (Build B7X9Q) - 2026-05-19
+
+### 🔌 插件沙盒生态系统正式贯通 (Plugin Sandbox Ecosystem)
+这是 GETSSH 迈向高扩展性终端平台的最核心跨越。我们抛弃了硬编码的占位符，彻底打通了从本地文件物理提取到动态沙盒渲染的全链路闭环。
+- **动态挂载与解析引擎**：重构 Welcome Pane，系统现已支持动态侦测 `plugins` 目录下的解压资产。智能解析插件内部的 `package.json`（优先读取 `getssh.name` / `displayName` 并优雅降级至 `name` 字段），结合 Zustand 状态树实现插件卡片的动态按需渲染。
+- **终结 macOS 物理路径“黑洞”**：精准排查并修复了 macOS 环境下极度隐蔽的 Chromium 底层拦截机制。针对 `app.getPath('userData')` (如 `Application Support`) 因包含系统级空格导致本地 `file://` 协议解析断裂、引发 Iframe“绝对黑屏”的致命缺陷，现已通过标准 `encodeURI` 强制物理路径转码，完美打通本地安全路由。
+- **Iframe 进程隔离与权限微调**：对插件渲染层进行精细的安全管控，注入 `sandbox="allow-scripts allow-same-origin"` 指令，在确保插件内 JS 引擎正常运转的同时，阻断对外部敏感环境的越权访问。
+- **首个官方高能插件落地**：成功实装“本地系统资源监控 (System Monitor)”插件。以极致的紫黑赛博朋克 UI，实时抓取、可视化渲染本机 CPU 核心调度流水线与内存 (RAM) 的极限负载状态。
+
+### 🎨 UI 视觉重构与灾难级 CSS 污染阻断 (Visual Refactoring & CSS Block)
+- **浅色模式终端“失明”紧急抢修**：扑灭了因全局注入高对比度深色文本（如 `text-slate-800`）而引发的级联 CSS 越权污染危机。该污染曾导致 `xterm.js` 实例在浅色模式下变异为“黑底黑字”的瞎眼状态。现已为包裹 xterm 的容器穿上“防化服”，并通过显式配置 `theme: { foreground: '#FFFFFF' }` 强制锁死 Canvas 前景色，彻底捍卫了核心 SSH 交互区的极客体验。
+- **极致深色毛玻璃 (Cyberpunk Glassmorphism)**：全面重构深色模式 (Dark Mode) 的混合逻辑，摒弃多余的色值干扰，呈现出纯净、深邃的黑曜石通透质感。
+- **材质逻辑降级与剥离**：在浅色模式 (Light Mode) 下果断弃用毛玻璃特效，全面退回高对比度的实体底色 (`bg-slate-50`)，确保强光环境或复杂背景下的绝对可读性。
+- **生产环境资源路由修复**：修复了 Vite 在构建生产包时因静态资源路径重定向，导致左上角 Logo SVG 图标丢失的问题。
+
+### 🏭 极致工程化与防篡改体系 (Extreme Engineering & Anti-Tampering)
+- **引入 Apple 级构建追踪体系**：从本版本起，正式演进版本号命名规范。在语义化版本号后附加五位字母数字混合的构建码（本次构建：**B7X9Q**），并注入 UI (About 面板/设置页)，大幅增强发布包的防篡改检验、精准溯源与灰度排错能力。
+- **开源社区国际化倒置 (i18n Hub)**：为更好地拥抱全球极客社区，优化 GitHub 仓库门面，现已将默认主页挂载为全英文文档 (`README.md`)。原中文版平滑迁移至独立分发页 (`README_CN.md`)，并于双端顶部打通 Markdown 级快速语言路由机制。
+- **83MB 极限瘦身与 Apple Silicon 原生优化**：
+  - 彻底抛弃臃肿的双架构通用包 (Universal Binary)，针对当前 Mac 平台执行精准的 `arm64` 芯片级编译。
+  - 在打包底层逻辑中强制注入 `"format": "ULFO"` (Apple 专用极限只读压缩格式) 与 `"compression": "maximum"` 算法。
+  - 引入极其严苛的 `files` 剔除黑名单（无情拦截所有第三方 `node_modules` 中的测试用例、`.md` 说明书及无用 `.d.ts` 声明文件），稳稳将包含复杂 WebGL 渲染引擎的 Electron 桌面应用极限压榨至 80MB 级别。
+
+---
 ## [1.2.1] - 2026-05-05
 
 ### 🚀 架构重构与生产力跃迁 (Refactoring & Productivity Leap)
