@@ -294,7 +294,7 @@ function App() {
         setActivePaneId(res.sessionId as string);
       }
     } else {
-      window.alert(`Reconnect failed: ${res.error}`);
+      console.error('Reconnect failed', res.error);
     }
   };
 
