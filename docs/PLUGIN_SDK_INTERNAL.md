@@ -24,6 +24,9 @@ export interface PluginManifest {
 }
 ```
 
+> **Note on Name Resolution:**
+> When parsing the manifest, `PluginManager` implements a graceful fallback mechanism. It attempts to read `getssh.name` first, falls back to `displayName`, and finally degrades to the standard `name` field.
+
 ### Main Process API
 
 If a plugin exposes a main entry point, its `activate` function is called with the following context API:
@@ -84,11 +87,13 @@ The lifecycle of a local `.zip` plugin ensures absolute isolation from extractio
 2.  **Mounting & Booting:**
     *   The `bootSandboxedPlugins` routine fetches the renderer scripts.
     *   For each plugin, it generates an isolated `<iframe>` with `sandbox="allow-scripts"` and `display: none`.
+    *   **macOS Path Resolution:** To prevent `file://` protocol parsing breaks caused by spaces in macOS system paths (e.g., `Application Support`), the iframe source URL is strictly sanitized using `encodeURI`.
     *   A minimal JavaScript SDK is injected into the document before appending the plugin's renderer script.
 
 3.  **Security Architecture:**
     *   **DOM Isolation:** Because the iframe uses the sandbox attribute without `allow-same-origin`, it has no access to the host's DOM.
     *   **Node/Electron Isolation:** The iframe has zero access to Node.js modules or the `window.electronAPI`.
+    *   **SVG Sanitization ($O(1)$ Optimization):** When plugins inject custom SVG icons (e.g., via `registerSidebarAction`), the SVG is parsed and sanitized by `svgSanitizer`. This filter leverages module-level sets (`SAFE_URL_ATTRS` and `DANGEROUS_TAGS`) for $O(1)$ lookup performance, efficiently dropping malicious `script` tags or `javascript:` URIs.
     *   **Action Enforcement:** `PluginBridge` intercepts all `postMessage` calls and cross-references them against `BLOCKED_ACTIONS`. Any dangerous operation explicitly triggers a console warning and is dropped.
 
 ## 3. Best Practice "Hello World" Example
