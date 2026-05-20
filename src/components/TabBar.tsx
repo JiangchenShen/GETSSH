@@ -1,8 +1,9 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import type { PaneConfig } from '../store/sessionStore';
 
 interface TabBarProps {
-  tabs: { id: string; title: string; config: any }[];
+  tabs: { id: string; title: string; config: PaneConfig | null }[];
   activeTabId: string | null;
   isDark: boolean;
   onSelectTab: (tabId: string) => void;

@@ -10,12 +10,22 @@ import { create } from 'zustand';
 //
 //  All sizes are percentages summing to 100.
 
+export interface PluginConfig {
+  pluginUrl: string;
+}
+
+export type PaneConfig = SSHConnectConfig | { isSettings?: boolean } | PluginConfig;
+
+export function isSSHConfig(config: any): config is SSHConnectConfig {
+  return config && typeof config === 'object' && 'host' in config && 'username' in config;
+}
+
 export interface PaneLeaf {
   type: 'leaf';
   paneId: string;      // unique per pane, used as React key / activePaneId
   paneType: 'welcome' | 'terminal' | 'plugin';
   sessionId: string | null;   // SSH session id
-  config: any | null;         // SSH config (host, user, …)
+  config: PaneConfig | null;  // SSH config (host, user, …) or plugin config
   isDisconnected?: boolean;   // persisted disconnect state — survives re-renders
 }
 
@@ -33,7 +43,7 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export interface Tab {
   id: string;           // same as the root pane's sessionId (for compat)
   title: string;
-  config: any;          // root SSH config (kept for backward compat)
+  config: PaneConfig | null; // root SSH config (kept for backward compat)
   paneTree?: PaneNode;  // undefined → legacy single-pane mode
 }
 
