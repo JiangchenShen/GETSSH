@@ -226,7 +226,7 @@ describe('PluginBridge', () => {
 
     it('should catch and log errors if booting plugins fails', async () => {
       const mockError = new Error('Failed to get plugins');
-      const getPluginRenderersSpy = vi.fn().mockRejectedValue(mockError);
+      const getPluginRenderersSpy = vi.fn().mockRejectedValueOnce(mockError);
 
       vi.stubGlobal('electronAPI', {
         getPluginRenderers: getPluginRenderersSpy,
@@ -239,9 +239,105 @@ describe('PluginBridge', () => {
         },
       });
 
-      await bootSandboxedPlugins();
+      await expect(bootSandboxedPlugins()).rejects.toThrow(mockError);
 
       expect(errorSpy).toHaveBeenCalledWith('[PluginBridge] Failed to boot sandboxed plugins:', mockError);
+    });
+  });
+
+  describe('Uncovered lines in handlePluginMessage and bootSandboxedPlugins', () => {
+    it('should handle showNotification with missing title and body defaults', () => {
+      initPluginBridge();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'showNotification',
+          pluginId: 'test-plugin',
+          payload: {} // missing title and body
+        }
+      }));
+
+      expect(NotificationMock).toHaveBeenCalledWith('GETSSH Plugin', { body: '' });
+    });
+
+    it('should not throw if doc is null in iframe contentWindow', async () => {
+      const getPluginRenderersSpy = vi.fn().mockResolvedValue(['console.log("no doc");']);
+      vi.stubGlobal('electronAPI', { getPluginRenderers: getPluginRenderersSpy });
+      vi.stubGlobal('window', { ...window, electronAPI: { getPluginRenderers: getPluginRenderersSpy } });
+
+      const originalCreateElement = document.createElement.bind(document);
+      const createElementSpy = vi.spyOn(document, 'createElement');
+      createElementSpy.mockImplementation((tag) => {
+        if (tag === 'iframe') {
+          const el = originalCreateElement('iframe');
+          Object.defineProperty(el, 'contentDocument', { value: null });
+          Object.defineProperty(el, 'contentWindow', { value: null });
+          return el as any;
+        }
+        return originalCreateElement(tag as any);
+      });
+
+      await expect(bootSandboxedPlugins()).resolves.toBeUndefined();
+      createElementSpy.mockRestore();
+    });
+
+    it('should not throw if iframe contentWindow is null for sidebar click', () => {
+      initPluginBridge();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('data-plugin-id', 'test-plugin-missing-window');
+      document.body.appendChild(iframe);
+      Object.defineProperty(iframe, 'contentWindow', { value: null, writable: true });
+
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'registerSidebarAction',
+          pluginId: 'test-plugin-missing-window',
+          payload: { id: 'btn2', icon: '<svg/>', label: 'Missing Window' }
+        }
+      }));
+
+      const registerMock = usePluginStore.getState().registerSidebarAction as any;
+      const registeredAction = registerMock.mock.calls[registerMock.mock.calls.length - 1][0];
+      expect(() => registeredAction.onClick()).not.toThrow();
+    });
+
+    it('should not throw if showNotification permission is not granted', () => {
+      vi.stubGlobal('Notification', Object.assign(NotificationMock, { permission: 'denied' }));
+      initPluginBridge();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      handler(new MessageEvent('message', {
+        data: {
+          __getssh_plugin: true,
+          action: 'showNotification',
+          pluginId: 'test-plugin',
+          payload: { title: 'Test Title', body: 'Test Body' }
+        }
+      }));
+
+      expect(NotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('should not post message if event.source is null for getActiveSessionId', () => {
+      initPluginBridge();
+      const handler = addEventListenerSpy.mock.calls.find((call: any) => call[0] === 'message')[1];
+
+      expect(() => {
+        handler(new MessageEvent('message', {
+          source: null,
+          data: {
+            __getssh_plugin: true,
+            action: 'getActiveSessionId',
+            pluginId: 'test-plugin',
+            payload: { requestId: 'req-123' }
+          }
+        }));
+      }).not.toThrow();
     });
   });
 });
