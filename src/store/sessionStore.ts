@@ -83,9 +83,14 @@ interface SessionStore {
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /** Recursively collect all sessionIds from a PaneNode tree */
-export function collectSessionIds(node: PaneNode): string[] {
-  if (node.type === 'leaf') return node.sessionId ? [node.sessionId] : [];
-  return [...collectSessionIds(node.children[0]), ...collectSessionIds(node.children[1])];
+export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] {
+  if (node.type === 'leaf') {
+    if (node.sessionId) acc.push(node.sessionId);
+  } else {
+    collectSessionIds(node.children[0], acc);
+    collectSessionIds(node.children[1], acc);
+  }
+  return acc;
 }
 
 /** Recursively update isDisconnected flag on a specific leaf */
