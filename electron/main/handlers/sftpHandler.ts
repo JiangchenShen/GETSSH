@@ -2,6 +2,7 @@ import { shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
+import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
 
 function normalizeRemotePath(p: string): string | null {
@@ -16,7 +17,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
       const session = connectionManager.sessions.get(sessionId);
       if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-      session.sftp.readdir(remotePath, (err: any, list: any[]) => {
+      session.sftp.readdir(remotePath, (err: Error | undefined, list: FileEntry[]) => {
         if (err) return resolve({ success: false, error: err.message });
         resolve({ 
            success: true, 
