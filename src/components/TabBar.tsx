@@ -2,7 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 
 interface TabBarProps {
-  tabs: { id: string; title: string; config: any }[];
+  tabs: { id: string; title: string; config: SSHConnectConfig }[];
   activeTabId: string | null;
   isDark: boolean;
   onSelectTab: (tabId: string) => void;

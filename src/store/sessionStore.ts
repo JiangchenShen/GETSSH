@@ -15,7 +15,7 @@ export interface PaneLeaf {
   paneId: string;      // unique per pane, used as React key / activePaneId
   paneType: 'welcome' | 'terminal' | 'plugin';
   sessionId: string | null;   // SSH session id
-  config: any | null;         // SSH config (host, user, …)
+  config: SSHConnectConfig | null;         // SSH config (host, user, …)
   isDisconnected?: boolean;   // persisted disconnect state — survives re-renders
 }
 
@@ -33,7 +33,7 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export interface Tab {
   id: string;           // same as the root pane's sessionId (for compat)
   title: string;
-  config: any;          // root SSH config (kept for backward compat)
+  config: SSHConnectConfig;          // root SSH config (kept for backward compat)
   paneTree?: PaneNode;  // undefined → legacy single-pane mode
 }
 
