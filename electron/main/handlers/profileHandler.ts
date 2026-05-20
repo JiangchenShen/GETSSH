@@ -151,35 +151,45 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
         return { success: false, reason: 'invalid_format' };
       }
 
-      const profiles: SessionProfile[] = await Promise.all(data.profiles.map(async (entry: ExportedProfile) => {
-        const profile: SessionProfile = {
-          name:         entry.name         ?? '',
-          host:         entry.host         ?? '',
-          port:         entry.port         ?? 22,
-          username:     entry.username     ?? '',
-          groupId:      entry.groupId      ?? null,
-          autoStart:    entry.autoStart    ?? false,
-          useKeepAlive: entry.useKeepAlive ?? false,
-        } as SessionProfile;
+      let profiles: SessionProfile[];
 
-        if (entry._encrypted) {
-          // Decrypt using provided master password
-          if (!masterPassword) {
-            throw { success: false, reason: 'password_required' };
+      try {
+        profiles = await Promise.all(data.profiles.map(async (entry: ExportedProfile) => {
+          const profile: SessionProfile = {
+            name:         entry.name         ?? '',
+            host:         entry.host         ?? '',
+            port:         entry.port         ?? 22,
+            username:     entry.username     ?? '',
+            groupId:      entry.groupId      ?? null,
+            autoStart:    entry.autoStart    ?? false,
+            useKeepAlive: entry.useKeepAlive ?? false,
+          } as SessionProfile;
+
+          if (entry._encrypted) {
+            // Decrypt using provided master password
+            if (!masterPassword) {
+              throw new Error('password_required');
+            }
+            try {
+              if (entry.password)       profile.password       = await decryptField(entry.password, masterPassword);
+              if (entry.privateKeyPath) profile.privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
+            } catch {
+              throw new Error('wrong_password');
+            }
+          } else {
+            if (entry.password)       profile.password       = entry.password;
+            if (entry.privateKeyPath) profile.privateKeyPath = entry.privateKeyPath;
           }
-          try {
-            if (entry.password)       profile.password       = await decryptField(entry.password, masterPassword);
-            if (entry.privateKeyPath) profile.privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
-          } catch {
-            throw { success: false, reason: 'wrong_password' };
-          }
-        } else {
-          if (entry.password)       profile.password       = entry.password;
-          if (entry.privateKeyPath) profile.privateKeyPath = entry.privateKeyPath;
+
+          return profile;
+        }));
+      } catch (mapErr: unknown) {
+        const msg = mapErr instanceof Error ? mapErr.message : String(mapErr);
+        if (msg === 'password_required' || msg === 'wrong_password') {
+          return { success: false, reason: msg };
         }
-
-        return profile;
-      }));
+        throw mapErr;
+      }
 
       return { success: true, profiles };
     } catch (err: unknown) {
