@@ -1,5 +1,5 @@
 const DANGEROUS_TAGS = new Set(['script', 'foreignobject', 'iframe', 'video', 'audio']);
-const DANGEROUS_ATTRS = new Set(['href', 'xlink:href', 'src']);
+const SAFE_URL_ATTRS = new Set(['href', 'xlink:href', 'src']);
 
 /** Strip potentially dangerous attributes from SVG icons */
 export function sanitizeSVG(svg: string): string {
@@ -34,7 +34,7 @@ export function sanitizeSVG(svg: string): string {
         if (attrName.startsWith('on')) {
           el.removeAttribute(attrs[j].name);
           j--;
-        } else if (DANGEROUS_ATTRS.has(attrName)) {
+        } else if (SAFE_URL_ATTRS.has(attrName)) {
           // Remove javascript: URIs
           const value = attrs[j].value.toLowerCase().trim();
           if (value.startsWith('javascript:')) {
