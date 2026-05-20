@@ -121,8 +121,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
       await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
       return { success: true, count: exported.length };
-    } catch (err: any) {
-      return { success: false, reason: err.message };
+    } catch (err: unknown) {
+      return { success: false, reason: err instanceof Error ? err.message : String(err) };
     }
   });
 
@@ -182,11 +182,11 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
       }));
 
       return { success: true, profiles };
-    } catch (err: any) {
-      if (err && typeof err.success === 'boolean') {
-        return err;
+    } catch (err: unknown) {
+      if (err && typeof (err as any).success === 'boolean') {
+        return err as { success: boolean; reason: string };
       }
-      return { success: false, reason: err.message };
+      return { success: false, reason: err instanceof Error ? err.message : String(err) };
     }
   });
 }

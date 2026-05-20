@@ -49,8 +49,8 @@ export class PluginManager {
             let manifestRaw: string;
             try {
               manifestRaw = await fs.promises.readFile(pkgPath, 'utf8');
-            } catch (err: any) {
-              if (err.code === 'ENOENT') return; // Package.json does not exist
+            } catch (err: unknown) {
+              if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // Package.json does not exist
               throw err;
             }
 
@@ -65,21 +65,25 @@ export class PluginManager {
               if (typeof pluginModule.activate === 'function') {
                 pluginModule.activate(this.createMainContext());
               }
-            } catch (requireErr: any) {
+            } catch (requireErr: unknown) {
               // Only ignore MODULE_NOT_FOUND if it's the main entry point missing,
               // not a missing dependency within the plugin itself.
-              if (requireErr.code === 'MODULE_NOT_FOUND' && requireErr.message.includes(manifest.main)) {
-                return;
+              const isModuleNotFound = requireErr && typeof requireErr === 'object' && (requireErr as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND';
+              const isEntryPoint = requireErr && typeof requireErr === 'object' && (requireErr as any).message?.includes(manifest.main);
+              
+              if (isModuleNotFound && isEntryPoint) {
+                console.warn(`[Plugin Kernel] Main entry point '${manifest.main}' not found for ${manifest.name}. Attempting to run headless/renderer-only.`);
+              } else {
+                throw requireErr;
               }
-              throw requireErr;
             }
-          } catch (err) {
-            console.error(`[Plugin Kernel] Failed to load plugin from ${dirent.name}:`, err);
+          } catch (err: unknown) {
+            console.error(`[Plugin Kernel] Failed to load plugin from ${dirent.name}:`, err instanceof Error ? err.message : String(err));
           }
         })
       );
-    } catch (err) {
-      console.error('[Plugin Kernel] Failed to read plugins directory:', err);
+    } catch (err: unknown) {
+      console.error('[Plugin Kernel] Failed to read plugins directory:', err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -97,8 +101,8 @@ export class PluginManager {
           }
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
           return { success: true };
-       } catch (err: any) {
-          return { success: false, error: err.message };
+       } catch (err: unknown) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) };
        }
     });
     
@@ -180,8 +184,8 @@ export class PluginManager {
         }
         
         return { success: true, manifest };
-      } catch (err: any) {
-        return { success: false, error: err.message };
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
 

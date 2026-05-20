@@ -15,7 +15,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       if (process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
         try {
           await systemPreferences.promptTouchID('Unlock GETSSH Profiles');
-        } catch (err) {
+        } catch (err: unknown) {
           return { success: false, reason: 'touchid_failed' };
         }
       } else if (process.platform === 'win32') {
@@ -30,8 +30,8 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
         return { success: true, masterPassword };
       }
       return { success: false, reason: 'safeStorage_unavailable' };
-    } catch (e: any) {
-      return { success: false, reason: e.message };
+    } catch (e: unknown) {
+      return { success: false, reason: (e instanceof Error ? e.message : String(e)) };
     }
   });
 
@@ -47,18 +47,18 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
         const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
         try {
           return JSON.parse(data.toString('utf8'));
-        } catch (e) {
+        } catch (e: unknown) {
           if (safeStorage.isEncryptionAvailable()) {
             try {
               return JSON.parse(safeStorage.decryptString(data));
-            } catch (err) {
+            } catch (err: unknown) {
               console.error('Failed to decrypt safeStorage fallback:', err);
               return [];
             }
           }
           return [];
         }
-      } catch (e) {
+      } catch (e: unknown) {
         return [];
       }
     }
@@ -66,7 +66,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     let buffer: Buffer;
     try {
       buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
-    } catch (e) {
+    } catch (e: unknown) {
       throw new Error('No profiles found');
     }
     
@@ -92,7 +92,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       decrypted = Buffer.concat([decrypted, decipher.final()]);
       
       return JSON.parse(decrypted.toString('utf8'));
-    } catch (e) {
+    } catch (e: unknown) {
       throw new Error('Invalid master password or corrupted file');
     }
   });
@@ -111,13 +111,13 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
        await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
        try {
          await fs.promises.unlink(PROFILES_ENC_PATH);
-       } catch (err: any) {
-         if (err.code !== 'ENOENT') throw err;
+       } catch (err: unknown) {
+         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
        }
        try {
          await fs.promises.unlink(PROFILES_KEY_PATH);
-       } catch (err: any) {
-         if (err.code !== 'ENOENT') throw err;
+       } catch (err: unknown) {
+         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
        }
        return true;
     }
@@ -141,8 +141,8 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
     try {
       await fs.promises.unlink(PROFILES_PLAIN_PATH);
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') throw err;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
     
     // Save master password for biometric unlock
@@ -150,7 +150,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       try {
         const encryptedKey = safeStorage.encryptString(masterPassword);
         await fs.promises.writeFile(PROFILES_KEY_PATH, encryptedKey);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Failed to securely store master password:', err);
       }
     }

@@ -13,8 +13,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
       try {
         const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'));
         privateKeyData = await fs.promises.readFile(keyPath);
-      } catch (err: any) {
-        return { success: false, error: 'Failed to read private key: ' + err.message };
+      } catch (err: unknown) {
+        return { success: false, error: 'Failed to read private key: ' + (err instanceof Error ? err.message : String(err)) };
       }
     }
 
@@ -129,12 +129,12 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
           resolve({ success: false, error: err.message });
         }).connect(connectConfig);
-        }).catch(async (err) => {
+        }).catch(async (err: unknown) => {
            await connectionManager.removeSession(sessionId);
-           resolve({ success: false, error: err.message });
+           resolve({ success: false, error: err instanceof Error ? err.message : String(err) });
         });
-      } catch (e: any) {
-        resolve({ success: false, error: e.message });
+      } catch (e: unknown) {
+        resolve({ success: false, error: e instanceof Error ? e.message : String(e) });
       }
       })();
     });
