@@ -131,9 +131,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
         return { success: false, reason: 'invalid_format' };
       }
 
-      const profiles: any[] = [];
-
-      for (const entry of data.profiles) {
+      const profiles: any[] = await Promise.all(data.profiles.map(async (entry: any) => {
         const profile: any = {
           name:         entry.name         ?? '',
           host:         entry.host         ?? '',
@@ -147,24 +145,27 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
         if (entry._encrypted) {
           // Decrypt using provided master password
           if (!masterPassword) {
-            return { success: false, reason: 'password_required' };
+            throw { success: false, reason: 'password_required' };
           }
           try {
             if (entry.password)       profile.password       = await decryptField(entry.password, masterPassword);
             if (entry.privateKeyPath) profile.privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
           } catch {
-            return { success: false, reason: 'wrong_password' };
+            throw { success: false, reason: 'wrong_password' };
           }
         } else {
           if (entry.password)       profile.password       = entry.password;
           if (entry.privateKeyPath) profile.privateKeyPath = entry.privateKeyPath;
         }
 
-        profiles.push(profile);
-      }
+        return profile;
+      }));
 
       return { success: true, profiles };
     } catch (err: any) {
+      if (err && typeof err.success === 'boolean') {
+        return err;
+      }
       return { success: false, reason: err.message };
     }
   });
