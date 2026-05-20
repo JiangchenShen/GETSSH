@@ -1,11 +1,16 @@
 import { create } from 'zustand';
 import React from 'react';
 
+export interface PanelProps {
+  sessionId: string;
+  isDark: boolean;
+}
+
 export interface PanelConfig {
   id: string;
   title: string;
   icon?: string; // SVG string
-  component: React.ComponentType<any>;
+  component: React.ComponentType<PanelProps>;
   position: 'right' | 'bottom';
   defaultSize: number;
   minSize: number;
