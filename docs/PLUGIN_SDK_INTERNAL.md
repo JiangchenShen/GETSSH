@@ -1,5 +1,7 @@
 # GETSSH Plugin SDK Internal Documentation
 
+[🇨🇳 中文版 (Chinese Version)](./PLUGIN_SDK_INTERNAL_CN.md) | English
+
 This document defines the internal architecture, security boundaries, and data structures for the GETSSH plugin system. It is intended for core maintainers and AI agents integrating or debugging plugins.
 
 ## 1. Core Data Structures & Interfaces

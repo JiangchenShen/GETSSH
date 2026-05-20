@@ -1,5 +1,7 @@
 # GETSSH 插件 SDK 内部文档
 
+中文 | [🇺🇸 English Version](./PLUGIN_SDK_INTERNAL.md)
+
 本文档定义了 GETSSH 插件系统的内部架构、安全边界和数据结构。它主要面向核心代码维护者以及需要集成或调试插件的 AI 代理。
 
 ## 1. 核心数据结构与接口

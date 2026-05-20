@@ -8,6 +8,7 @@
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 [![Changelog](https://img.shields.io/badge/Changelog-V1.3.0--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
+[![Plugin SDK](https://img.shields.io/badge/Plugin_SDK-Docs-9cf?style=flat-square&logo=bookstack)](docs/PLUGIN_SDK_INTERNAL.md)
 
 **GETSSH** is a next-generation, cross-platform **SSH / SFTP client** built for developers who demand peak efficiency, industrial-grade security, and state-of-the-art modern aesthetics.
 
