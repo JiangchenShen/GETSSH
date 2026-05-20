@@ -27,6 +27,15 @@
   - 在打包底层逻辑中强制注入 `"format": "ULFO"` (Apple 专用极限只读压缩格式) 与 `"compression": "maximum"` 算法。
   - 引入极其严苛的 `files` 剔除黑名单（无情拦截所有第三方 `node_modules` 中的测试用例、`.md` 说明书及无用 `.d.ts` 声明文件），稳稳将包含复杂 WebGL 渲染引擎的 Electron 桌面应用极限压榨至 80MB 级别。
 
+### 🛡️ 代码健壮性与静态检查净化 (Test & Type Safety)
+- **TDD (测试驱动开发) 覆盖网**：全面引入 Vitest 单元测试，为核心状态树 (`useAppStore`, `panelStore`, `usePluginStore`, `cryptoStore`) 及核心组件 (`ConnectForm`, `CryptoModal`, `TabBar` 等) 铺设了高密度的自动化测试用例，显著提升了代码抗重构能力。
+- **TypeScript `any` 灭绝计划**：开展了极其严格的类型系统重构，彻底消灭了 `SSHConnectConfig`、动态面板注入（`PanelProps`）及 SFTP 核心逻辑中散落的 `any` 动态类型，实现了主渲染进程间 100% 强类型的安全传递。
+- **极致的微秒级性能压榨**：
+  - 重构配置导入架构，采用 `Promise.all` 实现跨进程配置的并发解析加载。
+  - 为插件沙盒增加 Renderer 脚本的内存级缓存，消除重复加载的 V8 编译开销。
+  - 优化 `svgSanitizer` (XSS 动态防护网) 和状态树遍历 (`collectSessionIds`) 的数组分配，大幅降低内存与垃圾回收 (GC) 抖动。
+- **底层日志降噪与容错修复**：修复了极端断线场景下的空白回调报错以及剪贴板操作中的 Promise 拒接未捕获 (Swallowed Rejections) 隐患；清除了控制台海量的心跳轮询日志噪音与主进程中的冗余依赖。
+
 ---
 ## [1.2.1] - 2026-05-05
 
