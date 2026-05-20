@@ -4,7 +4,7 @@ import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
 import { useAppStore } from './store/appStore';
-import { Tab, PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
+import { Tab, PaneNode, PaneLeaf, useSessionStore, isSSHConfig } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { usePluginStore } from './store/pluginStore';
@@ -283,17 +283,19 @@ function App() {
   };
   
   const handleReconnect = async (tab: Tab) => {
-    const res = await window.electronAPI.sshConnect(tab.config);
-    if (res.success && res.sessionId) {
-      // For legacy tabs without paneTree, also rebuild a leaf
-      const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: tab.config };
-      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string, paneTree } : t));
-      if (activeTabId === tab.id) {
-        setActiveTabId(res.sessionId as string);
-        setActivePaneId(res.sessionId as string);
+    if (isSSHConfig(tab.config)) {
+      const res = await window.electronAPI.sshConnect(tab.config);
+      if (res.success && res.sessionId) {
+        // For legacy tabs without paneTree, also rebuild a leaf
+        const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: tab.config };
+        setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string, paneTree } : t));
+        if (activeTabId === tab.id) {
+          setActiveTabId(res.sessionId as string);
+          setActivePaneId(res.sessionId as string);
+        }
+      } else {
+        console.error('Reconnect failed', res.error);
       }
-    } else {
-      window.alert(`Reconnect failed: ${res.error}`);
     }
   };
 
@@ -529,7 +531,7 @@ function App() {
                       sessionId={tab.id}
                       onDisconnected={() => {}}
                       onReconnect={() => handleReconnect(tab)}
-                      config={appConfig}
+                      config={tab.config}
                       isDark={isDark}
                       isActive={activeTabId === tab.id}
                     />

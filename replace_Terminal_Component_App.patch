@@ -1,0 +1,25 @@
+<<<<<<< SEARCH
+                  ) : (
+                    /* Legacy fallback for tabs without paneTree */
+                    <TerminalComponent
+                      sessionId={tab.id}
+                      onDisconnected={() => {}}
+                      onReconnect={() => handleReconnect(tab)}
+                      config={appConfig}
+                      isDark={isDark}
+                      isActive={activeTabId === tab.id}
+                    />
+                  )}
+=======
+                  ) : (
+                    /* Legacy fallback for tabs without paneTree */
+                    <TerminalComponent
+                      sessionId={tab.id}
+                      onDisconnected={() => {}}
+                      onReconnect={() => handleReconnect(tab)}
+                      config={tab.config}
+                      isDark={isDark}
+                      isActive={activeTabId === tab.id}
+                    />
+                  )}
+>>>>>>> REPLACE

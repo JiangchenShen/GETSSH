@@ -4,6 +4,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebglAddon } from 'xterm-addon-webgl';
 import { LigaturesAddon } from 'xterm-addon-ligatures';
 import 'xterm/css/xterm.css';
+import { isSSHConfig, PaneConfig } from '../store/sessionStore';
 
 interface TerminalProps {
   sessionId: string;
@@ -11,7 +12,7 @@ interface TerminalProps {
   onReconnect?: () => void;
   onDisconnectedChange?: (val: boolean) => void; // notify parent to persist in Zustand
   isDisconnected?: boolean;   // driven from Zustand PaneLeaf — survives re-renders
-  config: any;
+  config: PaneConfig;
   isDark?: boolean;
   isActive?: boolean;
 }
@@ -54,16 +55,18 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       const element = document.createElement('div');
       element.className = "w-full h-full overflow-hidden text-white dark:text-white";
       element.style.color = 'white';
+
+      const sshConfig = isSSHConfig(config) ? config : {} as Record<string, any>;
       const term = new XTerm({
         allowProposedApi: true,
         cursorBlink: true,
-        fontFamily: config.fontFamily || '"Fira Code", monospace, "Courier New", Courier',
-        fontSize: config.fontSize || 14,
-        lineHeight: config.lineHeight || 1.2,
-        cursorStyle: config.cursorStyle || 'block',
-        theme: buildTheme(config.themeColor || '168 85 247'),
+        fontFamily: sshConfig.fontFamily || '"Fira Code", monospace, "Courier New", Courier',
+        fontSize: sshConfig.fontSize || 14,
+        lineHeight: sshConfig.lineHeight || 1.2,
+        cursorStyle: sshConfig.cursorStyle || 'block',
+        theme: buildTheme(sshConfig.themeColor || '168 85 247'),
         allowTransparency: true,
-        scrollback: config.scrollback || 10000,
+        scrollback: sshConfig.scrollback || 10000,
       });
       
       const fitAddon = new FitAddon();
@@ -177,15 +180,17 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     if (!xtermRef.current) return;
     const term = xtermRef.current;
     
+    const sshConfig = isSSHConfig(config) ? config : {} as Record<string, any>;
+
     // Apply options that support HMR
-    term.options.fontFamily = config.fontFamily;
-    term.options.fontSize = config.fontSize;
-    term.options.lineHeight = config.lineHeight;
-    term.options.cursorStyle = config.cursorStyle;
-    term.options.scrollback = config.scrollback;
+    term.options.fontFamily = sshConfig.fontFamily;
+    term.options.fontSize = sshConfig.fontSize;
+    term.options.lineHeight = sshConfig.lineHeight;
+    term.options.cursorStyle = sshConfig.cursorStyle;
+    term.options.scrollback = sshConfig.scrollback;
 
     // Sync theme foreground & cursor when isDark or themeColor changes
-    const themeColor = config.themeColor || '168 85 247';
+    const themeColor = sshConfig.themeColor || '168 85 247';
     term.options.theme = buildTheme(themeColor);
 
     if (fitAddonRef.current) {
@@ -214,7 +219,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     const term = xtermRef.current;
     let disp: any;
     
-    if (config.copyOnSelect) {
+    const copyOnSelect = isSSHConfig(config) ? config.copyOnSelect : false;
+    if (copyOnSelect) {
        disp = term.onSelectionChange(() => {
          const selection = term.getSelection();
          if (selection) {
@@ -226,7 +232,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     return () => {
         if (disp) disp.dispose();
     }
-  }, [config.copyOnSelect]);
+  }, [config]);
 
   // Sync the ref used inside xterm's onData closure whenever the prop changes
   useEffect(() => {
