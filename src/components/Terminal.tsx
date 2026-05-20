@@ -147,11 +147,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       e.preventDefault();
       const selection = term.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection).catch(() => {});
+        navigator.clipboard.writeText(selection).catch((err) => {
+          console.error('Failed to write to clipboard:', err);
+        });
       } else {
         navigator.clipboard.readText().then((text) => {
           if (text) term.paste(text);
-        }).catch(() => {});
+        }).catch((err) => {
+          console.error('Failed to read from clipboard:', err);
+        });
       }
     };
     element.addEventListener('contextmenu', handleContextMenu);
@@ -218,7 +222,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
        disp = term.onSelectionChange(() => {
          const selection = term.getSelection();
          if (selection) {
-           navigator.clipboard.writeText(selection);
+           navigator.clipboard.writeText(selection).catch((err) => {
+             console.error('Failed to write to clipboard:', err);
+           });
          }
        });
     }
