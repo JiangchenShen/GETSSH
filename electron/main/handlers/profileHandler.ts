@@ -1,6 +1,26 @@
 import { dialog } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import type { SessionProfile } from '../../../src/store/sessionStore';
+
+export interface ExportedProfile {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  groupId: string | null;
+  autoStart: boolean;
+  useKeepAlive: boolean;
+  _encrypted: boolean;
+  password?: string;
+  privateKeyPath?: string;
+}
+
+export interface ExportPayload {
+  _format: string;
+  _exportedAt: string;
+  profiles: ExportedProfile[];
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,8 +86,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
     if (canceled || !filePath) return { success: false, reason: 'canceled' };
 
     try {
-      const exported: any[] = await Promise.all(sessions.map(async (s: any) => {
-        const entry: any = {
+      const exported: ExportedProfile[] = await Promise.all(sessions.map(async (s: any) => {
+        const entry: ExportedProfile = {
           // ── Plaintext metadata ──
           name:         (s as any).name         ?? '',
           host:         s.host                  ?? '',
@@ -93,7 +113,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
         return entry;
       }));
 
-      const payload = {
+      const payload: ExportPayload = {
         _format:    'getssh-profiles-v1',
         _exportedAt: new Date().toISOString(),
         profiles:   exported,
@@ -125,14 +145,14 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
     try {
       const raw     = await fs.promises.readFile(filePaths[0], 'utf8');
-      const data    = JSON.parse(raw);
+      const data    = JSON.parse(raw) as ExportPayload;
 
       if (data._format !== 'getssh-profiles-v1') {
         return { success: false, reason: 'invalid_format' };
       }
 
-      const profiles: any[] = await Promise.all(data.profiles.map(async (entry: any) => {
-        const profile: any = {
+      const profiles: SessionProfile[] = await Promise.all(data.profiles.map(async (entry: ExportedProfile) => {
+        const profile: SessionProfile = {
           name:         entry.name         ?? '',
           host:         entry.host         ?? '',
           port:         entry.port         ?? 22,
@@ -140,7 +160,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
           groupId:      entry.groupId      ?? null,
           autoStart:    entry.autoStart    ?? false,
           useKeepAlive: entry.useKeepAlive ?? false,
-        };
+        } as SessionProfile;
 
         if (entry._encrypted) {
           // Decrypt using provided master password
