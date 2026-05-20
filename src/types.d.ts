@@ -17,7 +17,6 @@ declare global {
     proxyHost?: string;
     proxyPort?: number;
     initScript?: string;
-    [key: string]: any;
   }
 
   interface Window {
