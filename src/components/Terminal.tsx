@@ -89,7 +89,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           console.warn('[Terminal] WebGL context lost. Downgrading to native canvas renderer.');
         });
         term.loadAddon(webglAddon);
-        console.log('[Terminal] WebGL addon loaded successfully');
+        console.debug('[Terminal] WebGL addon loaded successfully');
       } catch (e) {
         console.warn('[Terminal] WebGL addon failed to load, downgrading to native canvas:', e);
       }
