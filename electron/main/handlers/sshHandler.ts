@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
-import { Client } from 'ssh2';
+import { Client, ConnectConfig } from 'ssh2';
 import { SocksClient } from 'socks';
 import { connectionManager } from '../services/ConnectionManager';
 
@@ -26,7 +26,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
         const sshClient = new Client();
         connectionManager.sessions.set(sessionId, { client: sshClient, stream: null });
 
-        let connectConfig: any = {
+        let connectConfig: ConnectConfig = {
           host: config.host,
           port: config.port || 22,
           username: config.username,
