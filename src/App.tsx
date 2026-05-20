@@ -4,7 +4,7 @@ import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
 import { useAppStore } from './store/appStore';
-import { Tab, PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
+import { Tab, PaneNode, PaneLeaf, useSessionStore, isSSHConfig } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { usePluginStore } from './store/pluginStore';
@@ -283,6 +283,7 @@ function App() {
   };
   
   const handleReconnect = async (tab: Tab) => {
+    if (!isSSHConfig(tab.config)) return;
     const res = await window.electronAPI.sshConnect(tab.config);
     if (res.success && res.sessionId) {
       // For legacy tabs without paneTree, also rebuild a leaf

@@ -3,6 +3,7 @@ import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebglAddon } from 'xterm-addon-webgl';
 import { LigaturesAddon } from 'xterm-addon-ligatures';
+import { AppConfig } from '../store/appStore';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -11,7 +12,7 @@ interface TerminalProps {
   onReconnect?: () => void;
   onDisconnectedChange?: (val: boolean) => void; // notify parent to persist in Zustand
   isDisconnected?: boolean;   // driven from Zustand PaneLeaf — survives re-renders
-  config: import('../store/appStore').AppConfig;
+  config: AppConfig;
   isDark?: boolean;
   isActive?: boolean;
 }

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 
 import { PluginPane } from './PluginPane';
+import { isSSHConfig } from '../store/sessionStore';
 
 interface TerminalPaneProps {
   node: PaneNode;
@@ -66,7 +67,7 @@ const LeafPane: React.FC<{
         }`}
       >
         <span className="truncate opacity-70 font-medium">
-           {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? 'Plugin' : `${node.config?.username || ''}@${node.config?.host || ''}`)}
+           {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? 'Plugin' : `${isSSHConfig(node.config) ? `${node.config.username}@${node.config.host}` : ''}`)}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -107,18 +108,17 @@ const LeafPane: React.FC<{
           }}
           onDisconnected={() => { onClosePane(node.paneId); }}
           onReconnect={() => {
-            if (node.config) {
-              window.electronAPI.sshConnect(node.config).then(res => {
-                if (res.success && res.sessionId) {
-                  useSessionStore.setState(state => ({
-                    tabs: state.tabs.map(tab => {
-                      if (tab.id !== tabId || !tab.paneTree) return tab;
-                      return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
-                    }),
-                  }));
-                }
-              });
-            }
+            if (!isSSHConfig(node.config)) return;
+            window.electronAPI.sshConnect(node.config).then(res => {
+              if (res.success && res.sessionId) {
+                useSessionStore.setState(state => ({
+                  tabs: state.tabs.map(tab => {
+                    if (tab.id !== tabId || !tab.paneTree) return tab;
+                    return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
+                  }),
+                }));
+              }
+            });
           }}
           config={appConfig}
           isDark={isDark}
@@ -278,7 +278,7 @@ const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'plugin' && (
-        <PluginPane paneId={node.paneId} isDark={isDark} pluginUrl={node.config?.pluginUrl} />
+        <PluginPane paneId={node.paneId} isDark={isDark} pluginUrl={(node.config && 'pluginUrl' in node.config) ? node.config.pluginUrl : undefined} />
       )}
     </div>
   );
@@ -300,7 +300,7 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
 function patchLeafToPlugin(node: PaneNode, paneId: string, pluginUrl?: string): PaneNode {
   if (node.type === 'leaf') {
     return node.paneId === paneId
-      ? { ...node, paneType: 'plugin', config: { ...(node.config || {}), pluginUrl } as SSHConnectConfig }
+      ? { ...node, paneType: 'plugin', config: { ...(node.config || {}), pluginUrl: pluginUrl || '' } }
       : node;
   }
   return {
