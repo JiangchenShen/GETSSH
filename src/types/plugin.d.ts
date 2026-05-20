@@ -7,6 +7,7 @@ export interface PluginManifest {
   main: string;
   renderer?: string;
   localPath?: string;
+  _rendererContentCache?: string;
 }
 
 export interface MainContextAPI {

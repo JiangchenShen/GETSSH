@@ -11,7 +11,7 @@ interface TerminalProps {
   onReconnect?: () => void;
   onDisconnectedChange?: (val: boolean) => void; // notify parent to persist in Zustand
   isDisconnected?: boolean;   // driven from Zustand PaneLeaf — survives re-renders
-  config: any;
+  config: import('../store/appStore').AppConfig;
   isDark?: boolean;
   isActive?: boolean;
 }
@@ -89,7 +89,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           console.warn('[Terminal] WebGL context lost. Downgrading to native canvas renderer.');
         });
         term.loadAddon(webglAddon);
-        console.log('[Terminal] WebGL addon loaded successfully');
+        console.debug('[Terminal] WebGL addon loaded successfully');
       } catch (e) {
         console.warn('[Terminal] WebGL addon failed to load, downgrading to native canvas:', e);
       }
@@ -147,11 +147,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       e.preventDefault();
       const selection = term.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection).catch(() => {});
+        navigator.clipboard.writeText(selection).catch((err) => {
+          console.error('Failed to write to clipboard:', err);
+        });
       } else {
         navigator.clipboard.readText().then((text) => {
           if (text) term.paste(text);
-        }).catch(() => {});
+        }).catch((err) => {
+          console.error('Failed to read from clipboard:', err);
+        });
       }
     };
     element.addEventListener('contextmenu', handleContextMenu);
@@ -218,7 +222,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
        disp = term.onSelectionChange(() => {
          const selection = term.getSelection();
          if (selection) {
-           navigator.clipboard.writeText(selection);
+           navigator.clipboard.writeText(selection).catch((err) => {
+             console.error('Failed to write to clipboard:', err);
+           });
          }
        });
     }

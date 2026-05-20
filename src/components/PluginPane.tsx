@@ -35,12 +35,12 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         return;
       }
 
-      const { type, payload } = event.data || {};
+      const { type } = event.data || {};
       if (!type) return;
 
       // Handle Ping from Plugin
       if (type === 'sysmon:alive') {
-        console.log('[Host] 收到插件心跳:', payload);
+        // Heartbeat received
       }
       
       // Here we could handle other generic plugin actions like 'open-tab', 'show-notification', etc.

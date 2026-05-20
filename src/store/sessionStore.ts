@@ -15,7 +15,7 @@ export interface PaneLeaf {
   paneId: string;      // unique per pane, used as React key / activePaneId
   paneType: 'welcome' | 'terminal' | 'plugin';
   sessionId: string | null;   // SSH session id
-  config: any | null;         // SSH config (host, user, …)
+  config: SSHConnectConfig | null;         // SSH config (host, user, …)
   isDisconnected?: boolean;   // persisted disconnect state — survives re-renders
 }
 
@@ -33,7 +33,7 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export interface Tab {
   id: string;           // same as the root pane's sessionId (for compat)
   title: string;
-  config: any;          // root SSH config (kept for backward compat)
+  config: SSHConnectConfig;          // root SSH config (kept for backward compat)
   paneTree?: PaneNode;  // undefined → legacy single-pane mode
 }
 
@@ -83,9 +83,14 @@ interface SessionStore {
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /** Recursively collect all sessionIds from a PaneNode tree */
-export function collectSessionIds(node: PaneNode): string[] {
-  if (node.type === 'leaf') return node.sessionId ? [node.sessionId] : [];
-  return [...collectSessionIds(node.children[0]), ...collectSessionIds(node.children[1])];
+export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] {
+  if (node.type === 'leaf') {
+    if (node.sessionId) acc.push(node.sessionId);
+  } else {
+    collectSessionIds(node.children[0], acc);
+    collectSessionIds(node.children[1], acc);
+  }
+  return acc;
 }
 
 /** Recursively update isDisconnected flag on a specific leaf */

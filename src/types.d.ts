@@ -6,7 +6,7 @@ declare module '*.png' {
 }
 
 declare global {
-  interface SSHConnectConfig {
+  interface SSHConnectConfig { pluginUrl?: string;
     host: string;
     port: number;
     username: string;
@@ -17,7 +17,6 @@ declare global {
     proxyHost?: string;
     proxyPort?: number;
     initScript?: string;
-    [key: string]: any;
   }
 
   interface Window {
