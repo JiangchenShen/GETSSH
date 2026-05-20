@@ -107,16 +107,18 @@ const LeafPane: React.FC<{
           }}
           onDisconnected={() => { onClosePane(node.paneId); }}
           onReconnect={() => {
-            window.electronAPI.sshConnect(node.config).then(res => {
-              if (res.success && res.sessionId) {
-                useSessionStore.setState(state => ({
-                  tabs: state.tabs.map(tab => {
-                    if (tab.id !== tabId || !tab.paneTree) return tab;
-                    return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
-                  }),
-                }));
-              }
-            });
+            if (node.config) {
+              window.electronAPI.sshConnect(node.config).then(res => {
+                if (res.success && res.sessionId) {
+                  useSessionStore.setState(state => ({
+                    tabs: state.tabs.map(tab => {
+                      if (tab.id !== tabId || !tab.paneTree) return tab;
+                      return { ...tab, paneTree: patchLeafSessionId(tab.paneTree, node.paneId, res.sessionId!) };
+                    }),
+                  }));
+                }
+              });
+            }
           }}
           config={appConfig}
           isDark={isDark}
@@ -298,7 +300,7 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
 function patchLeafToPlugin(node: PaneNode, paneId: string, pluginUrl?: string): PaneNode {
   if (node.type === 'leaf') {
     return node.paneId === paneId
-      ? { ...node, paneType: 'plugin', config: { ...(node.config || {}), pluginUrl } }
+      ? { ...node, paneType: 'plugin', config: { ...(node.config || {}), pluginUrl } as SSHConnectConfig }
       : node;
   }
   return {

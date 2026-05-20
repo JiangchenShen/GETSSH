@@ -11,7 +11,7 @@ interface TerminalProps {
   onReconnect?: () => void;
   onDisconnectedChange?: (val: boolean) => void; // notify parent to persist in Zustand
   isDisconnected?: boolean;   // driven from Zustand PaneLeaf — survives re-renders
-  config: any;
+  config: import('../store/appStore').AppConfig;
   isDark?: boolean;
   isActive?: boolean;
 }
