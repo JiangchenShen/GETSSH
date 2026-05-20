@@ -527,7 +527,7 @@ function App() {
                     /* Legacy fallback for tabs without paneTree */
                     <TerminalComponent
                       sessionId={tab.id}
-                      onDisconnected={() => {}}
+                      onDisconnected={() => closeTab(tab.id)}
                       onReconnect={() => handleReconnect(tab)}
                       config={appConfig}
                       isDark={isDark}
