@@ -14,6 +14,7 @@ import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar';
 import { CryptoModal } from './components/CryptoModal';
+import { HostKeyVerificationModal } from './components/HostKeyVerificationModal';
 import { ConnectForm } from './components/ConnectForm';
 import { SettingsView } from './components/SettingsView';
 // Types re-exported from stores for backward compatibility
@@ -47,6 +48,9 @@ function App() {
   const setIsAppBlurred = useAppStore(state => state.setIsAppBlurred);
   const loadStoredConfig = useAppStore(state => state.loadStoredConfig);
   const syncConfigEffects = useAppStore(state => state.syncConfigEffects);
+  const isMac = useAppStore(state => state.isMac);
+  const isFullScreen = useAppStore(state => state.isFullScreen);
+  const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
   
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
@@ -70,13 +74,37 @@ function App() {
   const setUpdateAvailable = useAppStore(state => state.setUpdateAvailable);
   const updateAvailable = useAppStore(state => state.updateAvailable);
   useEffect(() => {
-    if (window.electronAPI && window.electronAPI.onUpdateAvailable) {
-      const unsub = window.electronAPI.onUpdateAvailable((info) => {
+    if (window.electronAPI?.onUpdateAvailable) {
+      const removeUpdateListener = window.electronAPI.onUpdateAvailable((info) => {
         setUpdateAvailable(info);
       });
-      return unsub;
+      return removeUpdateListener;
+    }
+  }, [setUpdateAvailable]);
+
+  // IPC: Host Key Verification Prompt
+  useEffect(() => {
+    if (window.electronAPI?.onPromptHostVerification) {
+      const removeListener = window.electronAPI.onPromptHostVerification((data) => {
+        useAppStore.getState().setSecurityPrompt({
+          isOpen: true,
+          requestId: data.requestId,
+          hostname: data.hostname,
+          fingerprint: data.fingerprint,
+        });
+      });
+      return removeListener;
     }
   }, []);
+
+  useEffect(() => {
+    if (window.electronAPI?.onFullScreenState) {
+      const removeListener = window.electronAPI.onFullScreenState((full) => {
+        setIsFullScreen(full);
+      });
+      return removeListener;
+    }
+  }, [setIsFullScreen]);
 
   useEffect(() => {
     const bootCrypto = async () => {
@@ -437,9 +465,11 @@ function App() {
           }}
         />
       )}
-      <div className="absolute top-0 left-0 right-0 h-8 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px]" style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
-         GETSSH
-      </div>
+      {!isFullScreen && (
+        <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+           GETSSH
+        </div>
+      )}
 
       {/* Left Sidebar */}
       <Sidebar 
@@ -457,7 +487,7 @@ function App() {
       />
 
       {/* Main Area - Switch Mode */}
-      <div className="flex-1 flex flex-col overflow-hidden pt-8">
+      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'pt-0' : (isMac ? 'pt-10' : 'pt-8')}`} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
 
         {/* Tab Bar - Extracted Component */}
         <TabBar
@@ -571,6 +601,7 @@ function App() {
           </div>
         </div>
       )}
+      <HostKeyVerificationModal />
     </div>
   );
 }

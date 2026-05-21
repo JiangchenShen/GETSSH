@@ -42,7 +42,8 @@ function createWindow() {
     height: 768,
     transparent: true,
     vibrancy: 'fullscreen-ui', // macOS vibrant glass effect
-    titleBarStyle: 'hidden', // hide title bar to let web content handle drag
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default', // hide title bar to let web content handle drag
+    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
     titleBarOverlay: process.platform !== 'darwin' ? {
       color: 'rgba(0,0,0,0)',
       symbolColor: '#a1a1aa',
@@ -119,6 +120,70 @@ function createWindow() {
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(indexHtml)
+  }
+
+  // Fullscreen State Tracking
+  win.on('enter-full-screen', () => {
+    win?.webContents.send('fullscreen-state', true);
+  });
+  win.on('leave-full-screen', () => {
+    win?.webContents.send('fullscreen-state', false);
+  });
+
+  // Native macOS Application Menu
+  if (process.platform === 'darwin') {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      {
+        label: 'Help',
+        submenu: [
+          {
+            label: 'Learn More',
+            click: async () => {
+              await shell.openExternal('https://github.com/JiangchenShen/GETSSH')
+            }
+          }
+        ]
+      }
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  } else {
+    Menu.setApplicationMenu(null);
   }
 }
 

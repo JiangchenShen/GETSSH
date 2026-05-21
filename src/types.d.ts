@@ -55,6 +55,10 @@ declare global {
       importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; profiles?: import('./store/sessionStore').SessionProfile[]; reason?: string }>;
       promptBiometricUnlock: () => Promise<{ success: boolean; masterPassword?: string; reason?: string }>;
       onSysmonData: (cb: (data: any) => void) => (() => void);
+      onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string }) => void) => (() => void);
+      sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => void;
+      getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
+      onFullScreenState: (cb: (state: boolean) => void) => (() => void);
     };
   }
 }

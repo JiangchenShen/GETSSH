@@ -481,21 +481,68 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
 
           {settingsActiveTab === 'About' && (
-            <div className="flex flex-col items-center justify-center pt-16 max-w-xl mx-auto space-y-6 text-center">
-              <div className="flex flex-col items-center gap-1">
-                <img src={logoSrc} alt="GETSSH Logo" className={`w-20 h-20 rounded-[1.25rem] shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
-                <span className="text-3xl font-black tracking-tighter text-primary">GETSSH</span>
-                <div className={`text-sm font-medium tracking-widest ${isDark ? 'text-white/50' : 'text-black/50'}`}>
-                  {t('about.version')}
+            <div className="flex flex-col items-center pt-8 max-w-2xl mx-auto space-y-10">
+              {/* Header section */}
+              <div className="flex flex-col items-center gap-3">
+                <img src={logoSrc} alt="GETSSH Logo" className={`w-24 h-24 rounded-none shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
+                <span className="text-4xl font-black tracking-tighter text-primary">GETSSH</span>
+                <div className={`text-xs font-bold tracking-[0.2em] uppercase ${isDark ? 'text-white/70' : 'text-black/70'}`}>
+                  GETSSH Terminal Platform (Build K9V2X) - Secure Sandbox Core.
                 </div>
               </div>
-              
-              <div className={`space-y-1 text-sm ${isDark ? 'text-white/50' : 'text-black/50'}`}>
-                <p>{t('about.author')}</p>
-                <p>{t('about.license')}</p>
+
+              {/* Environment Information Grid */}
+              <div className="w-full space-y-3">
+                <h3 className={`text-[10px] font-bold uppercase tracking-[0.3em] pl-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  Host Environment Diagnostics
+                </h3>
+                <div className={`grid grid-cols-2 gap-px border rounded-none overflow-hidden ${isDark ? 'bg-white/10 border-white/20 text-white/80' : 'bg-black/10 border-black/20 text-black/80'}`}>
+                  {[
+                    { label: 'Electron Runtime', value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
+                    { label: 'Chromium Core', value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
+                    { label: 'Node.js Engine', value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
+                    { label: 'Platform Arch', value: `${window.electronAPI?.getEnvInfo?.()?.platform} (${window.electronAPI?.getEnvInfo?.()?.arch})` || 'N/A' }
+                  ].map(item => (
+                    <div key={item.label} className={`p-4 flex flex-col gap-1 ${isDark ? 'bg-[#1e1e1e]' : 'bg-white'}`}>
+                      <span className="text-[10px] uppercase tracking-widest opacity-50">{item.label}</span>
+                      <span className="font-mono text-sm">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div>
+              {/* Compliance & Legal Module */}
+              <div className="w-full space-y-3">
+                <h3 className={`text-[10px] font-bold uppercase tracking-[0.3em] pl-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  Compliance & Open Source
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { title: 'Terms of Service', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/TERMS_OF_SERVICE.md' },
+                    { title: 'Privacy Policy', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/PRIVACY_POLICY.md' },
+                    { title: 'Third-Party Licenses', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/THIRD_PARTY_LICENSES.md' }
+                  ].map((doc) => (
+                    <button 
+                      key={doc.title} 
+                      onClick={() => window.electronAPI.openExternal(doc.url)}
+                      className={`p-3 border rounded-none text-xs font-medium uppercase tracking-wider transition-all duration-200 ${
+                        isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'
+                      }`}>
+                      {doc.title}
+                    </button>
+                  ))}
+                </div>
+                <p className={`text-[10px] leading-relaxed pt-2 px-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  GETSSH is built upon robust open-source foundations including <strong>xterm.js</strong>, <strong>ssh2</strong>, <strong>React</strong>, and <strong>Zustand</strong>. 
+                  View the Third-Party Licenses document for a complete registry of OSS components and their respective licenses.
+                </p>
+              </div>
+
+              {/* Update & Copyright */}
+              <div className="w-full flex items-center justify-between pt-8 border-t border-black/10 dark:border-white/10">
+                <div className={`text-[10px] tracking-wider uppercase font-medium ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                  Copyright © 2026 JiangchenShen. All rights reserved.
+                </div>
                 <button 
                   onClick={async () => {
                     setCheckingUpdate(true);
@@ -516,27 +563,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     }
                   }}
                   disabled={checkingUpdate}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-black'
+                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-none border transition-all duration-200 ${
+                    isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/5 text-black'
                   }`}
                 >
-                  {checkingUpdate ? '正在检查...' : '检查更新'}
+                  {checkingUpdate ? 'Checking...' : 'Check for Updates'}
                 </button>
-              </div>
-
-              <div className="w-full max-w-md pt-6">
-                <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                  {t('about.poweredBy')}
-                </h3>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {['Electron', 'Node.js', 'HTML/CSS', 'React/TS', 'xterm.js', 'i18next', 'Tailwind'].map(tech => (
-                    <span key={tech} className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-default ${
-                      isDark ? 'bg-white/5 border-white/10 text-white/60 hover:text-white' : 'bg-black/5 border-black/10 text-black/60 hover:text-black'
-                    }`}>
-                      {tech}
-                    </span>
-                  ))}
-                </div>
               </div>
             </div>
           )}

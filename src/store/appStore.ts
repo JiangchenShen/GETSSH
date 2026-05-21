@@ -52,6 +52,9 @@ interface AppStore {
   systemIsDark: boolean;
   isAppBlurred: boolean;
   updateAvailable: { version: string; url: string } | null;
+  securityPrompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string } | null;
+  isMac: boolean;
+  isFullScreen: boolean;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -59,6 +62,9 @@ interface AppStore {
   setSystemIsDark: (dark: boolean) => void;
   setIsAppBlurred: (blurred: boolean) => void;
   setUpdateAvailable: (info: { version: string; url: string } | null) => void;
+  setIsFullScreen: (full: boolean) => void;
+  setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string } | null) => void;
+  resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
 }
@@ -69,6 +75,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   systemIsDark: true,
   isAppBlurred: false,
   updateAvailable: null,
+  securityPrompt: null,
+  isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
+  isFullScreen: false,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -78,6 +87,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSystemIsDark: (dark) => set({ systemIsDark: dark }),
   setIsAppBlurred: (blurred) => set({ isAppBlurred: blurred }),
   setUpdateAvailable: (info) => set({ updateAvailable: info }),
+  setIsFullScreen: (full) => set({ isFullScreen: full }),
+  setSecurityPrompt: (prompt) => set({ securityPrompt: prompt }),
+  resolveSecurityPrompt: (result) => {
+    const { securityPrompt } = get();
+    if (securityPrompt && window.electronAPI?.sendHostVerificationResult) {
+      window.electronAPI.sendHostVerificationResult({
+        requestId: securityPrompt.requestId,
+        result,
+        hostname: securityPrompt.hostname,
+        fingerprint: securityPrompt.fingerprint,
+      });
+      set({ securityPrompt: null });
+    }
+  },
 
   loadStoredConfig: () => {
     try {

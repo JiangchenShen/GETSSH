@@ -65,4 +65,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   importProfiles: (payload: { masterPassword: string }) => ipcRenderer.invoke('import-profiles', payload),
   promptBiometricUnlock: () => ipcRenderer.invoke('prompt-biometric-unlock'),
+  onPromptHostVerification: (callback: (data: { requestId: string, hostname: string, fingerprint: string }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('prompt-host-verification', listener);
+    return () => ipcRenderer.removeListener('prompt-host-verification', listener);
+  },
+  sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => 
+    ipcRenderer.send('host-verification-result', payload),
+  getEnvInfo: () => ({
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    platform: process.platform,
+    arch: process.arch
+  }),
+  onFullScreenState: (callback: (isFullScreen: boolean) => void) => {
+    const listener = (_event: any, isFullScreen: boolean) => callback(isFullScreen);
+    ipcRenderer.on('fullscreen-state', listener);
+    return () => ipcRenderer.removeListener('fullscreen-state', listener);
+  },
 })
