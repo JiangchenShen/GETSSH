@@ -305,7 +305,7 @@ function App() {
     const tab = tabs.find(t => t.id === activeTabId);
     if (!tab?.paneTree) return;
 
-    const newPaneId = `pane-${Date.now()}`;
+    const newPaneId = `pane-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, paneType: 'welcome', sessionId: null, config: null };
 
     setTabs(tabs.map(t => {

@@ -40,6 +40,14 @@ const LeafPane: React.FC<{
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
   const welcomeRef = useRef<HTMLDivElement>(null);
+  const lastSplitTime = useRef<number>(0);
+
+  const handleSplit = (direction: 'hsplit' | 'vsplit') => {
+    const now = Date.now();
+    if (now - lastSplitTime.current < 500) return;
+    lastSplitTime.current = now;
+    onSplit(node.paneId, direction);
+  };
 
   // Auto-focus the welcome pane when it appears.
   // setTimeout pushes focus() past React batching AND Electron paint cycle.
@@ -71,14 +79,14 @@ const LeafPane: React.FC<{
         <div className="flex items-center gap-1">
           <button
             title="Split Right"
-            onClick={(e) => { e.stopPropagation(); onSplit(node.paneId, 'hsplit'); }}
+            onClick={(e) => { e.stopPropagation(); handleSplit('hsplit'); }}
             className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
           >
             <Columns className="w-3.5 h-3.5" />
           </button>
           <button
             title="Split Down"
-            onClick={(e) => { e.stopPropagation(); onSplit(node.paneId, 'vsplit'); }}
+            onClick={(e) => { e.stopPropagation(); handleSplit('vsplit'); }}
             className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
           >
             <Rows className="w-3.5 h-3.5" />
