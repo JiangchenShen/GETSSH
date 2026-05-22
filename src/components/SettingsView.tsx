@@ -704,7 +704,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {settingsActiveTab === 'Audit' && (
             <div className="space-y-6 w-full max-w-full">
-              <div className="flex justify-between items-start mb-4">
+              <div className="flex justify-between items-start mb-4 gap-4">
                 <p className="text-sm opacity-70 max-w-lg leading-relaxed">{t('settings.auditDesc')}</p>
                 <button 
                   onClick={async () => {

@@ -34,7 +34,7 @@
       "auditDisconnectedAt": "Disconnected At",
       "auditDuration": "Duration",
       "auditOnline": "Online",
-      "auditExport": "Export Logs",
+      "auditExport": "Export",
       "auditExportSuccess": "Logs exported successfully.",
       "auditExportFailed": "Failed to export logs.",
       "profileManagement": "Profile Management",

@@ -34,7 +34,7 @@
       "auditDisconnectedAt": "断开时间",
       "auditDuration": "持续时长",
       "auditOnline": "在线中",
-      "auditExport": "导出审计日志",
+      "auditExport": "导出",
       "auditExportSuccess": "日志导出成功。",
       "auditExportFailed": "日志导出失败。",
       "profileManagement": "配置文件管理",
