@@ -7,6 +7,7 @@ declare module '*.png' {
 
 declare global {
   interface SSHConnectConfig { pluginUrl?: string;
+    protocol?: 'ssh' | 'local' | 'telnet';
     host: string;
     port: number;
     username: string;
@@ -17,6 +18,7 @@ declare global {
     proxyHost?: string;
     proxyPort?: number;
     initScript?: string;
+    alias?: string;
   }
 
   interface Window {
@@ -57,8 +59,13 @@ declare global {
       onSysmonData: (cb: (data: any) => void) => (() => void);
       onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string }) => void) => (() => void);
       sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => void;
+      getKnownHosts: () => Promise<{host: string, port: number, fingerprint: string, trustedAt: number}[]>;
+      deleteKnownHost: (host: string, port: number) => Promise<boolean>;
+      getConnectionLogs: () => Promise<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>;
+      exportConnectionLogs: () => Promise<boolean>;
       getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
+      onOsFingerprint: (cb: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => (() => void);
     };
   }
 }

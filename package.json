@@ -13,6 +13,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "adm-zip": "^0.5.17",
     "dompurify": "^3.4.2",
     "http-proxy-agent": "^9.0.0",
@@ -58,6 +59,18 @@
   "build": {
     "appId": "com.getssh.app",
     "productName": "GETSSH",
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
     "directories": {
       "buildResources": "build"
     },
@@ -125,11 +138,7 @@
         "height": 380
       }
     },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
+
     "compression": "maximum",
     "removePackageScripts": true,
     "removePackageKeywords": true,
@@ -137,13 +146,6 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "deb",
           "arch": [
             "x64",
             "arm64"

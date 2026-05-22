@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -7,8 +7,8 @@ import { PluginSettings } from './PluginSettings';
 import logoSrc from '../assets/logo.png';
 
 interface SettingsViewProps {
-  settingsActiveTab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About';
-  setSettingsActiveTab: (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About') => void;
+  settingsActiveTab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit';
+  setSettingsActiveTab: (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit') => void;
   masterPassword: string;
   setMasterPassword: (pwd: string) => void;
   encryptionDisabled: boolean;
@@ -45,6 +45,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [importPwd, setImportPwd] = useState('');
   const [profilesStatus, setProfilesStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
+  // Known Hosts State
+  const [knownHosts, setKnownHosts] = React.useState<{host: string, port: number, fingerprint: string, trustedAt: number}[]>([]);
+  const [revokingHost, setRevokingHost] = React.useState<string | null>(null);
+
+  // Audit Logs State
+  const [auditLogs, setAuditLogs] = React.useState<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>([]);
+
+  React.useEffect(() => {
+    if (settingsActiveTab === 'Security' && window.electronAPI?.getKnownHosts) {
+      window.electronAPI.getKnownHosts().then(setKnownHosts);
+    }
+    if (settingsActiveTab === 'Audit' && window.electronAPI?.getConnectionLogs) {
+      window.electronAPI.getConnectionLogs().then(setAuditLogs);
+    }
+  }, [settingsActiveTab]);
+
   return (
     <>
     <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-slate-50 text-slate-800'}`}>
@@ -58,8 +74,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
            <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Appearance' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-4 h-4"/>{t('settings.appearance')}</button>
            <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Terminal' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal')}</button>
            <button onClick={() => setSettingsActiveTab('SSH')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'SSH' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Network className="w-4 h-4"/>{t('settings.ssh')}</button>
-           <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'System' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-4 h-4"/>{t('settings.system')}</button>
+           <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'System' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-4 h-4"/>{t('settings.general')}</button>
            <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-0 text-sm transition-all text-left mt-2 pt-3 ${settingsActiveTab === 'Security' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-4 h-4"/>{t('settings.security')}</button>
+           <button onClick={() => setSettingsActiveTab('Audit')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Audit' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Archive className="w-4 h-4"/>{t('settings.auditLogs')}</button>
            <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Plugins' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-4 h-4"/>{t('settings.plugins')}</button>
            <button onClick={() => setSettingsActiveTab('About')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'About' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Info className="w-4 h-4"/>{t('settings.about')}</button>
         </nav>
@@ -76,21 +93,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="p-10 overflow-y-auto w-full max-w-3xl mx-auto h-full pb-32">
-          <h3 className="text-2xl font-bold mb-8 opacity-90">{t('settings.' + settingsActiveTab.toLowerCase() as any)} {t('settings.configuration')}</h3>
+        <div className="p-10 overflow-y-auto w-full h-full pb-32">
+          <h3 className="text-2xl font-bold mb-8 opacity-90">{settingsActiveTab === 'Audit' ? t('settings.auditTitle') : t('settings.' + settingsActiveTab.toLowerCase() as any) + ' ' + t('settings.configuration')}</h3>
           
           {settingsActiveTab === 'Appearance' && (
             <div className="space-y-8 max-w-xl">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.language')}</label>
+                  <label className="block text-sm font-medium mb-1 opacity-70">{t('settings.language')}</label>
                   <select 
                     value={appConfig.language}
                     onChange={(e) => updateConfig('language', e.target.value)}
                     className={`w-full p-2 border rounded-lg text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
                   >
                     <option value="en-US">English</option>
-                    <option value="zh-CN">简体中文</option>
+                    <option value="zh-CN">{t('appearance.langZh')}</option>
                   </select>
                 </div>
                 <div>
@@ -141,7 +158,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2 opacity-70">{t('appearance.uiTheme')}</label>
+                <label className="block text-sm font-medium mb-2 opacity-70">{t('settings.theme')}</label>
                 <div className={`flex p-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-slate-200/50'}`}>
                   {(['system', 'light', 'dark'] as const).map(themeOpt => {
                      const active = appConfig.theme === themeOpt;
@@ -155,7 +172,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                  : (isDark ? 'text-white/50 hover:text-white/80' : 'text-slate-500 hover:text-slate-700')
                            }`}
                         >
-                           {t(`appearance.${themeOpt === 'system' ? 'auto' : themeOpt}`)}
+                           {t(`settings.${themeOpt === 'system' ? 'systemTheme' : themeOpt}`)}
                         </button>
                      );
                   })}
@@ -164,7 +181,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex flex-col gap-2 pt-2 border-t border-black/5 dark:border-white/5">
                 <div className="flex items-center justify-between">
                   <label className={`text-sm font-medium ${!isDark ? 'opacity-40' : 'opacity-70'}`}>
-                    {t('appearance.enableGlassmorphism', '启用毛玻璃特效')}
+                    {t('appearance.enableGlassmorphism')}
                   </label>
                   <button 
                     disabled={!isDark}
@@ -176,13 +193,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 {!isDark ? (
                   <div className="text-xs text-orange-500/80 font-medium">
-                    * {t('appearance.glassmorphismOnlyDark', '毛玻璃特效仅在深色模式下可用')}
+                    * {t('appearance.glassmorphismOnlyDark')}
                   </div>
                 ) : (
                   appConfig.enableGlassmorphism && (
                     <div className="mt-4">
                       <div className="flex justify-between items-center mb-3">
-                        <label className="text-sm font-medium opacity-70">{t('appearance.glassmorphismOpacity', '毛玻璃不透明度')}</label>
+                        <label className="text-sm font-medium opacity-70">{t('appearance.glassmorphismOpacity')}</label>
                         <span className="text-xs font-bold opacity-50">{Math.round((appConfig.bgOpacity || 1) * 100)}%</span>
                       </div>
                       <input 
@@ -194,6 +211,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                   )
                 )}
+                <div className="pt-4 border-t border-black/5 dark:border-white/5">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div className="flex flex-col">
+                      <span className={`text-sm font-medium ${!isDark ? 'opacity-40' : 'opacity-70'}`}>{t('settings.antiGlare')}</span>
+                      <span className="text-xs opacity-50">{t('settings.antiGlareDesc')}</span>
+                    </div>
+                    <button 
+                      disabled={!isDark}
+                      onClick={() => updateConfig('antiGlare', !appConfig.antiGlare)} 
+                      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${!isDark ? 'bg-slate-200 cursor-not-allowed' : appConfig.antiGlare ? 'bg-primary' : 'bg-black/20 dark:bg-white/10'}`}
+                    >
+                      <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-full transition-transform ${appConfig.antiGlare ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </label>
+                </div>
               </div>
             </div>
           )}
@@ -203,10 +235,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={appConfig.copyOnSelect || false} onChange={(e) => updateConfig('copyOnSelect', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
                 <div>
-                  <div className="text-sm font-medium">{t('ssh.copyOnSelect')}</div>
-                  <div className="text-xs opacity-50">Automatically copy highlighted text to system clipboard.</div>
+                  <div className="text-sm font-medium">{t('terminal.copyOnSelect')}</div>
+                  <div className="text-xs opacity-50">{t('terminal.copyOnSelectDesc')}</div>
                 </div>
               </label>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 opacity-70">{t('terminal.rightClickBehavior')}</label>
+                <select 
+                  value={appConfig.rightClickBehavior || 'menu'}
+                  onChange={(e) => updateConfig('rightClickBehavior', e.target.value as any)}
+                  className={`w-full p-2 border rounded-none text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                >
+                   <option value="menu">{t('terminal.rightClickMenu')}</option>
+                   <option value="paste">{t('terminal.rightClickPaste')}</option>
+                </select>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1 opacity-70">{t('terminal.fontFamily')}</label>
@@ -236,18 +280,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <select 
                   value={appConfig.cursorStyle}
                   onChange={(e) => updateConfig('cursorStyle', e.target.value as any)}
-                  className={`w-full p-2 border rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                  className={`w-full p-2 border rounded-none text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
                 >
                    <option value="block">{t('terminal.block')}</option>
-                   <option value="underline">Underline</option>
-                   <option value="bar">Bar (I-Beam)</option>
+                   <option value="underline">{t('terminal.underline')}</option>
+                   <option value="bar">{t('terminal.bar')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 opacity-70">Scrollback Lines</label>
+                <label className="block text-sm font-medium mb-1 opacity-70 flex justify-between">
+                  <span>{t('terminal.terminalPadding')}</span>
+                  <span>{appConfig.terminalPadding ?? 8}px</span>
+                </label>
+                <input 
+                  type="range" 
+                  min="0" max="32" step="2" 
+                  value={appConfig.terminalPadding ?? 8} 
+                  onChange={(e) => updateConfig('terminalPadding', parseInt(e.target.value))} 
+                  className={`w-full h-2 rounded-none appearance-none outline-none ${isDark ? 'bg-white/10' : 'bg-black/10'}`} 
+                />
+                <div className="text-xs opacity-50 mt-1">{t('terminal.terminalPaddingDesc')}</div>
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={appConfig.cursorBlink ?? true} 
+                  onChange={(e) => updateConfig('cursorBlink', e.target.checked)} 
+                  className="w-4 h-4 rounded-none accent-primary border-none" 
+                />
+                <div>
+                  <div className="text-sm font-medium">{t('terminal.cursorBlink')}</div>
+                  <div className="text-xs opacity-50">{t('terminal.cursorBlinkDesc')}</div>
+                </div>
+              </label>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 opacity-70">{t('terminal.bellStyle')}</label>
+                <select 
+                  value={appConfig.bellStyle || 'visual'}
+                  onChange={(e) => updateConfig('bellStyle', e.target.value as any)}
+                  className={`w-full p-2 border rounded-none text-sm outline-none transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}
+                >
+                   <option value="none">{t('terminal.bellNone')}</option>
+                   <option value="audible">{t('terminal.bellAudible')}</option>
+                   <option value="visual">{t('terminal.bellVisual')}</option>
+                </select>
+                <div className="text-xs opacity-50 mt-1">{t('terminal.bellStyleDesc')}</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1 opacity-70">{t('terminal.scrollback')}</label>
                 <input type="number" min="1000" step="1000" value={appConfig.scrollback || 10000} onChange={(e) => updateConfig('scrollback', parseInt(e.target.value) || 10000)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                <div className="text-xs opacity-50 mt-1 text-yellow-500 dark:text-yellow-400">Note: Modifying scrollback typically only applies to new tabs.</div>
+                <div className="text-xs opacity-50 mt-1 text-yellow-500 dark:text-yellow-400">{t('terminal.scrollbackNote')}</div>
               </div>
             </div>
           )}
@@ -301,8 +387,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
               <div>
                 <label className="block text-sm font-medium mb-1 opacity-70">{t('system.globalHotkey')}</label>
-                <input type="text" value={appConfig.globalHotkey || ''} onChange={(e) => updateConfig('globalHotkey', e.target.value)} placeholder="e.g. Option+Space" className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
+                <input type="text" value={appConfig.globalHotkey || 'Control+`'} onChange={(e) => updateConfig('globalHotkey', e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
                 <div className="text-xs opacity-50 mt-1">{t('system.globalHotkeyDesc')}</div>
+              </div>
+
+              {/* Added Danger Zone */}
+              <div className="pt-6 border-t border-red-500/20">
+                <h4 className="text-red-500 font-bold text-sm mb-4 flex items-center gap-2"><Shield className="w-4 h-4"/>{t('settings.dangerZone')}</h4>
+                <label className="flex items-center justify-between cursor-pointer p-4 rounded-xl border border-red-500/20 bg-red-500/5">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-red-500">{t('settings.devMode')}</span>
+                    <span className="text-xs opacity-70">{t('settings.devModeDesc')}</span>
+                  </div>
+                  <button 
+                    onClick={() => updateConfig('devMode', !appConfig.devMode)} 
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${appConfig.devMode ? 'bg-red-500' : 'bg-black/20 dark:bg-black/40'} flex-shrink-0`}
+                  >
+                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${appConfig.devMode ? 'translate-x-5' : 'translate-x-1'}`}/>
+                  </button>
+                </label>
               </div>
             </div>
           )}
@@ -318,15 +421,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </label>
 
               <div>
-                <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2"><Cpu className="w-4 h-4" /> Global Init Script</label>
+                <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2"><Cpu className="w-4 h-4" /> {t('security.globalInitScript')}</label>
                 <textarea 
                   value={appConfig.initScript || ''} 
                   onChange={(e) => updateConfig('initScript', e.target.value)} 
                   rows={4}
-                  placeholder="e.g. neofetch && tmux attach" 
+                  placeholder={t('security.globalInitScriptPlaceholder') as string} 
                   className={`w-full p-4 border rounded-[20px] text-sm outline-none resize-none font-mono ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} 
                 />
-                <div className="text-xs opacity-50 mt-1">Commands to automatically execute sequentially when connecting to any session.</div>
+                <div className="text-xs opacity-50 mt-1">{t('security.globalInitScriptDesc')}</div>
               </div>
 
               <div className="pt-6 border-0 rounded-none">
@@ -384,17 +487,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                if (safeAction === 'change') {
                                   setMasterPassword(safeNewPwd);
                                   window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-                                  setTimeout(() => window.alert('✅ 主密码已安全更新并重加密完成！'), 100);
+                                  setTimeout(() => window.alert(t('security.pwdUpdated')), 100);
                                } else if (safeAction === 'disable') {
                                   setEncryptionDisabled(true);
                                   setMasterPassword('');
                                   window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-                                  setTimeout(() => window.alert('⚠️ 加密已解除，配置已转为明文存储。'), 100);
+                                  setTimeout(() => window.alert(t('security.pwdDisabled')), 100);
                                } else if (safeAction === 'enable') {
                                   setEncryptionDisabled(false);
                                   setMasterPassword(safeNewPwd);
                                   window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-                                  setTimeout(() => window.alert('🔒 SafeStorage 零知识加密已启动！'), 100);
+                                  setTimeout(() => window.alert(t('security.pwdEnabled')), 100);
                                }
                                
                                setSafeAction('none');
@@ -408,10 +511,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {/* ── Profile Import / Export ──────────────────────────── */}
               <div className="pt-6">
                 <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-primary" /> 配置文件管理
+                  <Upload className="w-4 h-4 text-primary" /> {t('settings.profileManagement')}
                 </h4>
                 <p className="text-xs opacity-50 mb-4">
-                  导出需要先设置主密码，以确保密码/私钥路径得到 AES-256 加密保护。主机名、用户名等基础信息将以明文保存，方便阅读。
+                  {t('settings.exportHint')}
                 </p>
 
                 {profilesStatus && (
@@ -430,7 +533,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     isDark ? 'bg-yellow-500/10 text-yellow-400' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'
                   }`}>
                     <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>导出功能需要主密码。请先在上方"SafeStorage 加密配置"中设置主密码，再进行导出。</span>
+                    <span>{t('settings.exportNeedPwd')}</span>
                   </div>
                 )}
 
@@ -444,18 +547,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         masterPassword,
                       });
                       if (res.success) {
-                        setProfilesStatus({ type: 'success', msg: `✅ 已成功导出 ${res.count} 个配置！` });
+                        setProfilesStatus({ type: 'success', msg: t('settings.exportSuccess', { count: res.count }) as string });
                       } else if (res.reason !== 'canceled') {
-                        setProfilesStatus({ type: 'error', msg: `❌ 导出失败：${res.reason}` });
+                        setProfilesStatus({ type: 'error', msg: t('settings.exportFailed', { reason: res.reason }) as string });
                       }
                     }}
                     disabled={encryptionDisabled || sessions.length === 0}
-                    title={encryptionDisabled ? '请先设置主密码后再导出' : '导出所有服务器配置'}
+                    title={encryptionDisabled ? (t('settings.exportTooltipDisabled') as string) : (t('settings.exportTooltipEnabled') as string)}
                     className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                       isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
                     }`}
                   >
-                    <Download className="w-4 h-4" /> 导出配置
+                    <Download className="w-4 h-4" /> {t('settings.exportBtn')}
                   </button>
 
                   {/* Import — always available */}
@@ -469,9 +572,145 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
                     }`}
                   >
-                    <Upload className="w-4 h-4" /> 导入配置
+                    <Upload className="w-4 h-4" /> {t('settings.importBtn')}
                   </button>
                 </div>
+              </div>
+
+              {/* ── Known Hosts Management ───────────────────────────── */}
+              <div className="pt-8 border-t mt-4 border-black/10 dark:border-white/10 w-full max-w-3xl">
+                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" /> {t('security.knownHostsTitle')}
+                </h4>
+                
+                <div className={`rounded-none border ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white'} overflow-hidden`}>
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={`text-xs uppercase tracking-wider opacity-60 ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-black/5'} border-b`}>
+                        <th className="p-3 font-medium">{t('security.host')}</th>
+                        <th className="p-3 font-medium">{t('security.fingerprint')}</th>
+                        <th className="p-3 font-medium">{t('security.trustedAt')}</th>
+                        <th className="p-3 font-medium text-center">{t('security.revokeTrust')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {knownHosts.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-sm opacity-50">
+                            {t('security.knownHostsEmpty')}
+                          </td>
+                        </tr>
+                      ) : (
+                        knownHosts.map(h => {
+                          const hostKey = `${h.host}:${h.port}`;
+                          return (
+                          <tr key={hostKey} className={`border-b last:border-b-0 ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-black/5 hover:bg-black/5'} transition-colors`}>
+                            <td className="p-3 text-sm font-medium">
+                              <div>{h.host}</div>
+                              <div className="text-xs opacity-50 font-mono">Port: {h.port}</div>
+                            </td>
+                            <td className="p-3 max-w-[300px]">
+                              <div className="flex items-start gap-2">
+                                <code className={`flex-1 text-xs font-mono break-all ${isDark ? 'text-white/70' : 'text-black/70'}`}>
+                                  {h.fingerprint}
+                                </code>
+                                <button 
+                                  onClick={() => navigator.clipboard.writeText(h.fingerprint)} 
+                                  className={`p-1.5 rounded-none border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
+                                  title="Copy Fingerprint"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="p-3 text-xs opacity-70">
+                              {h.trustedAt ? new Date(h.trustedAt).toLocaleString() : 'N/A'}
+                            </td>
+                            <td className="p-3 text-center align-middle relative">
+                              {revokingHost === hostKey ? (
+                                <div className={`absolute top-1/2 right-full -translate-y-1/2 mr-2 w-64 p-3 rounded-none border shadow-xl z-10 ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-black/20 text-black'}`}>
+                                  <div className="text-xs mb-3 font-medium opacity-90 text-left">{t('security.revokeConfirm')}</div>
+                                  <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setRevokingHost(null)} className="px-2 py-1 text-xs font-medium border border-transparent opacity-70 hover:opacity-100">{t('security.cancel')}</button>
+                                    <button onClick={async () => {
+                                      if (window.electronAPI.deleteKnownHost) {
+                                        await window.electronAPI.deleteKnownHost(h.host, h.port);
+                                        if (window.electronAPI.getKnownHosts) {
+                                          const newHosts = await window.electronAPI.getKnownHosts();
+                                          setKnownHosts(newHosts);
+                                        }
+                                      }
+                                      setRevokingHost(null);
+                                    }} className="px-3 py-1 text-xs font-bold bg-red-500 hover:bg-red-600 text-white rounded-none">{t('security.confirm')}</button>
+                                  </div>
+                                </div>
+                              ) : null}
+                              <button
+                                onClick={() => setRevokingHost(hostKey)}
+                                className={`px-3 py-1.5 rounded-none text-xs font-bold border transition-colors ${isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white' : 'border-red-500/30 text-red-600 hover:bg-red-500 hover:text-white'}`}
+                              >
+                                {t('security.revokeTrust')}
+                              </button>
+                            </td>
+                          </tr>
+                        )})
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {settingsActiveTab === 'Audit' && (
+            <div className="space-y-6 w-full max-w-full">
+              <div className="flex justify-between items-start mb-4">
+                <p className="text-sm opacity-70 max-w-lg leading-relaxed">{t('settings.auditDesc')}</p>
+                <button 
+                  onClick={async () => {
+                    const ok = await window.electronAPI.exportConnectionLogs();
+                    if (ok) alert(t('settings.auditExportSuccess'));
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 font-mono text-sm font-bold uppercase tracking-wider rounded-none border transition-colors ${isDark ? 'bg-white text-black border-white hover:bg-slate-200' : 'bg-black text-white border-black hover:bg-slate-800'}`}
+                >
+                  <Download className="w-4 h-4" />
+                  {t('settings.auditExport')}
+                </button>
+              </div>
+
+              <div className={`border rounded-none overflow-x-auto w-full ${isDark ? 'border-white/20' : 'border-black/20'}`}>
+                <table className="w-full text-left border-collapse text-sm whitespace-nowrap">
+                  <thead>
+                    <tr className={`${isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-black'} uppercase text-xs tracking-wider font-mono`}>
+                      <th className={`p-3 font-semibold border-b ${isDark ? 'border-white/20' : 'border-black/20'}`}>{t('settings.auditSession')}</th>
+                      <th className={`p-3 font-semibold border-b ${isDark ? 'border-white/20' : 'border-black/20'}`}>{t('settings.auditHost')}</th>
+                      <th className={`p-3 font-semibold border-b ${isDark ? 'border-white/20' : 'border-black/20'}`}>{t('settings.auditConnectedAt')}</th>
+                      <th className={`p-3 font-semibold border-b ${isDark ? 'border-white/20' : 'border-black/20'}`}>{t('settings.auditDisconnectedAt')}</th>
+                      <th className={`p-3 font-semibold border-b text-right ${isDark ? 'border-white/20' : 'border-black/20'}`}>{t('settings.auditDuration')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center opacity-50 italic">
+                          No audit logs found.
+                        </td>
+                      </tr>
+                    ) : (
+                      auditLogs.map((log, i) => (
+                        <tr key={i} className={`border-b transition-colors ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'} font-mono text-xs`}>
+                          <td className="p-3 opacity-90 truncate max-w-[150px]" title={log.alias}>{log.alias}</td>
+                          <td className="p-3 opacity-70 truncate max-w-[150px]" title={`${log.host}:${log.port}`}>{log.host}:{log.port}</td>
+                          <td className="p-3 opacity-70">{log.connectedAt}</td>
+                          <td className={`p-3 font-semibold ${log.disconnectedAt === 'Online' ? 'text-green-500' : 'opacity-70'}`}>
+                            {log.disconnectedAt === 'Online' ? t('settings.auditOnline') : log.disconnectedAt}
+                          </td>
+                          <td className="p-3 opacity-90 text-right font-bold">{log.duration}</td>
+                        </tr>
+                      )).reverse()
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -487,21 +726,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <img src={logoSrc} alt="GETSSH Logo" className={`w-24 h-24 rounded-none shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
                 <span className="text-4xl font-black tracking-tighter text-primary">GETSSH</span>
                 <div className={`text-xs font-bold tracking-[0.2em] uppercase ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-                  GETSSH Terminal Platform (Build K9V2X) - Secure Sandbox Core.
+                  {t('about.tagline')}
                 </div>
               </div>
 
               {/* Environment Information Grid */}
               <div className="w-full space-y-3">
-                <h3 className={`text-[10px] font-bold uppercase tracking-[0.3em] pl-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                  Host Environment Diagnostics
-                </h3>
+                  <h3 className={`text-[10px] font-bold uppercase tracking-[0.3em] pl-1 mb-4 ${isDark ? 'text-primary/70' : 'text-primary/70'}`}>
+                    {t('about.systemInfo')}
+                  </h3>
                 <div className={`grid grid-cols-2 gap-px border rounded-none overflow-hidden ${isDark ? 'bg-white/10 border-white/20 text-white/80' : 'bg-black/10 border-black/20 text-black/80'}`}>
                   {[
-                    { label: 'Electron Runtime', value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
-                    { label: 'Chromium Core', value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
-                    { label: 'Node.js Engine', value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
-                    { label: 'Platform Arch', value: `${window.electronAPI?.getEnvInfo?.()?.platform} (${window.electronAPI?.getEnvInfo?.()?.arch})` || 'N/A' }
+                    { label: t('about.envElectron'), value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
+                    { label: t('about.envChrome'), value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
+                    { label: t('about.envNode'), value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
+                    { label: t('about.envPlatform'), value: `${window.electronAPI?.getEnvInfo?.()?.platform} (${window.electronAPI?.getEnvInfo?.()?.arch})` || 'N/A' }
                   ].map(item => (
                     <div key={item.label} className={`p-4 flex flex-col gap-1 ${isDark ? 'bg-[#1e1e1e]' : 'bg-white'}`}>
                       <span className="text-[10px] uppercase tracking-widest opacity-50">{item.label}</span>
@@ -514,34 +753,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {/* Compliance & Legal Module */}
               <div className="w-full space-y-3">
                 <h3 className={`text-[10px] font-bold uppercase tracking-[0.3em] pl-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                  Compliance & Open Source
+                  {t('about.compliance')}
                 </h3>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { title: 'Terms of Service', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/TERMS_OF_SERVICE.md' },
-                    { title: 'Privacy Policy', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/PRIVACY_POLICY.md' },
-                    { title: 'Third-Party Licenses', url: 'https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/THIRD_PARTY_LICENSES.md' }
-                  ].map((doc) => (
-                    <button 
-                      key={doc.title} 
-                      onClick={() => window.electronAPI.openExternal(doc.url)}
-                      className={`p-3 border rounded-none text-xs font-medium uppercase tracking-wider transition-all duration-200 ${
-                        isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'
-                      }`}>
-                      {doc.title}
-                    </button>
-                  ))}
+                <div className="flex flex-col border border-black/10 dark:border-white/10 rounded-xl overflow-hidden">
+                  {['Terms of Service', 'Privacy Policy', 'Third-Party Licenses'].map((doc) => {
+                    const i18nMap = {
+                        'Terms of Service': 'tos',
+                        'Privacy Policy': 'privacy',
+                        'Third-Party Licenses': 'licenses'
+                    } as Record<string, string>;
+                    return (
+                      <button 
+                        key={doc} 
+                        onClick={() => window.electronAPI.openExternal(`https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/${doc.toUpperCase().replace(/ /g, '_').replace('-', '_')}.md`)}
+                        className={`py-3 px-4 flex items-center justify-between border-t transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/5 hover:bg-black/5'}`}
+                      >
+                        <span className="text-sm font-medium opacity-80 group-hover:opacity-100 transition-opacity">
+                          {t(`about.${i18nMap[doc] || doc.toLowerCase().replace(/ /g, '')}`)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <p className={`text-[10px] leading-relaxed pt-2 px-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                  GETSSH is built upon robust open-source foundations including <strong>xterm.js</strong>, <strong>ssh2</strong>, <strong>React</strong>, and <strong>Zustand</strong>. 
-                  View the Third-Party Licenses document for a complete registry of OSS components and their respective licenses.
-                </p>
+                <p className={`text-[10px] leading-relaxed pt-2 px-1 ${isDark ? 'text-white/40' : 'text-black/40'}`} dangerouslySetInnerHTML={{ __html: t('about.openSourceDesc') as string }} />
               </div>
 
               {/* Update & Copyright */}
               <div className="w-full flex items-center justify-between pt-8 border-t border-black/10 dark:border-white/10">
                 <div className={`text-[10px] tracking-wider uppercase font-medium ${isDark ? 'text-white/30' : 'text-black/30'}`}>
-                  Copyright © 2026 JiangchenShen. All rights reserved.
+                  {t('about.copyright')}
                 </div>
                 <button 
                   onClick={async () => {
@@ -549,15 +789,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     try {
                       const res = await window.electronAPI.checkForUpdates();
                       if (res.hasUpdate) {
-                         window.alert(`🎉 发现新版本：${res.version}！\n\n新版本已发布，系统将引导您前往下载更新。`);
+                         window.alert(t('update.found', { version: res.version }));
                          window.electronAPI.openExternal(res.url!);
                       } else if (res.error) {
-                         window.alert(`检查更新失败：${res.error}`);
+                         window.alert(t('update.failed', { reason: res.error }));
                       } else {
-                         window.alert('✅ 当前已经是最新版本！');
+                         window.alert(t('update.latest'));
                       }
                     } catch (e: any) {
-                      window.alert(`网络错误：${e.message}`);
+                      window.alert(t('update.networkError', { message: e.message }));
                     } finally {
                       setCheckingUpdate(false);
                     }
@@ -567,7 +807,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/5 text-black'
                   }`}
                 >
-                  {checkingUpdate ? 'Checking...' : 'Check for Updates'}
+                  {checkingUpdate ? t('about.checkingUpdates') : t('about.checkUpdates')}
                 </button>
               </div>
             </div>
@@ -582,15 +822,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className={`w-80 p-6 rounded-2xl shadow-2xl border space-y-4 ${isDark ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
-            <h3 className="text-sm font-bold">导入配置</h3>
+            <h3 className="text-sm font-bold">{t('settings.importTitle')}</h3>
           </div>
           <p className="text-xs opacity-60">
-            如果导出文件已加密，请输入当前主密码以解密凭证；如为明文导出，留空即可。
+            {t('settings.importHint')}
           </p>
           <input
             autoFocus
             type="password"
-            placeholder="主密码（可选）"
+            placeholder={t('settings.importPwdPlaceholder') as string}
             value={importPwd}
             onChange={(e) => setImportPwd(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.closest('div')?.querySelector<HTMLButtonElement>('[data-confirm]')?.click()}
@@ -601,7 +841,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={() => { setImportPwdModal(false); setImportPwd(''); }}
               className={`flex-1 py-2 text-sm rounded-xl border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
             >
-              取消
+              {t('settings.importCancel')}
             </button>
             <button
               data-confirm
@@ -611,10 +851,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 if (!res.success) {
                   const msgs: Record<string, string> = {
-                    canceled:         '操作已取消。',
-                    invalid_format:   '文件格式无效，请选择 GETSSH 导出的 JSON 文件。',
-                    password_required:'该文件已加密，请输入主密码。',
-                    wrong_password:   '主密码错误，解密失败。',
+                    canceled:         t('settings.importCanceled') as string,
+                    invalid_format:   t('settings.importInvalidFormat') as string,
+                    password_required:t('settings.importPwdRequired') as string,
+                    wrong_password:   t('settings.importWrongPwd') as string,
                   };
                   setProfilesStatus({ type: 'error', msg: `❌ ${msgs[res.reason ?? ''] ?? res.reason}` });
                   return;
@@ -630,16 +870,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   await window.electronAPI.saveProfiles({ masterPassword, payload: merged });
                   setProfilesStatus({
                     type: 'success',
-                    msg: `✅ 成功导入 ${newOnes.length} 个新配置（跳过 ${res.profiles.length - newOnes.length} 个重复）！`,
+                    msg: t('settings.importSuccessNew', { count: newOnes.length, skipped: res.profiles.length - newOnes.length }) as string,
                   });
                 } else {
-                  setProfilesStatus({ type: 'success', msg: '✅ 文件读取成功，但没有新配置需要导入。' });
+                  setProfilesStatus({ type: 'success', msg: t('settings.importSuccessEmpty') as string });
                 }
                 setImportPwd('');
               }}
               className="flex-1 py-2 text-sm rounded-xl bg-primary hover:bg-primary/80 text-white transition-all shadow-md"
             >
-              选择文件并导入
+              {t('settings.importConfirm')}
             </button>
           </div>
         </div>

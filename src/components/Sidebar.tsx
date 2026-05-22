@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Server, Plus, Edit2, Zap, X, HardDrive, Settings, Info } from 'lucide-react';
+import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store/appStore';
@@ -44,8 +44,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
 
+  const OsBadge = ({ osType, isActive }: { osType?: string; isActive: boolean }) => {
+    // 框架限定：冷灰色直角容器 (放大 ~25%)
+    const boxCls = `w-[26px] h-[26px] shrink-0 flex items-center justify-center rounded-none border transition-all ${
+      isActive 
+        ? (isDark ? 'bg-white/10 border-white/20' : 'bg-black/10 border-black/30')
+        : (isDark ? 'bg-black/40 border-black/60 group-hover:bg-black/20' : 'bg-black/5 border-black/15 group-hover:bg-black/10')
+    }`;
+
+    // 激活透色 (放大 ~25%)
+    const iconCls = `w-[18px] h-[18px] transition-all duration-300 ${
+      isActive ? 'opacity-90 saturate-100' : 'opacity-50 saturate-0 group-hover:opacity-80'
+    }`;
+
+    const renderIcon = () => {
+      if (!osType || osType === 'generic') return <span className={`${iconCls} font-mono text-[11px] font-bold flex items-center justify-center`}>{'$>'}</span>;
+      if (osType === 'macos')   return <Apple  className={iconCls} />;
+      if (osType === 'windows') return <Monitor className={iconCls} />;
+      if (osType === 'ubuntu')  return <span className={`${iconCls} flex items-center justify-center`} aria-label="Ubuntu"><svg viewBox="0 0 24 24" fill="#E95420" className="w-full h-full"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="white"/><circle cx="12" cy="4" r="2" fill="white"/><circle cx="4.5" cy="16" r="2" fill="white"/><circle cx="19.5" cy="16" r="2" fill="white"/></svg></span>;
+      if (osType === 'debian')  return <span className={`${iconCls} flex items-center justify-center text-[#A80030] font-bold text-xs leading-none`} aria-label="Debian">𝔡</span>;
+      if (osType === 'centos' || osType === 'rhel' || osType === 'fedora') return <span className={`${iconCls} flex items-center justify-center`} aria-label={osType}><svg viewBox="0 0 24 24" fill="#0099CC" className="w-full h-full"><rect width="24" height="24" rx="3"/><path d="M12 4l8 14H4z" fill="white"/></svg></span>;
+      if (osType === 'alpine')  return <span className={`${iconCls} flex items-center justify-center text-blue-300 font-bold text-xs leading-none`} aria-label="Alpine">⛰</span>;
+      if (osType === 'arch')    return <span className={`${iconCls} flex items-center justify-center text-sky-400 font-bold text-xs leading-none`} aria-label="Arch Linux">🏗</span>;
+      if (osType === 'suse')    return <span className={`${iconCls} flex items-center justify-center text-green-400 font-bold text-xs leading-none`} aria-label="SUSE">🦎</span>;
+      if (osType === 'cisco')   return <span className={`${iconCls} flex items-center justify-center text-[10px] font-bold text-cyan-400 font-mono leading-none`} aria-label="Cisco">Ci</span>;
+      if (osType === 'huawei')  return <span className={`${iconCls} flex items-center justify-center text-[10px] font-bold text-red-400 font-mono leading-none`} aria-label="Huawei">Hw</span>;
+      return <Terminal className={iconCls} />;
+    };
+
+    return (
+      <div className={boxCls}>
+        {renderIcon()}
+      </div>
+    );
+  };
+
   return (
-    <div className={`w-64 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-colors bg-transparent ${isDark ? 'border-white/10' : 'border-black/10'}`} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+    <div className={`w-80 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-colors bg-transparent ${isDark ? 'border-white/10' : 'border-black/10'}`} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
       <div className="flex items-center gap-2 mb-6">
         <img src={logoSrc} alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
         <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
@@ -76,9 +111,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  ? 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200' 
                  : 'bg-white/40 hover:bg-white/80 border-slate-200/50 text-slate-700 shadow-sm'
            }`}>
-             <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-[6px] truncate text-left">
-                <Server className="w-4 h-4 shrink-0 opacity-50" />
-                <span className="truncate">{session.username}@{session.host}</span>
+             <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-2.5 truncate text-left">
+                <OsBadge osType={session.osType} isActive={selectedSessionIndex === idx} />
+                <span className="truncate">{session.alias || `${session.username}@${session.host}`}</span>
              </button>
               <div className="flex items-center gap-[5px] justify-end">
                 <button onClick={(e) => { e.stopPropagation(); setSelectedSessionIndex(idx); setActiveTabId(null); }} className="opacity-70 hover:opacity-100 p-1 hover:text-primary hover:bg-primary/20 rounded-md transition-all" title="Edit connection">

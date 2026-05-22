@@ -197,7 +197,7 @@ const LeafPane: React.FC<{
                   <div className="flex flex-col min-w-0">
                     <div className={`font-medium text-sm truncate transition-colors ${
                       isDark ? 'text-white/90' : 'text-black/90'
-                    }`}>{s.host}</div>
+                    }`}>{s.alias || s.host}</div>
                     <div className={`text-xs truncate mt-0.5 ${
                       isDark ? 'text-white/40' : 'text-black/40'
                     }`}>{s.username}</div>

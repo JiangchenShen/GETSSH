@@ -72,6 +72,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => 
     ipcRenderer.send('host-verification-result', payload),
+  getKnownHosts: () => ipcRenderer.invoke('get-known-hosts'),
+  deleteKnownHost: (host: string, port: number) => ipcRenderer.invoke('delete-known-host', host, port),
+  getConnectionLogs: () => ipcRenderer.invoke('get-connection-logs'),
+  exportConnectionLogs: () => ipcRenderer.invoke('export-connection-logs'),
   getEnvInfo: () => ({
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -83,5 +87,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event: any, isFullScreen: boolean) => callback(isFullScreen);
     ipcRenderer.on('fullscreen-state', listener);
     return () => ipcRenderer.removeListener('fullscreen-state', listener);
+  },
+  onOsFingerprint: (callback: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('os-fingerprint', listener);
+    return () => ipcRenderer.removeListener('os-fingerprint', listener);
   },
 })

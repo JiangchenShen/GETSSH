@@ -96,6 +96,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
           groupId:      (s as any).groupId      ?? null,
           autoStart:    s.autoStart             ?? false,
           useKeepAlive: s.useKeepAlive          ?? false,
+          protocol:     s.protocol              ?? 'ssh',
+          alias:        s.alias                 ?? '',
           // ── Encrypted sentinel ──
           _encrypted:   !!masterPassword,
         };
@@ -163,6 +165,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
             groupId:      entry.groupId      ?? null,
             autoStart:    entry.autoStart    ?? false,
             useKeepAlive: entry.useKeepAlive ?? false,
+            protocol:     (entry as any).protocol ?? 'ssh',
+            alias:        (entry as any).alias ?? '',
           } as SessionProfile;
 
           if (entry._encrypted) {

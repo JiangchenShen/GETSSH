@@ -45,7 +45,10 @@ export interface Tab {
 
 // ── Session Profile ───────────────────────────────────────────────────────
 
+export type OsType = 'ubuntu' | 'debian' | 'centos' | 'rhel' | 'fedora' | 'alpine' | 'arch' | 'suse' | 'windows' | 'macos' | 'cisco' | 'huawei' | 'generic';
+
 export interface SessionProfile {
+  protocol?: 'ssh' | 'local' | 'telnet';
   host: string;
   username: string;
   password?: string;
@@ -53,6 +56,9 @@ export interface SessionProfile {
   autoStart?: boolean;
   port?: number;
   useKeepAlive?: boolean;
+  alias?: string;
+  authType?: 'password' | 'key';
+  osType?: OsType;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -72,13 +78,14 @@ interface SessionStore {
   setSessions: (sessions: SessionProfile[]) => void;
   setTabs: (updater: Tab[] | ((prev: Tab[]) => Tab[])) => void;
   setActiveTabId: (id: string | null) => void;
-  setActivePaneId: (id: string | null) => void;   // NEW
+  setActivePaneId: (id: string | null) => void;
   setSelectedSessionIndex: (idx: number | null) => void;
   setConnecting: (val: boolean) => void;
   setError: (err: string | null) => void;
   setSearchQuery: (q: string) => void;
   setShowSFTP: (show: boolean) => void;
   setSftpWidth: (w: number) => void;
+  updateSessionOsType: (host: string, username: string, osType: OsType) => void;
 
   // NEW: update a pane's size in the tree (for drag-resize)
   updatePaneSizes: (tabId: string, paneId: string, sizes: [number, number]) => void;
@@ -152,6 +159,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   setShowSFTP: (show) => set({ showSFTP: show }),
   setSftpWidth: (w) => set({ sftpWidth: w }),
+  updateSessionOsType: (host, username, osType) => set((state) => ({
+    sessions: state.sessions.map(s =>
+      s.host === host && s.username === username ? { ...s, osType } : s
+    )
+  })),
 
   updatePaneSizes: (tabId, paneId, sizes) => {
     set((state) => ({

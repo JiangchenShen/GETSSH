@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, dialog } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
 import { Client, ConnectConfig } from 'ssh2';
@@ -6,26 +6,127 @@ import { SocksClient } from 'socks';
 import { connectionManager } from '../services/ConnectionManager';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import {
+  spawnLocalTerminal,
+  spawnTelnetSession,
+  ptyWrite,
+  ptyResize,
+  ptyKill,
+  sessionProtocols
+} from './ptyHandler';
 
-let knownHosts: Record<string, string> | null = null;
+export interface KnownHost {
+  host: string;
+  port: number;
+  fingerprint: string;
+  trustedAt: number;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  alias: string;
+  host: string;
+  port: number;
+  connectedAt: string;
+  disconnectedAt: string;
+  duration: string;
+}
+
+interface ActiveConnectionInfo {
+  id: string;
+  alias: string;
+  host: string;
+  port: number;
+  connectedAtStr: string;
+  connectedAtMs: number;
+}
+
+let knownHosts: Record<string, KnownHost> | null = null;
 const pendingVerifications = new Map<string, (accept: boolean) => void>();
+const activeConnections = new Map<string, ActiveConnectionInfo>();
 
-async function getKnownHosts(app: Electron.App): Promise<Record<string, string>> {
+async function getKnownHosts(app: Electron.App): Promise<Record<string, KnownHost>> {
   if (knownHosts) return knownHosts;
   const filePath = path.join(app.getPath('userData'), 'known_hosts.json');
   try {
     const data = await fs.promises.readFile(filePath, 'utf-8');
-    knownHosts = JSON.parse(data);
+    const parsed = JSON.parse(data);
+    
+    // Migration: If the old format (Record<string, string>) is detected, migrate it
+    let needsMigration = false;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string') {
+        needsMigration = true;
+        const [host, portStr] = key.split(':');
+        parsed[key] = {
+          host,
+          port: portStr ? parseInt(portStr, 10) : 22,
+          fingerprint: value,
+          trustedAt: Date.now() // Use current time as fallback for migrated entries
+        };
+      }
+    }
+    
+    knownHosts = parsed;
+    
+    if (needsMigration) {
+      await saveKnownHosts(app, knownHosts as Record<string, KnownHost>);
+    }
   } catch (e) {
     knownHosts = {};
   }
   return knownHosts!;
 }
 
-async function saveKnownHosts(app: Electron.App, hosts: Record<string, string>) {
+async function saveKnownHosts(app: Electron.App, hosts: Record<string, KnownHost>) {
   knownHosts = hosts;
   const filePath = path.join(app.getPath('userData'), 'known_hosts.json');
   await fs.promises.writeFile(filePath, JSON.stringify(hosts, null, 2), 'utf-8');
+}
+
+async function recordDisconnect(app: Electron.App, sessionId: string) {
+  const info = activeConnections.get(sessionId);
+  if (!info) return;
+  activeConnections.delete(sessionId);
+  
+  const disconnectedAtMs = Date.now();
+  const diffSec = Math.floor((disconnectedAtMs - info.connectedAtMs) / 1000);
+  
+  let durationStr = '';
+  if (diffSec < 60) durationStr = '< 1m';
+  else {
+    const h = Math.floor(diffSec / 3600);
+    const m = Math.floor((diffSec % 3600) / 60);
+    const s = diffSec % 60;
+    if (h > 0) durationStr += `${h}h `;
+    if (m > 0) durationStr += `${m}m `;
+    durationStr += `${s}s`;
+    durationStr = durationStr.trim();
+  }
+
+  const record: AuditLogRecord = {
+    id: info.id,
+    alias: info.alias,
+    host: info.host,
+    port: info.port,
+    connectedAt: info.connectedAtStr,
+    disconnectedAt: new Date(disconnectedAtMs).toLocaleString(),
+    duration: durationStr
+  };
+  
+  try {
+    const filePath = path.join(app.getPath('userData'), 'connection_history.json');
+    let history: AuditLogRecord[] = [];
+    if (fs.existsSync(filePath)) {
+      const data = await fs.promises.readFile(filePath, 'utf-8');
+      history = JSON.parse(data);
+    }
+    history.push(record);
+    history = history.slice(-500);
+    await fs.promises.writeFile(filePath, JSON.stringify(history, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to write audit log', err);
+  }
 }
 
 export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App, getWindow: () => BrowserWindow | null) {
@@ -36,7 +137,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
     if (result === 'accept-save') {
       const hosts = await getKnownHosts(app);
-      hosts[hostname] = fingerprint;
+      const [host, portStr] = hostname.split(':');
+      hosts[hostname] = {
+        host,
+        port: portStr ? parseInt(portStr, 10) : 22,
+        fingerprint,
+        trustedAt: Date.now()
+      };
       await saveKnownHosts(app, hosts);
       callback(true);
     } else if (result === 'accept-once') {
@@ -47,6 +154,43 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   });
 
   ipcMain.handle('ssh-connect', async (event, config) => {
+    // ── PROTOCOL DISPATCH ────────────────────────────────────────────────
+    const protocol: 'ssh' | 'local' | 'telnet' = config.protocol || 'ssh';
+    const sessionId = connectionManager.generateSessionId();
+    sessionProtocols.set(sessionId, protocol);
+
+    if (protocol === 'local') {
+      const result = await spawnLocalTerminal(config, sessionId, getWindow);
+      if (result.success) {
+        activeConnections.set(sessionId, {
+          id: sessionId,
+          alias: config.alias || 'Local Terminal',
+          host: 'localhost',
+          port: 0,
+          connectedAtStr: new Date().toLocaleString(),
+          connectedAtMs: Date.now()
+        });
+      }
+      return result;
+    }
+
+    if (protocol === 'telnet') {
+      const result = await spawnTelnetSession(config, sessionId, getWindow);
+      if (result.success) {
+        activeConnections.set(sessionId, {
+          id: sessionId,
+          alias: config.alias || `${config.host}:${config.port || 23}`,
+          host: config.host,
+          port: config.port || 23,
+          connectedAtStr: new Date().toLocaleString(),
+          connectedAtMs: Date.now()
+        });
+      }
+      return result;
+    }
+
+    // ── SSH (default) ────────────────────────────────────────────────────
+
     let privateKeyData: Buffer | undefined;
 
     if (config.privateKeyPath) {
@@ -61,8 +205,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     return new Promise((resolve, reject) => {
       (async () => {
       try {
-        const sessionId = connectionManager.generateSessionId();
-        
+        // Reuse the sessionId allocated in the dispatch block above
         const sshClient = new Client();
         connectionManager.sessions.set(sessionId, { client: sshClient, stream: null });
 
@@ -76,7 +219,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               const hosts = await getKnownHosts(app);
               const hostKey = `${config.host}:${config.port || 22}`;
               
-              if (hosts[hostKey] === hashedKey) {
+              if (hosts[hostKey] && hosts[hostKey].fingerprint === hashedKey) {
                 return callback(true);
               }
 
@@ -160,6 +303,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
             stream.on('close', async () => {
               sshClient.end();
+              await recordDisconnect(app, sessionId);
               await connectionManager.removeSession(sessionId);
               const win = getWindow();
               if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
@@ -185,9 +329,49 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                }
             });
 
+            activeConnections.set(sessionId, {
+              id: sessionId,
+              alias: config.alias || connectConfig.host,
+              host: connectConfig.host,
+              port: connectConfig.port || 22,
+              connectedAtStr: new Date().toLocaleString(),
+              connectedAtMs: Date.now()
+            });
+
             resolve({ success: true, sessionId });
+
+            // ── Silent OS Fingerprint Probe ─────────────────────────────
+            // Uses a separate exec channel so the PTY stream stays clean.
+            setTimeout(() => {
+              sshClient.exec('cat /etc/os-release 2>/dev/null | grep -E "^ID="', (execErr, execStream) => {
+                if (execErr) return;
+                let output = '';
+                execStream.on('data', (d: Buffer) => { output += d.toString('utf-8'); });
+                execStream.on('close', () => {
+                  const idMatch = output.match(/^ID="?([a-z0-9_.-]+)"?/im);
+                  const rawId = idMatch ? idMatch[1].toLowerCase() : '';
+                  type OsType = 'ubuntu'|'debian'|'centos'|'rhel'|'fedora'|'alpine'|'arch'|'suse'|'windows'|'macos'|'cisco'|'huawei'|'generic';
+                  const osMap: Record<string, OsType> = {
+                    ubuntu: 'ubuntu', debian: 'debian', raspbian: 'debian',
+                    centos: 'centos', rhel: 'rhel', fedora: 'fedora',
+                    alpine: 'alpine', arch: 'arch', manjaro: 'arch',
+                    opensuse: 'suse', sles: 'suse',
+                  };
+                  const osType: OsType = osMap[rawId] || 'generic';
+                  const win = getWindow();
+                  if (win && !win.isDestroyed()) {
+                    win.webContents.send('os-fingerprint', {
+                      host: connectConfig.host,
+                      username: config.username,
+                      osType
+                    });
+                  }
+                });
+              });
+            }, 1200); // Probe after shell buffer window
           });
         }).on('error', async (err: any) => {
+          await recordDisconnect(app, sessionId);
           await connectionManager.removeSession(sessionId);
           const win = getWindow();
           if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
@@ -205,25 +389,124 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   });
 
   ipcMain.on('ssh-write', (event, { sessionId, data }) => {
-    const session = connectionManager.sessions.get(sessionId);
-    if (session && session.stream) {
-      session.stream.write(data);
+    const proto = sessionProtocols.get(sessionId);
+    if (proto === 'local' || proto === 'telnet') {
+      ptyWrite(sessionId, data, proto);
+    } else {
+      const session = connectionManager.sessions.get(sessionId);
+      if (session && session.stream) session.stream.write(data);
     }
   });
 
   ipcMain.on('ssh-resize', (event, { sessionId, cols, rows }) => {
-    const session = connectionManager.sessions.get(sessionId);
-    if (session && session.stream && session.stream.setWindow) {
-      session.stream.setWindow(rows, cols, 0, 0);
+    const proto = sessionProtocols.get(sessionId);
+    if (proto === 'local' || proto === 'telnet') {
+      ptyResize(sessionId, cols, rows, proto);
+    } else {
+      const session = connectionManager.sessions.get(sessionId);
+      if (session && session.stream && session.stream.setWindow) {
+        session.stream.setWindow(rows, cols, 0, 0);
+      }
     }
   });
 
-  ipcMain.on('ssh-disconnect', async (event, sessionId) => {
+  ipcMain.handle('ssh-disconnect', async (event, sessionId) => {
+    const proto = sessionProtocols.get(sessionId);
+    sessionProtocols.delete(sessionId);
+    if (proto === 'local' || proto === 'telnet') {
+      await ptyKill(sessionId, proto);
+      await recordDisconnect(app, sessionId);
+      return;
+    }
+    await recordDisconnect(app, sessionId);
+    await connectionManager.removeSession(sessionId);
     const session = connectionManager.sessions.get(sessionId);
     if (session) {
       if (session.stream) session.stream.close();
       if (session.client) session.client.end();
       await connectionManager.removeSession(sessionId);
     }
+  });
+
+  ipcMain.handle('get-known-hosts', async () => {
+    const hosts = await getKnownHosts(app);
+    return Object.values(hosts);
+  });
+
+  ipcMain.handle('get-connection-logs', async () => {
+    let history: AuditLogRecord[] = [];
+    const filePath = path.join(app.getPath('userData'), 'connection_history.json');
+    if (fs.existsSync(filePath)) {
+      try {
+        const data = await fs.promises.readFile(filePath, 'utf-8');
+        history = JSON.parse(data);
+      } catch (e) {
+        history = [];
+      }
+    }
+
+    // Append active sessions
+    const now = Date.now();
+    for (const info of activeConnections.values()) {
+      const diffSec = Math.floor((now - info.connectedAtMs) / 1000);
+      let durationStr = '';
+      if (diffSec < 60) durationStr = '< 1m';
+      else {
+        const h = Math.floor(diffSec / 3600);
+        const m = Math.floor((diffSec % 3600) / 60);
+        const s = diffSec % 60;
+        if (h > 0) durationStr += `${h}h `;
+        if (m > 0) durationStr += `${m}m `;
+        durationStr += `${s}s`;
+        durationStr = durationStr.trim();
+      }
+
+      history.push({
+        id: info.id,
+        alias: info.alias,
+        host: info.host,
+        port: info.port,
+        connectedAt: info.connectedAtStr,
+        disconnectedAt: 'Online',
+        duration: durationStr
+      });
+    }
+
+    return history;
+  });
+
+  ipcMain.handle('export-connection-logs', async () => {
+    const win = getWindow();
+    if (!win) return false;
+    
+    const filePath = path.join(app.getPath('userData'), 'connection_history.json');
+    if (!fs.existsSync(filePath)) return false;
+    
+    const { canceled, filePath: savePath } = await dialog.showSaveDialog(win, {
+      title: 'Export Audit Logs',
+      defaultPath: `audit_logs_${new Date().toISOString().slice(0,10)}.json`,
+      filters: [{ name: 'JSON Reports', extensions: ['json'] }]
+    });
+
+    if (canceled || !savePath) return false;
+    
+    try {
+      await fs.promises.copyFile(filePath, savePath);
+      return true;
+    } catch (err) {
+      console.error('Failed to export logs', err);
+      return false;
+    }
+  });
+
+  ipcMain.handle('delete-known-host', async (event, host: string, port: number) => {
+    const hosts = await getKnownHosts(app);
+    const hostKey = `${host}:${port}`;
+    if (hosts[hostKey]) {
+      delete hosts[hostKey];
+      await saveKnownHosts(app, hosts);
+      return true;
+    }
+    return false;
   });
 }

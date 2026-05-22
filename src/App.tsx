@@ -38,6 +38,7 @@ function App() {
   const error = useSessionStore(state => state.error);
   const setError = useSessionStore(state => state.setError);
   const closeTab = useSessionStore(state => state.closeTab);
+  const updateSessionOsType = useSessionStore(state => state.updateSessionOsType);
 
   // App Store (Zustand)
   const appConfig = useAppStore(state => state.appConfig);
@@ -53,9 +54,9 @@ function App() {
   const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
   
   // Settings modal state
-  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'>('Appearance');
+  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
   
-  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About' = 'Appearance') => {
+  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance') => {
      setSettingsActiveTab(tab);
      setSelectedSessionIndex(null);
      if (!tabs.find(t => t.id === 'settings')) {
@@ -105,6 +106,15 @@ function App() {
       return removeListener;
     }
   }, [setIsFullScreen]);
+
+  // OS Fingerprint listener
+  useEffect(() => {
+    if (!window.electronAPI?.onOsFingerprint) return;
+    const unsub = window.electronAPI.onOsFingerprint(({ host, username, osType }) => {
+      updateSessionOsType(host, username, osType as any);
+    });
+    return unsub;
+  }, [updateSessionOsType]);
 
   useEffect(() => {
     const bootCrypto = async () => {
@@ -202,9 +212,11 @@ function App() {
                 privateKeyPath: autoSession.privateKeyPath,
                 port: autoSession.port || appConfig.defaultPort || 22,
                 keepaliveInterval: appConfig.keepalive * 1000,
+                protocol: autoSession.protocol,
                 // Append Proxy
                 proxyType: appConfig.proxyType,
                 proxyHost: appConfig.proxyHost,
+                proxyPort: appConfig.proxyPort,
                 autoStart: autoSession.autoStart,
                 initScript: appConfig.initScript
             };
@@ -269,6 +281,7 @@ function App() {
         privateKeyPath: targetSession.privateKeyPath,
         port: targetSession.port || appConfig.defaultPort || 22,
         keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
+        protocol: targetSession.protocol,
         proxyType: appConfig.proxyType,
         proxyHost: appConfig.proxyHost,
         proxyPort: appConfig.proxyPort,
@@ -287,7 +300,11 @@ function App() {
       setActivePaneId(rootPaneId);
       setSelectedSessionIndex(null);
     } else {
-      setError(res.error || 'Connection failed');
+      if (res.error === 'Host denied (verification failed)') {
+        setError(t('connect.hostDenied'));
+      } else {
+        setError(res.error || 'Connection failed');
+      }
     }
   };
 
@@ -354,6 +371,7 @@ function App() {
         privateKeyPath: targetSession.privateKeyPath,
         port: targetSession.port || appConfig.defaultPort || 22,
         keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
+        protocol: targetSession.protocol,
         proxyType: appConfig.proxyType,
         proxyHost: appConfig.proxyHost,
         proxyPort: appConfig.proxyPort,
@@ -369,7 +387,11 @@ function App() {
         return { ...t, paneTree: updateLeafInTree(t.paneTree, paneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
       }));
     } else {
-      window.alert(`Connection failed: ${res.error}`);
+      if (res.error === 'Host denied (verification failed)') {
+        window.alert(`${t('connect.hostDenied')}`);
+      } else {
+        window.alert(`Connection failed: ${res.error}`);
+      }
     }
   };
 
@@ -587,8 +609,8 @@ function App() {
                 <Monitor className="w-4 h-4" />
               </div>
               <div>
-                <h4 className="font-bold text-sm">GETSSH {updateAvailable.version} 已发布！</h4>
-                <p className="text-xs opacity-70 mt-0.5">有新版本可供升级，体验最新特性与修复。</p>
+                <h4 className="font-bold text-sm">{t('update.bannerTitle', { version: updateAvailable.version })}</h4>
+                <p className="text-xs opacity-70 mt-0.5">{t('update.bannerDesc')}</p>
               </div>
             </div>
             <button onClick={() => setUpdateAvailable(null)} className="opacity-50 hover:opacity-100 p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
@@ -596,8 +618,8 @@ function App() {
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setUpdateAvailable(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>暂不更新</button>
-            <button onClick={() => { window.electronAPI.openExternal(updateAvailable.url); setUpdateAvailable(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">立即下载</button>
+            <button onClick={() => setUpdateAvailable(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>{t('update.bannerDismiss')}</button>
+            <button onClick={() => { window.electronAPI.openExternal(updateAvailable.url); setUpdateAvailable(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">{t('update.bannerDownload')}</button>
           </div>
         </div>
       )}

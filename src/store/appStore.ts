@@ -21,7 +21,15 @@ export interface AppConfig {
   proxyPort: number;
   privacyMode: boolean;
   initScript: string;
+  devMode?: boolean;
+  antiGlare?: boolean;
+  terminalPadding?: number;
+  cursorBlink?: boolean;
+  bellStyle?: 'none' | 'audible' | 'visual';
+  rightClickBehavior?: 'menu' | 'paste';
 }
+
+const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
 
 export const DEFAULT_CONFIG: AppConfig = {
   language: 'en-US',
@@ -43,7 +51,13 @@ export const DEFAULT_CONFIG: AppConfig = {
   proxyHost: '127.0.0.1',
   proxyPort: 1080,
   privacyMode: false,
-  initScript: ''
+  initScript: '',
+  devMode: false,
+  antiGlare: false,
+  terminalPadding: 8,
+  cursorBlink: true,
+  bellStyle: 'visual',
+  rightClickBehavior: isWindows ? 'paste' : 'menu',
 };
 
 interface AppStore {
