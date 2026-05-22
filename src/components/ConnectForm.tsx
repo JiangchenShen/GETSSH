@@ -71,10 +71,13 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
   // 状态回填：当选择已有会话时，绑定协议并关闭智能识别
   useEffect(() => {
-    if (session && session.host) { // 已有会话（包含 host）
+    // 判断是否为真正的新建：如果既没有 host，也没有明确指定具体协议（protocol为auto或空），且没有 id
+    const isSavedOrExplicit = session && (session.host || (session.protocol && session.protocol !== 'auto') || session.id);
+
+    if (isSavedOrExplicit) { 
       setIsAutoLocked(true);
       setDisplayProtocol(session.protocol || 'ssh');
-    } else if (session && !session.host) { // 新建会话
+    } else if (session) { // 新建会话
       setIsAutoLocked(false);
       setDisplayProtocol(session.protocol || 'auto');
     }
