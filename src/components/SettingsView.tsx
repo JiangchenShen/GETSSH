@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -33,6 +33,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
+
+  // History Stack for Navigation
+  const [history, setHistory] = useState<string[]>([settingsActiveTab]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
+  React.useEffect(() => {
+    if (history[historyIndex] !== settingsActiveTab) {
+      const newHistory = history.slice(0, historyIndex + 1);
+      newHistory.push(settingsActiveTab);
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
+    }
+  }, [settingsActiveTab]);
+
+  const goBack = () => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      setHistoryIndex(historyIndex - 1);
+      setSettingsActiveTab(prev as any);
+    }
+  };
+
+  const goForward = () => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      setHistoryIndex(historyIndex + 1);
+      setSettingsActiveTab(next as any);
+    }
+  };
 
   const [safeAction, setSafeAction] = useState<'none'|'change'|'disable'|'enable'>('none');
   const [safeOldPwd, setSafeOldPwd] = useState('');
@@ -84,14 +113,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* Settings Payload */}
       <div className="flex-1 flex flex-col relative bg-transparent min-w-0">
-        {/* Close Button */}
-        <button
-          onClick={() => { setActiveTabId(null); setTabs(tabs.filter(t => t.id !== 'settings')); }}
-          className={`absolute right-6 top-6 z-30 p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`}
-          title="Close Settings"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Navigation Buttons */}
+        <div className="absolute right-8 top-8 z-30 flex items-center gap-2">
+          <button
+            onClick={goBack}
+            disabled={historyIndex === 0}
+            className={`p-1.5 rounded-lg transition-colors border ${isDark ? 'border-white/10 text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent' : 'border-black/10 text-black/50 hover:bg-black/5 hover:text-black disabled:opacity-30 disabled:hover:bg-transparent'}`}
+            title="Go Back"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={goForward}
+            disabled={historyIndex === history.length - 1}
+            className={`p-1.5 rounded-lg transition-colors border ${isDark ? 'border-white/10 text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent' : 'border-black/10 text-black/50 hover:bg-black/5 hover:text-black disabled:opacity-30 disabled:hover:bg-transparent'}`}
+            title="Go Forward"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
 
         <div className="p-10 overflow-y-auto w-full h-full pb-32">
           <h3 className="text-2xl font-bold mb-8 opacity-90">{settingsActiveTab === 'Audit' ? t('settings.auditTitle') : t('settings.' + settingsActiveTab.toLowerCase() as any) + ' ' + t('settings.configuration')}</h3>
