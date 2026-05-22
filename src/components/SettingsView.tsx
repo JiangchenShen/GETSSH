@@ -924,14 +924,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     { label: t('about.envNode'), value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
                     { label: t('about.versionCore'), value: 'V1.3.1 (K9V2X)' },
                     { label: t('about.hostPlatform'), value: (() => {
-                        const env = window.electronAPI?.getEnvInfo?.();
-                        if (!env || !env.platform) return 'N/A';
-                        const p = env.platform;
-                        const a = env.arch;
-                        const r = env.osRelease || '';
+                        const p = window.electronAPI?.getEnvInfo?.()?.platform;
+                        const a = window.electronAPI?.getEnvInfo?.()?.arch;
+                        if (!p) return 'N/A';
                         const osName = p === 'darwin' ? 'macOS' : p === 'win32' ? 'Windows' : p === 'linux' ? 'Linux' : p;
-                        const archStr = a === 'arm64' ? 'arm-aarch' : a;
-                        return `${osName} / ${p} ${r} (${archStr})`;
+                        const archName = a === 'arm64' ? 'Apple Silicon / ARM64 (aarch64)' : a === 'x64' ? 'x86_64 (64-bit Intel/AMD)' : a === 'ia32' ? 'x86 (32-bit)' : a;
+                        return `${osName} (${p}) — ${archName}`;
                       })() 
                     }
                   ].map((item, index) => (
