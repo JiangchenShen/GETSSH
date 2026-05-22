@@ -125,13 +125,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="truncate">{session.alias || `${session.username}@${session.host}`}</span>
              </button>
               <div className="flex items-center gap-[5px] justify-end">
-                <button onClick={(e) => { e.stopPropagation(); setSelectedSessionIndex(idx); setActiveTabId(null); }} className="opacity-70 hover:opacity-100 p-1 hover:text-primary hover:bg-primary/20 rounded-md transition-all" title="Edit connection">
+                <button onClick={(e) => { e.stopPropagation(); setSelectedSessionIndex(idx); setActiveTabId(null); }} className="opacity-70 hover:opacity-100 p-1 hover:text-primary hover:bg-primary/20 rounded-md transition-all" title={t('sidebar.editSession') as string}>
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={(e) => onToggleAutoStart(e, session.host, session.username)} className={`p-1 rounded-md transition-all ${session.autoStart ? 'text-yellow-400 opacity-100 hover:bg-yellow-400/20' : 'opacity-70 hover:opacity-100 hover:text-yellow-500 hover:bg-yellow-500/20'}`} title="Auto-start this session">
+                <button onClick={(e) => onToggleAutoStart(e, session.host, session.username)} className={`p-1 rounded-md transition-all ${session.autoStart ? 'text-yellow-400 opacity-100 hover:bg-yellow-400/20' : 'opacity-70 hover:opacity-100 hover:text-yellow-500 hover:bg-yellow-500/20'}`} title={t('sidebar.autoStartSession') as string}>
                   <Zap className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={(e) => onDeleteSession(e, session.host, session.username)} className="opacity-70 hover:opacity-100 p-1 hover:text-red-500 hover:bg-red-500/20 rounded-md transition-all">
+                <button onClick={(e) => onDeleteSession(e, session.host, session.username)} className="opacity-70 hover:opacity-100 p-1 hover:text-red-500 hover:bg-red-500/20 rounded-md transition-all" title={t('sidebar.deleteSession') as string}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -161,6 +161,10 @@
       "savedSessions": "主机列表",
       "extensions": "扩展功能",
       "newConnection": "新建连接",
+      "newSession": "新建连接",
+      "editSession": "编辑此连接",
+      "autoStartSession": "开启/关闭应用自启",
+      "deleteSession": "删除连接",
       "search": "搜索主机...",
       "emptyState": "选择或创建会话以连接"
     },
