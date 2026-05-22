@@ -85,9 +85,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (settingsActiveTab === 'Security' && window.electronAPI?.getKnownHosts) {
       window.electronAPI.getKnownHosts().then(setKnownHosts);
     }
+    
+    let auditInterval: NodeJS.Timeout | undefined;
     if (settingsActiveTab === 'Audit' && window.electronAPI?.getConnectionLogs) {
-      window.electronAPI.getConnectionLogs().then(setAuditLogs);
+      const fetchLogs = () => window.electronAPI.getConnectionLogs().then(setAuditLogs);
+      fetchLogs();
+      auditInterval = setInterval(fetchLogs, 3000);
     }
+
+    return () => {
+      if (auditInterval) clearInterval(auditInterval);
+    };
   }, [settingsActiveTab]);
 
   return (

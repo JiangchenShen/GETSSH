@@ -419,13 +419,12 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
       return;
     }
     await recordDisconnect(app, sessionId);
-    await connectionManager.removeSession(sessionId);
     const session = connectionManager.sessions.get(sessionId);
     if (session) {
       if (session.stream) session.stream.close();
       if (session.client) session.client.end();
-      await connectionManager.removeSession(sessionId);
     }
+    await connectionManager.removeSession(sessionId);
   });
 
   ipcMain.handle('get-known-hosts', async () => {
