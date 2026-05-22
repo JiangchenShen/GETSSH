@@ -212,7 +212,9 @@
       "remoteInfrastructure": "远程服务器节点",
       "localExtensions": "本地工具与插件",
       "hostsCount": "{{count}} 个主机",
-      "noSavedSessions": "暂无保存的会话，请在侧边栏添加。"
+      "noSavedSessions": "暂无保存的会话，请在侧边栏添加。",
+      "searchPlaceholder": "输入关键字过滤主机，或直接输入 user@host 回车发起闪电直连...",
+      "quickConnectHint": "敲击回车，立即发起闪电直连..."
     },
     "sftp": {
       "title": "SFTP 文件管理器",

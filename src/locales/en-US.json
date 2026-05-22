@@ -212,9 +212,11 @@
       "commandCenter": "COMMAND CENTER",
       "whereTo": "Where do you want to go?",
       "remoteInfrastructure": "Remote Infrastructure",
-      "localExtensions": "Local Extensions",
-      "hostsCount": "{{count}} hosts",
-      "noSavedSessions": "No saved sessions. Add one in the sidebar."
+      "localExtensions": "Local Tools & Plugins",
+      "hostsCount": "{{count}} Hosts",
+      "noSavedSessions": "No saved sessions. Add one in the sidebar.",
+      "searchPlaceholder": "Filter sessions or type user@host to quick connect...",
+      "quickConnectHint": "Press Enter to quick connect to this host..."
     },
     "sftp": {
       "title": "SFTP File Explorer",
