@@ -8,20 +8,26 @@ All notable changes to this project will be documented in this file. The project
 
 ## [1.3.1] (Build K9V2X) - 2026-05-21
 
-### 🛠️ Multi-Protocol Routing & Decoupling
-- **Smart Protocol Lock for New Sessions**: Optimized `ConnectForm.tsx` to execute auto-detection logic exclusively on unsaved (new) sessions. This prevents users' stored protocols from being overwritten when editing or toggling saved hosts.
-- **Protocol State Binding**: Solved the issue where the `protocol` state failed to synchronize when switching saved sessions in the sidebar, achieving 100% state alignment.
-- **Schema Persistence Hotfix**: Fixed a vulnerability in `profileHandler.ts` where `protocol` options were not serialized. This resolves a critical bug where protocol configurations were lost after restarting, reverting to default SSH.
-- **Native Local PTY Support**: Completely refactored the connection mechanism for local terminals. The previous approach of connecting via localhost SSH (which caused `connect ECONNREFUSED ::1:22` errors) has been replaced. GETSSH now directly spawns native PTY pseudo-terminal processes (`ptyHandler.ts`) in the Electron backend, providing a flawless local shell experience for power users.
+### 🛠️ Native PTY & Multi-Protocol Routing
+- **Native Local Shell (PTY) Integration**: We completely abandoned the pseudo-local approach of forcing SSH loops over `::1`. A brand new `ptyHandler.ts` native process gateway has been developed, directly spawning OS-native Bash / Zsh / PowerShell within the Electron Node process. This permanently eliminates the notorious `connect ECONNREFUSED ::1:22` errors, granting you zero-latency, full-privileged local terminal access.
+- **Schema Persistence Hotfix**: Deeply patched a critical vulnerability in `profileHandler.ts` where the `protocol` parameter was lost during profile serialization. All protocol preferences (SSH, Local, Telnet) are now meticulously preserved across application restarts.
+- **Smart Protocol Lock for New Sessions**: Completely overhauled the auto-detection engine in `ConnectForm.tsx`. Protocol auto-switching (e.g., typing `localhost` to switch to Local) now exclusively triggers for "unsaved new sessions". Once saved, the protocol is permanently locked, preventing catastrophic protocol overwrites when editing hostnames.
+- **100% Protocol State Binding**: Fixed an issue where rapidly switching between hosts with different protocols in the sidebar failed to visually update the form UI and highlight states.
 
-### 🎨 OS Logo Visual Refactoring & Layout Optimization
-- **Monochrome Geek Filter**: Forced a desaturation filter (`filter saturate-0`) on all OS icons by default, perfectly blending them into the Obsidian UI theme. When a session is selected/active, the high-saturation original brand colors (`saturate-100 opacity-90`) are injected as visual feedback.
-- **Framing & Sizing Adjustments**: Added a cool-grey right-angled border container (`bg-black/20 border border-black/30 rounded-none`), magnifying the icon to 20px. By enforcing `shrink-0`, system icons remain rigid and distortion-free even when long server names are truncated.
-- **Sidebar Width Enhancement**: Increased the left host list panel width by 25%, providing a broader display area for long hostnames and significantly reducing overflow truncation rates.
+### 🎨 Obsidian Aesthetics & Layout Optimization
+- **Monochrome Geek Filter & Active Awakening**: Forced a cool, desaturated filter (`filter saturate-0`) on all OS icons (Ubuntu, Windows, Debian, etc.) in the sidebar by default, allowing them to perfectly stealth into the deep Obsidian UI. When a host is connected, the system immediately "breaks the seal", injecting the high-saturation original brand colors (`saturate-100 opacity-90`) as a striking visual reward.
+- **Shrink-Proof Framework Reinforcement**: Forged a cool-grey, right-angled exclusive border (`bg-black/20 border border-black/30 rounded-none`) for the OS badges, strictly injecting the `shrink-0` gene. Even with ridiculously long server names, the system badges remain rigid and immune to any distortion.
+- **Command Center (WelcomePane) Alias Escalation**: Refactored the rendering logic for startup cards. The WelcomePane no longer displays cold IP addresses; instead, it **strictly prioritizes displaying your carefully crafted Aliases**, making the management of hundreds of servers vastly more intuitive.
+- **Physical Sidebar Expansion**: Heeding the calls of our DevOps power users, we physically widened the left host list panel by 25%. This grants enterprise-grade server naming conventions much more breathing room, drastically reducing text overflow truncation.
 
-### 🌐 i18n Additions & About Panel Updates
-- **Terminal Settings Localization**: Completed full Chinese/English i18n translation for the "Settings - Terminal" configuration page.
-- **About Panel Version Injection**: Restored the missing semantic version `v1.3.1` in the About panel, which now pairs with the build code `K9V2X` as a complete anti-tampering tracking tag.
+### ⚙️ Background Updater Engine Refactoring
+- **Hardcore Regex SemVer Extraction**: Completely scrapped the fragile `split('.')` string slicing approach in the updater module. The newly introduced regex engine `v.match(/(\d+)\.(\d+)\.(\d+)/)` easily bypasses noise like `V.` prefixes or `_K9V2X` suffixes, surgically extracting the core semantic version.
+- **IPC Payload Alignment**: Fixed a deceptive bug where clicking "Check for Updates" in Settings always claimed "Already the latest version". The backend now strictly adheres to the `{ hasUpdate, version, url }` data schema when transmitting detection reports via IPC, accurately triggering new version discovery modals.
+
+### 🌐 i18n Completion & Hidden Hotfixes
+- **Complete Settings Panel Localization**: Eliminated all remaining hardcoded English fragments across the "Settings - Terminal" and "Settings - About" panels.
+- **Auto-Start Proxy Dispatch**: Patched a hidden flaw where enabling Auto-Start dropped the `proxyPort` parameter, causing proxy configurations to fail during silent boot.
+- **Anti-Tampering Tag Injection**: Restored the missing semantic version `v1.3.1` in the About panel, pairing it with the build code `K9V2X` to construct an impenetrable version tracking wall.
 
 ---
 
