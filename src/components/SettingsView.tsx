@@ -478,6 +478,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </label>
 
               <div>
+                <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2">
+                  <Lock className="w-4 h-4" /> {t('security.autoLockTimeout')}
+                </label>
+                <select 
+                  value={appConfig.autoLockTimeout || 0}
+                  onChange={(e) => updateConfig('autoLockTimeout', parseInt(e.target.value) || 0)}
+                  className={`w-full p-2 border rounded-md text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
+                >
+                  <option value={0}>{t('security.autoLockOff')}</option>
+                  <option value={5}>5 {t('security.minutes')}</option>
+                  <option value={15}>15 {t('security.minutes')}</option>
+                  <option value={30}>30 {t('security.minutes')}</option>
+                  <option value={60}>60 {t('security.minutes')}</option>
+                </select>
+                <div className="text-xs opacity-50 mt-1">{t('security.autoLockTimeoutDesc')}</div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2"><Cpu className="w-4 h-4" /> {t('security.globalInitScript')}</label>
                 <textarea 
                   value={appConfig.initScript || ''} 

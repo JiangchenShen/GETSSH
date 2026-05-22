@@ -255,6 +255,34 @@ function App() {
     syncConfigEffects();
   }, [appConfig, systemIsDark, syncConfigEffects]);
 
+  // ── Auto-Lock Inactivity Engine ───────────────────────────────────────
+  useEffect(() => {
+    if (!appConfig.autoLockTimeout) return; // 0 means disabled
+    
+    let lastActive = Date.now();
+    const updateActivity = () => { lastActive = Date.now(); };
+    
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+
+    const checkInterval = setInterval(() => {
+      // if already locked or setup mode, do nothing
+      if (cryptoMode !== 'idle') return;
+      
+      if (Date.now() - lastActive > appConfig.autoLockTimeout * 60 * 1000) {
+        setCryptoMode('locked');
+      }
+    }, 10000); // check every 10 seconds
+
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      clearInterval(checkInterval);
+    };
+  }, [appConfig.autoLockTimeout, setCryptoMode, cryptoMode]);
+
   const syncProfiles = async (updatedSessions: any[]) => {
     setSessions(updatedSessions);
     if (masterPassword || encryptionDisabled) {
@@ -471,6 +499,7 @@ function App() {
         <CryptoModal 
           mode={cryptoMode} 
           isDark={isDark} 
+          encryptionDisabled={encryptionDisabled}
           onUnlock={handleUnlock} 
           onSetup={handleSetup}
           onSkip={cryptoMode === 'setup' ? () => {

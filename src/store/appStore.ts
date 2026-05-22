@@ -21,6 +21,7 @@ export interface AppConfig {
   proxyPort: number;
   privacyMode: boolean;
   initScript: string;
+  autoLockTimeout: number;
   devMode?: boolean;
   antiGlare?: boolean;
   terminalPadding?: number;
@@ -52,6 +53,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   proxyPort: 1080,
   privacyMode: false,
   initScript: '',
+  autoLockTimeout: 0,
   devMode: false,
   antiGlare: false,
   terminalPadding: 8,
