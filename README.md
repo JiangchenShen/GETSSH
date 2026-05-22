@@ -7,12 +7,12 @@
 [![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-V1.3.0--Updates-brightgreen?style=flat-square&logo=gitbook)](UPDATE.md)
+[![Changelog](https://img.shields.io/badge/Changelog-V1.3.0--Updates-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
 [![Plugin SDK](https://img.shields.io/badge/Plugin_SDK-Docs-9cf?style=flat-square&logo=bookstack)](docs/PLUGIN_SDK_INTERNAL.md)
 
 **GETSSH** is a next-generation, cross-platform **SSH / SFTP client** built for developers who demand peak efficiency, industrial-grade security, and state-of-the-art modern aesthetics.
 
-📢 **[View Latest Changelog (Update Log)](UPDATE.md)**
+📢 **[View Latest Changelog (Update Log)](docs/CHANGELOG_EN.md)**
 
 We break away from the dull, rigid constraints of traditional terminal tools by pairing a meticulously crafted **Glassmorphism design** with zero-knowledge cryptographic credential protection. Under the hood, GETSSH features a highly optimized, low-latency micro-component architecture to provide an unprecedented remote development and server management experience.
 
