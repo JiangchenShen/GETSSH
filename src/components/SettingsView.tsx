@@ -711,7 +711,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     const ok = await window.electronAPI.exportConnectionLogs();
                     if (ok) alert(t('settings.auditExportSuccess'));
                   }}
-                  className={`flex items-center gap-2 px-4 py-2 font-mono text-sm font-bold uppercase tracking-wider rounded-none border transition-colors ${isDark ? 'bg-white text-black border-white hover:bg-slate-200' : 'bg-black text-white border-black hover:bg-slate-800'}`}
+                  className={`flex items-center shrink-0 whitespace-nowrap gap-2 px-4 py-2 font-mono text-sm font-bold uppercase tracking-wider rounded-none border transition-colors ${isDark ? 'bg-white text-black border-white hover:bg-slate-200' : 'bg-black text-white border-black hover:bg-slate-800'}`}
                 >
                   <Download className="w-4 h-4" />
                   {t('settings.auditExport')}
