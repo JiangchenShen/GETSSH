@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { PluginSettings } from './PluginSettings';
+import { parseCustomTheme } from '../utils/themes';
 import logoSrc from '../assets/logo.png';
 
 interface SettingsViewProps {
@@ -46,6 +47,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setHistoryIndex(newHistory.length - 1);
     }
   }, [settingsActiveTab]);
+
+  const handleImportTheme = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const raw = event.target?.result as string;
+      const theme = parseCustomTheme(raw);
+      if (theme) {
+        const themeName = file.name.replace(/\.json$/i, '');
+        const key = `custom_${themeName}`;
+        const newThemes = { ...(appConfig.customThemes || {}), [key]: theme };
+        updateConfig('customThemes', newThemes);
+        updateConfig('terminalTheme', key);
+        window.alert(t('appearance.importSuccess') || 'Theme imported successfully!');
+      } else {
+        window.alert(t('appearance.importFail') || 'Failed to parse theme. Invalid format.');
+      }
+      // Reset input
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
 
   const goBack = () => {
     if (historyIndex > 0) {
@@ -237,20 +261,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.terminalTheme')}</label>
-                <select 
-                  value={appConfig.terminalTheme || 'default'}
-                  onChange={(e) => updateConfig('terminalTheme', e.target.value)}
-                  className={`w-full p-2 border rounded-lg text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
-                >
-                  <option value="default">{t('appearance.themeDefault')} (Transparent)</option>
-                  <option value="dracula">Dracula (Dark)</option>
-                  <option value="nord">Nord (Arctic Blue)</option>
-                  <option value="gruvbox">Gruvbox (Retro Warm)</option>
-                  <option value="tokyo-night">Tokyo Night (Neon)</option>
-                  <option value="catppuccin">Catppuccin (Pastel)</option>
-                  <option value="monokai">Monokai (Sublime Classic)</option>
-                  <option value="solarized">Solarized (Precision)</option>
-                </select>
+                <div className="flex gap-2">
+                  <select 
+                    value={appConfig.terminalTheme || 'default'}
+                    onChange={(e) => updateConfig('terminalTheme', e.target.value)}
+                    className={`flex-1 p-2 border rounded-lg text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
+                  >
+                    <option value="default">{t('appearance.themeDefault')} (Transparent)</option>
+                    <option disabled>───── Built-in ─────</option>
+                    <option value="dracula">Dracula (Dark)</option>
+                    <option value="nord">Nord (Arctic Blue)</option>
+                    <option value="gruvbox">Gruvbox (Retro Warm)</option>
+                    <option value="tokyo-night">Tokyo Night (Neon)</option>
+                    <option value="catppuccin">Catppuccin (Pastel)</option>
+                    <option value="monokai">Monokai (Sublime Classic)</option>
+                    <option value="solarized">Solarized (Precision)</option>
+                    {Object.keys(appConfig.customThemes || {}).length > 0 && (
+                      <>
+                        <option disabled>───── Custom ─────</option>
+                        {Object.keys(appConfig.customThemes || {}).map(key => (
+                          <option key={key} value={key}>{key.replace('custom_', '')}</option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                  
+                  <div className="relative flex items-center">
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportTheme}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      title={t('appearance.importTheme') || 'Import Custom Theme'}
+                    />
+                    <button
+                      className={`px-3 py-2 h-full rounded-lg text-sm font-medium border transition-colors flex items-center gap-2 ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/5 text-black'}`}
+                    >
+                      <Download size={16} />
+                    </button>
+                  </div>
+                  
+                  {appConfig.terminalTheme?.startsWith('custom_') && (
+                    <button
+                      onClick={() => {
+                        const newCustom = { ...(appConfig.customThemes || {}) };
+                        delete newCustom[appConfig.terminalTheme];
+                        updateConfig('customThemes', newCustom);
+                        updateConfig('terminalTheme', 'default');
+                      }}
+                      className="px-3 py-2 rounded-lg text-sm font-medium border border-red-500/50 hover:bg-red-500/10 text-red-500 transition-colors"
+                      title={t('appearance.deleteTheme') || 'Delete Theme'}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex flex-col gap-2 pt-2 border-t border-black/5 dark:border-white/5">
                 <div className="flex items-center justify-between">

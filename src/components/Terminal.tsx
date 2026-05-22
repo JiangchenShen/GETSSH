@@ -38,11 +38,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   }, [config]);
 
   // Build xterm theme object based on antiGlare and isDark
-  const buildTheme = (themeColor: string, isDark: boolean, antiGlare?: boolean, terminalTheme: ThemeName = 'default') => {
+  const buildTheme = (themeColor: string, isDark: boolean, antiGlare?: boolean, terminalTheme: string = 'default', customThemes: Record<string, any> = {}) => {
     let baseTheme: any = {};
-    if (terminalTheme && terminalTheme !== 'default' && TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>]) {
-      const palette = TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>];
-      baseTheme = { ...palette };
+    if (terminalTheme && terminalTheme !== 'default') {
+      if (terminalTheme.startsWith('custom_') && customThemes[terminalTheme]) {
+        baseTheme = { ...customThemes[terminalTheme] };
+      } else if (TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>]) {
+        const palette = TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>];
+        baseTheme = { ...palette };
+      }
       // Allow the theme's solid background to render at 100% opacity in the terminal area,
       // while the rest of the application (Sidebar, TabBar) retains the global glassmorphism.
     } else {
@@ -112,7 +116,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         fontSize: config.fontSize || 14,
         lineHeight: config.lineHeight || 1.2,
         cursorStyle: config.cursorStyle || 'block',
-        theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme as ThemeName),
+        theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme, config.customThemes),
         allowTransparency: true,
         scrollback: config.scrollback || 10000,
         ...({ bellStyle: config.bellStyle === 'audible' ? 'sound' : 'none' } as any),
@@ -278,7 +282,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
 
     // Sync theme foreground & cursor when isDark, themeColor, or antiGlare changes
     const themeColor = config.themeColor || '168 85 247';
-    term.options.theme = buildTheme(themeColor, isDark, config.antiGlare, config.terminalTheme as ThemeName);
+    term.options.theme = buildTheme(themeColor, isDark, config.antiGlare, config.terminalTheme, config.customThemes);
 
     // Dynamic Renderer Dispatch
     const cache = xtermCache.get(sessionId);

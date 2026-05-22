@@ -28,6 +28,7 @@ export interface AppConfig {
   cursorBlink?: boolean;
   bellStyle?: 'none' | 'audible' | 'visual';
   rightClickBehavior?: 'menu' | 'paste';
+  customThemes?: Record<string, any>;
 }
 
 const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
@@ -61,6 +62,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   cursorBlink: true,
   bellStyle: 'visual',
   rightClickBehavior: isWindows ? 'paste' : 'menu',
+  customThemes: {},
 };
 
 interface AppStore {

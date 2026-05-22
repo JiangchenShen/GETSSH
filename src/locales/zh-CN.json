@@ -103,7 +103,11 @@
       "glassmorphismOpacity": "背景不透明度",
       "langZh": "简体中文",
       "terminalTheme": "终端配色主题",
-      "themeDefault": "系统默认"
+      "themeDefault": "系统默认",
+      "importTheme": "导入自定义主题 (.json)",
+      "importSuccess": "自定义主题导入成功！",
+      "importFail": "主题解析失败，请确保您上传的是有效的 JSON 格式文件。",
+      "deleteTheme": "删除此自定义主题"
     },
     "terminal": {
       "sessionClosed": "会话已断开",

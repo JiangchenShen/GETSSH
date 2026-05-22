@@ -103,7 +103,11 @@
       "glassmorphismOpacity": "Background Opacity",
       "langZh": "Simplified Chinese",
       "terminalTheme": "Terminal Color Theme",
-      "themeDefault": "System Default"
+      "themeDefault": "System Default",
+      "importTheme": "Import Custom Theme (.json)",
+      "importSuccess": "Theme imported successfully!",
+      "importFail": "Failed to parse theme. Please ensure it's a valid JSON format.",
+      "deleteTheme": "Delete Theme"
     },
     "terminal": {
       "sessionClosed": "Session Closed",

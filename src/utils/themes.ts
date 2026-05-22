@@ -160,3 +160,72 @@ export const TERMINAL_THEMES: Record<Exclude<ThemeName, 'default'>, ITheme> = {
     brightWhite: '#fdf6e3',
   }
 };
+
+// Intelligent JSON parser for custom themes (Gogh, iTerm2, Windows Terminal, etc.)
+export const parseCustomTheme = (jsonString: string): ITheme | null => {
+  try {
+    const raw = JSON.parse(jsonString);
+    if (typeof raw !== 'object' || raw === null) return null;
+
+    // Flatten object
+    const flatten = (obj: any, prefix = ''): Record<string, string> => {
+      return Object.keys(obj).reduce((acc: any, k) => {
+        const pre = prefix.length ? prefix + '.' : '';
+        if (typeof obj[k] === 'object' && obj[k] !== null && !Array.isArray(obj[k])) {
+          Object.assign(acc, flatten(obj[k], pre + k));
+        } else if (typeof obj[k] === 'string') {
+          acc[pre + k] = obj[k];
+        }
+        return acc;
+      }, {});
+    };
+
+    const flat = flatten(raw);
+    const theme: any = {};
+    const keys = Object.keys(flat);
+
+    const findColor = (names: string[]) => {
+      for (const name of names) {
+        const match = keys.find(k => k.toLowerCase().endsWith(name.toLowerCase()) || k.toLowerCase() === name.toLowerCase());
+        if (match) {
+          const val = flat[match].trim();
+          // Validate Hex
+          if (/^#[0-9a-fA-F]{3,8}$/.test(val)) {
+            return val;
+          }
+        }
+      }
+      return undefined;
+    };
+
+    theme.background = findColor(['background', 'bg']);
+    theme.foreground = findColor(['foreground', 'fg', 'text']);
+    theme.cursor = findColor(['cursor', 'cursorcolor']);
+    theme.black = findColor(['black', 'color0']);
+    theme.red = findColor(['red', 'color1']);
+    theme.green = findColor(['green', 'color2']);
+    theme.yellow = findColor(['yellow', 'color3']);
+    theme.blue = findColor(['blue', 'color4']);
+    theme.magenta = findColor(['magenta', 'purple', 'color5']);
+    theme.cyan = findColor(['cyan', 'color6']);
+    theme.white = findColor(['white', 'color7']);
+    theme.brightBlack = findColor(['brightBlack', 'bright_black', 'color8']);
+    theme.brightRed = findColor(['brightRed', 'bright_red', 'color9']);
+    theme.brightGreen = findColor(['brightGreen', 'bright_green', 'color10']);
+    theme.brightYellow = findColor(['brightYellow', 'bright_yellow', 'color11']);
+    theme.brightBlue = findColor(['brightBlue', 'bright_blue', 'color12']);
+    theme.brightMagenta = findColor(['brightMagenta', 'bright_magenta', 'brightPurple', 'color13']);
+    theme.brightCyan = findColor(['brightCyan', 'bright_cyan', 'color14']);
+    theme.brightWhite = findColor(['brightWhite', 'bright_white', 'color15']);
+
+    // Ensure at least background exists
+    if (theme.background) {
+      if (!theme.foreground) theme.foreground = '#ffffff'; // Fallback
+      return theme as ITheme;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
