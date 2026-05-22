@@ -80,6 +80,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Audit Logs State
   const [auditLogs, setAuditLogs] = React.useState<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>([]);
+  const [auditPage, setAuditPage] = React.useState(1);
+  const ITEMS_PER_PAGE = 10;
+  
+  const reversedAuditLogs = React.useMemo(() => [...auditLogs].reverse(), [auditLogs]);
+  const totalAuditPages = Math.max(1, Math.ceil(reversedAuditLogs.length / ITEMS_PER_PAGE));
+  React.useEffect(() => {
+    if (auditPage > totalAuditPages) setAuditPage(totalAuditPages);
+  }, [totalAuditPages, auditPage]);
+  const paginatedAuditLogs = reversedAuditLogs.slice((auditPage - 1) * ITEMS_PER_PAGE, auditPage * ITEMS_PER_PAGE);
 
   React.useEffect(() => {
     if (settingsActiveTab === 'Security' && window.electronAPI?.getKnownHosts) {
@@ -738,14 +747,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {auditLogs.length === 0 ? (
+                    {paginatedAuditLogs.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="p-8 text-center opacity-50 italic">
                           No audit logs found.
                         </td>
                       </tr>
                     ) : (
-                      auditLogs.map((log, i) => (
+                      paginatedAuditLogs.map((log, i) => (
                         <tr key={i} className={`border-b transition-colors ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'} font-mono text-xs`}>
                           <td className="p-3 opacity-90 truncate max-w-[150px]" title={log.alias}>{log.alias}</td>
                           <td className="p-3 opacity-70 truncate max-w-[150px]" title={`${log.host}:${log.port}`}>{log.host}:{log.port}</td>
@@ -755,11 +764,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           </td>
                           <td className="p-3 opacity-90 text-right font-bold">{log.duration}</td>
                         </tr>
-                      )).reverse()
+                      ))
                     )}
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {auditLogs.length > ITEMS_PER_PAGE && (
+                <div className={`flex items-center justify-between px-1 ${isDark ? 'text-white/60' : 'text-black/60'}`}>
+                  <div className="text-xs font-mono opacity-60">
+                    Total: {auditLogs.length} logs
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+                      disabled={auditPage === 1}
+                      className={`px-3 py-1.5 rounded-none border text-xs font-bold uppercase transition-colors disabled:opacity-20 disabled:cursor-not-allowed ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/10 text-black'}`}
+                    >
+                      Prev
+                    </button>
+                    <span className="text-xs font-mono mx-2">
+                      {auditPage} / {totalAuditPages}
+                    </span>
+                    <button 
+                      onClick={() => setAuditPage(p => Math.min(totalAuditPages, p + 1))}
+                      disabled={auditPage === totalAuditPages}
+                      className={`px-3 py-1.5 rounded-none border text-xs font-bold uppercase transition-colors disabled:opacity-20 disabled:cursor-not-allowed ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/10 text-black'}`}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
