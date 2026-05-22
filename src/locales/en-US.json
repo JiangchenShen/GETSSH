@@ -220,6 +220,7 @@
     },
     "sftp": {
       "title": "SFTP File Explorer",
+      "disabledHint": "SFTP is only available when connected to an instance",
       "root": "root",
       "name": "Name",
       "size": "Size",

@@ -218,6 +218,7 @@
     },
     "sftp": {
       "title": "SFTP 文件管理器",
+      "disabledHint": "SFTP 只能在连接到实例后启用",
       "root": "根目录",
       "name": "文件名",
       "size": "大小",

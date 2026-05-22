@@ -55,6 +55,7 @@ function App() {
   
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   const openCommandCenterTab = () => {
     const newTabId = `cmd-${Date.now()}`;
@@ -68,17 +69,12 @@ function App() {
   };
 
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance', toggle: boolean = false) => {
-     if (activeTabId === 'settings' && toggle) {
-         setActiveTabId(null);
-         setTabs(tabs.filter(t => t.id !== 'settings'));
+     if (isSettingsOpen && toggle) {
+         setIsSettingsOpen(false);
          return;
      }
      setSettingsActiveTab(tab);
-     setSelectedSessionIndex(null);
-     if (!tabs.find(t => t.id === 'settings')) {
-         setTabs([...tabs, { id: 'settings', title: t('settings.title'), config: { isSettings: true } as any }]);
-     }
-     setActiveTabId('settings');
+     setIsSettingsOpen(true);
   };
 
   const hasAutoStarted = useRef(false);
@@ -523,6 +519,7 @@ function App() {
         openSettingsTab={openSettingsTab}
         settingsActiveTab={settingsActiveTab}
         openCommandCenterTab={openCommandCenterTab}
+        isSettingsOpen={isSettingsOpen}
       />
 
       {/* Main Area - Switch Mode */}
@@ -537,17 +534,7 @@ function App() {
           onCloseTab={closeTab}
         />
 
-        {/* Settings Panel */}
-        <div style={{ display: (activeTabId === 'settings' && selectedSessionIndex === null) ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}>
-           <SettingsView 
-             settingsActiveTab={settingsActiveTab}
-             setSettingsActiveTab={setSettingsActiveTab}
-             masterPassword={masterPassword}
-             setMasterPassword={setMasterPassword}
-             encryptionDisabled={encryptionDisabled}
-             setEncryptionDisabled={setEncryptionDisabled}
-           />
-        </div>
+
 
         {/* Connect Form - always mounted, shown via CSS */}
         <div
@@ -615,7 +602,53 @@ function App() {
           <EmptyState />
         </div>
 
-      </div>
+      {/* Floating Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm shadow-2xl transition-all"
+             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+             onClick={(e) => {
+               if (e.target === e.currentTarget) {
+                 setIsSettingsOpen(false);
+               }
+             }}>
+          <div 
+            className={`relative w-[850px] h-[600px] max-w-[90vw] max-h-[90vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl border ${
+              isDark ? 'bg-[#1a1a1a]/95 border-white/10' : 'bg-[#f5f5f5]/95 border-black/10'
+            }`}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            {/* Draggable OS-like Header */}
+            <div className={`h-12 shrink-0 flex items-center px-4 border-b select-none ${
+              isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
+            }`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+              <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                <div className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
+                     onClick={() => setIsSettingsOpen(false)}>
+                </div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
+              </div>
+              <div className={`mx-auto font-medium text-xs tracking-wide ${isDark ? 'text-white/50' : 'text-black/50'}`}>
+                GETSSH Preferences
+              </div>
+              <div className="w-[52px]"></div> {/* Spacer for balance */}
+            </div>
+            
+            {/* Content Area */}
+            <div className="flex-1 flex overflow-hidden relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+               <SettingsView 
+                 settingsActiveTab={settingsActiveTab}
+                 setSettingsActiveTab={setSettingsActiveTab}
+                 masterPassword={masterPassword}
+                 setMasterPassword={setMasterPassword}
+                 encryptionDisabled={encryptionDisabled}
+                 setEncryptionDisabled={setEncryptionDisabled}
+               />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
 
       {/* Update Toast Notification */}
       {updateAvailable && (

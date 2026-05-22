@@ -15,6 +15,7 @@ interface SidebarProps {
   openSettingsTab: (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About', toggle?: boolean) => void;
   settingsActiveTab: string;
   openCommandCenterTab?: () => void;
+  isSettingsOpen: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,7 +24,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteSession,
   openSettingsTab,
   settingsActiveTab,
-  openCommandCenterTab
+  openCommandCenterTab,
+  isSettingsOpen
 }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
@@ -36,6 +38,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const activeTabId = useSessionStore(state => state.activeTabId);
+  const tabs = useSessionStore(state => state.tabs);
+  
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const isConnected = !!(activeTabId && activeTabId !== 'settings' && !activeTabId.startsWith('cmd-') && activeTab && activeTab.paneTree?.paneType !== 'welcome');
   
   const activePanelId = usePanelStore(state => state.activePanelId);
   const togglePanel = usePanelStore(state => state.togglePanel);
@@ -144,17 +150,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(action.icon) }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
            </button>
         ))}
-        <button onClick={() => togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
+        <button 
+          onClick={() => {
+            if (isConnected) togglePanel('sftp');
+          }} 
+          disabled={!isConnected}
+          className={`p-2 rounded-lg transition-colors ${
+            !isConnected 
+              ? 'opacity-30 cursor-not-allowed' 
+              : activePanelId === 'sftp' 
+                ? 'text-primary' 
+                : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'
+          }`} 
+          title={isConnected ? "SFTP Manager" : t('sftp.disabledHint', "SFTP 只能在连接到实例后启用")}
+        >
            <HardDrive className="w-5 h-5" />
         </button>
         <button onClick={openCommandCenterTab} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Command Center">
            <Command className="w-5 h-5" />
         </button>
-        <button onClick={() => openSettingsTab('Appearance', true)} className={`relative p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
+        <button onClick={() => openSettingsTab('Appearance', true)} className={`relative p-2 rounded-lg transition-colors ${(isSettingsOpen && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
            <Settings className="w-5 h-5" />
            {updateAvailable && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#1e1e1e]" />}
         </button>
-        <button onClick={() => openSettingsTab('About', true)} className={`p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
+        <button onClick={() => openSettingsTab('About', true)} className={`p-2 rounded-lg transition-colors ${(isSettingsOpen && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
            <Info className="w-5 h-5" />
         </button>
       </div>
