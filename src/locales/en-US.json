@@ -101,7 +101,6 @@
       "enableGlassmorphism": "Enable Glassmorphism",
       "glassmorphismOnlyDark": "Glassmorphism is only available in Dark Mode",
       "glassmorphismOpacity": "Background Opacity",
-      "langZh": "Simplified Chinese"
       "langZh": "Simplified Chinese",
       "terminalTheme": "Terminal Color Theme",
       "themeDefault": "System Default"
