@@ -54,6 +54,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   privacyMode: false,
   initScript: '',
   autoLockTimeout: 0,
+  terminalTheme: 'default',
   devMode: false,
   antiGlare: false,
   terminalPadding: 8,

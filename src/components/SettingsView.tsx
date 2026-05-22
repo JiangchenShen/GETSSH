@@ -235,6 +235,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   })}
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 opacity-70">{t('appearance.terminalTheme')}</label>
+                <select 
+                  value={appConfig.terminalTheme || 'default'}
+                  onChange={(e) => updateConfig('terminalTheme', e.target.value)}
+                  className={`w-full p-2 border rounded-lg text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
+                >
+                  <option value="default">{t('appearance.themeDefault')} (Transparent)</option>
+                  <option value="dracula">Dracula (Dark)</option>
+                  <option value="nord">Nord (Arctic Blue)</option>
+                  <option value="gruvbox">Gruvbox (Retro Warm)</option>
+                  <option value="tokyo-night">Tokyo Night (Neon)</option>
+                  <option value="catppuccin">Catppuccin (Pastel)</option>
+                  <option value="monokai">Monokai (Sublime Classic)</option>
+                  <option value="solarized">Solarized (Precision)</option>
+                </select>
+              </div>
               <div className="flex flex-col gap-2 pt-2 border-t border-black/5 dark:border-white/5">
                 <div className="flex items-center justify-between">
                   <label className={`text-sm font-medium ${!isDark ? 'opacity-40' : 'opacity-70'}`}>

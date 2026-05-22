@@ -98,10 +98,12 @@
       "bgOpacity": "背景不透明度",
       "language": "语言",
       "systemColor": "主题颜色",
-      "enableGlassmorphism": "启用毛玻璃特效",
-      "glassmorphismOnlyDark": "毛玻璃特效仅在深色模式下可用",
-      "glassmorphismOpacity": "毛玻璃不透明度",
-      "langZh": "简体中文"
+      "enableGlassmorphism": "开启亚克力毛玻璃视效",
+      "glassmorphismOnlyDark": "毛玻璃视效仅在暗色模式下可用",
+      "glassmorphismOpacity": "背景不透明度",
+      "langZh": "简体中文",
+      "terminalTheme": "终端配色主题",
+      "themeDefault": "系统默认"
     },
     "terminal": {
       "sessionClosed": "会话已断开",

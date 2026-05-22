@@ -6,6 +6,7 @@ import { WebglAddon } from 'xterm-addon-webgl';
 import { LigaturesAddon } from 'xterm-addon-ligatures';
 import { AppConfig } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
+import { TERMINAL_THEMES, applyOpacity, ThemeName } from '../utils/themes';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -37,43 +38,56 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   }, [config]);
 
   // Build xterm theme object based on antiGlare and isDark
-  const buildTheme = (themeColor: string, isDark: boolean, antiGlare?: boolean) => {
-    if (antiGlare) {
-      // High-Contrast Mode (Anti-Glare)
-      return {
-        background: isDark ? '#000000' : '#FFFFFF',
-        foreground: isDark ? '#FFFFFF' : '#000000',
-        cursor: isDark ? '#FFFFFF' : '#000000',
-        cursorAccent: isDark ? '#000000' : '#FFFFFF',
-        selectionBackground: `rgba(${themeColor}, 0.35)`,
-        // High Contrast ANSI 16 Colors to prevent colored text from blending into black/white
-        black: isDark ? '#000000' : '#000000',
-        red: isDark ? '#FF5555' : '#CC0000',
-        green: isDark ? '#50FA7B' : '#008800',
-        yellow: isDark ? '#F1FA8C' : '#DDBB00',
-        blue: isDark ? '#BD93F9' : '#0000EE',
-        magenta: isDark ? '#FF79C6' : '#CC00CC',
-        cyan: isDark ? '#8BE9FD' : '#00AAAA',
-        white: isDark ? '#FFFFFF' : '#FFFFFF',
-        brightBlack: isDark ? '#6272A4' : '#555555',
-        brightRed: isDark ? '#FF6E6E' : '#FF0000',
-        brightGreen: isDark ? '#69FF94' : '#00FF00',
-        brightYellow: isDark ? '#FFFFA5' : '#FFFF00',
-        brightBlue: isDark ? '#D6ACFF' : '#5C5CFF',
-        brightMagenta: isDark ? '#FF92DF' : '#FF00FF',
-        brightCyan: isDark ? '#A4FFFF' : '#00FFFF',
-        brightWhite: isDark ? '#FFFFFF' : '#FFFFFF',
-      };
+  const buildTheme = (themeColor: string, isDark: boolean, antiGlare?: boolean, terminalTheme: ThemeName = 'default') => {
+    let baseTheme: any = {};
+    if (terminalTheme && terminalTheme !== 'default' && TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>]) {
+      const palette = TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>];
+      baseTheme = { ...palette };
+      if (!antiGlare && baseTheme.background && isDark) {
+         // Apply 40% transparency to the background for glassmorphism
+         baseTheme.background = applyOpacity(baseTheme.background, 0.4);
+      }
     } else {
-      // Soft Mode (Native Canvas / Glassmorphism)
-      return {
-        background: isDark ? 'transparent' : '#F1F5F9', // Fix light mode transparent disaster
-        foreground: isDark ? '#E2E8F0' : '#334155',
-        cursor: isDark ? '#F8FAFC' : '#0F172A',
-        cursorAccent: isDark ? '#000000' : '#FFFFFF',
-        selectionBackground: `rgba(${themeColor}, 0.35)`,
-      };
+      if (antiGlare) {
+        // High-Contrast Mode (Anti-Glare)
+        baseTheme = {
+          background: isDark ? '#000000' : '#FFFFFF',
+          foreground: isDark ? '#FFFFFF' : '#000000',
+          cursor: isDark ? '#FFFFFF' : '#000000',
+          cursorAccent: isDark ? '#000000' : '#FFFFFF',
+          // High Contrast ANSI 16 Colors
+          black: isDark ? '#000000' : '#000000',
+          red: isDark ? '#FF5555' : '#CC0000',
+          green: isDark ? '#50FA7B' : '#008800',
+          yellow: isDark ? '#F1FA8C' : '#DDBB00',
+          blue: isDark ? '#BD93F9' : '#0000EE',
+          magenta: isDark ? '#FF79C6' : '#CC00CC',
+          cyan: isDark ? '#8BE9FD' : '#00AAAA',
+          white: isDark ? '#FFFFFF' : '#FFFFFF',
+          brightBlack: isDark ? '#6272A4' : '#555555',
+          brightRed: isDark ? '#FF6E6E' : '#FF0000',
+          brightGreen: isDark ? '#69FF94' : '#00FF00',
+          brightYellow: isDark ? '#FFFFA5' : '#FFFF00',
+          brightBlue: isDark ? '#D6ACFF' : '#5C5CFF',
+          brightMagenta: isDark ? '#FF92DF' : '#FF00FF',
+          brightCyan: isDark ? '#A4FFFF' : '#00FFFF',
+          brightWhite: isDark ? '#FFFFFF' : '#FFFFFF',
+        };
+      } else {
+        // Soft Mode (Native Canvas / Glassmorphism)
+        baseTheme = {
+          background: isDark ? 'transparent' : '#F1F5F9', // Fix light mode transparent disaster
+          foreground: isDark ? '#E2E8F0' : '#334155',
+          cursor: isDark ? '#F8FAFC' : '#0F172A',
+          cursorAccent: isDark ? '#000000' : '#FFFFFF',
+        };
+      }
     }
+
+    return {
+      ...baseTheme,
+      selectionBackground: `rgba(${themeColor}, 0.35)`,
+    };
   };
 
   const onDisconnectedRef = useRef(onDisconnected);
@@ -100,7 +114,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         fontSize: config.fontSize || 14,
         lineHeight: config.lineHeight || 1.2,
         cursorStyle: config.cursorStyle || 'block',
-        theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare),
+        theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme as ThemeName),
         allowTransparency: true,
         scrollback: config.scrollback || 10000,
         ...({ bellStyle: config.bellStyle === 'audible' ? 'sound' : 'none' } as any),
@@ -266,7 +280,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
 
     // Sync theme foreground & cursor when isDark, themeColor, or antiGlare changes
     const themeColor = config.themeColor || '168 85 247';
-    term.options.theme = buildTheme(themeColor, isDark, config.antiGlare);
+    term.options.theme = buildTheme(themeColor, isDark, config.antiGlare, config.terminalTheme as ThemeName);
 
     // Dynamic Renderer Dispatch
     const cache = xtermCache.get(sessionId);
