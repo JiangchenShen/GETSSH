@@ -1,7 +1,7 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneSplit, PaneNode, useSessionStore, patchLeafDisconnected, isSSHConfig } from '../store/sessionStore';
-import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server } from 'lucide-react';
+import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 
@@ -41,6 +41,31 @@ const LeafPane: React.FC<{
   const isActive = activePaneId === node.paneId;
   const welcomeRef = useRef<HTMLDivElement>(null);
   const lastSplitTime = useRef<number>(0);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredSessions = sessions.filter(s => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (s.alias?.toLowerCase().includes(q)) || 
+           (s.name?.toLowerCase().includes(q)) || 
+           (s.host?.toLowerCase().includes(q)) || 
+           (s.username?.toLowerCase().includes(q));
+  });
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      if (filteredSessions.length > 0) {
+        onConnectInPane(node.paneId, filteredSessions[0]);
+      } else if (searchQuery) {
+        let username = '';
+        let host = searchQuery;
+        if (searchQuery.includes('@')) {
+          [username, host] = searchQuery.split('@');
+        }
+        onConnectInPane(node.paneId, { host, username, protocol: 'ssh' });
+      }
+    }
+  };
 
   const handleSplit = (direction: 'hsplit' | 'vsplit') => {
     const now = Date.now();
@@ -153,9 +178,26 @@ const LeafPane: React.FC<{
             <p className={`text-xs font-semibold tracking-[0.2em] uppercase mb-1 ${
               isDark ? 'text-white/30' : 'text-black/30'
             }`}>GETSSH {t('welcome.commandCenter', 'Command Center')}</p>
-            <h1 className={`text-2xl font-bold tracking-tight ${
+            <h1 className={`text-2xl font-bold tracking-tight mb-8 ${
               isDark ? 'text-white/90' : 'text-black/90'
             }`}>{t('welcome.whereTo', 'Where do you want to go?')}</h1>
+            
+            <div className="relative w-full group mb-8">
+              <Search className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 transition-colors ${isDark ? 'text-white/40 group-focus-within:text-primary' : 'text-black/40 group-focus-within:text-primary'}`} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder={t('welcome.searchPlaceholder', 'Filter sessions or type user@host to quick connect...')}
+                className={`w-full pl-12 pr-4 py-4 rounded-2xl border text-sm font-medium outline-none transition-all shadow-sm ${
+                  isDark 
+                    ? 'bg-white/5 border-white/10 text-white placeholder-white/30 focus:border-primary/50 focus:bg-white/10' 
+                    : 'bg-black/5 border-black/10 text-black placeholder-black/40 focus:border-primary/50 focus:bg-white'
+                }`}
+                autoFocus
+              />
+            </div>
           </div>
 
           {/* ─── Section A: Remote Infrastructure ────── */}
@@ -177,7 +219,7 @@ const LeafPane: React.FC<{
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {sessions.map((s, i) => (
+              {filteredSessions.map((s, i) => (
                 <button
                   key={i}
                   onClick={() => onConnectInPane(node.paneId, s)}
@@ -204,11 +246,11 @@ const LeafPane: React.FC<{
                   </div>
                 </button>
               ))}
-              {sessions.length === 0 && (
+              {filteredSessions.length === 0 && (
                 <div className={`col-span-full text-center py-6 text-sm rounded-2xl border border-dashed flex items-center justify-center ${
                   isDark ? 'text-white/30 border-white/10 bg-white/5' : 'text-black/30 border-black/10 bg-black/5'
                 }`}>
-                  {t('welcome.noSavedSessions', 'No saved sessions. Add one in the sidebar.')}
+                  {searchQuery ? t('welcome.quickConnectHint', 'Press Enter to quick connect to this host...') : t('welcome.noSavedSessions', 'No saved sessions. Add one in the sidebar.')}
                 </div>
               )}
             </div>

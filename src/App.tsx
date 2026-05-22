@@ -56,6 +56,17 @@ function App() {
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
   
+  const openCommandCenterTab = () => {
+    const newTabId = `cmd-${Date.now()}`;
+    setTabs([...tabs, { 
+      id: newTabId, 
+      title: 'Command Center', 
+      paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'welcome' } 
+    }]);
+    setActiveTabId(newTabId);
+    setSelectedSessionIndex(null);
+  };
+
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance', toggle: boolean = false) => {
      if (activeTabId === 'settings' && toggle) {
          setActiveTabId(null);
@@ -511,6 +522,7 @@ function App() {
         onDeleteSession={deleteSession}
         openSettingsTab={openSettingsTab}
         settingsActiveTab={settingsActiveTab}
+        openCommandCenterTab={openCommandCenterTab}
       />
 
       {/* Main Area - Switch Mode */}
