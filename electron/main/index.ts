@@ -40,7 +40,7 @@ function createWindow() {
     title: 'GETSSH',
     width: 1024,
     height: 768,
-    transparent: true,
+    transparent: process.platform !== 'darwin', // macOS vibrancy handles transparency; true breaks native shadows/resizing
     vibrancy: 'fullscreen-ui', // macOS vibrant glass effect
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default', // hide title bar to let web content handle drag
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,

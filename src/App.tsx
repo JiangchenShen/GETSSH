@@ -509,7 +509,7 @@ function App() {
       />
 
       {/* Main Area - Switch Mode */}
-      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'pt-0' : (isMac ? 'pt-10' : 'pt-8')}`} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'pt-0' : (isMac ? 'pt-10' : 'pt-8')}`}>
 
         {/* Tab Bar - Extracted Component */}
         <TabBar
