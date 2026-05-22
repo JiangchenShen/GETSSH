@@ -69,10 +69,11 @@ export class PluginManager {
               // Only ignore MODULE_NOT_FOUND if it's the main entry point missing,
               // not a missing dependency within the plugin itself.
               const isModuleNotFound = requireErr && typeof requireErr === 'object' && (requireErr as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND';
+              const isSyntaxError = requireErr instanceof SyntaxError && requireErr.message.includes('Unexpected token');
               const isEntryPoint = requireErr && typeof requireErr === 'object' && (requireErr as any).message?.includes(manifest.main);
               
-              if (isModuleNotFound && isEntryPoint) {
-                console.warn(`[Plugin Kernel] Main entry point '${manifest.main}' not found for ${manifest.name}. Attempting to run headless/renderer-only.`);
+              if ((isModuleNotFound || isSyntaxError) && (isEntryPoint || isSyntaxError)) {
+                console.warn(`[Plugin Kernel] Main entry point '${manifest.main}' not found or is a UI file (SyntaxError). Attempting to run headless/renderer-only.`);
               } else {
                 throw requireErr;
               }

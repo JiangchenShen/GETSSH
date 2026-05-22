@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
@@ -35,8 +35,22 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const [autoFlash, setAutoFlash] = useState(false);
   const [showProtocolHelp, setShowProtocolHelp] = useState(false);
 
+  // Local state to prevent React re-render lag and IME interruption
+  const [localSession, setLocalSession] = useState(session);
+  const debounceRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    setLocalSession(session);
+  }, [session?.id, index]); // Reset local state when switching to a different session
+
   const handleUpdate = (updates: Partial<any>) => {
-    onUpdateSession(index, { ...session, ...updates });
+    const updated = { ...localSession, ...updates };
+    setLocalSession(updated);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onUpdateSession(index, updated);
+    }, 400); // 400ms debounce to prevent disk I/O spam and UI lag
   };
 
   // Effective protocol used for conditional rendering
@@ -111,8 +125,15 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     { value: 'telnet', label: 'Telnet' },
   ];
 
+  const preventImeSubmit = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing && e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onConnect({ ...session, protocol: effectiveProtocol }); }} className="p-8 w-full max-w-md space-y-6 flex flex-col bg-transparent border-0">
+    <form onSubmit={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }} className="p-8 w-full max-w-md space-y-6 flex flex-col bg-transparent border-0">
       <div className="text-center">
         <h2 className="text-2xl font-bold mb-2">{t('welcome.quickConnect')}</h2>
         <p className="opacity-50 text-sm">{t('welcome.subtitle')}</p>
@@ -191,8 +212,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
             {t('connect.alias')} <span className="opacity-50 ml-1">({t('connect.optional')})</span>
           </label>
           <input
-            value={session.alias || session.name || ''}
+            value={localSession.alias || localSession.name || ''}
             onChange={(e) => handleUpdate({ alias: e.target.value })}
+            onKeyDown={preventImeSubmit}
             type="text"
             placeholder={t('connect.placeholder.alias') as string}
             className={inputCls}
@@ -210,8 +232,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               </label>
               <input
                 required
-                value={session.host || ''}
+                value={localSession.host || ''}
                 onChange={(e) => handleHostChange(e.target.value)}
+                onKeyDown={preventImeSubmit}
                 type="text"
                 placeholder={
                   !isAutoLocked
@@ -225,8 +248,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.port')}</label>
               <input
                 required
-                value={session.port ?? (isTelnet ? 23 : (appConfig.defaultPort ?? 22))}
+                value={localSession.port ?? (isTelnet ? 23 : (appConfig.defaultPort ?? 22))}
                 onChange={(e) => handleUpdate({ port: parseInt(e.target.value) || (isTelnet ? 23 : 22) })}
+                onKeyDown={preventImeSubmit}
                 type="number"
                 min="1"
                 max="65535"
@@ -242,8 +266,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
             <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.username')}</label>
             <input
               required
-              value={session.username || ''}
+              value={localSession.username || ''}
               onChange={(e) => handleUpdate({ username: e.target.value })}
+              onKeyDown={preventImeSubmit}
               type="text"
               className={inputCls}
             />
@@ -260,7 +285,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   type="button"
                   onClick={() => handleUpdate({ authType: 'password' })}
                   className={`py-1.5 text-xs rounded-none transition-colors border ${
-                    (!session.authType || session.authType === 'password')
+                    (!localSession.authType || localSession.authType === 'password')
                       ? 'border-primary bg-primary/10 text-primary'
                       : isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'
                   }`}
@@ -271,7 +296,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   type="button"
                   onClick={() => handleUpdate({ authType: 'key' })}
                   className={`py-1.5 text-xs rounded-none transition-colors border ${
-                    session.authType === 'key'
+                    localSession.authType === 'key'
                       ? 'border-primary bg-primary/10 text-primary'
                       : isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'
                   }`}
@@ -280,10 +305,11 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                 </button>
               </div>
             )}
-            {(isTelnet || !session.authType || session.authType === 'password') ? (
+            {(isTelnet || !localSession.authType || localSession.authType === 'password') ? (
               <input
-                value={session.password || ''}
+                value={localSession.password || ''}
                 onChange={(e) => handleUpdate({ password: e.target.value })}
+                onKeyDown={preventImeSubmit}
                 type="password"
                 placeholder={t('connect.password') as string}
                 className={inputCls}
@@ -291,8 +317,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
             ) : (
               <div className="flex gap-2">
                 <input
-                  value={session.privateKeyPath || ''}
+                  value={localSession.privateKeyPath || ''}
                   onChange={(e) => handleUpdate({ privateKeyPath: e.target.value })}
+                  onKeyDown={preventImeSubmit}
                   type="text"
                   placeholder="~/.ssh/id_rsa"
                   className={`flex-1 ${inputCls}`}
@@ -314,7 +341,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           <label className="flex items-center gap-3 cursor-pointer pt-2">
             <input
               type="checkbox"
-              checked={session.useKeepAlive !== false}
+              checked={localSession.useKeepAlive !== false}
               onChange={(e) => handleUpdate({ useKeepAlive: e.target.checked })}
               className="w-4 h-4 accent-primary rounded"
             />
@@ -336,7 +363,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
         </button>
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); onConnect({ ...session, protocol: effectiveProtocol }); }}
+          onClick={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }}
           className={`px-4 py-3 font-medium border rounded-none transition-colors ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
         >
           {t('connect.saveAndConnect')}
