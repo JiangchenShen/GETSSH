@@ -149,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
            <Settings className="w-5 h-5" />
            {updateAvailable && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#1e1e1e]" />}
         </button>
-        <button onClick={() => openSettingsTab('About')} className={`p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
+        <button onClick={() => openSettingsTab('About', true)} className={`p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
            <Info className="w-5 h-5" />
         </button>
       </div>
