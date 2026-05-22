@@ -162,7 +162,7 @@ const LeafPane: React.FC<{
         <div
           ref={welcomeRef}
           tabIndex={0}
-          onClick={(e) => { e.stopPropagation(); welcomeRef.current?.focus(); }}
+          onClick={(e) => { e.stopPropagation(); }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
