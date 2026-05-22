@@ -8,6 +8,9 @@
 
 ## [1.3.1] (Build K9V2X) - 2026-05-21
 
+### 🎉 首个多协议终端版本 (The First Multi-Protocol Era)
+此版本具有里程碑式的跨时代意义，标志着 GETSSH 正式从单一的 SSH 工具进化为**全域多协议终端平台**。我们开创性地引入了底层协议智能嗅探引擎 (Smart Protocol Detection)，极大降低了小白用户的上手门槛。您只需凭借直觉输入（如直接打出 `localhost`），系统便能像魔法一样瞬间读懂您的意图，自动分发并桥接对应的底层协议！
+
 ### 🛠️ 原生本地终端与多协议智能分发 (Native PTY & Multi-Protocol Routing)
 - **原生本地 Shell (Local PTY) 引擎集成**：彻底摒弃了此前依赖 `ssh2` 强连本地 `::1` 回环地址的“伪本地”方案。我们全新开发了 `ptyHandler.ts` 底层原生进程网关，直接在 Electron Node 进程中拉起操作系统原生的 Bash / Zsh / PowerShell！彻底终结了 `connect ECONNREFUSED ::1:22` 报错，为您提供零延迟、全权限的无缝本地终端体验。
 - **配置持久化 Schema 修复**：深入修复了 `profileHandler.ts` 在 Profile 序列化时丢失 `protocol` 选项的严重漏洞。现在，重启应用后所有的协议选择（如 SSH、Local、Telnet）都会被精准记忆，告别配置丢失。

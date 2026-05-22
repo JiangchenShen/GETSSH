@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file. The project
 
 ## [1.3.1] (Build K9V2X) - 2026-05-21
 
+### 🎉 The First Multi-Protocol Era
+This release marks a historic milestone for GETSSH, evolving from a standard SSH client into a **full-spectrum multi-protocol terminal platform**. We have pioneered a Smart Protocol Detection engine that drastically lowers the learning curve for beginners. Simply type intuitively (like entering `localhost`), and the system magically sniffs your intent, automatically routing and binding the correct underlying protocol instantly!
+
 ### 🛠️ Native PTY & Multi-Protocol Routing
 - **Native Local Shell (PTY) Integration**: We completely abandoned the pseudo-local approach of forcing SSH loops over `::1`. A brand new `ptyHandler.ts` native process gateway has been developed, directly spawning OS-native Bash / Zsh / PowerShell within the Electron Node process. This permanently eliminates the notorious `connect ECONNREFUSED ::1:22` errors, granting you zero-latency, full-privileged local terminal access.
 - **Schema Persistence Hotfix**: Deeply patched a critical vulnerability in `profileHandler.ts` where the `protocol` parameter was lost during profile serialization. All protocol preferences (SSH, Local, Telnet) are now meticulously preserved across application restarts.
