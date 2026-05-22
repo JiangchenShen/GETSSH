@@ -188,14 +188,15 @@ function createWindow() {
 }
 
 function compareSemVer(v1: string, v2: string) {
-  const parse = (v: string) => v.replace(/^[vV]/, '').split('.').map(Number);
+  const parse = (v: string) => {
+    const match = v.match(/(\d+)\.(\d+)\.(\d+)/);
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
+  };
   const a = parse(v1);
   const b = parse(v2);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const numA = a[i] || 0;
-    const numB = b[i] || 0;
-    if (numA > numB) return 1;
-    if (numA < numB) return -1;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return 1;
+    if (a[i] < b[i]) return -1;
   }
   return 0;
 }
@@ -249,13 +250,13 @@ async function checkForUpdates() {
 ipcMain.handle('check-for-updates', async () => {
   try {
     const update = await checkLatestRelease();
-    if (update) {
+    if (update && win && !win.isDestroyed()) {
+      win.webContents.send('update-available', update);
       return { hasUpdate: true, version: update.version, url: update.url };
-    } else {
-      return { hasUpdate: false };
     }
-  } catch (e: any) {
-    return { hasUpdate: false, error: e.message };
+    return { hasUpdate: false };
+  } catch (e) {
+    return { hasUpdate: false, error: String(e) };
   }
 });
 
