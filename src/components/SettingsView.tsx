@@ -83,7 +83,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Settings Payload */}
-      <div className="flex-1 flex flex-col relative bg-transparent">
+      <div className="flex-1 flex flex-col relative bg-transparent min-w-0">
         {/* Close Button */}
         <button
           onClick={() => { setActiveTabId(null); setTabs(tabs.filter(t => t.id !== 'settings')); }}
