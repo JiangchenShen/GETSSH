@@ -410,7 +410,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     }
   });
 
-  ipcMain.handle('ssh-disconnect', async (event, sessionId) => {
+  ipcMain.on('ssh-disconnect', async (event, sessionId) => {
     const proto = sessionProtocols.get(sessionId);
     sessionProtocols.delete(sessionId);
     if (proto === 'local' || proto === 'telnet') {
