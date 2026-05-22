@@ -348,20 +348,22 @@ function App() {
     }
   };
 
-  const deleteSession = (e: React.MouseEvent, targetHost: string, targetUser: string) => {
+  const deleteSession = (e: React.MouseEvent, targetSession: SessionProfile) => {
     e.stopPropagation();
-    const targetIdx = sessions.findIndex(s => s.host === targetHost && s.username === targetUser);
+    const targetIdx = sessions.indexOf(targetSession);
+    if (targetIdx === -1) return;
+    
     if (selectedSessionIndex === targetIdx) setSelectedSessionIndex(null);
     else if (selectedSessionIndex !== null && selectedSessionIndex > targetIdx) setSelectedSessionIndex(selectedSessionIndex - 1);
 
-    const updated = sessions.filter(s => s.host !== targetHost || s.username !== targetUser);
+    const updated = sessions.filter((_, idx) => idx !== targetIdx);
     syncProfiles(updated);
   };
   
-  const toggleAutoStart = (e: React.MouseEvent, targetHost: string, targetUser: string) => {
+  const toggleAutoStart = (e: React.MouseEvent, targetSession: SessionProfile) => {
     e.stopPropagation();
     const updated = sessions.map(s => {
-       if(s.host === targetHost && s.username === targetUser) return { ...s, autoStart: !s.autoStart };
+       if(s === targetSession) return { ...s, autoStart: !s.autoStart };
        return s;
     });
     syncProfiles(updated);

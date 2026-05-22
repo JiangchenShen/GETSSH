@@ -7,11 +7,12 @@ import { useSessionStore } from '../store/sessionStore';
 import { usePanelStore } from '../store/panelStore';
 import { usePluginStore } from '../store/pluginStore';
 import logoSrc from '../assets/logo.png';
+import { SessionProfile } from '../types/session';
 
 interface SidebarProps {
   onAddSession: () => void;
-  onToggleAutoStart: (e: React.MouseEvent, host: string, username: string) => void;
-  onDeleteSession: (e: React.MouseEvent, host: string, username: string) => void;
+  onToggleAutoStart: (e: React.MouseEvent, targetSession: SessionProfile) => void;
+  onDeleteSession: (e: React.MouseEvent, targetSession: SessionProfile) => void;
   openSettingsTab: (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About', toggle?: boolean) => void;
   settingsActiveTab: string;
   openCommandCenterTab?: () => void;
@@ -128,10 +129,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button onClick={(e) => { e.stopPropagation(); setSelectedSessionIndex(idx); setActiveTabId(null); }} className="opacity-70 hover:opacity-100 p-1 hover:text-primary hover:bg-primary/20 rounded-md transition-all" title={t('sidebar.editSession') as string}>
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={(e) => onToggleAutoStart(e, session.host, session.username)} className={`p-1 rounded-md transition-all ${session.autoStart ? 'text-yellow-400 opacity-100 hover:bg-yellow-400/20' : 'opacity-70 hover:opacity-100 hover:text-yellow-500 hover:bg-yellow-500/20'}`} title={t('sidebar.autoStartSession') as string}>
+                <button onClick={(e) => onToggleAutoStart(e, session)} className={`p-1 rounded-md transition-all ${session.autoStart ? 'text-yellow-400 opacity-100 hover:bg-yellow-400/20' : 'opacity-70 hover:opacity-100 hover:text-yellow-500 hover:bg-yellow-500/20'}`} title={t('sidebar.autoStartSession') as string}>
                   <Zap className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={(e) => onDeleteSession(e, session.host, session.username)} className="opacity-70 hover:opacity-100 p-1 hover:text-red-500 hover:bg-red-500/20 rounded-md transition-all" title={t('sidebar.deleteSession') as string}>
+                <button onClick={(e) => onDeleteSession(e, session)} className="opacity-70 hover:opacity-100 p-1 hover:text-red-500 hover:bg-red-500/20 rounded-md transition-all" title={t('sidebar.deleteSession') as string}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
