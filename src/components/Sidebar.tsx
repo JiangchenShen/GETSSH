@@ -145,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button onClick={() => togglePanel('sftp')} className={`p-2 rounded-lg transition-colors ${activePanelId === 'sftp' ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="SFTP Manager">
            <HardDrive className="w-5 h-5" />
         </button>
-        <button onClick={() => openSettingsTab('Appearance')} className={`relative p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
+        <button onClick={() => openSettingsTab('Appearance', true)} className={`relative p-2 rounded-lg transition-colors ${(activeTabId === 'settings' && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
            <Settings className="w-5 h-5" />
            {updateAvailable && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#1e1e1e]" />}
         </button>

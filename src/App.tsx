@@ -56,7 +56,12 @@ function App() {
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
   
-  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance') => {
+  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance', toggle: boolean = false) => {
+     if (activeTabId === 'settings' && toggle) {
+         setActiveTabId(null);
+         setTabs(tabs.filter(t => t.id !== 'settings'));
+         return;
+     }
      setSettingsActiveTab(tab);
      setSelectedSessionIndex(null);
      if (!tabs.find(t => t.id === 'settings')) {
