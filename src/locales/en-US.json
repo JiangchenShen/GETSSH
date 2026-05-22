@@ -256,8 +256,11 @@
       "checkUpdates": "Check for Updates",
       "envElectron": "Electron Runtime",
       "envChrome": "Chromium Core",
-      "envNode": "Node.js Engine",
-      "envPlatform": "Platform Arch"
+      "envNode": "Node.js",
+      "envPlatform": "OS Platform",
+      "versionCore": "Version & Core",
+      "hostPlatform": "Host Platform",
+      "compliance": "Compliance & Legal"
     },
     "hostKey": {
       "title": "Security Warning",

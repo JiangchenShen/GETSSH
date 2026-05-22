@@ -251,7 +251,7 @@
       "licenses": "第三方开源许可",
       "systemInfo": "系统信息",
       "tagline": "GETSSH 终端平台 v1.3.1 (构建 K9V2X) - 安全沙盒核心。",
-      "compliance": "合规与开源",
+      "compliance": "合规性与法律条款",
       "openSourceDesc": "GETSSH 构建于强大的开源基础之上，包含 <strong>xterm.js</strong>、<strong>ssh2</strong>、<strong>React</strong> 和 <strong>Zustand</strong> 等。请查看第三方开源许可文档以获取完整的开源组件及其相应许可的注册表。",
       "copyright": "版权所有 © 2026 JiangchenShen。保留所有权利。",
       "checkingUpdates": "检查中...",
@@ -259,7 +259,9 @@
       "envElectron": "Electron 运行时",
       "envChrome": "Chromium 内核",
       "envNode": "Node.js 引擎",
-      "envPlatform": "平台架构"
+      "envPlatform": "系统平台",
+      "versionCore": "构建版本与内核",
+      "hostPlatform": "运行系统与架构"
     },
     "hostKey": {
       "title": "安全告警",

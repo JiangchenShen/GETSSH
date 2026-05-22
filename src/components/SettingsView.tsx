@@ -910,9 +910,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex flex-col items-center gap-3">
                 <img src={logoSrc} alt="GETSSH Logo" className={`w-24 h-24 rounded-none shadow-xl border object-cover mb-2 ${isDark ? 'border-white/10' : 'border-black/10'}`} />
                 <span className="text-4xl font-black tracking-tighter text-primary">GETSSH</span>
-                <div className={`text-xs font-bold tracking-[0.2em] uppercase ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-                  {t('about.tagline')}
-                </div>
               </div>
 
               {/* Environment Information Grid */}
@@ -925,7 +922,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     { label: t('about.envElectron'), value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
                     { label: t('about.envChrome'), value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
                     { label: t('about.envNode'), value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
-                    { label: t('about.envPlatform'), value: `${window.electronAPI?.getEnvInfo?.()?.platform} (${window.electronAPI?.getEnvInfo?.()?.arch})` || 'N/A' }
+                    { label: 'V8 Engine', value: window.electronAPI?.getEnvInfo?.()?.v8 || 'N/A' },
+                    { label: t('about.versionCore'), value: 'V1.3.1 (K9V2X)' },
+                    { label: t('about.hostPlatform'), value: (() => {
+                        const p = window.electronAPI?.getEnvInfo?.()?.platform;
+                        const a = window.electronAPI?.getEnvInfo?.()?.arch;
+                        if (!p) return 'N/A';
+                        const osName = p === 'darwin' ? 'macOS' : p === 'win32' ? 'Windows' : p === 'linux' ? 'Linux' : p;
+                        return `${osName} / ${p} (${a === 'arm64' ? 'arm-aarch' : a})`;
+                      })() 
+                    }
                   ].map(item => (
                     <div key={item.label} className={`p-4 flex flex-col gap-1 ${isDark ? 'bg-[#1e1e1e]' : 'bg-white'}`}>
                       <span className="text-[10px] uppercase tracking-widest opacity-50">{item.label}</span>
