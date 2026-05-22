@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command } from 'lucide-react';
+import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command, HelpCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store/appStore';
@@ -52,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
 
-  const OsBadge = ({ osType, isActive }: { osType?: string; isActive: boolean }) => {
+  const OsBadge = ({ osType, protocol, isActive }: { osType?: string; protocol?: string; isActive: boolean }) => {
     // 框架限定：冷灰色直角容器 (放大 ~25%)
     const boxCls = `w-[26px] h-[26px] shrink-0 flex items-center justify-center rounded-none border transition-all ${
       isActive 
@@ -66,7 +66,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }`;
 
     const renderIcon = () => {
-      if (!osType || osType === 'generic') return <span className={`${iconCls} font-mono text-[11px] font-bold flex items-center justify-center`}>{'$>'}</span>;
+      if (protocol === 'local') return <Terminal className={iconCls} />;
+      if (!osType || osType === 'generic') return <HelpCircle className={iconCls} />;
       if (osType === 'macos')   return <Apple  className={iconCls} />;
       if (osType === 'windows') return <Monitor className={iconCls} />;
       if (osType === 'ubuntu')  return <span className={`${iconCls} flex items-center justify-center`} aria-label="Ubuntu"><svg viewBox="0 0 24 24" fill="#E95420" className="w-full h-full"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="white"/><circle cx="12" cy="4" r="2" fill="white"/><circle cx="4.5" cy="16" r="2" fill="white"/><circle cx="19.5" cy="16" r="2" fill="white"/></svg></span>;
@@ -120,7 +121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  : 'bg-white/40 hover:bg-white/80 border-slate-200/50 text-slate-700 shadow-sm'
            }`}>
              <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-2.5 truncate text-left">
-                <OsBadge osType={session.osType} isActive={selectedSessionIndex === idx} />
+                <OsBadge osType={session.osType} protocol={session.protocol} isActive={selectedSessionIndex === idx} />
                 <span className="truncate">{session.alias || `${session.username}@${session.host}`}</span>
              </button>
               <div className="flex items-center gap-[5px] justify-end">
