@@ -922,7 +922,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     { label: t('about.envElectron'), value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
                     { label: t('about.envChrome'), value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
                     { label: t('about.envNode'), value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
-                    { label: 'V8 Engine', value: window.electronAPI?.getEnvInfo?.()?.v8 || 'N/A' },
                     { label: t('about.versionCore'), value: 'V1.3.1 (K9V2X)' },
                     { label: t('about.hostPlatform'), value: (() => {
                         const p = window.electronAPI?.getEnvInfo?.()?.platform;
@@ -932,8 +931,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         return `${osName} / ${p} (${a === 'arm64' ? 'arm-aarch' : a})`;
                       })() 
                     }
-                  ].map(item => (
-                    <div key={item.label} className={`p-4 flex flex-col gap-1 ${isDark ? 'bg-[#1e1e1e]' : 'bg-white'}`}>
+                  ].map((item, index) => (
+                    <div key={item.label} className={`p-4 flex flex-col gap-1 ${isDark ? 'bg-[#1e1e1e]' : 'bg-white'} ${index === 4 ? 'col-span-2' : ''}`}>
                       <span className="text-[10px] uppercase tracking-widest opacity-50">{item.label}</span>
                       <span className="font-mono text-sm">{item.value}</span>
                     </div>
