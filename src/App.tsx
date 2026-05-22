@@ -446,6 +446,12 @@ function App() {
 
     // If this is the ONLY pane in the tree, we convert it to welcome pane instead of closing the tab
     if (tab.paneTree.type === 'leaf' && tab.paneTree.paneId === paneId) {
+      if (tab.paneTree.paneType === 'welcome') {
+        // It's already a welcome pane! Closing it should just close the whole tab.
+        closeTab(tab.id);
+        return;
+      }
+
       setTabs(tabs.map(t => {
         if (t.id === activeTabId) {
           return {
