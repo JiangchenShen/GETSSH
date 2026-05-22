@@ -612,7 +612,7 @@ function App() {
                }
              }}>
           <div 
-            className={`relative w-[850px] h-[600px] max-w-[90vw] max-h-[90vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl border ${
+            className={`relative w-[1000px] h-[700px] max-w-[95vw] max-h-[95vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl border ${
               isDark ? 'bg-[#1a1a1a]/95 border-white/10' : 'bg-[#f5f5f5]/95 border-black/10'
             }`}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
