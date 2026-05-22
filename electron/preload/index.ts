@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import os from 'os'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: () => ipcRenderer.invoke('select-file'),
@@ -81,7 +82,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chrome: process.versions.chrome,
     node: process.versions.node,
     platform: process.platform,
-    arch: process.arch
+    arch: process.arch,
+    osRelease: os.release()
   }),
   onFullScreenState: (callback: (isFullScreen: boolean) => void) => {
     const listener = (_event: any, isFullScreen: boolean) => callback(isFullScreen);

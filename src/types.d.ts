@@ -63,7 +63,7 @@ declare global {
       deleteKnownHost: (host: string, port: number) => Promise<boolean>;
       getConnectionLogs: () => Promise<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>;
       exportConnectionLogs: () => Promise<boolean>;
-      getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
+      getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string, osRelease?: string };
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
       onOsFingerprint: (cb: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => (() => void);
     };
