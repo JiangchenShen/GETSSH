@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
