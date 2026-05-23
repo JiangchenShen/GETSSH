@@ -16,3 +16,6 @@ REFACTORING_PLAN.md
 **/*.test.tsx
 **/__tests__/
 mock_userData
+
+# Unwanted directories
+release notes/
