@@ -183,10 +183,13 @@ export const parseCustomTheme = (jsonString: string): ITheme | null => {
     const flat = flatten(raw);
     const theme: any = {};
     const keys = Object.keys(flat);
+    const lowerKeys = keys.map(k => k.toLowerCase());
 
     const findColor = (names: string[]) => {
       for (const name of names) {
-        const match = keys.find(k => k.toLowerCase().endsWith(name.toLowerCase()) || k.toLowerCase() === name.toLowerCase());
+        const lowerName = name.toLowerCase();
+        const matchIndex = lowerKeys.findIndex(k => k.endsWith(lowerName) || k === lowerName);
+        const match = matchIndex !== -1 ? keys[matchIndex] : undefined;
         if (match) {
           const val = flat[match].trim();
           // Validate Hex
