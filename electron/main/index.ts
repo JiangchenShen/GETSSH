@@ -1,15 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeTheme, globalShortcut, Menu, shell, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import os from 'node:os'
-import fs from 'node:fs'
-import crypto from 'node:crypto'
-import https from 'node:https'
 import { PluginManager } from './PluginManager'
-import { registerCryptoHandlers } from './handlers/cryptoHandler'
-import { registerSshHandlers } from './handlers/sshHandler'
-import { registerSftpHandlers } from './handlers/sftpHandler'
-import { registerProfileHandlers } from './handlers/profileHandler'
+import { registerAllIpcHandlers } from './handlers'
+import { getBackendConfig } from './handlers/systemHandler'
+import { getBrowserWindowOptions, bindWindowEvents, setupSecurityPolicies } from './handlers/windowHandler'
 
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
@@ -36,82 +31,10 @@ const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
 
 function createWindow() {
-  win = new BrowserWindow({
-    title: 'GETSSH',
-    width: 1024,
-    height: 768,
-    transparent: process.platform !== 'darwin', // macOS vibrancy handles transparency; true breaks native shadows/resizing
-    vibrancy: 'fullscreen-ui', // macOS vibrant glass effect
-    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default', // hide title bar to let web content handle drag
-    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
-    titleBarOverlay: process.platform !== 'darwin' ? {
-      color: 'rgba(0,0,0,0)',
-      symbolColor: '#a1a1aa',
-      height: 32
-    } : false,
-    webPreferences: {
-      preload,
-      nodeIntegration: false,
-      contextIsolation: true,
-      backgroundThrottling: false // Prevents xterm and SSH from disconnecting when window loses focus
-    },
-  })
-
-  // Prevent Quit Logic Map
-  win.on('close', (e) => {
-    if (win) {
-       // We fetch boolean confirmQuit from the local mutable state (init false)
-       if (backendConfig.confirmQuit) {
-         const selection = dialog.showMessageBoxSync(win, {
-           type: 'question',
-           buttons: ['Cancel', 'Quit'],
-           defaultId: 1,
-           cancelId: 0,
-           title: 'Confirm Quit',
-           message: 'Are you sure you want to quit GETSSH?',
-           detail: 'All active SSH terminal connections and running tasks will be disconnected immediately.'
-         });
-         
-         if (selection === 0) {
-           e.preventDefault();
-         }
-       }
-    }
-  })
-
-  // Capture console logs from the renderer
-  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    console.log(`[Renderer] ${message}`);
-  });
-
-  // Security Hardening: Prevent arbitrary window spawning
-  win.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
-
-  // Security Hardening: Prevent arbitrary navigation within the main window
-  win.webContents.on('will-navigate', (event, url) => {
-    const parsedUrl = new URL(url);
-    const localUrl = process.env.VITE_DEV_SERVER_URL;
-    if (localUrl && parsedUrl.origin === new URL(localUrl).origin) {
-      return; // Allow local dev server navigation
-    }
-    if (parsedUrl.protocol === 'file:') {
-      return; // Allow local file navigation (dist/index.html)
-    }
-    event.preventDefault();
-    console.warn(`[Security] Prevented navigation to ${url}`);
-  });
-
-  // System Monitor Stream
-  setInterval(() => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('sysmon:data', {
-        cpus: os.cpus(),
-        mem: { total: os.totalmem(), free: os.freemem() }
-      });
-    }
-  }, 1000);
+  win = new BrowserWindow(getBrowserWindowOptions(preload));
+  
+  setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL);
+  bindWindowEvents(win, () => getBackendConfig().confirmQuit);
 
   if (app.isPackaged) {
     win.loadFile(join(__dirname, '../../dist/index.html'))
@@ -121,14 +44,6 @@ function createWindow() {
   } else {
     win.loadFile(indexHtml)
   }
-
-  // Fullscreen State Tracking
-  win.on('enter-full-screen', () => {
-    win?.webContents.send('fullscreen-state', true);
-  });
-  win.on('leave-full-screen', () => {
-    win?.webContents.send('fullscreen-state', false);
-  });
 
   // Native macOS Application Menu
   if (process.platform === 'darwin') {
@@ -187,78 +102,6 @@ function createWindow() {
   }
 }
 
-function compareSemVer(v1: string, v2: string) {
-  const parse = (v: string) => {
-    const match = v.match(/(\d+)\.(\d+)\.(\d+)/);
-    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
-  };
-  const a = parse(v1);
-  const b = parse(v2);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] > b[i]) return 1;
-    if (a[i] < b[i]) return -1;
-  }
-  return 0;
-}
-
-function checkLatestRelease(): Promise<{ version: string, url: string } | null> {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/repos/JiangchenShen/GETSSH/releases/latest',
-      headers: {
-        'User-Agent': 'GETSSH-Updater'
-      }
-    };
-
-    https.get(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          if (res.statusCode === 200) {
-            const release = JSON.parse(data);
-            const latestVersion = release.tag_name;
-            const currentVersion = app.getVersion();
-            if (compareSemVer(latestVersion, currentVersion) > 0) {
-              resolve({ version: latestVersion, url: release.html_url });
-            } else {
-              resolve(null);
-            }
-          } else {
-            resolve(null);
-          }
-        } catch (e) {
-          console.error('Failed to parse release data', e);
-          resolve(null);
-        }
-      });
-    }).on('error', (e) => {
-      console.error('Failed to check for updates', e);
-      resolve(null);
-    });
-  });
-}
-
-async function checkForUpdates() {
-  const update = await checkLatestRelease();
-  if (update && win && !win.isDestroyed()) {
-    win.webContents.send('update-available', update);
-  }
-}
-
-ipcMain.handle('check-for-updates', async () => {
-  try {
-    const update = await checkLatestRelease();
-    if (update && win && !win.isDestroyed()) {
-      win.webContents.send('update-available', update);
-      return { hasUpdate: true, version: update.version, url: update.url };
-    }
-    return { hasUpdate: false };
-  } catch (e) {
-    return { hasUpdate: false, error: String(e) };
-  }
-});
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
@@ -274,14 +117,8 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(pluginPath).toString());
   });
   
-  registerCryptoHandlers(ipcMain, app);
-  registerSshHandlers(ipcMain, app, () => win);
-  registerSftpHandlers(ipcMain);
-  registerProfileHandlers(ipcMain);
+  registerAllIpcHandlers(ipcMain, app, () => win);
   createWindow();
-  
-  checkForUpdates();
-  setInterval(checkForUpdates, 12 * 60 * 60 * 1000); // Check every 12 hours
 })
 
 app.on('window-all-closed', () => {
@@ -299,75 +136,4 @@ app.on('browser-window-blur', () => {
 
 app.on('browser-window-focus', () => {
   if (win && !win.isDestroyed()) win.webContents.send('app-focus')
-})
-
-let backendConfig = { confirmQuit: false, globalHotkey: '' };
-
-const registerHotkey = (key: string) => {
-  globalShortcut.unregisterAll();
-  if (key) {
-    try {
-      globalShortcut.register(key, () => {
-        if (win) {
-          if (win.isVisible() && win.isFocused()) {
-            win.hide();
-          } else {
-            win.show();
-            win.focus();
-          }
-        }
-      });
-    } catch(e) { console.error("Hotkey failed to register", e) }
-  }
-}
-
-ipcMain.on('update-backend-config', (event, config) => {
-  backendConfig = { ...backendConfig, ...config };
-  if (config.globalHotkey !== undefined) {
-    registerHotkey(config.globalHotkey);
-  }
-})
-
-// Theme integration
-ipcMain.handle('get-theme', () => nativeTheme.shouldUseDarkColors)
-
-nativeTheme.on('updated', () => {
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('theme-changed', nativeTheme.shouldUseDarkColors)
-  }
-})
-// File Selection Handler
-ipcMain.handle('select-file', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
-    title: 'Select Private Key',
-    properties: ['openFile', 'showHiddenFiles']
-  })
-  if (!canceled) {
-    return filePaths[0]
-  }
-  return null
-})
-
-// Safe Storage Encryption Payload -> Zero-Knowledge Local AES has been extracted to cryptoHandler.ts
-
-ipcMain.on('show-context-menu', (event) => {
-  const template = [
-    { role: 'copy' },
-    { role: 'paste' }
-  ];
-  const menu = Menu.buildFromTemplate(template as any);
-  menu.popup({ window: BrowserWindow.fromWebContents(event.sender)! });
-})
-
-ipcMain.on('open-external', (event, url) => {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      shell.openExternal(url);
-    } else {
-      console.warn(`[Security] Blocked attempt to open non-http(s) URL: ${url}`);
-    }
-  } catch (e) {
-    console.error(`[Security] Invalid URL format rejected: ${url}`);
-  }
 })

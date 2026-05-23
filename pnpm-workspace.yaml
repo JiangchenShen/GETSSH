@@ -1,0 +1,6 @@
+allowBuilds:
+  '@homebridge/node-pty-prebuilt-multiarch': true
+  cpu-features: true
+  electron: true
+  esbuild: true
+  ssh2: true
