@@ -135,14 +135,15 @@ export class PluginManager {
           }
         }
 
-        // Concurrent directory creation
+        // Using p-limit to prevent EMFILE, memory exhaustion and unresponsiveness.
+        const limit = pLimit(10);
+
+        // Concurrent directory creation with concurrency limit
         await Promise.all(
-          Array.from(directoriesToCreate).map(dir => fs.promises.mkdir(dir, { recursive: true }))
+          Array.from(directoriesToCreate).map(dir => limit(() => fs.promises.mkdir(dir, { recursive: true })))
         );
 
         // Concurrent file writing with concurrency limit
-        // Using p-limit to prevent EMFILE, memory exhaustion from `getData()` and unresponsiveness.
-        const limit = pLimit(10);
         await Promise.all(
           validFileEntries.map(({ entry, targetPath }) =>
             limit(async () => {
