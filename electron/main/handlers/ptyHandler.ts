@@ -37,6 +37,38 @@ const telnetSockets = new Map<string, net.Socket>();
 // LOCAL TERMINAL
 // ────────────────────────────────────────────────────────────────────────────
 
+export function getSafeShell(): string {
+  if (process.platform === 'win32') {
+    return 'powershell.exe';
+  }
+
+  const defaultShell = '/bin/bash';
+  const envShell = process.env.SHELL;
+
+  if (!envShell) {
+    return defaultShell;
+  }
+
+  const allowedShells = [
+    '/bin/bash',
+    '/bin/sh',
+    '/bin/zsh',
+    '/usr/bin/bash',
+    '/usr/bin/sh',
+    '/usr/bin/zsh',
+    '/usr/local/bin/bash',
+    '/usr/local/bin/zsh',
+    '/opt/homebrew/bin/bash',
+    '/opt/homebrew/bin/zsh'
+  ];
+
+  if (allowedShells.includes(envShell)) {
+    return envShell;
+  }
+
+  return defaultShell;
+}
+
 export async function spawnLocalTerminal(
   config: any,
   sessionId: string,
@@ -45,10 +77,7 @@ export async function spawnLocalTerminal(
   try {
     const ptyLib = getPty();
 
-    const shell =
-      process.platform === 'win32'
-        ? 'powershell.exe'
-        : (process.env.SHELL || '/bin/bash');
+    const shell = getSafeShell();
 
     const cols = config.cols || 80;
     const rows = config.rows || 24;
