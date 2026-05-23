@@ -90,6 +90,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [safeError, setSafeError] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  const handleConfirmSafeAction = () => {
+    if ((safeAction === 'change' || safeAction === 'disable') && safeOldPwd !== masterPassword) {
+      return setSafeError(t('security.errIncorrectPwd'));
+    }
+    if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
+      return setSafeError(t('security.errEmptyPwd'));
+    }
+
+    if (safeAction === 'change') {
+      setMasterPassword(safeNewPwd);
+      window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+      setTimeout(() => window.alert(t('security.pwdUpdated')), 100);
+    } else if (safeAction === 'disable') {
+      setEncryptionDisabled(true);
+      setMasterPassword('');
+      window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+      setTimeout(() => window.alert(t('security.pwdDisabled')), 100);
+    } else if (safeAction === 'enable') {
+      setEncryptionDisabled(false);
+      setMasterPassword(safeNewPwd);
+      window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+      setTimeout(() => window.alert(t('security.pwdEnabled')), 100);
+    }
+
+    setSafeAction('none');
+  };
+
   // Import/Export state
   const [importPwdModal, setImportPwdModal] = useState(false);
   const [importPwd, setImportPwd] = useState('');
@@ -630,32 +657,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                          <div className="flex gap-2 pt-2">
                             <button onClick={() => setSafeAction('none')} className={`flex-1 py-1.5 px-3 text-sm rounded-[20px] border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}>{t('security.cancel')}</button>
-                            <button onClick={() => {
-                               if ((safeAction === 'change' || safeAction === 'disable') && safeOldPwd !== masterPassword) {
-                                  return setSafeError(t('security.errIncorrectPwd'));
-                               }
-                               if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
-                                  return setSafeError(t('security.errEmptyPwd'));
-                               }
-                               
-                               if (safeAction === 'change') {
-                                  setMasterPassword(safeNewPwd);
-                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-                                  setTimeout(() => window.alert(t('security.pwdUpdated')), 100);
-                               } else if (safeAction === 'disable') {
-                                  setEncryptionDisabled(true);
-                                  setMasterPassword('');
-                                  window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-                                  setTimeout(() => window.alert(t('security.pwdDisabled')), 100);
-                               } else if (safeAction === 'enable') {
-                                  setEncryptionDisabled(false);
-                                  setMasterPassword(safeNewPwd);
-                                  window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-                                  setTimeout(() => window.alert(t('security.pwdEnabled')), 100);
-                               }
-                               
-                               setSafeAction('none');
-                            }} className="flex-1 py-1.5 px-3 text-sm rounded-[20px] bg-primary hover:bg-primary/80 text-white transition-all shadow-md">{t('security.confirm')}</button>
+                            <button onClick={handleConfirmSafeAction} className="flex-1 py-1.5 px-3 text-sm rounded-[20px] bg-primary hover:bg-primary/80 text-white transition-all shadow-md">{t('security.confirm')}</button>
                          </div>
                        </div>
                     )}
