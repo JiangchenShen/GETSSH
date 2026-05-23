@@ -28,6 +28,7 @@ export interface AppConfig {
   cursorBlink?: boolean;
   bellStyle?: 'none' | 'audible' | 'visual';
   rightClickBehavior?: 'menu' | 'paste';
+  terminalTheme: string;
   customThemes?: Record<string, any>;
 }
 

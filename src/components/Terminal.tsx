@@ -6,7 +6,7 @@ import { WebglAddon } from 'xterm-addon-webgl';
 import { LigaturesAddon } from 'xterm-addon-ligatures';
 import { AppConfig } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
-import { TERMINAL_THEMES, applyOpacity, ThemeName } from '../utils/themes';
+import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
 import 'xterm/css/xterm.css';
 
 interface TerminalProps {

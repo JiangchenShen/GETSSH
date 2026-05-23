@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, X, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock, Trash2 } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -29,9 +29,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const appConfig = useAppStore(state => state.appConfig);
   const updateConfig = useAppStore(state => state.updateConfig);
   
-  const tabs = useSessionStore(state => state.tabs);
-  const setTabs = useSessionStore(state => state.setTabs);
-  const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
 

@@ -7,7 +7,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { usePanelStore } from '../store/panelStore';
 import { usePluginStore } from '../store/pluginStore';
 import logoSrc from '../assets/logo.png';
-import { SessionProfile } from '../types/session';
+import { SessionProfile } from '../store/sessionStore';
 
 interface SidebarProps {
   onAddSession: () => void;
@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const tabs = useSessionStore(state => state.tabs);
   
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const isConnected = !!(activeTabId && activeTabId !== 'settings' && !activeTabId.startsWith('cmd-') && activeTab && activeTab.paneTree?.paneType !== 'welcome');
+  const isConnected = !!(activeTabId && activeTabId !== 'settings' && !activeTabId.startsWith('cmd-') && activeTab && (activeTab.paneTree?.type === 'leaf' ? activeTab.paneTree.paneType !== 'welcome' : true));
   
   const activePanelId = usePanelStore(state => state.activePanelId);
   const togglePanel = usePanelStore(state => state.togglePanel);

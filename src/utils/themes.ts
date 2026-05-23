@@ -1,4 +1,4 @@
-import type { ITheme } from '@xterm/xterm';
+import type { ITheme } from 'xterm';
 
 export type ThemeName = 'default' | 'dracula' | 'nord' | 'gruvbox' | 'tokyo-night' | 'catppuccin' | 'monokai' | 'solarized';
 

@@ -4,7 +4,7 @@ import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
 import { useAppStore } from './store/appStore';
-import { Tab, PaneNode, PaneLeaf, useSessionStore, isSSHConfig } from './store/sessionStore';
+import { Tab, PaneNode, PaneLeaf, useSessionStore, isSSHConfig, SessionProfile } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
 import { SplitPane } from './components/SplitPane';
 import { usePluginStore } from './store/pluginStore';
@@ -62,7 +62,8 @@ function App() {
     setTabs([...tabs, { 
       id: newTabId, 
       title: 'Command Center', 
-      paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'welcome' } 
+      config: null,
+      paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'welcome', sessionId: null, config: null } 
     }]);
     setActiveTabId(newTabId);
     setSelectedSessionIndex(null);
