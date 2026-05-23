@@ -1050,7 +1050,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 if (res.profiles && res.profiles.length > 0) {
                   // Merge: avoid exact duplicates (same host + username)
-                  const existing = new Set(sessions.map(s => `${s.host}::${s.username}`));
+                  const existing = new Set<string>();
+                  for (const s of sessions) {
+                    existing.add(`${s.host}::${s.username}`);
+                  }
                   const newOnes  = res.profiles.filter(p => !existing.has(`${p.host}::${p.username}`));
                   const merged   = [...sessions, ...newOnes];
                   setSessions(merged);
