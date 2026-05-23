@@ -47,8 +47,6 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         const palette = TERMINAL_THEMES[terminalTheme as Exclude<ThemeName, 'default'>];
         baseTheme = { ...palette };
       }
-      // Allow the theme's solid background to render at 100% opacity in the terminal area,
-      // while the rest of the application (Sidebar, TabBar) retains the global glassmorphism.
     } else {
       if (antiGlare) {
         // High-Contrast Mode (Anti-Glare)
