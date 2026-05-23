@@ -214,7 +214,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           port: config.port || 22,
           username: config.username,
           keepaliveInterval: config.keepaliveInterval !== undefined ? config.keepaliveInterval : 10000, // Heartbeat
-          hostVerifier: (hashedKey: string, callback: (accept: boolean) => void) => {
+          hostVerifier: (hashedKey: any, callback: (accept: boolean) => void) => {
             (async () => {
               const hosts = await getKnownHosts(app);
               const hostKey = `${config.host}:${config.port || 22}`;
@@ -253,7 +253,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 proxy: {
                   host: config.proxyHost,
                   port: parseInt(config.proxyPort) || 1080,
-                  type: 5 // Socks5
+                  type: 5 as any // Socks5
                 },
                 command: 'connect' as any,
                 destination: {

@@ -113,7 +113,7 @@ app.whenReady().then(async () => {
     // getssh-plugin://pluginName/entryPath
     const url = request.url.substring('getssh-plugin://'.length);
     const decodedUrl = decodeURIComponent(url);
-    const pluginPath = path.join(app.getPath('userData'), 'plugins', decodedUrl);
+    const pluginPath = join(app.getPath('userData'), 'plugins', decodedUrl);
     return net.fetch(pathToFileURL(pluginPath).toString());
   });
   

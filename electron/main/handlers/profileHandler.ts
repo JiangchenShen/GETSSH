@@ -11,6 +11,8 @@ export interface ExportedProfile {
   groupId: string | null;
   autoStart: boolean;
   useKeepAlive: boolean;
+  protocol?: string;
+  alias?: string;
   _encrypted: boolean;
   password?: string;
   privateKeyPath?: string;
