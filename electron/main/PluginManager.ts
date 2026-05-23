@@ -40,8 +40,9 @@ export class PluginManager {
     try {
       await fs.promises.mkdir(this.pluginsPath, { recursive: true });
       const dirents = await fs.promises.readdir(this.pluginsPath, { withFileTypes: true });
+      const limit = pLimit(50);
       await Promise.all(
-        dirents.map(async (dirent) => {
+        dirents.map((dirent) => limit(async () => {
           if (!dirent.isDirectory()) return;
           const pluginDir = path.join(this.pluginsPath, dirent.name);
           try {
@@ -81,7 +82,7 @@ export class PluginManager {
           } catch (err: unknown) {
             console.error(`[Plugin Kernel] Failed to load plugin from ${dirent.name}:`, err instanceof Error ? err.message : String(err));
           }
-        })
+        }))
       );
     } catch (err: unknown) {
       console.error('[Plugin Kernel] Failed to read plugins directory:', err instanceof Error ? err.message : String(err));
