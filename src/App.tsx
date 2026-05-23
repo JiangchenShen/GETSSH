@@ -268,7 +268,6 @@ function App() {
     window.addEventListener('click', updateActivity);
 
     const checkInterval = setInterval(() => {
-      // if already locked or setup mode, do nothing
       if (cryptoMode !== 'idle') return;
       
       if (Date.now() - lastActive > appConfig.autoLockTimeout * 60 * 1000) {
