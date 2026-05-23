@@ -1,14 +1,15 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import type { SysmonData, OsFingerprintData, HostVerificationData, BackendConfig, ExportPayload, ImportPayload, SshConnectConfig } from '../src/types/ipc'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: () => ipcRenderer.invoke('select-file'),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   onThemeChanged: (callback: (isDark: boolean) => void) => {
-    const listener = (_event: any, isDark: boolean) => callback(isDark)
+    const listener = (_event: IpcRendererEvent, isDark: boolean) => callback(isDark)
     ipcRenderer.on('theme-changed', listener)
     return () => ipcRenderer.removeListener('theme-changed', listener)
   },
-  sshConnect: (config: object) => ipcRenderer.invoke('ssh-connect', config),
+  sshConnect: (config: SshConnectConfig) => ipcRenderer.invoke('ssh-connect', config),
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh-write', { sessionId, data }),
   sshResize: (sessionId: string, rows: number, cols: number) => ipcRenderer.send('ssh-resize', { sessionId, rows, cols }),
   sshDisconnect: (sessionId: string) => ipcRenderer.send('ssh-disconnect', sessionId),
@@ -22,7 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sftpEditSync: (sessionId: string, remoteFilePath: string) => ipcRenderer.invoke('sftp-edit-sync', sessionId, remoteFilePath),
   sftpEditStop: (watchId: string) => ipcRenderer.invoke('sftp-edit-stop', watchId),
   onSshData: (sessionId: string, callback: (data: string) => void) => {
-    const listener = (_event: any, data: string) => callback(data)
+    const listener = (_event: IpcRendererEvent, data: string) => callback(data)
     ipcRenderer.on(`ssh-data-${sessionId}`, listener)
     return () => ipcRenderer.removeListener(`ssh-data-${sessionId}`, listener)
   },
@@ -31,10 +32,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(`ssh-closed-${sessionId}`, listener)
     return () => ipcRenderer.removeListener(`ssh-closed-${sessionId}`, listener)
   },
-  updateBackendConfig: (config: object) => ipcRenderer.send('update-backend-config', config),
+  updateBackendConfig: (config: BackendConfig) => ipcRenderer.send('update-backend-config', config),
   checkProfiles: () => ipcRenderer.invoke('check-profiles'),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
-  saveProfiles: (payload: any) => ipcRenderer.invoke('save-profiles', payload),
+  saveProfiles: (payload: { masterPassword?: string; payload: unknown[] }) => ipcRenderer.invoke('save-profiles', payload),
   onAppBlur: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('app-blur', listener)
@@ -51,22 +52,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   onUpdateAvailable: (callback: (info: { version: string, url: string }) => void) => {
-    const listener = (_event: any, info: { version: string, url: string }) => callback(info)
+    const listener = (_event: IpcRendererEvent, info: { version: string, url: string }) => callback(info)
     ipcRenderer.on('update-available', listener)
     return () => ipcRenderer.removeListener('update-available', listener)
   },
   showContextMenu: () => ipcRenderer.send('show-context-menu'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  exportProfiles: (payload: { sessions: any[], masterPassword: string }) => ipcRenderer.invoke('export-profiles', payload),
-  onSysmonData: (callback: (data: any) => void) => {
-    const listener = (_event: any, data: any) => callback(data)
+  exportProfiles: (payload: ExportPayload) => ipcRenderer.invoke('export-profiles', payload),
+  onSysmonData: (callback: (data: SysmonData) => void) => {
+    const listener = (_event: IpcRendererEvent, data: SysmonData) => callback(data)
     ipcRenderer.on('sysmon:data', listener)
     return () => ipcRenderer.removeListener('sysmon:data', listener)
   },
-  importProfiles: (payload: { masterPassword: string }) => ipcRenderer.invoke('import-profiles', payload),
+  importProfiles: (payload: ImportPayload) => ipcRenderer.invoke('import-profiles', payload),
   promptBiometricUnlock: () => ipcRenderer.invoke('prompt-biometric-unlock'),
-  onPromptHostVerification: (callback: (data: { requestId: string, hostname: string, fingerprint: string }) => void) => {
-    const listener = (_event: any, data: any) => callback(data);
+  onPromptHostVerification: (callback: (data: HostVerificationData) => void) => {
+    const listener = (_event: IpcRendererEvent, data: HostVerificationData) => callback(data);
     ipcRenderer.on('prompt-host-verification', listener);
     return () => ipcRenderer.removeListener('prompt-host-verification', listener);
   },
@@ -84,12 +85,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     arch: process.arch
   }),
   onFullScreenState: (callback: (isFullScreen: boolean) => void) => {
-    const listener = (_event: any, isFullScreen: boolean) => callback(isFullScreen);
+    const listener = (_event: IpcRendererEvent, isFullScreen: boolean) => callback(isFullScreen);
     ipcRenderer.on('fullscreen-state', listener);
     return () => ipcRenderer.removeListener('fullscreen-state', listener);
   },
-  onOsFingerprint: (callback: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => {
-    const listener = (_event: any, data: any) => callback(data);
+  onOsFingerprint: (callback: (data: OsFingerprintData) => void) => {
+    const listener = (_event: IpcRendererEvent, data: OsFingerprintData) => callback(data);
     ipcRenderer.on('os-fingerprint', listener);
     return () => ipcRenderer.removeListener('os-fingerprint', listener);
   },
