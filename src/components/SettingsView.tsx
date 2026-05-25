@@ -157,49 +157,72 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <>
-    <div className={`flex-1 flex overflow-hidden ${isDark ? 'bg-[#1e1e1e] text-white' : 'bg-slate-50 text-slate-800'}`}>
+    <div className={`flex-1 flex overflow-hidden bg-transparent ${isDark ? 'text-white' : 'text-slate-800'}`}>
       {/* Settings Sidebar */}
-      <div className={`w-56 p-6 border-r ${isDark ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-100/50'}`}>
-        <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
-           <Settings className="w-5 h-5 text-primary" />
+      <div className={`w-72 p-8 border-r flex flex-col ${isDark ? 'border-white/5 bg-black/10' : 'border-black/5 bg-slate-100/30'}`}>
+        <h3 className="text-xl font-bold flex items-center gap-3 mb-8 tracking-wide">
+           <Settings className="w-6 h-6 text-primary" />
            {t('settings.configuration')}
         </h3>
-        <nav className="flex flex-col gap-1">
-           <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Appearance' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-4 h-4"/>{t('settings.appearance')}</button>
-           <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Terminal' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal')}</button>
-           <button onClick={() => setSettingsActiveTab('SSH')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'SSH' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Network className="w-4 h-4"/>{t('settings.ssh')}</button>
-           <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'System' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-4 h-4"/>{t('settings.general')}</button>
-           <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-0 text-sm transition-all text-left mt-2 pt-3 ${settingsActiveTab === 'Security' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-4 h-4"/>{t('settings.security')}</button>
-           <button onClick={() => setSettingsActiveTab('Audit')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Audit' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Archive className="w-4 h-4"/>{t('settings.auditLogs')}</button>
-           <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'Plugins' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-4 h-4"/>{t('settings.plugins')}</button>
-           <button onClick={() => setSettingsActiveTab('About')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${settingsActiveTab === 'About' ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Info className="w-4 h-4"/>{t('settings.about')}</button>
+        <nav className="flex flex-col gap-2 overflow-y-auto">
+           <button onClick={() => setSettingsActiveTab('Appearance')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Appearance' ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Monitor className="w-5 h-5"/>{t('settings.appearance')}</button>
+           <button onClick={() => setSettingsActiveTab('Terminal')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Terminal' ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><TerminalIcon className="w-5 h-5"/>{t('settings.terminal')}</button>
+           <button onClick={() => setSettingsActiveTab('SSH')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'SSH' ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Network className="w-5 h-5"/>{t('settings.ssh')}</button>
+           <button onClick={() => setSettingsActiveTab('System')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'System' ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Command className="w-5 h-5"/>{t('settings.general')}</button>
+           
+           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/5' : 'border-black/5'}`}></div>
+           
+           <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Security' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-5 h-5"/>{t('settings.security')}</button>
+           <button onClick={() => setSettingsActiveTab('Audit')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Audit' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Archive className="w-5 h-5"/>{t('settings.auditLogs')}</button>
+           <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Plugins' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-5 h-5"/>{t('settings.plugins')}</button>
+           
+           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/5' : 'border-black/5'}`}></div>
+           
+           <button onClick={() => setSettingsActiveTab('About')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'About' ? 'bg-primary text-white shadow-lg shadow-primary/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Info className="w-5 h-5"/>{t('settings.about')}</button>
         </nav>
       </div>
 
       {/* Settings Payload */}
       <div className="flex-1 flex flex-col relative bg-transparent min-w-0">
         {/* Navigation Buttons */}
-        <div className="absolute right-8 top-8 z-30 flex items-center gap-2">
+        <div className="absolute right-10 top-10 z-30 flex items-center gap-3">
           <button
             onClick={goBack}
             disabled={historyIndex === 0}
-            className={`p-1.5 rounded-lg transition-colors border ${isDark ? 'border-white/10 text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent' : 'border-black/10 text-black/50 hover:bg-black/5 hover:text-black disabled:opacity-30 disabled:hover:bg-transparent'}`}
+            className={`p-2 rounded-xl transition-all border ${isDark ? 'border-white/10 bg-white/5 text-white/70 hover:bg-white/20 hover:text-white disabled:opacity-30 disabled:hover:bg-white/5' : 'border-black/10 bg-black/5 text-black/70 hover:bg-black/10 hover:text-black disabled:opacity-30 disabled:hover:bg-black/5'}`}
             title="Go Back"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={goForward}
             disabled={historyIndex === history.length - 1}
-            className={`p-1.5 rounded-lg transition-colors border ${isDark ? 'border-white/10 text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent' : 'border-black/10 text-black/50 hover:bg-black/5 hover:text-black disabled:opacity-30 disabled:hover:bg-transparent'}`}
+            className={`p-2 rounded-xl transition-all border ${isDark ? 'border-white/10 bg-white/5 text-white/70 hover:bg-white/20 hover:text-white disabled:opacity-30 disabled:hover:bg-white/5' : 'border-black/10 bg-black/5 text-black/70 hover:bg-black/10 hover:text-black disabled:opacity-30 disabled:hover:bg-black/5'}`}
             title="Go Forward"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-10 overflow-y-auto w-full h-full pb-32">
-          <h3 className="text-2xl font-bold mb-8 opacity-90">{settingsActiveTab === 'Audit' ? t('settings.auditTitle') : t('settings.' + settingsActiveTab.toLowerCase() as any) + ' ' + t('settings.configuration')}</h3>
+        {/* Content Scroll Area */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="max-w-4xl mx-auto p-12 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Header Title */}
+            <div className="mb-12">
+              <h1 className="text-4xl font-black tracking-tight mb-2 flex items-center gap-4">
+                {settingsActiveTab === 'Appearance' && <><Monitor className="w-8 h-8 text-primary"/> {t('settings.appearance')}</>}
+                {settingsActiveTab === 'Terminal' && <><TerminalIcon className="w-8 h-8 text-primary"/> {t('settings.terminal')}</>}
+                {settingsActiveTab === 'SSH' && <><Network className="w-8 h-8 text-primary"/> {t('settings.ssh')}</>}
+                {settingsActiveTab === 'System' && <><Command className="w-8 h-8 text-primary"/> {t('settings.general')}</>}
+                {settingsActiveTab === 'Security' && <><Cpu className="w-8 h-8 text-red-500"/> {t('settings.security')}</>}
+                {settingsActiveTab === 'Audit' && <><Archive className="w-8 h-8 text-orange-500"/> {t('settings.auditLogs')}</>}
+                {settingsActiveTab === 'Plugins' && <><Blocks className="w-8 h-8 text-purple-500"/> {t('settings.plugins')}</>}
+                {settingsActiveTab === 'About' && <><Info className="w-8 h-8 text-primary"/> {t('settings.about')}</>}
+              </h1>
+              <p className={`text-sm ${isDark ? 'text-white/50' : 'text-black/50'}`}>
+                 Manage your GETSSH configuration and preferences.
+              </p>
+            </div>
           
           {settingsActiveTab === 'Appearance' && (
             <div className="space-y-8 max-w-xl">
@@ -556,18 +579,66 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
               {/* Added Danger Zone */}
               <div className="pt-6 border-t border-red-500/20">
-                <h4 className="text-red-500 font-bold text-sm mb-4 flex items-center gap-2"><Shield className="w-4 h-4"/>{t('settings.dangerZone')}</h4>
-                <label className="flex items-center justify-between cursor-pointer p-4 rounded-xl border border-red-500/20 bg-red-500/5">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold text-red-500">{t('settings.devMode')}</span>
-                    <span className="text-xs opacity-70">{t('settings.devModeDesc')}</span>
+                <h4 className="text-red-500 font-bold text-sm mb-4 flex items-center gap-2"><Shield className="w-4 h-4"/>{t('settings.pluginSecurityMode')}</h4>
+                <label className="flex items-center justify-between p-4 rounded-xl border border-red-500/20 bg-red-500/5">
+                  <div className="flex flex-col w-2/3 pr-4">
+                    <span className="text-sm font-bold text-red-500">{t('settings.pluginSecurityStrategy')}</span>
+                    <span className="text-xs opacity-70 mt-1">
+                      {t('settings.pluginSecurityDesc')}
+                    </span>
                   </div>
-                  <button 
-                    onClick={() => updateConfig('devMode', !appConfig.devMode)} 
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${appConfig.devMode ? 'bg-red-500' : 'bg-black/20 dark:bg-black/40'} flex-shrink-0`}
-                  >
-                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${appConfig.devMode ? 'translate-x-5' : 'translate-x-1'}`}/>
-                  </button>
+                  <div className="w-1/3">
+                    <select 
+                      value={appConfig.pluginSecurityMode || 'normal'}
+                      onChange={async (e) => {
+                        const newMode = e.target.value as 'safe' | 'strict' | 'normal' | 'developer';
+                        let finalToken = undefined;
+                        if (newMode === 'safe' || newMode === 'developer') {
+                          // Intercept with Biometric / Master Password ONLY if encryption is enabled
+                          if (!encryptionDisabled) {
+                            if (window.electronAPI?.promptBiometricUnlock) {
+                              const res = await window.electronAPI.promptBiometricUnlock();
+                              if (!res.success) {
+                                if (res.reason === 'unsupported' || res.reason === 'no_key') {
+                                  // Fallback to Master Password prompt
+                                  const inputPwd = window.prompt("Biometric unlock unavailable. Please enter your Master Password to verify your identity:");
+                                  if (!inputPwd) return; // Cancelled
+                                  finalToken = inputPwd;
+                                } else {
+                                  return; // Cancelled or failed, do not update state
+                                }
+                              }
+                            } else {
+                              if (!window.confirm("WARNING: Are you sure you want to change to a critical security mode?")) return;
+                            }
+                          } else {
+                            if (!window.confirm(`WARNING: You are switching to ${newMode} mode without a Master Password set. Are you sure?`)) return;
+                          }
+                        }
+                        
+                        if (window.electronAPI?.updateBackendConfig) {
+                          window.electronAPI.updateBackendConfig({ pluginSecurityMode: newMode }, finalToken);
+                        }
+                        updateConfig('pluginSecurityMode', newMode);
+                        
+                        if (newMode === 'safe') {
+                          setTimeout(() => window.alert(t('settings.pluginSecurityRestartReq')), 100);
+                        } else {
+                          // Hot Swap
+                          if (window.electronAPI?.reloadPlugins) {
+                            await window.electronAPI.reloadPlugins();
+                            window.alert("Plugins reloaded successfully under the new security mode.");
+                          }
+                        }
+                      }}
+                      className={`w-full p-2 border border-red-500/30 rounded-md text-sm outline-none transition-colors ${isDark ? 'bg-black/50 text-red-400' : 'bg-white text-red-600'}`}
+                    >
+                      <option value="safe">{t('settings.pluginSecuritySafe')}</option>
+                      <option value="strict">{t('settings.pluginSecurityStrict')}</option>
+                      <option value="normal">{t('settings.pluginSecurityNormal')}</option>
+                      <option value="developer">{t('settings.pluginSecurityDeveloper')}</option>
+                    </select>
+                  </div>
                 </label>
               </div>
             </div>
@@ -1078,6 +1149,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
     )}
-  </>
+    
+          </div>
+    </>
   );
 };

@@ -1,60 +1,84 @@
-# Terms of Service
+# GETSSH Terms of Service
 
-**Last Updated:** May 2026
-**Effective Date:** May 21, 2026
+**Effective Date:** May 24, 2026  
+**Last Updated:** May 24, 2026
 
-Welcome to GETSSH ("we," "our," or "us"). By downloading, installing, accessing, or using the GETSSH Terminal Platform (the "Software," "Service," or "Application"), you expressly agree to be bound by these Terms of Service (the "Terms"). If you do not agree to all of the terms and conditions outlined in this agreement, you must not use or access the Software. 
+Welcome to the GETSSH Terminal Platform. These Terms of Service ("Terms") constitute a legally binding agreement between you (whether an individual or a corporate entity) and GETSSH ("we," "our," or "us"). By downloading, installing, accessing, or utilizing the GETSSH application (the "Software" or "Service"), you expressly acknowledge that you have read, understood, and agree to be bound by these Terms. 
 
-These Terms govern your use of the GETSSH application, its plugins, its source code (where applicable under its specific license), and any associated documentation.
+If you do not accept these Terms in their entirety, you are strictly prohibited from using or accessing the Software.
 
 ---
 
-## 1. Acceptance of Terms
-By accessing and using GETSSH, you acknowledge that you have read, understood, and agree to be bound by these Terms, as well as our Privacy Policy. This agreement is a legally binding contract between you and the developers of GETSSH. If you are using the Software on behalf of an organization, you represent and warrant that you have the authority to bind that organization to these Terms.
+## 1. Acceptance and Authority
 
-## 2. License Grant and Restrictions
-### 2.1 Limited License
-Subject to your compliance with these Terms, GETSSH grants you a personal, worldwide, non-exclusive, non-transferable, revocable, and limited license to install and use the Software on your personal or corporate devices strictly for your internal personal or business operations.
+By accessing the Software, you affirm that you are of legal age to enter into a binding contract. If you are accepting these Terms on behalf of a corporation, governmental organization, or other legal entity, you represent and warrant that you possess the requisite authority to bind such entity to these Terms.
 
-### 2.2 Prohibited Activities
-You agree not to, and you will not permit others to:
-- Reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code of the Software (unless expressly permitted by local law or applicable open-source licenses).
-- Use the Software to conduct unauthorized penetration testing, vulnerability scanning, or any cyberattacks (including but not limited to DDoS, MITM, or brute force attacks) against infrastructure you do not explicitly own or have authorization to test.
-- Distribute, rent, lease, or sublicense the Software without proper authorization.
-- Remove, alter, or obscure any proprietary notices, copyright, or trademark notices incorporated in or accompanying the Software.
+## 2. Open Source Nature, Forks, and Absolute Disclaimer of Unofficial Builds
 
-## 3. User Responsibilities and Account Security
-### 3.1 Encryption and Master Password
-GETSSH provides an optional AES-256-GCM encryption mechanism to secure your local connection profiles. **You are solely responsible for securely managing your Master Password.** 
-We operate on a zero-knowledge architecture. We do not store, transit, or possess the capability to recover your Master Password. If you lose your Master Password, your encrypted data will be irretrievably lost.
+### 2.1 The Open Source Paradigm and Official Distribution
+GETSSH is distributed as an open-source project to foster transparency, security auditing, and community contribution. However, the **only** legally recognized, officially supported, and verified versions of the Software are those distributed exclusively through our official GitHub Releases page. We do not publish, endorse, or verify any distributions made available on third-party package managers (e.g., Homebrew, Chocolatey, apt repositories), software mirrors, download aggregators, or torrent networks.
 
-### 3.2 System Access
-You are responsible for the servers and systems you access using GETSSH. We assume no liability for any unauthorized access to external systems caused by your negligence, stolen credentials, or compromised host keys.
+### 2.2 Exhaustive Disclaimer for Modifications, Forks, and Third-Party Builds
+The inherently permissive nature of open-source software allows any individual, organization, or malicious actor to clone, modify, recompile, and redistribute the GETSSH source code. 
 
-## 4. Updates and Telemetry
-### 4.1 Software Updates
-GETSSH may periodically check our official GitHub repository for new releases to provide you with the latest security patches and features. You are encouraged to update the Software promptly. We reserve the right to deprecate older versions of the Software or drop support for legacy operating systems without prior notice.
+**BY USING ANY VERSION OF GETSSH NOT DIRECTLY DOWNLOADED FROM OUR OFFICIAL RELEASES PAGE, YOU EXPLICITLY ACKNOWLEDGE AND AGREE THAT:**
 
-## 5. Third-Party Plugins and Services
-GETSSH supports a sandboxed plugin ecosystem. Plugins are created by third-party developers and are not vetted by us for security or reliability. You use third-party plugins at your own risk. We disclaim all liability regarding the performance, privacy practices, or security of any third-party plugin installed in GETSSH.
+1. **Malicious Alterations:** Unofficial builds may contain injected malware, backdoors, keyloggers, credential harvesters, ransomware, or cryptominers.
+2. **Network Interception:** Third-party builds may have their source code altered to silently route your SSH/SFTP traffic, master passwords, or private keys to unauthorized external servers (e.g., Man-in-the-Middle or data exfiltration).
+3. **Zero Warranty or Liability:** We possess zero technical oversight over community-modified code. We categorically and unconditionally disclaim all liability, responsibility, warranties (express or implied), and indemnification obligations for any damages resulting from the use of unofficial, forked, customized, or community-compiled versions of the Software.
+4. **Assumption of Catastrophic Risk:** If you choose to compile the Software from source or download it from an unverified third party, you assume 100% of the catastrophic risk associated with total data loss, infrastructure compromise, server breaches, and subsequent financial, legal, and operational liabilities.
+
+### 2.3 Prohibition of Deceptive Distribution
+While you are free to modify the source code in accordance with the underlying open-source license, you are strictly prohibited from distributing modified, malicious, or vulnerable versions of the Software under the trademark, branding, logos, or name "GETSSH" in any manner that could deceive or mislead end-users into believing they are utilizing the official, uncompromised Software.
+
+## 3. License Grant & Usage Restrictions
+
+### 3.1 Limited License
+Subject to your continuous compliance with these Terms and the underlying open-source licenses, GETSSH grants you a personal, worldwide, non-exclusive, revocable, and limited license to install and execute the Software strictly for your internal personal or business operations.
+
+### 3.2 Prohibited Conduct
+As a condition of this license, you unconditionally agree **NOT** to:
+- Utilize the Software to facilitate unauthorized penetration testing, vulnerability scanning, or any form of cyberattack (including, without limitation, DDoS, MITM, or brute-force credential stuffing) against infrastructure you do not explicitly own or possess authorization to test.
+- Circumvent, disable, or tamper with any security-related features embedded within the official Software.
+- Falsely imply endorsement, sponsorship, or affiliation with GETSSH for any third-party derivatives or commercial services.
+
+## 4. Account Security and Cryptographic Responsibilities
+
+### 4.1 Zero-Knowledge Encryption
+GETSSH provides an optional AES-256-GCM Secure Vault to encrypt your connection profiles. **You bear sole and absolute responsibility for the secure management of your Master Password.**
+GETSSH operates on a strict zero-knowledge architecture. We do not transmit, store, or possess the cryptographic capability to recover your Master Password. **Loss of your Master Password will result in the irretrievable loss of your encrypted data.**
+
+### 4.2 Infrastructure Access Liability
+You are exclusively responsible for the servers, networks, and systems you interface with using the Software. We assume zero liability for unauthorized access, data breaches, or system compromises resulting from your negligence, mishandled credentials, weak passwords, or failure to verify host fingerprints.
+
+## 5. Third-Party Plugins & Ecosystem
+
+GETSSH facilitates a sandboxed ecosystem for third-party plugins. These plugins are developed, maintained, and distributed by independent third parties. GETSSH does not audit, endorse, or guarantee the security, stability, or privacy practices of any third-party plugin. Your use of such plugins is entirely at your own risk, and GETSSH expressly disclaims all liability arising from plugin execution, data exfiltration, or privilege escalation caused by malicious plugins.
 
 ## 6. Disclaimer of Warranties
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITH ALL FAULTS AND WITHOUT WARRANTY OF ANY KIND. WE HEREBY DISCLAIM ALL WARRANTIES AND CONDITIONS WITH RESPECT TO THE SOFTWARE, EITHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, SATISFACTORY QUALITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, QUIET ENJOYMENT, AND NON-INFRINGEMENT OF THIRD-PARTY RIGHTS. 
 
-WE DO NOT WARRANT THAT THE FUNCTIONS CONTAINED IN THE SOFTWARE WILL MEET YOUR REQUIREMENTS, THAT THE OPERATION OF THE SOFTWARE WILL BE UNINTERRUPTED OR ERROR-FREE, OR THAT DEFECTS IN THE SOFTWARE WILL BE CORRECTED.
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS, WITH ALL FAULTS AND WITHOUT WARRANTY OF ANY KIND. GETSSH EXPRESSLY DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, QUIET ENJOYMENT, ACCURACY, AND NON-INFRINGEMENT.
+
+WE DO NOT WARRANT THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED, THAT IT WILL BE ERROR-FREE, THAT IT WILL MEET YOUR SPECIFIC REQUIREMENTS, OR THAT ANY DEFECTS WILL BE CORRECTED.
 
 ## 7. Limitation of Liability
-IN NO EVENT SHALL GETSSH, ITS DEVELOPERS, CONTRIBUTORS, OR AFFILIATES BE LIABLE FOR ANY INCIDENTAL, SPECIAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER, INCLUDING, WITHOUT LIMITATION, DAMAGES FOR LOSS OF PROFITS, LOSS OF DATA, BUSINESS INTERRUPTION, OR ANY OTHER COMMERCIAL DAMAGES OR LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OR INABILITY TO USE THE SOFTWARE, HOWEVER CAUSED, REGARDLESS OF THE THEORY OF LIABILITY (CONTRACT, TORT, OR OTHERWISE), EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL GETSSH, ITS FOUNDERS, DEVELOPERS, AFFILIATES, OR CONTRIBUTORS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO, DAMAGES FOR LOSS OF PROFITS, LOSS OF REVENUE, LOSS OF DATA, BUSINESS INTERRUPTION, OR PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES, HOWEVER CAUSED AND UNDER ANY THEORY OF LIABILITY (CONTRACT, STRICT LIABILITY, TORT, OR OTHERWISE), ARISING OUT OF OR IN CONNECTION WITH YOUR USE OR INABILITY TO USE THE SOFTWARE, EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
 ## 8. Indemnification
-You agree to indemnify, defend, and hold harmless GETSSH, its developers, and its contributors from any and all claims, liabilities, damages, losses, costs, expenses, or fees (including reasonable attorneys' fees) that arise from your use of the Software, your violation of these Terms, or your violation of any rights of any third party.
 
-## 9. Governing Law
-These Terms shall be governed by and construed in accordance with the laws of the jurisdiction in which the principal developer resides, without regard to its conflict of law principles.
+You agree to fully indemnify, defend, and hold harmless GETSSH, its affiliates, developers, and contributors from and against any and all claims, demands, liabilities, damages, losses, costs, and expenses (including reasonable attorneys' fees) arising out of: (a) your use of the Software; (b) your use of any unofficial or modified fork of the Software; (c) your breach of these Terms; or (d) your violation of any applicable law, regulation, or third-party rights.
 
-## 10. Modifications to the Terms
-We reserve the right, at our sole discretion, to modify or replace these Terms at any time. If a revision is material, we will make reasonable efforts to provide notice prior to any new terms taking effect. By continuing to access or use our Software after those revisions become effective, you agree to be bound by the revised terms.
+## 9. Governing Law & Jurisdiction
+
+These Terms, and any dispute arising out of or related to them, shall be governed by and construed in accordance with the laws of the jurisdiction in which the principal developer resides, without regard to its conflict of laws principles.
+
+## 10. Modifications to Terms
+
+We reserve the unilateral right to amend, update, or replace these Terms at any time. Material changes will be communicated via release notes or within the Software interface prior to taking effect. Your continued use of the Software following the effective date of any modifications constitutes your binding acceptance of the revised Terms.
 
 ## 11. Contact Information
-If you have any questions about these Terms, please contact us via our official repository:
-**GitHub:** [https://github.com/JiangchenShen/GETSSH](https://github.com/JiangchenShen/GETSSH)
+
+For legal inquiries or notices pertaining to these Terms, please contact us via our official repository:
+
+**Official Repository:** [https://github.com/JiangchenShen/GETSSH](https://github.com/JiangchenShen/GETSSH)

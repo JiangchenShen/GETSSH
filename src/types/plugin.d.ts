@@ -13,7 +13,6 @@ export interface PluginManifest {
 export interface MainContextAPI {
   showNotification: (title: string, body: string) => void;
   safeStorageEncrypt: (text: string) => string;
-  safeStorageDecrypt: (encryptedData: string) => string;
   onSSHSessionConnect?: (callback: (sessionId: string, host: string) => void) => void;
 }
 

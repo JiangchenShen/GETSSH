@@ -19,6 +19,7 @@ export interface HostVerificationData {
 export interface BackendConfig {
   confirmQuit?: boolean;
   globalHotkey?: string;
+  pluginSecurityMode?: 'safe' | 'strict' | 'normal' | 'developer';
 }
 
 export interface ExportPayload {

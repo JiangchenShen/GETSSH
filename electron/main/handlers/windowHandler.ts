@@ -72,7 +72,7 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
 /**
  * Setup strict security policies for the webContents.
  */
-export function setupSecurityPolicies(webContents: Electron.WebContents, devServerUrl?: string) {
+export function setupSecurityPolicies(webContents: Electron.WebContents, devServerUrl?: string, indexHtmlPath?: string) {
   // Prevent arbitrary window spawning
   webContents.setWindowOpenHandler(() => {
     return { action: 'deny' };
@@ -85,7 +85,15 @@ export function setupSecurityPolicies(webContents: Electron.WebContents, devServ
       return; // Allow local dev server navigation
     }
     if (parsedUrl.protocol === 'file:') {
-      return; // Allow local file navigation (dist/index.html)
+      try {
+        const { fileURLToPath } = require('node:url');
+        const { normalize } = require('node:path');
+        if (indexHtmlPath && normalize(fileURLToPath(url)) === normalize(indexHtmlPath)) {
+          return; // Allow ONLY the exact dist/index.html
+        }
+      } catch (e) {
+        // Ignored, proceed to deny
+      }
     }
     event.preventDefault();
     console.warn(`[Security] Prevented navigation to ${url}`);

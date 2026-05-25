@@ -22,7 +22,7 @@ export interface AppConfig {
   privacyMode: boolean;
   initScript: string;
   autoLockTimeout: number;
-  devMode?: boolean;
+  pluginSecurityMode: 'safe' | 'strict' | 'normal' | 'developer';
   antiGlare?: boolean;
   terminalPadding?: number;
   cursorBlink?: boolean;
@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   initScript: '',
   autoLockTimeout: 0,
   terminalTheme: 'default',
-  devMode: false,
+  pluginSecurityMode: 'normal',
   antiGlare: false,
   terminalPadding: 8,
   cursorBlink: true,
@@ -85,6 +85,8 @@ interface AppStore {
   setIsFullScreen: (full: boolean) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string } | null) => void;
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
+  isPolluted: boolean;
+  setIsPolluted: (polluted: boolean) => void;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
 }
@@ -98,6 +100,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   securityPrompt: null,
   isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
   isFullScreen: false,
+  isPolluted: false,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -108,6 +111,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setIsAppBlurred: (blurred) => set({ isAppBlurred: blurred }),
   setUpdateAvailable: (info) => set({ updateAvailable: info }),
   setIsFullScreen: (full) => set({ isFullScreen: full }),
+  setIsPolluted: (polluted) => set({ isPolluted: polluted }),
   setSecurityPrompt: (prompt) => set({ securityPrompt: prompt }),
   resolveSecurityPrompt: (result) => {
     const { securityPrompt } = get();
@@ -154,7 +158,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       document.documentElement.classList.remove('dark');
     }
     if (window.electronAPI?.updateBackendConfig) {
-      window.electronAPI.updateBackendConfig({ confirmQuit: appConfig.confirmQuit, globalHotkey: appConfig.globalHotkey });
+      window.electronAPI.updateBackendConfig({ 
+        confirmQuit: appConfig.confirmQuit, 
+        globalHotkey: appConfig.globalHotkey,
+        pluginSecurityMode: appConfig.pluginSecurityMode
+      });
     }
   },
 }));

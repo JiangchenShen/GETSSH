@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import vm from 'vm';
 import { app, ipcMain, Notification, safeStorage } from 'electron';
+import { getBackendConfig } from './handlers/systemHandler';
 import AdmZip from 'adm-zip';
 import pLimit from 'p-limit';
 import type { PluginManifest, MainContextAPI } from '../../src/types/plugin';
@@ -8,6 +10,7 @@ import type { PluginManifest, MainContextAPI } from '../../src/types/plugin';
 export class PluginManager {
   private pluginsPath: string;
   public installedPlugins: PluginManifest[] = [];
+  private runningPlugins: Map<string, { deactivate: () => void }> = new Map();
 
   constructor() {
     this.pluginsPath = path.join(app.getPath('userData'), 'plugins');
@@ -23,17 +26,10 @@ export class PluginManager {
   }
 
   private createMainContext(): MainContextAPI {
-    return {
-      showNotification: (title, body) => new Notification({ title, body }).show(),
-      safeStorageEncrypt: (text) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text).toString('base64') : text,
-      safeStorageDecrypt: (hash) => {
-        try {
-          return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(hash, 'base64')) : hash;
-        } catch {
-          return hash;
-        }
-      }
-    };
+    const context = Object.create(null);
+    context.showNotification = (title: string, body: string) => new Notification({ title, body }).show();
+    context.safeStorageEncrypt = (text: string) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text).toString('base64') : text;
+    return Object.freeze(context) as MainContextAPI;
   }
 
   public async loadPlugins() {
@@ -62,21 +58,98 @@ export class PluginManager {
 
             const mainEntryPath = path.join(pluginDir, manifest.main);
             try {
-              const pluginModule = require(mainEntryPath);
-              if (typeof pluginModule.activate === 'function') {
-                pluginModule.activate(this.createMainContext());
+              const securityMode = getBackendConfig().pluginSecurityMode || 'normal';
+
+              // SAFE MODE: Return early, load nothing.
+              if (securityMode === 'safe') {
+                return;
               }
-            } catch (requireErr: unknown) {
-              // Only ignore MODULE_NOT_FOUND if it's the main entry point missing,
-              // not a missing dependency within the plugin itself.
-              const isModuleNotFound = requireErr && typeof requireErr === 'object' && (requireErr as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND';
-              const isSyntaxError = requireErr instanceof SyntaxError && requireErr.message.includes('Unexpected token');
-              const isEntryPoint = requireErr && typeof requireErr === 'object' && (requireErr as any).message?.includes(manifest.main);
+
+              // DEVELOPER MODE: Full native require, no sandbox
+              if (securityMode === 'developer') {
+                const pluginModule = require(mainEntryPath);
+                
+                const activateFn = typeof pluginModule.activate === 'function' ? pluginModule.activate : undefined;
+                const deactivateFn = typeof pluginModule.deactivate === 'function' ? pluginModule.deactivate : undefined;
+                
+                if (typeof deactivateFn !== 'function') {
+                   throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
+                }
+                
+                if (activateFn) {
+                  activateFn(this.createMainContext());
+                }
+                
+                this.runningPlugins.set(manifest.name, { deactivate: deactivateFn });
+                return;
+              }
+
+              // STRICT AND NORMAL MODES: VM Sandboxing
+              const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
+
+              const safeRequire = (moduleName: string) => {
+                if (securityMode === 'strict') {
+                  // STRICT: Only path and os
+                  const whitelist = ['path', 'os'];
+                  if (whitelist.includes(moduleName)) return require(moduleName);
+                  throw new Error(`Sandbox violation: Cannot require module '${moduleName}' in Strict Mode`);
+                } else {
+                  // NORMAL: Relaxed but block extremely dangerous ones
+                  const blacklist = ['fs', 'fs/promises', 'child_process', 'net'];
+                  if (blacklist.includes(moduleName)) {
+                    throw new Error(`Sandbox violation: Cannot require dangerous module '${moduleName}' in Normal Mode`);
+                  }
+                  return require(moduleName);
+                }
+              };
+
+              const sandboxExports = securityMode === 'strict' ? Object.create(null) : {};
+              const sandboxModule = securityMode === 'strict' ? Object.create(null) : {};
+              sandboxModule.exports = sandboxExports;
+
+              const sandboxGlobals = securityMode === 'strict' ? Object.create(null) : {};
+              Object.assign(sandboxGlobals, {
+                module: sandboxModule,
+                exports: sandboxExports,
+                console: console,
+                require: safeRequire,
+                __dirname: pluginDir,
+                __filename: mainEntryPath,
+                Buffer: Buffer,
+                setTimeout,
+                clearTimeout,
+                setInterval,
+                clearInterval
+              });
+
+              const sandboxContext = vm.createContext(sandboxGlobals);
+
+              vm.runInContext(pluginCode, sandboxContext, {
+                filename: mainEntryPath,
+                timeout: 5000
+              });
+
+              const exportsObj = sandboxContext.module.exports as any;
+              const activateFn = exportsObj.activate;
+              const deactivateFn = exportsObj.deactivate;
+
+              if (typeof deactivateFn !== 'function') {
+                 throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
+              }
+
+              if (typeof activateFn === 'function') {
+                activateFn(this.createMainContext());
+              }
               
-              if ((isModuleNotFound || isSyntaxError) && (isEntryPoint || isSyntaxError)) {
+              this.runningPlugins.set(manifest.name, { deactivate: deactivateFn });
+            } catch (loadErr: unknown) {
+              const isModuleNotFound = loadErr && typeof loadErr === 'object' && (loadErr as NodeJS.ErrnoException).code === 'ENOENT';
+              const isSyntaxError = loadErr instanceof SyntaxError;
+              
+              if (isModuleNotFound || isSyntaxError) {
                 console.warn(`[Plugin Kernel] Main entry point '${manifest.main}' not found or is a UI file (SyntaxError). Attempting to run headless/renderer-only.`);
               } else {
-                throw requireErr;
+                throw loadErr;
               }
             }
           } catch (err: unknown) {
@@ -92,11 +165,31 @@ export class PluginManager {
   public setupIPC() {
     ipcMain.handle('get-plugin-list', () => this.installedPlugins);
     
+    ipcMain.handle('reload-plugins', async () => {
+      for (const [name, plugin] of this.runningPlugins.entries()) {
+         try {
+            plugin.deactivate();
+         } catch (e) {
+            console.error(`[Plugin Kernel] Error deactivating plugin ${name}:`, e);
+         }
+      }
+      this.runningPlugins.clear();
+      this.installedPlugins = [];
+      await this.loadPlugins();
+      return { success: true };
+    });
+    
     ipcMain.handle('uninstall-plugin', async (event, pluginName: string) => {
        try {
-          // Security: validate path boundary before deletion to prevent path traversal
+          if (this.runningPlugins.has(pluginName)) {
+             try {
+                this.runningPlugins.get(pluginName)!.deactivate();
+             } catch (e) {
+                console.error(`[Plugin Kernel] Error deactivating plugin ${pluginName}:`, e);
+             }
+             this.runningPlugins.delete(pluginName);
+          }
           const targetDir = this.getSecurePluginPath(pluginName);
-          // Async: use fs.promises.access to check existence before removal
           const dirExists = await fs.promises.access(targetDir).then(() => true).catch(() => false);
           if (dirExists) {
              await fs.promises.rm(targetDir, { recursive: true, force: true });
@@ -113,7 +206,6 @@ export class PluginManager {
         const zip = new AdmZip(zipPath);
         const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'plugin_'));
 
-        // Securely extract zip entries to prevent Zip Slip vulnerability
         const resolvedTempDir = path.resolve(tempDir);
         const entries = zip.getEntries();
         const validFileEntries = [];
@@ -121,7 +213,6 @@ export class PluginManager {
 
         for (const entry of entries) {
           const targetPath = path.resolve(resolvedTempDir, entry.entryName);
-          // Ensure target path is strictly within the intended temporary directory
           if (!targetPath.startsWith(resolvedTempDir + path.sep) && targetPath !== resolvedTempDir) {
             console.warn(`[Plugin Kernel] Skipped malicious or invalid zip entry: ${entry.entryName}`);
             continue;
@@ -135,19 +226,15 @@ export class PluginManager {
           }
         }
 
-        // Using p-limit to prevent EMFILE, memory exhaustion and unresponsiveness.
         const limit = pLimit(10);
 
-        // Concurrent directory creation with concurrency limit
         await Promise.all(
           Array.from(directoriesToCreate).map(dir => limit(() => fs.promises.mkdir(dir, { recursive: true })))
         );
 
-        // Concurrent file writing with concurrency limit
         await Promise.all(
           validFileEntries.map(({ entry, targetPath }) =>
             limit(async () => {
-              // Decompress and write inside the limited callback to avoid memory spike and UI freezing.
               await fs.promises.writeFile(targetPath, entry.getData());
             })
           )
@@ -158,7 +245,6 @@ export class PluginManager {
 
         const pkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
         if (!pkgExists) {
-          // Check if it's wrapped in a single root folder
           const subDirs = await fs.promises.readdir(tempDir);
           if (subDirs.length === 1) {
             const nestedDir = path.join(tempDir, subDirs[0]);
@@ -172,10 +258,17 @@ export class PluginManager {
         const finalPkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
         if (!finalPkgExists) throw new Error('Invalid Architecture: Missing package.json manifest.');
         
-        // Performance: async file read instead of blocking readFileSync
         const manifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
-        // Security: validate the plugin name from manifest against path traversal
         const targetDir = this.getSecurePluginPath(manifest.name);
+        
+        if (this.runningPlugins.has(manifest.name)) {
+           try {
+              this.runningPlugins.get(manifest.name)!.deactivate();
+           } catch (e) {
+              console.error(`[Plugin Kernel] Error deactivating plugin ${manifest.name}:`, e);
+           }
+           this.runningPlugins.delete(manifest.name);
+        }
         
         await fs.promises.rm(targetDir, { recursive: true, force: true });
         
@@ -192,7 +285,6 @@ export class PluginManager {
       }
     });
 
-    // Provide file paths so preload can inject renderer scripts
     ipcMain.handle('get-plugin-renderers', async () => {
       return Promise.all(
         this.installedPlugins

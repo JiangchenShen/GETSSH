@@ -17,6 +17,8 @@ import { CryptoModal } from './components/CryptoModal';
 import { HostKeyVerificationModal } from './components/HostKeyVerificationModal';
 import { ConnectForm } from './components/ConnectForm';
 import { SettingsView } from './components/SettingsView';
+import { SecurityOverlay } from './components/SecurityOverlay';
+import { ShieldAlert } from 'lucide-react';
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
 
@@ -52,6 +54,7 @@ function App() {
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
+  const isPolluted = useAppStore(state => state.isPolluted);
   
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
@@ -503,6 +506,7 @@ function App() {
         window.electronAPI.showContextMenu();
       }}
       className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
+      <SecurityOverlay />
       {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
         <CryptoModal 
           mode={cryptoMode} 
@@ -538,6 +542,9 @@ function App() {
       )}
       {!isFullScreen && (
         <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+           {isPolluted && (
+             <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+           )}
            GETSSH
         </div>
       )}
@@ -636,12 +643,12 @@ function App() {
 
         {/* Empty State */}
         <div style={{ display: (selectedSessionIndex === null && !activeTabId) ? 'flex' : 'none' }} className="flex-1">
-          <EmptyState />
+          <EmptyState onConnect={handleConnect} />
         </div>
 
       {/* Floating Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm shadow-2xl transition-all"
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all animate-in fade-in duration-300"
              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
              onClick={(e) => {
                if (e.target === e.currentTarget) {
@@ -649,24 +656,24 @@ function App() {
                }
              }}>
           <div 
-            className={`relative w-[1000px] h-[700px] max-w-[95vw] max-h-[95vh] rounded-2xl overflow-hidden flex flex-col shadow-2xl border ${
-              isDark ? 'bg-[#1a1a1a]/95 border-white/10' : 'bg-[#f5f5f5]/95 border-black/10'
-            }`}
+            className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-[32px] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
+              isDark ? 'bg-[#050505]/80 border-white/10' : 'bg-[#ffffff]/80 border-black/10'
+            } backdrop-blur-3xl animate-in zoom-in-95 duration-300`}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             {/* Draggable OS-like Header */}
-            <div className={`h-12 shrink-0 flex items-center px-4 border-b select-none ${
+            <div className={`h-16 shrink-0 flex items-center px-6 border-b select-none ${
               isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
             }`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
               <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                <div className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
+                <div className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
                      onClick={() => setIsSettingsOpen(false)}>
                 </div>
-                <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
-                <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
+                <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/50"></div>
+                <div className="w-3.5 h-3.5 rounded-full bg-green-500/50"></div>
               </div>
-              <div className={`mx-auto font-medium text-xs tracking-wide ${isDark ? 'text-white/50' : 'text-black/50'}`}>
-                GETSSH Preferences
+              <div className={`mx-auto font-bold text-sm tracking-widest uppercase ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                GETSSH COMMAND CENTER
               </div>
               <div className="w-[52px]"></div> {/* Spacer for balance */}
             </div>

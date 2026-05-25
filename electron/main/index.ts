@@ -33,7 +33,7 @@ const indexHtml = join(process.env.DIST, 'index.html')
 function createWindow() {
   win = new BrowserWindow(getBrowserWindowOptions(preload));
   
-  setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL);
+  setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL, indexHtml);
   bindWindowEvents(win, () => getBackendConfig().confirmQuit);
 
   if (app.isPackaged) {
@@ -103,8 +103,14 @@ function createWindow() {
 }
 
 
+import { SecureCenter } from './security/SecureCenter'
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  
+  // Init GETSSH Secure Center (RASP)
+  SecureCenter.getInstance().start(() => win);
+  
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
   await pluginManager.loadPlugins();
@@ -113,7 +119,14 @@ app.whenReady().then(async () => {
     // getssh-plugin://pluginName/entryPath
     const url = request.url.substring('getssh-plugin://'.length);
     const decodedUrl = decodeURIComponent(url);
-    const pluginPath = join(app.getPath('userData'), 'plugins', decodedUrl);
+    const pluginsDir = join(app.getPath('userData'), 'plugins');
+    const pluginPath = join(pluginsDir, decodedUrl);
+    
+    // Prevent Path Traversal (C-01)
+    if (!pluginPath.startsWith(pluginsDir)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    
     return net.fetch(pathToFileURL(pluginPath).toString());
   });
   

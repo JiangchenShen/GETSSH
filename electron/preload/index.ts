@@ -32,7 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(`ssh-closed-${sessionId}`, listener)
     return () => ipcRenderer.removeListener(`ssh-closed-${sessionId}`, listener)
   },
-  updateBackendConfig: (config: BackendConfig) => ipcRenderer.send('update-backend-config', config),
+  updateBackendConfig: (config: BackendConfig, authToken?: string) => ipcRenderer.send('update-backend-config', config, authToken),
   checkProfiles: () => ipcRenderer.invoke('check-profiles'),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
   saveProfiles: (payload: { masterPassword?: string; payload: unknown[] }) => ipcRenderer.invoke('save-profiles', payload),
@@ -47,9 +47,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app-focus', listener)
   },
   getPluginsList: () => ipcRenderer.invoke('get-plugin-list'),
-  installPlugin: (zipPath: string) => ipcRenderer.invoke('install-plugin', zipPath),
   uninstallPlugin: (pluginName: string) => ipcRenderer.invoke('uninstall-plugin', pluginName),
   getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
+  reloadPlugins: () => ipcRenderer.invoke('reload-plugins'),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   onUpdateAvailable: (callback: (info: { version: string, url: string }) => void) => {
     const listener = (_event: IpcRendererEvent, info: { version: string, url: string }) => callback(info)
@@ -94,4 +94,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('os-fingerprint', listener);
     return () => ipcRenderer.removeListener('os-fingerprint', listener);
   },
+  onSecurityLockdown: (callback: (data: { reason: string, countdown: number }) => void) => {
+    const listener = (_event: IpcRendererEvent, data: { reason: string, countdown: number }) => callback(data);
+    ipcRenderer.on('security-lockdown', listener);
+    return () => ipcRenderer.removeListener('security-lockdown', listener);
+  },
+  resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore') => ipcRenderer.invoke('resolve-security-lockdown', action),
 })

@@ -99,7 +99,57 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   }, 1000);
 
   // Background config and hotkeys
-  ipcMain.on('update-backend-config', (event, config: BackendConfig) => {
+  ipcMain.on('update-backend-config', async (event, config: BackendConfig, authToken?: string) => {
+    // Intercept plugin security mode changes for biometric verification
+    if (config.pluginSecurityMode && config.pluginSecurityMode !== backendConfig.pluginSecurityMode) {
+      if (config.pluginSecurityMode === 'safe' || config.pluginSecurityMode === 'developer') {
+        try {
+          const win = getWin();
+          if (win) {
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { systemPreferences, safeStorage } = require('electron');
+            const PROFILES_KEY_PATH = path.join(app.getPath('userData'), 'profiles.key');
+            
+            let verified = false;
+            if (fs.existsSync(PROFILES_KEY_PATH)) {
+               // 1. Check Auth Token Fallback
+               if (authToken && safeStorage.isEncryptionAvailable()) {
+                  try {
+                     const encryptedKey = await fs.promises.readFile(PROFILES_KEY_PATH);
+                     const masterPassword = safeStorage.decryptString(encryptedKey);
+                     if (authToken === masterPassword) {
+                        verified = true;
+                     }
+                  } catch (e) {
+                     console.warn("Failed to decrypt master password for auth token verification", e);
+                  }
+               }
+               
+               // 2. Check Biometric
+               if (!verified && process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
+                  try {
+                    await systemPreferences.promptTouchID('Verify identity to change critical plugin security mode');
+                    verified = true;
+                  } catch (e) { verified = false; }
+               }
+            } else {
+               // No key means no encryption, meaning anyone can change it. 
+               verified = true; 
+            }
+            
+            if (!verified) {
+               console.warn(`[Security] Blocked unauthorized attempt to change pluginSecurityMode to ${config.pluginSecurityMode}`);
+               delete config.pluginSecurityMode; // Strip it out
+            }
+          }
+        } catch (e) {
+          console.error("Failed to verify plugin mode change", e);
+          delete config.pluginSecurityMode;
+        }
+      }
+    }
+    
     backendConfig = { ...backendConfig, ...config };
     if (config.globalHotkey !== undefined) {
       registerHotkey(config.globalHotkey, getWin);
@@ -128,4 +178,8 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
 
 export function getBackendConfig() {
   return backendConfig;
+}
+
+export function updateBackendConfigLocal(config: BackendConfig) {
+  backendConfig = { ...backendConfig, ...config };
 }

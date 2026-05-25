@@ -18,8 +18,6 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
         } catch (err: unknown) {
           return { success: false, reason: 'touchid_failed' };
         }
-      } else if (process.platform === 'win32') {
-        // Windows DPAPI is implicit via user login, so proceed
       } else {
         return { success: false, reason: 'unsupported' };
       }

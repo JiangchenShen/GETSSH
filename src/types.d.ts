@@ -31,7 +31,7 @@ declare global {
       sshDisconnect: (sessionId: string) => void;
       onSshData: (sessionId: string, cb: (data: string) => void) => (() => void);
       onSshClosed: (sessionId: string, cb: () => void) => (() => void);
-      updateBackendConfig: (config: Partial<{ confirmQuit: boolean; globalHotkey: string }>) => void;
+      updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => void;
       selectFile: () => Promise<string | null>;
       checkProfiles: () => Promise<'encrypted' | 'plain' | 'none'>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
@@ -42,6 +42,7 @@ declare global {
       installPlugin: (zipPath: string) => Promise<{ success: boolean; manifest?: import('./types/plugin').PluginManifest; error?: string }>;
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
       getPluginRenderers: () => Promise<string[]>;
+      reloadPlugins: () => Promise<{ success: boolean; error?: string }>;
       sftpList: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; list?: import('./components/SFTPManager').SFTPFile[] }>;
       sftpMkdir: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string }>;
       sftpDelete: (sessionId: string, remotePath: string, isDir: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -66,6 +67,8 @@ declare global {
       getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
       onOsFingerprint: (cb: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => (() => void);
+      onSecurityLockdown: (cb: (data: { reason: string, countdown: number }) => void) => (() => void);
+      resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore') => void;
     };
   }
 }
