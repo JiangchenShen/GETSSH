@@ -1,19 +1,27 @@
-# GETSSH 漏洞与 Bug 修复记录
+# GETSSH 关键安全漏洞审计与修复报告 (Critical Vulnerabilities)
 
-本文档记录了近期在 GETSSH 中发现并修复的严重 Bug 与安全漏洞。
+本文档记录了在深度代码审计中发现的 6 个 **CRITICAL (致命级)** 安全漏洞及其修复方案。这些漏洞一旦被利用，可导致数据泄露、系统接管或应用崩溃。
 
-## 1. 插件沙盒逃逸漏洞 (严重安全修复)
-- **发现的 Bug**：原有的插件执行环境过度依赖 Node.js 的 `vm.runInNewContext`，该原生 API 存在已知的沙盒逃逸风险。恶意插件可以通过原型链污染（例如 `this.constructor.constructor('return process')()`）逃逸出虚拟机，直接获取底层 Node.js `child_process` 的最高系统权限。
-- **实施的修复**：我们在 `SecureCenter.ts` 和 `PluginManager.ts` 中研发了一套坚固的 RASP（运行时应用自我保护）层。摒弃了脆弱的裸 `vm` 环境，我们对原生的 `fs`、`child_process` 等模块实施了深度的 `Proxy` 拦截，并通过 `Object.freeze` 强制冻结了全局原型链，从物理内存级别彻底封死了原型链污染攻击的路径。
+## [C-01] `getssh-plugin://` 路径穿越导致本机 LFI
+- **漏洞描述**：自定义协议拦截器未对路径进行过滤，`join()` 函数无法阻止 `../` 遍历。攻击者通过 XSS 执行 `fetch('getssh-plugin://../../../../../../Users/xxx/.ssh/id_rsa')` 即可窃取任意本地文件（如 SSH 私钥）。
+- **修复方案**：引入 `startsWith()` 进行严格的边界路径校验，拒绝任何跳出插件目录的请求。
 
-## 2. Command Center "Quick Connect" 崩溃 (UI/UX 修复)
-- **发现的 Bug**：在主页的 Command Center 中，当用户在搜索框输入 `user@host` 并按下回车尝试“快速连接 (Quick Connect)”时，界面毫无反应，且 Console 控制台抛出大量红色报错。原因是底层代码试图通过 `document.querySelector` 强行寻找旧版 UI 中已被移除的 DOM 按钮，导致找不到元素而直接抛出异常死锁。
-- **实施的修复**：彻底移除了极其脆弱的 DOM 节点查询黑魔法。我们将控制中心提取为独立的 `<CommandCenter />` 共享组件，将 `onConnect` 状态原生向下传递并直接对接底层的 `sshConnect` 引擎，现在快速连接能够瞬间无缝拉起。
+## [C-02] 主进程插件以 Node.js 最高权限运行（无沙盒）
+- **漏洞描述**：第三方插件通过 `require()` 直接加载到 Electron 主进程，可直接访问 `fs`、`child_process` 等全部 Node.js API，等同于拥有当前用户的最高系统权限。
+- **修复方案**：全面重构插件沙盒架构，引入基于 `Proxy` 的运行时应用自我保护 (RASP) 层，阻断未授权的 API 调用，并冻结全局原型链。
 
-## 3. Vite 编译与热更新阻断 (编译错误修复)
-- **发现的 Bug**：在开发者模式 (`npm run dev`) 和生产构建时，Vite 会抛出致命的 `SyntaxError: Unexpected token '<'` 报错，直接导致整个开发服务器崩溃及热更新 (HMR) 瘫痪。
-- **实施的修复**：对 JSX 渲染树进行了严格的 TSX 语法审计。修复了 `EmptyState.tsx` 中由于早期排版遗留的未闭合 `<button>` 及 `<div>` 标签，让 React AST 能够被 Vite 与 esbuild 正确解析。
+## [C-03] `safeStorageDecrypt` 暴露给插件导致凭证明文泄露
+- **漏洞描述**：主进程不慎将 `safeStorageDecrypt` 接口暴露给所有插件。恶意插件只需读取本地的 `profiles.key`，传入该函数即可无门槛获得明文主密码。
+- **修复方案**：彻底从 Plugin SDK 及 IPC 暴露层中移除该解密接口的授权。
 
-## 4. 日期未跟随系统多语言翻译 (国际化修复)
-- **发现的 Bug**：Command Center 右上角的实时仪表盘时钟，其日期和时间的格式化被硬编码使用了系统底层语言 (`undefined` locale)，这导致当用户在 GETSSH 设置中将语言切换为中文时，首页的时钟依然显示英文格式的日期。
-- **实施的修复**：将时钟组件与全局的 `react-i18next` 国际化引擎打通，在调用 `toLocaleDateString` 与 `toLocaleTimeString` 时显式传入了 `i18n.language` 环境变量，确保所有时间戳的本地化展示与软件当前 UI 语言强绑定。
+## [C-04] Windows 平台生物解锁验证绕过
+- **漏洞描述**：Electron 的 `safeStorage` 在 Windows 下底层依赖 DPAPI，解密是隐式的，不会像 macOS 那样弹出指纹确认框。恶意脚本调用 `promptBiometricUnlock` 即可秒级窃取主密码明文。
+- **修复方案**：在 Windows 平台强制引入自定义的系统级密码验证弹窗，补齐安全短板。
+
+## [C-05] `will-navigate` 协议校验逻辑漏洞导致全局 CSP 绕过 + RCE
+- **漏洞描述**：为主窗口加载 `index.html` 而简单放行了所有 `file://` 协议导航。恶意脚本可通过 `window.location.href` 跳转到本地恶意网页，该网页在主窗口中渲染，继承了全部 `electronAPI` 特权并脱离了 CSP 限制，直接升级为无限制的 RCE。
+- **修复方案**：收紧 `will-navigate` 的校验规则，仅允许精确匹配的 `dist/index.html` 路径进行跳转。
+
+## [C-06] SFTP 大文件读取导致 OOM 崩溃
+- **漏洞描述**：SFTP 底层使用了 `readFile` 一次性读取文件内容到内存。双击远端数 GB 大小的日志文件会瞬间导致 Node.js V8 引擎 Out of Memory 崩溃。
+- **修复方案**：重构为流式读写 (Streams) 进行文件交互，引入合理的大小限制与分块传输。

@@ -1,19 +1,27 @@
-# GETSSH Bug Fixes & Security Patches
+# GETSSH Critical Security Vulnerabilities & Patches
 
-This document outlines the recent critical bugs and security vulnerabilities discovered and fixed in the GETSSH application.
+This document outlines the 6 **CRITICAL** security vulnerabilities discovered during a deep code audit and their respective remediation strategies. If exploited, these vulnerabilities could lead to data exfiltration, system takeover, or application crashes.
 
-## 1. Plugin Sandbox Escape Vulnerability (Critical Security Fix)
-- **Bug Discovered**: The plugin execution environment utilized `vm.runInNewContext`, which was discovered to be inherently vulnerable to sandbox escape attacks. Malicious plugins could execute arbitrary code by navigating the prototype chain (e.g., `this.constructor.constructor('return process')()`), gaining full access to the Node.js `child_process` and host system.
-- **Fix Implemented**: We engineered a robust Runtime Application Self-Protection (RASP) layer in `SecureCenter.ts` and `PluginManager.ts`. Instead of relying solely on `vm`, we implemented deep `Proxy` hooks on native Node.js requires (like `fs` and `child_process`) and strictly froze (`Object.freeze`) the global prototype chains to definitively block memory corruption and prototype pollution attacks.
+## [C-01] Local File Inclusion (LFI) via `getssh-plugin://` Path Traversal
+- **Vulnerability**: The custom protocol handler failed to sanitize file paths, allowing `../` traversal. An attacker exploiting an XSS vector could use `fetch('getssh-plugin://../../../../../../Users/xxx/.ssh/id_rsa')` to silently steal arbitrary local files, including SSH private keys.
+- **Fix**: Implemented strict path boundary validation using `startsWith()` to immediately reject any traversal outside the designated plugin directory.
 
-## 2. Command Center "Quick Connect" Crash (UI/UX Fix)
-- **Bug Discovered**: When a user attempted to use the "Quick Connect" feature (typing `user@host` and pressing Enter) in the Empty State Command Center, nothing happened and the console flooded with red DOM errors. The underlying code was trying to execute an unreliable `document.querySelector` on buttons that no longer existed in the updated DOM.
-- **Fix Implemented**: Removed all brittle DOM query hacks. Extracted the core layout into a shared `<CommandCenter />` component and explicitly passed the `onConnect` callback directly to the underlying `sshConnect` engine. Quick connect now works flawlessly and instantly.
+## [C-02] Node.js Privilege Escalation via Unsandboxed Plugins
+- **Vulnerability**: Third-party plugins were loaded directly into the Electron Main Process via `require()`, granting them unrestricted access to powerful Node.js APIs like `fs` and `child_process`. This essentially handed over full host OS privileges to untrusted code.
+- **Fix**: Architected a Runtime Application Self-Protection (RASP) layer using deep `Proxy` interceptions and `Object.freeze` to strictly sandbox plugins, blocking unauthorized API calls and prototype pollution.
 
-## 3. Vite Build/HMR Failure (Compilation Fix)
-- **Bug Discovered**: The application failed to compile in development mode (`npm run dev`) and production mode due to `SyntaxError: Unexpected token '<'` thrown by Vite. This was caused by malformed and unclosed JSX tags within `EmptyState.tsx`.
-- **Fix Implemented**: Conducted a strict TypeScript and JSX audit of the component tree, properly closing all stray `<div>` and `<button>` tags, restoring the Hot Module Replacement (HMR) and build pipelines.
+## [C-03] Master Password Leak via `safeStorageDecrypt` Exposure
+- **Vulnerability**: The `safeStorageDecrypt` API was accidentally exposed to the Plugin SDK. A malicious plugin could simply read the OS-encrypted `profiles.key` from disk, pass it to this function, and instantly receive the plaintext Master Password.
+- **Fix**: Revoked and completely removed this decryption capability from the Plugin IPC layer.
 
-## 4. Unlocalized Date Formatting (i18n Fix)
-- **Bug Discovered**: The live clock in the top-right corner of the Command Center was formatting the date and time using the host OS default (`undefined` locale), ignoring the language selected by the user within GETSSH's internationalization settings.
-- **Fix Implemented**: Bound the `toLocaleDateString` and `toLocaleTimeString` APIs to the `react-i18next` engine by injecting `i18n.language`, ensuring the date format correctly matches the active UI language (e.g., Chinese formatting when the app is in Chinese).
+## [C-04] Windows OS Biometric Authentication Bypass
+- **Vulnerability**: In Windows, Electron's `safeStorage` relies on DPAPI, meaning decryption occurs implicitly without prompting the user for a fingerprint or PIN (unlike macOS). Malicious scripts could call `promptBiometricUnlock` to silently extract the plaintext Master Password.
+- **Fix**: Implemented a mandatory, custom system-level password verification prompt explicitly for the Windows platform to enforce user interaction before decryption.
+
+## [C-05] Full CSP Bypass & RCE via `will-navigate` Protocol Logic Flaw
+- **Vulnerability**: To allow loading the app's `index.html`, the `will-navigate` event blindly permitted all `file://` protocol navigations. An attacker could execute `window.location.href = 'file:///tmp/malicious.html'`, causing the main window to load a malicious local file. This file would inherit all `electronAPI` privileges while escaping the app's Content Security Policy (CSP), resulting in Remote Code Execution (RCE).
+- **Fix**: Tightened the navigation rules to strictly allow list only the exact, expected path for `dist/index.html`.
+
+## [C-06] Out of Memory (OOM) Crash via Unbounded SFTP File Reads
+- **Vulnerability**: The SFTP handler utilized `readFile` to load entire file contents directly into RAM. Opening a multi-gigabyte remote log file would instantly exhaust the V8 engine's memory, causing a fatal app crash.
+- **Fix**: Refactored the file transfer subsystem to utilize Streams, implementing bounded chunk transfers and size limits.
