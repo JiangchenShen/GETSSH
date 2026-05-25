@@ -25,7 +25,7 @@
 
 ## 第一章：协议层漏洞 — 本地文件任意读取
 
-### 🔴 [C-01] `getssh-plugin://` 路径穿越导致本机 LFI
+### 🔴 [C-01] [✅ 已修复] `getssh-plugin://` 路径穿越导致本机 LFI
 
 **文件**：[index.ts:112-118](file:///Users/shenjiangchen/Documents/GETSSH/electron/main/index.ts#L112-L118)
 
@@ -44,7 +44,7 @@ protocol.handle('getssh-plugin', (request) => {
 
 ## 第二章：插件系统 — 全面沦陷
 
-### 🔴 [C-02] 主进程插件以 Node.js 最高权限运行（无沙盒）
+### 🔴 [C-02] [✅ 已修复] 主进程插件以 Node.js 最高权限运行（无沙盒）
 
 **文件**：[PluginManager.ts:65](file:///Users/shenjiangchen/Documents/GETSSH/electron/main/PluginManager.ts#L65)
 
@@ -57,7 +57,7 @@ pluginModule.activate(this.createMainContext());
 
 ---
 
-### 🔴 [C-03] `safeStorageDecrypt` 暴露给插件 = 全部凭证明文泄露
+### 🔴 [C-03] [✅ 已修复] `safeStorageDecrypt` 暴露给插件 = 全部凭证明文泄露
 
 **文件**：[PluginManager.ts:29-34](file:///Users/shenjiangchen/Documents/GETSSH/electron/main/PluginManager.ts#L29-L34)
 
@@ -71,7 +71,7 @@ safeStorageDecrypt: (hash) => {
 
 ---
 
-### 🔴 [C-04] Windows 平台生物解锁验证绕过 = 主密码被"提款机"式窃取
+### 🔴 [C-04] [✅ 已修复] Windows 平台生物解锁验证绕过 = 主密码被"提款机"式窃取
 
 **文件**：[cryptoHandler.ts:21-30](file:///Users/shenjiangchen/Documents/GETSSH/electron/main/handlers/cryptoHandler.ts#L21-L30)
 
@@ -89,7 +89,7 @@ return { success: true, masterPassword };
 
 ---
 
-### 🔴 [C-05] `will-navigate` 协议校验逻辑漏洞导致全局 CSP 绕过 + RCE
+### 🔴 [C-05] [✅ 已修复] `will-navigate` 协议校验逻辑漏洞导致全局 CSP 绕过 + RCE
 
 **文件**：[windowHandler.ts:87-89](file:///Users/shenjiangchen/Documents/GETSSH/electron/main/handlers/windowHandler.ts#L87-L89)
 
@@ -105,7 +105,7 @@ if (parsedUrl.protocol === 'file:') {
 
 ---
 
-### 🟠 [H-01] XSS → RCE 闭环：`installPlugin` 暴露给渲染进程
+### 🟠 [H-01] [✅ 已修复] XSS → RCE 闭环：`installPlugin` 暴露给渲染进程
 
 **文件**：[preload/index.ts:50](file:///Users/shenjiangchen/Documents/GETSSH/electron/preload/index.ts#L50)
 
