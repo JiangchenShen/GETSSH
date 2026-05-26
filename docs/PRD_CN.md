@@ -237,7 +237,7 @@ GETSSH 是一款面向专业开发者与运维工程师的**跨平台桌面 SSH 
 | v1.2.1 | 主进程模块化重构 + SFTP 健壮性修复 + 静默更新 |
 | v1.3.0 | 安全审计 V3.0 + RASP 沙盒 + 5 个 CRITICAL 漏洞修复 + 设置 UI 重设计 |
 | v1.3.x | Command Center 键盘导航 + 插件 UI 优化 |
-| v2.0.0（规划）| CSP 全面收紧 + SFTP 流式大文件 + Windows 支持 + Plugin Marketplace |
+| v2.0.0（规划）| 升级 React 19 + CSP 全面收紧 + SFTP 流式大文件 + Windows 支持 + Plugin Marketplace |
 
 ---
 
