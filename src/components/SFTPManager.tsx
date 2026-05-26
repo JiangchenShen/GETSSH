@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus } from 'lucide-react';
+import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useSessionStore } from '../store/sessionStore';
 
 export interface SFTPFile {
   name: string;
@@ -21,7 +22,27 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [pathInputValue, setPathInputValue] = useState('');
 
+  const tabs = useSessionStore(s => s.tabs);
+  const isDisconnected = React.useMemo(() => {
+    if (!sessionId) return true;
+    const tab = tabs.find(t => t.id === sessionId);
+    if (!tab) return true;
+    if (!tab.paneTree) return false; 
+    let connected = false;
+    const checkTree = (node: any) => {
+      if (node.type === 'leaf') {
+        if (node.sessionId === sessionId && !node.isDisconnected) connected = true;
+      } else {
+        checkTree(node.children[0]);
+        checkTree(node.children[1]);
+      }
+    };
+    checkTree(tab.paneTree);
+    return !connected;
+  }, [tabs, sessionId]);
+
   const fetchFiles = async (path: string) => {
+    if (isDisconnected) return;
     setLoading(true);
     setError(null);
     try {
@@ -133,21 +154,21 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
           {t('sftp.title')}
         </h2>
         <div className="flex gap-1">
-          <button onClick={handleAddFile} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title="New File"><FilePlus className="w-4 h-4 opacity-80" /></button>
-          <button onClick={handleAddFolder} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title="New Folder"><FolderPlus className="w-4 h-4 opacity-80" /></button>
-          <button onClick={() => fetchFiles(currentPath)} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title="Refresh"><RefreshCw className={`w-4 h-4 opacity-80 ${loading ? 'animate-spin' : ''}`} /></button>
+          <button disabled={isDisconnected} onClick={handleAddFile} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New File"}><FilePlus className="w-4 h-4 opacity-80" /></button>
+          <button disabled={isDisconnected} onClick={handleAddFolder} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New Folder"}><FolderPlus className="w-4 h-4 opacity-80" /></button>
+          <button disabled={isDisconnected} onClick={() => fetchFiles(currentPath)} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "Refresh"}><RefreshCw className={`w-4 h-4 opacity-80 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
       </div>
       
       <div 
-        className={`px-4 py-2 text-xs flex items-center gap-1 font-mono opacity-80 overflow-x-auto whitespace-nowrap border-b-[1.5px] border-t-0 border-l-0 border-r-0 cursor-text transition-colors min-h-[32px] ${isDark ? 'bg-black/20 text-white/50 border-white/10 hover:bg-black/40' : 'bg-black/5 text-black/50 border-black/10 hover:bg-black/10'}`}
+        className={`px-4 py-2 text-xs flex items-center gap-1 font-mono opacity-80 overflow-x-auto whitespace-nowrap border-b-[1.5px] border-t-0 border-l-0 border-r-0 transition-colors min-h-[32px] ${isDisconnected ? 'cursor-not-allowed opacity-40' : 'cursor-text'} ${isDark ? 'bg-black/20 text-white/50 border-white/10 hover:bg-black/40' : 'bg-black/5 text-black/50 border-black/10 hover:bg-black/10'}`}
         onClick={() => {
-          if (!isEditingPath) {
+          if (!isEditingPath && !isDisconnected) {
             setPathInputValue(currentPath);
             setIsEditingPath(true);
           }
         }}
-        title="Click to edit path"
+        title={isDisconnected ? "Not connected" : "Click to edit path"}
       >
         {isEditingPath ? (
           <input 
@@ -207,8 +228,14 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-0">
-        {error ? (
+      <div className="flex-1 overflow-y-auto p-0 relative">
+        {isDisconnected ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center opacity-50 select-none">
+            <Lock className="w-12 h-12 mb-4 opacity-20" />
+            <p className="text-sm font-medium">{t('sftp.notConnected', 'SFTP is disabled')}</p>
+            <p className="text-xs mt-1 opacity-70">Connect to a server to manage files</p>
+          </div>
+        ) : error ? (
            <div className="p-4 text-red-500 text-sm">{error}</div>
         ) : (
            <table className="w-full text-sm text-left">
