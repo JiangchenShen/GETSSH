@@ -721,7 +721,7 @@ export class PluginManager {
       }
     });
 
-    ipcMain.handle('commit-plugin-install', async (event, { sourceDir, tempDir }: { sourceDir: string; tempDir: string }) => {
+    ipcMain.handle('commit-plugin-install', async (event, { sourceDir, tempDir, manifest: _ignoredManifest }: { sourceDir: string; tempDir: string; manifest?: any }) => {
       try {
         // #5 FIX: Validate that the path is actually a plugin temp directory before manipulating it
         const osTempDir = app.getPath('temp');
@@ -736,6 +736,14 @@ export class PluginManager {
         const serverManifest = JSON.parse(
           await fs.promises.readFile(path.join(sourceDir, 'package.json'), 'utf8')
         );
+
+        // If the renderer passed a manifest, explicitly validate it matches the server-side source of truth
+        if (_ignoredManifest) {
+          if (serverManifest.name !== _ignoredManifest.name || serverManifest.version !== _ignoredManifest.version) {
+            throw new Error(`Manifest mismatch: expected ${_ignoredManifest.name}@${_ignoredManifest.version}, got ${serverManifest.name}@${serverManifest.version}`);
+          }
+        }
+
         const targetDir = this.getSecurePluginPath(serverManifest.name);
         
         if (this.runningPlugins.has(serverManifest.name)) {
