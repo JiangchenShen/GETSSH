@@ -97,6 +97,8 @@
       "dist/plugins/**/*",
       "dist-electron/**/*",
       "rust-core/**/*.node",
+      "rust-core/**/*.js",
+      "rust-core/**/package.json",
       "!**/*.map",
       "!**/*.ts",
       "!**/*.tsx",

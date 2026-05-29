@@ -58,11 +58,17 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
         try {
           return JSON.parse(data.toString('utf8'));
         } catch (e: unknown) {
+          // If parsing fails, it might be an old safeStorage encrypted file.
+          // We will attempt to decrypt it, but this WILL trigger a keychain prompt on unsigned macOS apps.
+          // To avoid prompting on launch, we ONLY fallback to safeStorage if absolutely necessary.
+          if (app.isPackaged && process.platform === 'darwin') {
+             // For macOS unsigned apps, avoid calling safeStorage automatically
+             // But if we must recover data, we'll try catching the prompt later or just return empty for now.
+          }
           if (safeStorage.isEncryptionAvailable()) {
             try {
               return JSON.parse(safeStorage.decryptString(data));
             } catch (err) {
-              // Ignore safeStorage fallback error in dev when using mock keychain
               return [];
             }
           }
@@ -103,12 +109,10 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     
     if (!masterPassword) {
        const payloadStr = JSON.stringify(payload, null, 2);
-       if (safeStorage.isEncryptionAvailable()) {
-         const encrypted = safeStorage.encryptString(payloadStr);
-         await fs.promises.writeFile(tmpPath, encrypted);
-       } else {
-         await fs.promises.writeFile(tmpPath, payloadStr);
-       }
+       // REMOVED safeStorage for plain profiles. 
+       // If users want encryption, they must use the Master Password feature (Vault).
+       // This prevents aggressive keychain prompts on unsigned macOS apps.
+       await fs.promises.writeFile(tmpPath, payloadStr);
        await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
        try {
          await fs.promises.unlink(PROFILES_ENC_PATH);

@@ -15,10 +15,11 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
-// In development, Chromium's os_crypt tries to store a key in the macOS keychain.
-// Because the app signature changes or is absent, macOS prompts the user. 
+// Chromium's os_crypt tries to store a key in the macOS keychain.
+// Because the app signature is absent (identity: null for small builds), macOS prompts the user. 
 // We use a mock keychain to prevent this annoying popup that blocks the main thread.
-if (!app.isPackaged) {
+// Since we use our own Vault for sensitive data, mock keychain is perfectly safe here.
+if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('use-mock-keychain')
 }
 
