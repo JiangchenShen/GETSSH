@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file. The project
 
 ---
 
-## [1.3.2-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
+## [2.0.0-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
 
 ### 🏗️ Infrastructure Overhaul Phase 1: React 19 Core Engine Hot-Swap
 A landmark milestone for GETSSH's technology stack modernization. We have fully migrated the frontend runtime from React 18 to React 19, adopting all new concurrent rendering features and upgrading the UI component library and type system to ensure every future feature ships on the most cutting-edge foundation possible.
@@ -18,6 +18,30 @@ A landmark milestone for GETSSH's technology stack modernization. We have fully 
 - **React 19 Strict Type Tightening Fix**: Fixed a `useRef<NodeJS.Timeout>()` error in `ConnectForm.tsx` triggered by React 19's stricter generic inference rules. Updated to the canonical `useRef<NodeJS.Timeout | null>(null)` form.
 - **Lucide React Latest Upgrade**: Upgraded `lucide-react` to the latest version. All icon import names were validated for compatibility with the new API spec — zero naming conflicts or deprecation warnings.
 - **`@testing-library/react` React 19 Alignment**: Simultaneously upgraded the testing library to the latest version, ensuring full API compatibility with React 19.
+
+### 🌪️ Infrastructure Overhaul Phase 2: Tailwind CSS v4 & Vite 8 Upgrade
+- **Tailwind v4 Engine Upgrade**: Upgraded from Tailwind CSS v3 to v4. Eliminated the bulky `tailwind.config.js` and transitioned to pure CSS configuration via `@import "tailwindcss";` and `@theme` blocks, unleashing the next-generation lightning-fast styling engine.
+- **Vite 8 Integration**: Elevated the build toolchain to Vite 8.0, migrating flawlessly to the new `@tailwindcss/vite` plugin and `vite.config.mts` configuration format, achieving extreme development server boot speeds.
+
+### 🚀 Infrastructure Overhaul Phase 3: Electron 42 & Node 22 Ultimate Leap
+- **Next-Gen Electron Kernel**: Upgraded the core framework from the legacy Electron 32 branch directly to the bleeding-edge **Electron 42.3.0**.
+- **Node 22 Backend Environment**: Upgraded native backend types to Node 22, unlocking the latest V8 features and robust security patches.
+- **IPC API Modernization**: Remapped and resolved deprecation warnings introduced by Electron 42, ensuring window frame controls, system event listeners, and inter-process communications remain perfectly intact.
+
+### 📟 Xterm.js Architecture Cleanup & Hardening
+- **N-API PTY Resurrection**: Completely eradicated the obsolete `@homebridge/node-pty-prebuilt-multiarch` branch and returned to the official `node-pty` mainstream, directly leveraging N-API prebuilds for maximum stability.
+- **Unified Xterm Ecosystem**: Scanned and wiped all legacy `xterm-addon-*` stray dependencies. Standardized the entire terminal rendering engine on the official `@xterm/` namespace (e.g., `@xterm/addon-fit`, `@xterm/addon-search`, `@xterm/addon-webgl`, `@xterm/addon-canvas`).
+- **WebGL/Canvas Failover**: Forged an intelligent rendering failover mechanism in `Terminal.tsx`. The terminal automatically attempts high-performance WebGL rendering, and elegantly falls back to Canvas on context loss or unsupported transparent environments.
+
+### 🛡️ TypeScript 6.0 Strict Defense
+- **ES2023 Target Enforced**: Elevated the global TypeScript target and module system to `ESNext`/`ES2023`, enforcing strict module resolution with `isolatedModules` and `allowImportingTsExtensions`.
+- **Zero-Tolerance Type Checks**: Fixed implicit `any` leaks in `sftpHandler.ts` native callbacks, and cemented critical null pointer exceptions in `cryptoHandler.ts` (Rust N-API decryption boundary) and `sshHandler.ts` (Proxy connection fallback), achieving absolute zero compiler errors under `strict: true`.
+
+### 📦 "Small & Beautiful" DMG Ultimate Compression
+- **Locale Eradication**: Injected `electronLanguages: ["en-US", "zh-CN"]` into the `electron-builder` config, surgically slicing away over 50 unnecessary `.pak` and `.lproj` language binaries from the Electron Framework.
+- **Pure JS Tree-Shaking**: Transferred pure JavaScript node modules (`dompurify`, `p-limit`, `socks`, `http-proxy-agent`) to `devDependencies`. The Vite/esbuild bundler now absorbs them natively into the final `index.js`, permanently banishing thousands of disjointed files from `app.asar`.
+- **N-API Dev Bloat Excluded**: Excluded `rust-core/**/node_modules/**` from the packaging scope, preventing ~17MB of useless `@napi-rs` compile-time binaries from leaking into the production app.
+- **Result**: The fully compressed ARM64 `.dmg` size plunged to a historical **101 MB** — practically the physical limit for a full-scale Electron 42 environment.
 
 ### 🧹 Physical Dependency Purge & Tree Rebuild
 - **Ghost Dependency Extermination**: Completely destroyed the mixed `node_modules` directory and cross-contaminated `package-lock.json`, then executed `npm cache clean --force` to purge OS-level NPM cache — eliminating every last React 18 fragment from the root.

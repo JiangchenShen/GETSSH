@@ -6,7 +6,31 @@
 
 ---
 
-## [1.3.2-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
+## [2.0.0-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
+
+### 🌪️ 基础设施大换血第二阶段：Tailwind CSS v4 & Vite 8 升级
+- **Tailwind v4 引擎跃迁**：从 Tailwind CSS v3 全面升级至 v4。彻底废弃了臃肿的 `tailwind.config.js`，转而使用 `@import "tailwindcss";` 和 `@theme` 的纯 CSS 原生配置方案，释放次世代闪电般的样式编译引擎。
+- **Vite 8 深度整合**：将构建工具链拉升至 Vite 8.0，完美迁移至全新的 `@tailwindcss/vite` 插件和 `vite.config.mts` 配置规范，实现了极致的开发服务器冷启动速度。
+
+### 🚀 基础设施大换血第三阶段：Electron 42 & Node 22 终极跨越
+- **次世代 Electron 内核**：跳出陈旧的 Electron 32 舒适区，将核心框架直接拉升至目前最前沿的 **Electron 42.3.0**。
+- **Node 22 后端环境**：底层 Native 运行时同步升级至 Node 22，解锁最新的 V8 特性与强力安全补丁。
+- **IPC 接口现代化重构**：逐一击破 Electron 42 带来的 API 破坏性变更（Deprecation Warnings），确保窗口控制器、系统事件监听器以及进程间通信（IPC）完美无缝运行。
+
+### 📟 Xterm.js 架构清洗与加固
+- **N-API PTY 浴火重生**：彻底清除了已经被时代淘汰的 `@homebridge/node-pty-prebuilt-multiarch` 分支版本，全面回归官方的正统 `node-pty` 生态，直接调用 N-API 预编译库获得最高稳定性。
+- **Xterm 生态大一统**：全局扫描并肃清了所有遗留的 `xterm-addon-*` 散装依赖。将整个终端渲染引擎标准化至官方的 `@xterm/` 统一命名空间下（如 `@xterm/addon-fit`、`@xterm/addon-canvas`）。
+- **WebGL/Canvas 智能降级渲染**：在 `Terminal.tsx` 中重铸了智能渲染回退机制。终端会优先尝试高性能 WebGL 渲染，并在检测到 GPU 上下文丢失或透明度不支持时，优雅且无感地平滑降级至 Canvas 渲染器。
+
+### 🛡️ TypeScript 6.0 严苛防御体系
+- **ES2023 目标锁定**：将全局 TypeScript Target 和 Module 系统拉升至 `ESNext`/`ES2023`，并强制开启 `isolatedModules` 和 `allowImportingTsExtensions` 严格模块解析。
+- **零容忍类型核查**：彻底修复了 `sftpHandler.ts` 中原生回调函数的隐式 `any` 泄露，同时在 `cryptoHandler.ts`（Rust N-API 解密边界）与 `sshHandler.ts`（代理连接降级）中焊死了关键的空指针探测。在最高规格的 `strict: true` 下达成了完美的全局**零编译错误**。
+
+### 📦 “小而美” DMG 极限打包压缩
+- **多语言包暴击剔除**：在 `electron-builder` 配置中强行注入 `electronLanguages: ["en-US", "zh-CN"]`，像外科手术一样精准切除了 Electron Framework 中多达 50 个毫无用处的 `.pak` 和 `.lproj` 其他国家语言二进制包。
+- **纯 JS 模块物理 Tree-Shaking**：将 `dompurify`、`p-limit`、`socks`、`http-proxy-agent` 等纯 JS 的伪 Native 依赖强行转移至 `devDependencies`。Vite/esbuild 构建流现在会将它们直接原生融合进最终的 `index.js` 中，永久地把成千上万个碎文件从 `app.asar` 中驱逐出境。
+- **N-API 构建垃圾屏蔽**：将 `rust-core/**/node_modules/**` 直接踢出打包范围，阻断了约 17MB 的 `@napi-rs` 编译期废弃二进制文件泄漏进生产环境安装包。
+- **压缩战果**：经过一系列极限施压，完全压缩后的 ARM64 架构 `.dmg` 体积历史性地跌至 **101 MB** —— 这几乎是完整搭载 Electron 42 庞大内核应用的物理体积极限！
 
 ### 🏗️ 基础设施大换血第一阶段：React 19 核心引擎热替换 (Infrastructure Upgrade Phase 1: React 19)
 这是 GETSSH 技术栈现代化的重要里程碑。我们将整个前端核心引擎从 React 18 迁移至 React 19，全面拥抱最新的 React 运行时特性，并同步升级 UI 组件库与类型系统，确保未来的所有功能开发都建立在最前沿的技术地基上。
