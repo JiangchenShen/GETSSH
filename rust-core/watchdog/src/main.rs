@@ -253,11 +253,13 @@ fn main() {
                         ui_alive = true;
                         is_yellow = level == "YELLOW";
                         lockdown_timer = 60;
+                        save_extensions_used = 0;
                         let _ = write_stream.write_all(format!("LOCKDOWN_TRIGGER:{}:{}\n", level, reason).as_bytes());
                     } else if msg.starts_with("LOCKDOWN:UI_ALIVE") {
                         lockdown_mode = true;
                         ui_alive = true;
                         lockdown_timer = 60;
+                        save_extensions_used = 0;
                     } else if msg == "PING" {
                         // All good
                     } else if msg == "ACTION:SLEEP" || msg == "ACTION:IGNORE" {
@@ -276,6 +278,7 @@ fn main() {
                     ui_alive = false;
                     is_yellow = false;
                     lockdown_timer = 60;
+                    save_extensions_used = 0;
 
                     // Trigger OS native popup for frozen process (macOS)
                     #[cfg(target_os = "macos")]
