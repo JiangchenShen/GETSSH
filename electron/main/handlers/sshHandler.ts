@@ -174,6 +174,20 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   });
 
   ipcMain.handle('ssh-connect', async (event, config) => {
+    if (typeof config.host === 'string' && config.host.includes(':') && !config.host.includes(']')) {
+       const parts = config.host.split(':');
+       if (parts.length === 2 && !isNaN(parseInt(parts[1], 10))) {
+           config.host = parts[0];
+           config.port = parseInt(parts[1], 10);
+       }
+    } else if (typeof config.host === 'string' && config.host.startsWith('[') && config.host.includes(']:')) {
+       const match = config.host.match(/^\[(.*)\]:(\d+)$/);
+       if (match) {
+           config.host = match[1];
+           config.port = parseInt(match[2], 10);
+       }
+    }
+
     // ── PROTOCOL DISPATCH ────────────────────────────────────────────────
     const protocol: 'ssh' | 'local' | 'telnet' = config.protocol || 'ssh';
     const sessionId = connectionManager.generateSessionId();
