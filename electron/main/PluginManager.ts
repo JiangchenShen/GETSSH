@@ -5,7 +5,7 @@ import dns from 'dns/promises';
 import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, net, clipboard } from 'electron';
 import { getBackendConfig } from './handlers/systemHandler';
 import pLimit from 'p-limit';
-import type { PluginManifest, MainContextAPI } from '../../src/types/plugin';
+import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../../src/types/plugin';
 import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
@@ -244,7 +244,7 @@ export class PluginManager {
 
         // Block obvious loopbacks immediately
         if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '127.0.0.1') {
-          SecureCenter.getInstance().triggerAlert({ level: 'red', message: `SSRF Attack Detected: Blocked request to local hostname ${hostname} by plugin ${manifest.name}` });
+          SecureCenter.getInstance().triggerLockdown(`SSRF Attack Detected: Blocked request to local hostname ${hostname} by plugin ${manifest.name}`, 'red');
           this.runningPlugins.get(manifest.name)?.deactivate();
           this.runningPlugins.delete(manifest.name);
           throw new Error('SecurityError: SSRF attack blocked. Plugin terminated.');
@@ -254,7 +254,7 @@ export class PluginManager {
         try {
           const lookupResult = await dns.lookup(hostname);
           if (isPrivateIP(lookupResult.address)) {
-            SecureCenter.getInstance().triggerAlert({ level: 'red', message: `SSRF Attack Detected: Blocked request to private IP ${lookupResult.address} (resolved from ${hostname}) by plugin ${manifest.name}` });
+            SecureCenter.getInstance().triggerLockdown(`SSRF Attack Detected: Blocked request to private IP ${lookupResult.address} (resolved from ${hostname}) by plugin ${manifest.name}`, 'red');
             this.runningPlugins.get(manifest.name)?.deactivate();
             this.runningPlugins.delete(manifest.name);
             throw new Error('SecurityError: SSRF attack blocked. Plugin terminated.');
@@ -301,7 +301,7 @@ export class PluginManager {
          return;
       }
       
-      if (manifest.getssh?.type === 'backend' || manifest.getssh?.type === 'hybrid') {
+      if (manifest.getssh?.type !== 'sandbox') {
         const mainPath = path.join(pluginDir, manifest.main);
         const code = await fs.promises.readFile(mainPath, 'utf8');
         const context = this.createMainContext(manifest);
@@ -347,7 +347,7 @@ export class PluginManager {
         
         if (typeof activateFn === 'function') {
           // Find pending handlers captured during context creation
-          let tempRpcHandlers: Map<string, Function> | undefined;
+          let tempRpcHandlers: Map<string, (payload: any) => Promise<any>> | undefined;
           context.rpc.registerMethod = (method: string, handler: any) => {
              tempRpcHandlers = tempRpcHandlers || new Map();
              tempRpcHandlers.set(method, handler);
