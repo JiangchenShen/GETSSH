@@ -2,7 +2,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::fs;
 use std::io;
-use std::path::{Component, Path};
+use std::path::Path;
 
 #[napi(js_name = "extractPlugin")]
 pub async fn extract_plugin(zip_path: String, target_dir: String) -> Result<()> {
@@ -17,12 +17,9 @@ pub async fn extract_plugin(zip_path: String, target_dir: String) -> Result<()> 
             
             // 军工级防御：Zip Slip 漏洞拦截
             let raw_name = file.name().to_string();
-            let entry_path = Path::new(&raw_name);
 
             // 如果使用 zip 库内置的安全检查发现问题，或者手动校验发现越权符
-            let is_malicious = file.enclosed_name().is_none() || entry_path.components().any(|c| {
-                matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))
-            });
+            let is_malicious = file.enclosed_name().is_none();
 
             if is_malicious {
                 // 物理销毁已解压的残骸目录
