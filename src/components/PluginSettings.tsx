@@ -15,11 +15,16 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0] as File & { path: string };
-    if (file && file.path.endsWith('.zip')) {
+    const file = e.dataTransfer.files[0] as File;
+    if (!file) return;
+
+    // Use webUtils via IPC to safely retrieve the absolute path regardless of context isolation
+    const realPath = window.electronAPI.getPathForFile ? window.electronAPI.getPathForFile(file) : (file as any).path;
+
+    if (realPath && realPath.endsWith('.zip')) {
       setLoading(true);
       try {
-        const res = await window.electronAPI.previewPlugin(file.path);
+        const res = await window.electronAPI.previewPlugin(realPath);
         if (res.success && res.manifest) {
           // #9 FIX: If a previous preview is pending, clean it up first to avoid tempDir leaks
           if (pendingInstall) {

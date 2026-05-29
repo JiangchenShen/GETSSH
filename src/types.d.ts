@@ -33,6 +33,7 @@ declare global {
       onSshClosed: (sessionId: string, cb: () => void) => (() => void);
       updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => void;
       selectFile: () => Promise<string | null>;
+      getPathForFile: (file: File) => string;
       checkProfiles: () => Promise<'encrypted' | 'plain' | 'none'>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
       saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[] }) => Promise<boolean>;

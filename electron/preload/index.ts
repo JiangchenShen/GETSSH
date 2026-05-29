@@ -1,9 +1,10 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { SysmonData, OsFingerprintData, HostVerificationData, BackendConfig, ExportPayload, ImportPayload, SshConnectConfig } from '../../src/types/ipc'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: () => ipcRenderer.invoke('select-file'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   onThemeChanged: (callback: (isDark: boolean) => void) => {
     const listener = (_event: IpcRendererEvent, isDark: boolean) => callback(isDark)
