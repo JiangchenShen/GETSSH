@@ -153,7 +153,7 @@ app.whenReady().then(async () => {
           <script>
             (function() {
               // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
-              var PLUGIN_ID = ${JSON.stringify(pluginId)};
+              var PLUGIN_ID = ${JSON.stringify(pluginId).replace(/</g, '\\u003c')};
               // #2 FIX: Capture and verify parent origin once at load time
               var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
               
