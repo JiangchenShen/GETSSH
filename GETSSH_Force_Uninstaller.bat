@@ -16,12 +16,13 @@ taskkill /F /IM "GETSSH Setup 1.0.0.exe" /T >nul 2>&1
 
 echo.
 echo [2/4] 清除幽灵 AppData 目录 (包含旧版静默安装文件)...
-if exist "%LocalAppData%\Programs\getssh" (
-    rmdir /s /q "%LocalAppData%\Programs\getssh"
+set "SafeLocalAppData=%USERPROFILE%\AppData\Local"
+if exist "%SafeLocalAppData%\Programs\getssh" (
+    rmdir /s /q "%SafeLocalAppData%\Programs\getssh"
     echo - 已清除 LocalAppData 安装目录
 )
-if exist "%LocalAppData%\getssh-updater" (
-    rmdir /s /q "%LocalAppData%\getssh-updater"
+if exist "%SafeLocalAppData%\getssh-updater" (
+    rmdir /s /q "%SafeLocalAppData%\getssh-updater"
     echo - 已清除自动更新缓存
 )
 

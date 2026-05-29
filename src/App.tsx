@@ -251,7 +251,10 @@ function App() {
                  if (config.initScript && res.sessionId) {
                      const sessionId = res.sessionId;
                      setTimeout(() => {
-                        window.electronAPI.sshWrite(sessionId, config.initScript + '\n');
+                        // [H-05] Security Fix: Require explicit user confirmation before executing initScript to prevent XSS-to-RCE escalation
+                        if (window.confirm(`[Security Check]\nAn initialization script is about to be executed on this server:\n\n${config.initScript}\n\nDo you want to allow this?`)) {
+                          window.electronAPI.sshWrite(sessionId, config.initScript + '\n');
+                        }
                      }, 1500); // Allow shell load buffer
                  }
                }

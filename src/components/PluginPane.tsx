@@ -109,7 +109,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         ref={iframeRef}
         src={resolvedUrl}
         className="w-full h-full border-none"
-        sandbox="allow-scripts allow-same-origin" // Strict security baseline: only allow scripts and same origin
+        sandbox="allow-scripts" // [H-02] Security Fix: Removed allow-same-origin to enforce opaque origin
         title={`plugin-${paneId}`}
         data-plugin-id={paneId}
       />

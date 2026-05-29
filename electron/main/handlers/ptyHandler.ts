@@ -80,8 +80,9 @@ export async function spawnLocalTerminal(
 
     const shell = getSafeShell();
 
-    const cols = config.cols || 80;
-    const rows = config.rows || 24;
+    // [H-06] Security Fix: Clamp PTY dimensions to prevent buffer allocation crashes
+    const cols = Math.min(Math.max(config.cols || 80, 10), 1000);
+    const rows = Math.min(Math.max(config.rows || 24, 10), 1000);
 
     const ptyProcess = ptyLib.spawn(shell, [], {
       name: 'xterm-256color',
@@ -134,7 +135,12 @@ export function writeLocalPty(sessionId: string, data: string) {
 
 export function resizeLocalPty(sessionId: string, cols: number, rows: number) {
   const proc = localPtyProcesses.get(sessionId);
-  if (proc) proc.resize(cols, rows);
+  if (proc) {
+    // [H-06] Security Fix: Clamp PTY dimensions during resize
+    const safeCols = Math.min(Math.max(cols || 80, 10), 1000);
+    const safeRows = Math.min(Math.max(rows || 24, 10), 1000);
+    proc.resize(safeCols, safeRows);
+  }
 }
 
 export async function killLocalPty(sessionId: string) {

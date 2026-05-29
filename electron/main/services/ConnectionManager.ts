@@ -1,5 +1,6 @@
 import { Client, ClientChannel, SFTPWrapper } from 'ssh2';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { powerSaveBlocker } from 'electron';
 
 export interface SessionData {
@@ -15,7 +16,8 @@ export class ConnectionManager {
   activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
 
   generateSessionId() {
-    return `req-${++this.sessionCounter}`;
+    // [M-12] Security Fix: Use cryptographically secure random UUIDs instead of predictable incremental integers
+    return crypto.randomUUID();
   }
 
   updatePowerSaveBlocker() {
