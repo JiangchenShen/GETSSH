@@ -144,9 +144,7 @@ app.whenReady().then(async () => {
     }
 
     if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
-      return net.fetch(pathToFileURL(pluginPath).toString()).then(async (res) => {
-        if (!res.ok) return res;
-        const text = await res.text();
+      return require('fs').promises.readFile(pluginPath, 'utf-8').then((text: string) => {
         const injection = `
           <script>
             (function() {
@@ -203,15 +201,12 @@ app.whenReady().then(async () => {
           ? text.replace('<head>', '<head>' + injection)
           : injection + text;
           
-        const headers = new Headers(res.headers);
-        headers.delete('content-length');
-        headers.set('content-type', 'text/html; charset=utf-8');
-        
         return new Response(modifiedText, {
-          status: res.status,
-          statusText: res.statusText,
-          headers
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
         });
+      }).catch((e: Error) => {
+        return new Response(e.message, { status: 404 });
       });
     }
     
