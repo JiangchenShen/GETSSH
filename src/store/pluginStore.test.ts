@@ -46,7 +46,7 @@ describe('usePluginStore', () => {
   });
 
   it('should update installed plugins when setPlugins is called', () => {
-    const plugins = [{ id: 'plugin-1', name: 'Test Plugin' }, { id: 'plugin-2', name: 'Another Plugin' }];
+    const plugins = [{ id: 'plugin-1', name: 'Test Plugin' }, { id: 'plugin-2', name: 'Another Plugin' }] as any;
     usePluginStore.getState().setPlugins(plugins);
 
     const state = usePluginStore.getState();
