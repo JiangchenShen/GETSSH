@@ -727,10 +727,16 @@ export class PluginManager {
       try {
         // #5 FIX: Validate that the path is actually a plugin temp directory before manipulating it
         const osTempDir = app.getPath('temp');
-        const resolvedSource = path.resolve(sourceDir);
+        const resolvedTemp = path.resolve(tempDir);
         const resolvedBase = path.resolve(osTempDir);
-        if (!resolvedSource.startsWith(resolvedBase + path.sep)) {
-          console.warn(`[Security] commit-plugin-install rejected suspicious path: ${resolvedSource}`);
+        if (!resolvedTemp.startsWith(resolvedBase + path.sep) || !path.basename(resolvedTemp).startsWith('plugin_')) {
+          console.warn(`[Security] commit-plugin-install rejected suspicious temp path: ${resolvedTemp}`);
+          return { success: false, error: 'Invalid temp directory: not a plugin temp directory.' };
+        }
+
+        const resolvedSource = path.resolve(sourceDir);
+        if (resolvedSource !== resolvedTemp && !resolvedSource.startsWith(resolvedTemp + path.sep)) {
+          console.warn(`[Security] commit-plugin-install rejected suspicious source path: ${resolvedSource}`);
           return { success: false, error: 'Invalid source directory: path traversal detected.' };
         }
 
