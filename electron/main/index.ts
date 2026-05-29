@@ -153,7 +153,7 @@ app.whenReady().then(async () => {
               // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
               var PLUGIN_ID = ${JSON.stringify(pluginId)};
               // #2 FIX: Capture and verify parent origin once at load time
-              var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
+              const PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
 
               window.GETSSH = {
                 _callbacks: {},
@@ -183,7 +183,7 @@ app.whenReady().then(async () => {
                 }
               };
               window.addEventListener('message', (e) => {
-                if (e.source !== window.parent) return;
+                if (e.source !== window.parent || (PARENT_ORIGIN !== '*' && e.origin !== PARENT_ORIGIN)) return;
                 const data = e.data;
                 if (data && data.type === 'rpc-response') {
                   const cb = window.GETSSH._callbacks[data.reqId];
