@@ -275,9 +275,11 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
   const handleSave = async () => {
     setSaving(true);
     try {
-      for (const [key, value] of Object.entries(formData)) {
-        await window.electronAPI.pluginStorageSet(pluginId, key, value);
-      }
+      await Promise.all(
+        Object.entries(formData).map(([key, value]) =>
+          window.electronAPI.pluginStorageSet(pluginId, key, value)
+        )
+      );
       await window.electronAPI.reloadPlugin(pluginId);
       alert('Settings saved. Plugin hot-reloaded successfully!');
     } catch (err: any) {

@@ -440,16 +440,18 @@ export class PluginManager {
               const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
 
               const safeRequire = (moduleName: string) => {
+                const normalizedModuleName = moduleName.startsWith('node:') ? moduleName.slice(5) : moduleName;
+                
                 if (securityMode === 'strict') {
                   // STRICT: Only path and os
                   const whitelist = ['path', 'os'];
-                  if (whitelist.includes(moduleName)) return require(moduleName);
+                  if (whitelist.includes(normalizedModuleName)) return require(moduleName);
                   SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require restricted module '${moduleName}' in Strict Mode.`, 'yellow');
                   throw new Error(`Sandbox violation: Cannot require module '${moduleName}' in Strict Mode`);
                 } else {
                   // NORMAL: Relaxed but block extremely dangerous ones
                   const blacklist = ['fs', 'fs/promises', 'child_process', 'net'];
-                  if (blacklist.includes(moduleName)) {
+                  if (blacklist.includes(normalizedModuleName)) {
                     SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require dangerous module '${moduleName}' in Normal Mode.`, 'yellow');
                     throw new Error(`Sandbox violation: Cannot require dangerous module '${moduleName}' in Normal Mode`);
                   }
@@ -721,7 +723,7 @@ export class PluginManager {
       }
     });
 
-    ipcMain.handle('commit-plugin-install', async (event, { sourceDir, tempDir }: { sourceDir: string; tempDir: string }) => {
+    ipcMain.handle('commit-plugin-install', async (event, { sourceDir, tempDir, manifest: _ignoredManifest }: { sourceDir: string; tempDir: string; manifest?: any }) => {
       try {
         // #5 FIX: Validate that the path is actually a plugin temp directory before manipulating it
         const osTempDir = app.getPath('temp');
@@ -736,6 +738,14 @@ export class PluginManager {
         const serverManifest = JSON.parse(
           await fs.promises.readFile(path.join(sourceDir, 'package.json'), 'utf8')
         );
+
+        // If the renderer passed a manifest, explicitly validate it matches the server-side source of truth
+        if (_ignoredManifest) {
+          if (serverManifest.name !== _ignoredManifest.name || serverManifest.version !== _ignoredManifest.version) {
+            throw new Error(`Manifest mismatch: expected ${_ignoredManifest.name}@${_ignoredManifest.version}, got ${serverManifest.name}@${serverManifest.version}`);
+          }
+        }
+
         const targetDir = this.getSecurePluginPath(serverManifest.name);
         
         if (this.runningPlugins.has(serverManifest.name)) {

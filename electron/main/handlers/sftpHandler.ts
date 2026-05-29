@@ -239,14 +239,23 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     let targetFilePath = '';
     
     if (providedLocalDir) {
-      // Security Fix: Prevent arbitrary file write. Only allow downloads to OS Downloads or Desktop when bypassing the save dialog.
+      // [Security Fix] prevent arbitrary file write via strict path bounds check in sftpHandler
+      // Use path.relative to securely ensure the provided download directory falls strictly under 
+      // the OS Downloads or Desktop folders, mitigating potential directory traversal.
+      const path = require('node:path');
       const downloadsPath = require('electron').app.getPath('downloads');
       const desktopPath = require('electron').app.getPath('desktop');
-      const resolvedDir = require('node:path').resolve(providedLocalDir);
+      const resolvedDir = path.resolve(providedLocalDir);
       
-      if (!resolvedDir.startsWith(downloadsPath) && !resolvedDir.startsWith(desktopPath)) {
+      const relToDownloads = path.relative(downloadsPath, resolvedDir);
+      const isUnderDownloads = !relToDownloads.startsWith('..') && !path.isAbsolute(relToDownloads);
+      
+      const relToDesktop = path.relative(desktopPath, resolvedDir);
+      const isUnderDesktop = !relToDesktop.startsWith('..') && !path.isAbsolute(relToDesktop);
+      
+      if (!isUnderDownloads && !isUnderDesktop) {
         console.warn(`[Security] sftp-download-file rejected suspicious providedLocalDir: ${resolvedDir}`);
-        return { success: false, error: 'Security: Automatic downloads are only permitted to the Downloads or Desktop folders.' };
+        return { success: false, error: 'Security: Automatic downloads are only permitted strictly within the Downloads or Desktop folders.' };
       }
       
       targetFilePath = join(providedLocalDir, fileName);

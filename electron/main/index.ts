@@ -202,7 +202,7 @@ app.whenReady().then(async () => {
               };
 
               window.addEventListener('message', (e) => {
-                if (e.source !== window.parent) return;
+                if (e.source !== window.parent || (PARENT_ORIGIN !== '*' && e.origin !== PARENT_ORIGIN)) return;
                 const data = e.data;
                 
                 // RPC and Backend Messages
