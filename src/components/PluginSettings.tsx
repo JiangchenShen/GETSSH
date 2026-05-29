@@ -262,10 +262,12 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
     if (isOpen) {
       const loadData = async () => {
         const data: Record<string, any> = {};
-        for (const field of schema) {
-          const val = await window.electronAPI.pluginStorageGet(pluginId, field.id);
-          data[field.id] = val !== null && val !== undefined ? val : field.default;
-        }
+        await Promise.all(
+          schema.map(async (field) => {
+            const val = await window.electronAPI.pluginStorageGet(pluginId, field.id);
+            data[field.id] = val !== null && val !== undefined ? val : field.default;
+          })
+        );
         setFormData(data);
       };
       loadData();
