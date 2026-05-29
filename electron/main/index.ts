@@ -9,6 +9,10 @@ import { getBrowserWindowOptions, bindWindowEvents, setupSecurityPolicies } from
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'getssh-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }
+])
+
 // Prevent background throttling for SSH persistence
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
@@ -211,7 +215,20 @@ app.whenReady().then(async () => {
       });
     }
     
-    return net.fetch(pathToFileURL(pluginPath).toString());
+    // For non-HTML files, fetch manually to ensure correct MIME types on macOS
+    return require('fs').promises.readFile(pluginPath).then((data: Buffer) => {
+      let contentType = 'application/octet-stream';
+      if (pluginPath.endsWith('.js')) contentType = 'application/javascript; charset=utf-8';
+      else if (pluginPath.endsWith('.css')) contentType = 'text/css; charset=utf-8';
+      else if (pluginPath.endsWith('.json')) contentType = 'application/json; charset=utf-8';
+      else if (pluginPath.endsWith('.svg')) contentType = 'image/svg+xml';
+      else if (pluginPath.endsWith('.png')) contentType = 'image/png';
+      else if (pluginPath.endsWith('.jpg') || pluginPath.endsWith('.jpeg')) contentType = 'image/jpeg';
+      
+      return new Response(data, {
+        headers: { 'content-type': contentType }
+      });
+    }).catch(() => new Response('Not Found', { status: 404 }));
   });
   
   registerAllIpcHandlers(ipcMain, app, () => win);
