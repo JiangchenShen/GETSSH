@@ -31,6 +31,12 @@ export interface ImportPayload {
   masterPassword?: string;
 }
 
+export interface WatchdogStatus {
+  status: 'secure' | 'warning';
+  lastPing: number;
+  watchdogDisabled?: boolean;
+}
+
 export interface SshConnectConfig {
   host: string;
   port: number;
@@ -42,4 +48,22 @@ export interface SshConnectConfig {
   proxyType?: 'none' | 'socks5' | 'http';
   proxyHost?: string;
   proxyPort?: number;
+}
+
+export interface UIExtensionAction {
+  pluginId: string;
+  actionId: string;
+  label: string;
+  target: 'terminal' | 'sftp';
+}
+
+export interface UIExtensionSyncPayload {
+  terminal: UIExtensionAction[];
+  sftp: UIExtensionAction[];
+}
+
+export interface ContextMenuTriggerPayload {
+  target: 'terminal' | 'sftp';
+  extensions: UIExtensionAction[];
+  contextData: any;
 }

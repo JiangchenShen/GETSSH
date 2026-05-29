@@ -7,6 +7,7 @@
       "terminal": "Terminal",
       "ssh": "Network & SSH",
       "system": "System & Auto",
+      "secureCenter": "Secure Center",
       "security": "Security",
       "plugins": "Plugins",
       "about": "About GETSSH",
@@ -67,6 +68,20 @@
       "importSuccessEmpty": "✅ File read successfully, but no new profiles to import."
     },
     "security": {
+      "watchdogConnecting": "Probe connecting...",
+      "watchdogSecure": "System Kernel Protected 24/7",
+      "watchdogWarning": "Core Security Threat Detected!",
+      "watchdogStatus": "Rust Watchdog Daemon Real-time Status (IPC Ping: {{time}})",
+      "raspTitle": "RASP Runtime Defense",
+      "raspDesc": "View the system's underlying security probe and initialization scripts to prevent zero-day injections.",
+      "privacyTitle": "Privacy & Auto Lock",
+      "privacyDesc": "Configure anti-peeping mode, idle auto-lock, and other environmental privacy policies.",
+      "safeStorageTitle": "SafeStorage Encryption",
+      "safeStorageDesc": "Manage the master password and enable the highest level AES-256-GCM credential vault.",
+      "exportTitle": "Config Export & Management",
+      "exportDesc": "Safely import and export all your connection profiles and application settings.",
+      "knownHostsDesc": "Audit and manage trusted server fingerprints to prevent Man-in-the-Middle (MITM) attacks.",
+      "backToDashboard": "Back to Secure Center Overview",
       "safeStorageConfig": "SafeStorage Configuration",
       "changeMasterPwd": "Change Master Password",
       "disableEncryption": "Disable Master Password Encryption",
@@ -96,7 +111,21 @@
       "globalInitScriptDesc": "Commands to automatically execute sequentially when connecting to any session.",
       "pwdUpdated": "✅ Master password securely updated and profiles re-encrypted!",
       "pwdDisabled": "⚠️ Encryption disabled. Profiles are now stored in plain text.",
-      "pwdEnabled": "🔒 SafeStorage Zero-Knowledge Encryption enabled!"
+      "pwdEnabled": "🔒 SafeStorage Zero-Knowledge Encryption enabled!",
+      "shieldClickToDetails": "Click to view security protection details",
+      "shieldDetailsTitle": "Four Pillars Protecting Your Data Security",
+      "shieldDetailsIntro": "GETSSH implements a defense-in-depth architecture from the OS kernel level up to the application layer. The following four independent security barriers ensure that every connection, every key, and every data transfer is protected at a military-grade standard.",
+      "shieldDetailsWatchdog": "Rust Physical-Level Watchdog",
+      "shieldDetailsWatchdogDesc": "A Rust binary daemon running independently from the main process. It monitors the main process health via IPC heartbeat. If an anomaly is detected (heartbeat missed for over 5 seconds), it bypasses Node.js/V8 entirely and calls OS-level APIs directly to forcibly terminate the whole process — preventing scenarios where the JavaScript layer is hijacked and unable to self-recover.",
+      "shieldDetailsZeroize": "Memory Zeroization (Zeroize)",
+      "shieldDetailsZeroizeDesc": "All SSH passwords and private keys are forcibly overwritten with 0x00 at the physical memory level within microseconds of completing cryptographic operations, via Rust's ZeroizeOnDrop mechanism. The TypeScript layer performs a secondary wipe with buffer.fill(0) in finally blocks — sealing the window of vulnerability for memory dump attacks.",
+      "shieldDetailsCrypto": "Vault-Grade Encryption Engine (Crypto Vault)",
+      "shieldDetailsCryptoDesc": "The credential vault is powered entirely by a Rust native extension (N-API), using PBKDF2-HMAC-SHA256 (100,000 iterations) for key derivation with AES-256-GCM authenticated encryption — eliminating the plaintext residue risk inherent in Node.js's native crypto module due to V8 garbage collection.",
+      "shieldDetailsNetwork": "Zero-Copy Network Engine",
+      "shieldDetailsNetworkDesc": "The SFTP large-file transfer channel uses a Rust N-API extension to take over disk I/O directly, achieving zero-copy data buffering on the local write path — bypassing the V8 heap to completely eliminate OOM risks and GC stutter during large file transfers.",
+      "watchdogDisabled": "Unavailable (Disabled)",
+      "pollutedTitle": "System Polluted",
+      "pollutedDesc": "The system has been polluted. Some security measures are disabled. Please check for abnormal processes immediately."
     },
     "appearance": {
       "uiTheme": "UI Theme",
@@ -171,7 +200,13 @@
       "unpacking": "Unpacking plugin core...",
       "installed": "Installed Extensions",
       "noPlugins": "No plugins installed yet.",
-      "uninstall": "Uninstall"
+      "uninstall": "Uninstall",
+      "installSuccess": "✅ Plugin \"{{name}}\" installed successfully! Restart to activate.",
+      "installFailed": "❌ Installation failed: {{error}}",
+      "lifecycleGateError": "Security blocked: This plugin has not declared a lifecycle hook. Installation rejected. Please ask the plugin developer to add \"lifecycle\" to getssh.capabilities in package.json.",
+      "installBtn": "Install Plugin",
+      "uninstallConfirm": "Are you sure you want to uninstall \"{{name}}\"?",
+      "uninstallSuccess": "🗑️ Plugin uninstalled. Restart GETSSH to clear UI artifacts."
     },
     "sidebar": {
       "savedSessions": "Saved Sessions",
@@ -256,8 +291,8 @@
       "privacy": "Privacy Policy",
       "licenses": "Third-Party Licenses",
       "systemInfo": "System Information",
-      "tagline": "GETSSH Terminal Platform v1.3.1 (Build K9V2X) - Secure Sandbox Core.",
-      "compliance": "Compliance & Open Source",
+      "tagline": "GETSSH Terminal Platform v1.3.2 Preview (Build R7K4S) - Secure Sandbox Core.",
+      "compliance": "Compliance & Legal",
       "openSourceDesc": "GETSSH is built upon robust open-source foundations including <strong>xterm.js</strong>, <strong>ssh2</strong>, <strong>React</strong>, and <strong>Zustand</strong>. View the Third-Party Licenses document for a complete registry of OSS components and their respective licenses.",
       "copyright": "Copyright © 2026 JiangchenShen. All rights reserved.",
       "checkingUpdates": "Checking...",
@@ -267,8 +302,7 @@
       "envNode": "Node.js",
       "envPlatform": "OS Platform",
       "versionCore": "Version & Core",
-      "hostPlatform": "Host Platform",
-      "compliance": "Compliance & Legal"
+      "hostPlatform": "Host Platform"
     },
     "hostKey": {
       "title": "Security Warning",
@@ -288,6 +322,27 @@
       "bannerDesc": "A new version is ready. Upgrade to experience the latest features and fixes.",
       "bannerDismiss": "Not Now",
       "bannerDownload": "Download Now"
+    },
+    "crypto": {
+      "passwordMismatch": "Passwords do not match",
+      "passwordTooShort": "Password too short (min 4 chars)",
+      "invalidPassword": "Invalid master password or corrupted file",
+      "skip": "Skip",
+      "skipTip": "Skip for now — will be prompted again next time",
+      "cancel": "Cancel",
+      "cancelTip": "Cancel — won't be prompted again",
+      "lockedTitle": "Zero-Knowledge Storage Locked",
+      "setupTitle": "Initialize Secure Storage",
+      "lockedDesc": "Your SSH profiles are locally encrypted using AES-256-GCM. Enter your Master Password to decrypt.",
+      "setupDesc": "Set a Master Password to encrypt your SSH profiles. This password is never saved or transmitted.",
+      "unlocking": "Unlocking...",
+      "unlockScreen": "Unlock Screen",
+      "masterPassword": "Master Password",
+      "confirmPassword": "Confirm Master Password",
+      "retryBiometric": "Retry TouchID",
+      "processing": "Processing...",
+      "decrypt": "Decrypt Profiles",
+      "encrypt": "Encrypt & Save"
     }
   }
 }

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock } from 'lucide-react';
+import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSessionStore } from '../store/sessionStore';
+import { useAppStore } from '../store/appStore';
+import { usePluginStore } from '../store/pluginStore';
 
 export interface SFTPFile {
   name: string;
@@ -21,7 +23,9 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
   const [promptInputValue, setPromptInputValue] = useState('');
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [pathInputValue, setPathInputValue] = useState('');
+  const [downloadingItems, setDownloadingItems] = useState<Set<string>>(new Set());
 
+  const sftpDownloadPath = useAppStore(s => s.appConfig.sftpDownloadPath);
   const tabs = useSessionStore(s => s.tabs);
   const isDisconnected = React.useMemo(() => {
     if (!sessionId) return true;
@@ -78,15 +82,39 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent, file: SFTPFile) => {
+  const handleDelete = async (e: React.MouseEvent, f: SFTPFile) => {
     e.stopPropagation();
-    if (!window.confirm(t('sftp.deleteConfirm', { name: file.name }))) return;
-    const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
-    const res = await window.electronAPI.sftpDelete(sessionId, path, file.type === 'd');
-    if (res.success) {
-      fetchFiles(currentPath);
+    if (!confirm(t('sftp.confirmDelete', { name: f.name }))) return;
+    setLoading(true);
+    const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
+    const res = await window.electronAPI.sftpDelete(sessionId, p, f.type === 'd');
+    if (!res.success) {
+      setError(res.error || 'Delete failed');
+      setLoading(false);
     } else {
-      alert(t('sftp.deleteFailed') + res.error);
+      fetchFiles(currentPath);
+    }
+  };
+
+  const handleDownload = async (e: React.MouseEvent, f: SFTPFile) => {
+    e.stopPropagation();
+    if (f.type === 'd') {
+      alert("Downloading directories is not supported yet.");
+      return;
+    }
+    setDownloadingItems(prev => new Set(prev).add(f.name));
+    try {
+      const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
+      const res = await window.electronAPI.sftpDownloadFile(sessionId, p, sftpDownloadPath);
+      if (!res?.success && res?.canceled !== true) {
+        alert("Download failed: " + res?.error);
+      }
+    } finally {
+      setDownloadingItems(prev => {
+        const next = new Set(prev);
+        next.delete(f.name);
+        return next;
+      });
     }
   };
 
@@ -95,7 +123,6 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
       handleNavigate(file.name);
       return;
     }
-    // If it's a symlink, we could try to edit it as a file first. If it's actually a directory, sftpEditSync might fail, but let's keep it simple.
     
     try {
       const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
@@ -255,15 +282,36 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
                  </tr>
                )}
                {files.map(f => (
-                 <tr key={f.name} onDoubleClick={() => handleDoubleClick(f)} onClick={() => (f.type === 'd' || f.type === 'l') && handleNavigate(f.name)} className={`group transition-colors ${f.type === 'd' || f.type === 'l' ? 'cursor-pointer' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 border-white/5' : 'hover:bg-black/5 border-black/5'} border-b last:border-0`}>
+                 <tr 
+                   key={f.name} 
+                   onDoubleClick={() => handleDoubleClick(f)} 
+                   onClick={() => (f.type === 'd' || f.type === 'l') && handleNavigate(f.name)} 
+                   onContextMenu={(e) => {
+                     e.preventDefault();
+                     e.stopPropagation();
+                     const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
+                     const uiExtensions = usePluginStore.getState().uiExtensions;
+                     window.electronAPI.showContextMenu({
+                        target: 'sftp',
+                        extensions: uiExtensions.sftp,
+                        contextData: { sessionId, currentPath: p, selectedFiles: [f.name] }
+                     });
+                   }}
+                   className={`group transition-colors ${f.type === 'd' || f.type === 'l' ? 'cursor-pointer' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 border-white/5' : 'hover:bg-black/5 border-black/5'} border-b last:border-0`}
+                 >
                    <td className="px-2 py-2 flex items-center gap-2 truncate max-w-[200px]" title={f.name}>
                      {f.type === 'd' ? <Folder className="w-4 h-4 text-blue-400 shrink-0" /> : <File className={`w-4 h-4 shrink-0 ${f.type === 'l' ? 'text-blue-200' : 'opacity-70'}`} />}
                      <span className="truncate">{f.name}{f.type === 'l' && ' 🔗'}</span>
                    </td>
                    <td className="px-2 py-2 opacity-70 font-mono text-xs">{f.type === 'd' ? '--' : formatSize(f.size)}</td>
                    <td className="px-2 py-2 opacity-50 text-xs">{new Date(f.mtime * 1000).toLocaleDateString()}</td>
-                   <td className="px-2 py-2">
-                     <button onClick={(e) => handleDelete(e, f)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 hover:bg-red-500/20 rounded transition-all">
+                   <td className="px-2 py-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                     {f.type !== 'd' && (
+                       <button onClick={(e) => handleDownload(e, f)} disabled={downloadingItems.has(f.name)} className={`p-1 rounded transition-all ${downloadingItems.has(f.name) ? 'opacity-50 cursor-wait' : 'hover:text-blue-500 hover:bg-blue-500/20'}`} title="Download">
+                         <Download className="w-3.5 h-3.5" />
+                       </button>
+                     )}
+                     <button onClick={(e) => handleDelete(e, f)} className="p-1 hover:text-red-500 hover:bg-red-500/20 rounded transition-all" title="Delete">
                        <Trash2 className="w-3.5 h-3.5" />
                      </button>
                    </td>

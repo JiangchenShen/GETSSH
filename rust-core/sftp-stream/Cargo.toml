@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+name = "sftp-stream"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.16.14", default-features = false, features = ["napi4", "async", "tokio_rt"] }
+napi-derive = "2.16.12"
+tempfile = "3.10.1"
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+napi-build = "2.1.3"

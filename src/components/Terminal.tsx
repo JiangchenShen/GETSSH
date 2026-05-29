@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal as XTerm } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebglAddon } from 'xterm-addon-webgl';
-import { LigaturesAddon } from 'xterm-addon-ligatures';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
+import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { AppConfig } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
+import { usePluginStore } from '../store/pluginStore';
 import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TerminalProps {
   sessionId: string;
@@ -21,7 +23,7 @@ interface TerminalProps {
 }
 
 // Global cache to preserve xterm instances and DOM nodes across React unmounts
-const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; webglAddon?: WebglAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
+const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; webglAddon?: WebglAddon; canvasAddon?: CanvasAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
 
 export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnectedChange, isDisconnected = false, config, isDark = true, isActive = true }: TerminalProps) {
   const { t } = useTranslation();
@@ -141,6 +143,16 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       }
 
       let webglAddon: WebglAddon | undefined;
+      let canvasAddon: CanvasAddon | undefined;
+      const loadCanvasAddon = () => {
+        try {
+          canvasAddon = new CanvasAddon();
+          term.loadAddon(canvasAddon);
+        } catch (err) {
+          console.warn('[Terminal] Canvas addon failed:', err);
+        }
+      };
+
       // Load WebGL Addon (Hardware Acceleration) ONLY if antiGlare is true (solid background)
       if (config.antiGlare) {
         try {
@@ -149,15 +161,19 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           webglAddon.onContextLoss(() => {
             if (webglAddon) webglAddon.dispose();
             console.warn('[Terminal] WebGL context lost. Downgrading to native canvas renderer.');
+            loadCanvasAddon();
           });
           term.loadAddon(webglAddon);
           console.debug('[Terminal] WebGL addon loaded successfully on init');
         } catch (e) {
           console.warn('[Terminal] WebGL addon failed to load, downgrading to native canvas:', e);
+          loadCanvasAddon();
         }
+      } else {
+        loadCanvasAddon();
       }
       
-      cache = { term, fitAddon, webglAddon, ligaturesAddon, element };
+      cache = { term, fitAddon, webglAddon, canvasAddon, ligaturesAddon, element };
       xtermCache.set(sessionId, cache);
     }
 
@@ -233,6 +249,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       
       // If configured for 'menu', we do not call preventDefault().
       // This allows the standard context menu to appear.
+      // We also intercept the contextmenu event to inject plugin extensions!
+      e.preventDefault();
+      e.stopPropagation();
+      const uiExtensions = usePluginStore.getState().uiExtensions;
+      window.electronAPI.showContextMenu({
+         target: 'terminal',
+         extensions: uiExtensions.terminal,
+         contextData: { sessionId, selectionText: term.getSelection() }
+      });
     };
     element.addEventListener('contextmenu', handleContextMenu);
 
@@ -255,6 +280,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         const cacheToKill = xtermCache.get(sessionId);
         if (cacheToKill) {
           cacheToKill.webglAddon?.dispose();
+          cacheToKill.canvasAddon?.dispose();
           cacheToKill.fitAddon.dispose();
           cacheToKill.term.dispose();
           xtermCache.delete(sessionId);
@@ -286,6 +312,10 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     const cache = xtermCache.get(sessionId);
     if (cache) {
       if (config.antiGlare) {
+        if (cache.canvasAddon) {
+          cache.canvasAddon.dispose();
+          cache.canvasAddon = undefined;
+        }
         // High-contrast mode: We can use WebGL!
         if (!cache.webglAddon) {
           try {
@@ -294,12 +324,14 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
               if (cache.webglAddon) cache.webglAddon.dispose();
               cache.webglAddon = undefined;
               console.warn('[Terminal] WebGL context lost during dynamic load.');
+              try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
             });
             term.loadAddon(webglAddon);
             cache.webglAddon = webglAddon;
             console.debug('[Terminal] WebGL addon dynamically loaded');
           } catch (e) {
             console.warn('[Terminal] Dynamic WebGL addon failed to load:', e);
+            try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
           }
         }
       } else {
@@ -308,6 +340,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           cache.webglAddon.dispose();
           cache.webglAddon = undefined;
           console.debug('[Terminal] WebGL addon dynamically disposed (fallback to canvas for transparency)');
+        }
+        if (!cache.canvasAddon) {
+          try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
         }
       }
     }
@@ -387,6 +422,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       if (cacheEntry) {
         cacheEntry.term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
         if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+        if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
         if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
         cacheEntry.fitAddon.dispose();
         xtermCache.delete(sessionId);
@@ -401,6 +437,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       const cacheEntry = xtermCache.get(sessionId);
       if (cacheEntry) {
         if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
+        if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
         if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
         cacheEntry.fitAddon.dispose();
         xtermCache.delete(sessionId);

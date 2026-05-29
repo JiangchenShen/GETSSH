@@ -15,6 +15,13 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
+// In development, Chromium's os_crypt tries to store a key in the macOS keychain.
+// Because the app signature changes or is absent, macOS prompts the user. 
+// We use a mock keychain to prevent this annoying popup that blocks the main thread.
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch('use-mock-keychain')
+}
+
 process.on('uncaughtException', (err) => {
   console.error("Critical Uncaught Exception: ", err)
 })
@@ -115,16 +122,92 @@ app.whenReady().then(async () => {
   pluginManager.setupIPC();
   await pluginManager.loadPlugins();
   
+  // Wire plugin teardown into RASP: on SIGKILL threat, deactivate all plugins first
+  SecureCenter.getInstance().setPluginTeardown(() => pluginManager.deactivateAll());
+  
   protocol.handle('getssh-plugin', (request) => {
     // getssh-plugin://pluginName/entryPath
     const url = request.url.substring('getssh-plugin://'.length);
     const decodedUrl = decodeURIComponent(url);
+    const pluginId = decodedUrl.split('/')[0];
     const pluginsDir = join(app.getPath('userData'), 'plugins');
     const pluginPath = join(pluginsDir, decodedUrl);
     
     // Prevent Path Traversal (C-01)
-    if (!pluginPath.startsWith(pluginsDir)) {
+    if (!pluginPath.startsWith(pluginsDir + path.sep)) {
       return new Response('Forbidden', { status: 403 });
+    }
+
+    if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
+      return net.fetch(pathToFileURL(pluginPath).toString()).then(async (res) => {
+        if (!res.ok) return res;
+        const text = await res.text();
+        const injection = `
+          <script>
+            (function() {
+              // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
+              var PLUGIN_ID = ${JSON.stringify(pluginId)};
+              // #2 FIX: Capture and verify parent origin once at load time
+              var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
+
+              window.GETSSH = {
+                _callbacks: {},
+                _reqId: 0,
+                _backendListeners: [],
+                invokeBackend: function(method, payload) {
+                  return new Promise((resolve, reject) => {
+                    const reqId = ++this._reqId;
+                    this._callbacks[reqId] = { resolve, reject };
+                    window.parent.postMessage({
+                      type: 'rpc-invoke',
+                      pluginId: PLUGIN_ID,
+                      method: method,
+                      payload: payload,
+                      reqId: reqId
+                    }, PARENT_ORIGIN);
+                  });
+                },
+                onBackendMessage: function(callback) {
+                  this._backendListeners.push(callback);
+                },
+                registerPanel: function(panelId, title, renderUrl) {
+                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "registerPanel", payload: { panelId, title, renderUrl } }, PARENT_ORIGIN);
+                },
+                openPanel: function(panelId) {
+                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "openPanel", payload: { panelId } }, PARENT_ORIGIN);
+                }
+              };
+              window.addEventListener('message', (e) => {
+                if (e.source !== window.parent) return;
+                const data = e.data;
+                if (data && data.type === 'rpc-response') {
+                  const cb = window.GETSSH._callbacks[data.reqId];
+                  if (cb) {
+                    if (data.error) cb.reject(new Error(data.error));
+                    else cb.resolve(data.result);
+                    delete window.GETSSH._callbacks[data.reqId];
+                  }
+                } else if (data && data.type === 'backend-message') {
+                  window.GETSSH._backendListeners.forEach(fn => fn(data.payload));
+                }
+              });
+            })();
+          </script>
+        `;
+        const modifiedText = text.includes('<head>') 
+          ? text.replace('<head>', '<head>' + injection)
+          : injection + text;
+          
+        const headers = new Headers(res.headers);
+        headers.delete('content-length');
+        headers.set('content-type', 'text/html; charset=utf-8');
+        
+        return new Response(modifiedText, {
+          status: res.status,
+          statusText: res.statusText,
+          headers
+        });
+      });
     }
     
     return net.fetch(pathToFileURL(pluginPath).toString());
@@ -139,14 +222,23 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+app.on('before-quit', () => {
+  // Gracefully deactivate all plugins before the process exits
+  SecureCenter.getInstance().gracefulShutdown();
+})
+
 app.on('activate', () => {
   if (win === null) createWindow()
 })
 
 app.on('browser-window-blur', () => {
-  if (win && !win.isDestroyed()) win.webContents.send('app-blur')
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('app-blur'); } catch (e) {}
+  }
 })
 
 app.on('browser-window-focus', () => {
-  if (win && !win.isDestroyed()) win.webContents.send('app-focus')
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('app-focus'); } catch (e) {}
+  }
 })

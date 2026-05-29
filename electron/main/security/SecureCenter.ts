@@ -1,20 +1,26 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import child_process from 'child_process';
+import net from 'net';
+import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { getBackendConfig, updateBackendConfigLocal } from '../handlers/systemHandler';
 
 export class SecureCenter {
   private static instance: SecureCenter;
   private monitorInterval: NodeJS.Timeout | null = null;
-  private destructionTimeout: NodeJS.Timeout | null = null;
   private getWin: (() => BrowserWindow | null) | null = null;
-  private originalObjectKeys: Set<string>;
   private isPolluted: boolean = false;
+  private socket: net.Socket | null = null;
+  private server: net.Server | null = null;
+  private watchdogProcess: child_process.ChildProcess | null = null;
+  private lockdownMode: boolean = false;
+  private pluginTeardownFn: (() => void) | null = null;
+  private watchdogDisabled: boolean = false;
+  private lastLockdownReason: string = '【Rust Watchdog】物理级强杀程序已激活！您有 60 秒时间挽救进程或取消操作！';
+  private lastLockdownLevel: 'red' | 'yellow' = 'red';
 
-  private constructor() {
-    // Snapshot original Object.prototype keys at boot
-    this.originalObjectKeys = new Set(Object.getOwnPropertyNames(Object.prototype));
-  }
+  private constructor() {}
 
   public static getInstance(): SecureCenter {
     if (!SecureCenter.instance) {
@@ -23,92 +29,250 @@ export class SecureCenter {
     return SecureCenter.instance;
   }
 
+  public setPluginTeardown(fn: () => void) {
+    this.pluginTeardownFn = fn;
+  }
+
+  public gracefulShutdown() {
+    if (this.socket && !this.socket.destroyed) {
+      try { this.socket.write('ACTION:QUIT\n'); } catch (e) {}
+    }
+    try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown error:', e); }
+  }
+
+  public auditPluginCommand(command: string): boolean {
+    const dangerousPatterns = [
+      /\brm\s+-r.*f\s+\/(?!\S)/,   // rm -rf /
+      /\brm\s+-r.*f\s+\/\*(?!\S)/, // rm -rf /*
+      /\bmkfs(\.[a-z0-9]+)?\b/, // mkfs
+      /:\(\)\{:\|:&\};:/,      // fork bomb
+      /\bdd\s+if=.*of=\/dev\/(sda|hda|nvme)\b/ // dd overwriting disks
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(command)) {
+        this.triggerLockdown(`Plugin attempted to execute high-risk command: ${command.substring(0, 50)}`, 'yellow');
+        return false;
+      }
+    }
+    return true;
+  }
+
   public start(getWin: () => BrowserWindow | null) {
     this.getWin = getWin;
     
-    // RASP monitoring
-    this.monitorInterval = setInterval(() => {
-      this.runHealthCheck();
-    }, 5000);
+    // Check for Safe Mode
+    if (process.argv.includes('--safe-mode')) {
+        console.warn('[SecureCenter] Booting in SAFE MODE due to Watchdog recovery.');
+        this.isPolluted = true;
+        this.watchdogDisabled = true; // Watchdog shouldn't kill safe mode
+        if (updateBackendConfigLocal) {
+            updateBackendConfigLocal({ pluginSecurityMode: 'safe' });
+        }
+    }
 
+    
     // Register IPC
     ipcMain.handle('resolve-security-lockdown', async (event, action: 'restart-safe' | 'save-15s' | 'ignore') => {
       this.handleAction(action);
     });
+
+    ipcMain.handle('get-watchdog-status', () => {
+      return {
+        status: this.isPolluted ? 'warning' : 'secure',
+        level: this.lastLockdownLevel,
+        reason: this.lastLockdownReason,
+        lastPing: Date.now(),
+        watchdogDisabled: this.watchdogDisabled
+      };
+    });
+
+    this.initWatchdog();
   }
 
-  private runHealthCheck() {
-    // Skip if in developer mode (no sandbox, user accepts risks)
+  private initWatchdog() {
+    const pipeName = os.platform() === 'win32'
+      ? `\\\\.\\pipe\\getssh-watchdog-${process.pid}`
+      : path.join(os.tmpdir(), `getssh-watchdog-${process.pid}.sock`);
+
+    // Clean up old socket file if it exists on Unix
+    if (os.platform() !== 'win32' && fs.existsSync(pipeName)) {
+      fs.unlinkSync(pipeName);
+    }
+
+    this.server = net.createServer((socket) => {
+      console.log('[SecureCenter] Watchdog connected.');
+      this.socket = socket;
+
+      socket.on('data', (data) => {
+        const msg = data.toString();
+        const lines = msg.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('LOCKDOWN_TRIGGER:')) {
+            const parts = line.split(':');
+            const level = parts[1] === 'YELLOW' ? 'yellow' : 'red';
+            const reason = parts.slice(2).join(':');
+            
+            if (level === 'red') {
+              this.lastLockdownReason = `【核心内存异常】检测到内核 API 被劫持 (${reason})`;
+            } else {
+              this.lastLockdownReason = `【高危操作阻断】${reason}`;
+            }
+            this.lastLockdownLevel = level;
+            this.lockdownMode = true;
+            this.isPolluted = true;
+            const win = this.getWin?.();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('security-lockdown', {
+                reason: this.lastLockdownReason,
+                countdown: 60,
+                level: this.lastLockdownLevel
+              });
+            }
+          } else if (line.startsWith('TICK:')) {
+            const tick = parseInt(line.split(':')[1]);
+            const win = this.getWin?.();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('security-lockdown', { 
+                reason: this.lastLockdownReason, 
+                countdown: tick,
+                level: this.lastLockdownLevel
+              });
+            }
+          } else if (line.includes('RESOLVED')) {
+            this.lockdownMode = false;
+            // Note: If action was ignore, we keep isPolluted true.
+            // So we only reset isPolluted if watchdogDisabled is false.
+            if (!this.watchdogDisabled) {
+                this.isPolluted = false;
+            }
+            const win = this.getWin?.();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('security-lockdown-resolved');
+            }
+          }
+        }
+      });
+
+      socket.on('close', () => {
+        console.warn('[SecureCenter] Watchdog disconnected!');
+        this.socket = null;
+      });
+      
+      socket.on('error', (err) => {
+        console.error('[SecureCenter] Watchdog socket error:', err);
+      });
+    });
+
+    this.server.listen(pipeName, () => {
+      let watchdogExecutable = 'watchdog';
+      if (os.platform() === 'win32') watchdogExecutable += '.exe';
+
+      const watchdogPath = app.isPackaged
+        ? path.join(process.resourcesPath, watchdogExecutable)
+        : path.join(__dirname, '../../target/release', watchdogExecutable);
+
+      console.log(`[SecureCenter] Spawning Watchdog: ${watchdogPath} with PID ${process.pid} and pipe ${pipeName}`);
+
+      try {
+        if (!fs.existsSync(watchdogPath)) {
+            console.error(`[SecureCenter] Watchdog binary not found at ${watchdogPath}! Please compile it first.`);
+            return;
+        }
+
+        this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath], {
+          stdio: 'inherit',
+          windowsHide: true,
+        });
+
+        this.watchdogProcess.on('exit', (code) => {
+            console.error(`[SecureCenter] Watchdog exited with code ${code}.`);
+        });
+
+        // Start PING interval
+        this.monitorInterval = setInterval(() => {
+          if (this.socket && !this.socket.destroyed && !this.lockdownMode && !this.watchdogDisabled) {
+            try {
+              this.socket.write('PING\n');
+              this.runLegacyHealthCheck();
+            } catch (err) {
+              // Ignore EPIPE
+            }
+          }
+        }, 1000);
+
+      } catch (e) {
+        console.error('[SecureCenter] Failed to spawn Watchdog:', e);
+      }
+    });
+  }
+
+  // Still keep some lightweight JS health check to detect pollution and trigger the watchdog
+  private runLegacyHealthCheck() {
     if (getBackendConfig().pluginSecurityMode === 'developer') return;
     
-    // If already flagged and waiting for destruction, do not spam
-    if (this.destructionTimeout && !this.isPolluted) return; 
+    // Simulating pollution check
+    // If it triggers, we notify Watchdog
+    if (this.isPolluted) return;
 
-    // 1. Monkey Patching Checks
-    // Node.js core modules are implemented in JS, so they don't have [native code].
-    // We check if the name property was altered.
-    // 2. Prototype Pollution Check
-    const currentKeys = Object.getOwnPropertyNames(Object.prototype);
-    const hasPollution = currentKeys.some(key => !this.originalObjectKeys.has(key));
-
-    if (hasPollution) {
-      this.triggerLockdown('系统安全探针检测到严重的【原型链污染 (Prototype Pollution)】攻击！\n有未知程序或恶意插件正试图越权修改系统底层对象的运行逻辑，您的内存完整性已被破坏。为防止密码泄露或系统被控，系统已进入强制物理锁定状态！');
-    }
+    // Example of a mock trigger: (for testing, you can expose an IPC to set this to true)
+    // if (Math.random() < 0.0001) this.triggerLockdown('Random mock attack');
   }
 
-  private triggerLockdown(reason: string) {
-    if (this.isPolluted) return; // User ignored risk already
+  public triggerLockdown(reason: string, level: 'red' | 'yellow' = 'yellow') {
+    if (this.isPolluted || this.lockdownMode || this.watchdogDisabled) return;
+    this.isPolluted = true;
+    this.lockdownMode = true;
 
     console.error(`[SecureCenter] 🚨 RASP ALERT: ${reason}`);
     
-    const win = this.getWin?.();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('security-lockdown', { reason, countdown: 60 });
-    }
-
-    if (!this.destructionTimeout) {
-      this.destructionTimeout = setTimeout(() => {
-        console.error(`[SecureCenter] Self-destructing due to unresolved security lockdown.`);
-        app.exit(1);
-      }, 60000);
+    if (this.socket && !this.socket.destroyed) {
+      try { this.socket.write(`LOCKDOWN_TRIGGER:${level.toUpperCase()}:${reason}\n`); } catch(e) {}
     }
   }
 
-  private handleAction(action: 'restart-safe' | 'save-15s' | 'ignore') {
+  private handleAction(action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue') {
+    if (!this.socket) return;
+
     switch (action) {
       case 'restart-safe':
-        // Inform backend config (though in safe mode we'd normally just rely on store, 
-        // we can dispatch an IPC manually or just relaunch and append a flag)
-        // Since getBackendConfig is in systemHandler, let's just trigger update.
-        // The frontend actually syncs this, but we'll do it forcefully.
         if (updateBackendConfigLocal) {
            updateBackendConfigLocal({ pluginSecurityMode: 'safe' });
         }
-        if (!process.env.VITE_DEV_SERVER_URL) {
-           app.relaunch();
-        } else {
-           console.log("Dev mode detected. Please restart manually.");
-        }
-        app.exit(0);
+        // Gracefully deactivate all plugins before RASP kills the process
+        try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown on restart-safe:', e); }
+        // Tell watchdog we resolved it so it doesn't kill us while restarting
+        this.socket.write('ACTION:RESTART-SAFE\n');
+        setTimeout(() => {
+          if (!process.env.VITE_DEV_SERVER_URL) {
+             app.relaunch();
+          } else {
+             console.log("Dev mode detected. Please restart manually.");
+          }
+          app.exit(0);
+        }, 500);
         break;
 
       case 'save-15s':
-        if (this.destructionTimeout) {
-          clearTimeout(this.destructionTimeout);
-        }
-        this.destructionTimeout = setTimeout(() => {
-          console.error(`[SecureCenter] Emergency 15s save window expired. Self-destructing.`);
-          app.exit(1);
-        }, 15000);
+        this.socket.write('ACTION:SAVE-15S\n');
         break;
 
       case 'ignore':
-        if (this.destructionTimeout) {
-          clearTimeout(this.destructionTimeout);
-          this.destructionTimeout = null;
-        }
         this.isPolluted = true;
+        this.watchdogDisabled = true;
+        this.socket.write('ACTION:IGNORE\n');
         console.warn(`[SecureCenter] Risk ignored by user. System running in polluted state.`);
+        break;
+
+      case 'deactivate-plugin':
+        try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown:', e); }
+        this.isPolluted = false;
+        this.socket.write('ACTION:CONTINUE\n');
+        break;
+
+      case 'continue':
+        this.isPolluted = false;
+        this.socket.write('ACTION:CONTINUE\n');
         break;
     }
   }

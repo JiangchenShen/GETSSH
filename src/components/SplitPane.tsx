@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { usePanelStore } from '../store/panelStore';
+import { useSessionStore } from '../store/sessionStore';
 
 /**
  * SplitPane - A dynamic, resizable split panel engine.
@@ -21,6 +22,29 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
   const panels = usePanelStore(s => s.panels);
   const panelSizes = usePanelStore(s => s.panelSizes);
   const setPanelSize = usePanelStore(s => s.setPanelSize);
+  
+  const tabs = useSessionStore(s => s.tabs);
+  const activePaneId = useSessionStore(s => s.activePaneId);
+
+  const activeSessionId = React.useMemo(() => {
+    if (!activeTabId || activeTabId === 'settings') return activeTabId;
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab || !tab.paneTree) return activeTabId;
+    
+    let foundSessionId = activeTabId;
+    const findPane = (node: any) => {
+      if (node.type === 'leaf') {
+        if (node.paneId === activePaneId) {
+          foundSessionId = node.sessionId || activeTabId;
+        }
+      } else {
+        findPane(node.children[0]);
+        findPane(node.children[1]);
+      }
+    };
+    findPane(tab.paneTree);
+    return foundSessionId;
+  }, [tabs, activeTabId, activePaneId]);
 
   const activePanel = panels.find(p => p.id === activePanelId) ?? null;
   const currentSize = activePanelId ? (panelSizes[activePanelId] ?? 320) : 0;
@@ -82,7 +106,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
             className="absolute top-0 left-0 right-0 h-1.5 -translate-y-1/2 cursor-row-resize z-50 hover:bg-primary/50 transition-colors"
             onMouseDown={handleMouseDown}
           />
-          <PanelComponent sessionId={activeTabId} isDark={isDark} />
+          <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />
         </div>
       </div>
     );
@@ -107,7 +131,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
             className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-50 hover:bg-primary/50 transition-colors"
             onMouseDown={handleMouseDown}
           />
-          <PanelComponent sessionId={activeTabId} isDark={isDark} />
+          <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />
         </div>
       )}
     </>

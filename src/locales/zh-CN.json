@@ -7,6 +7,7 @@
       "terminal": "终端",
       "ssh": "网络与连接",
       "system": "系统与行为",
+      "secureCenter": "安全中心",
       "security": "安全",
       "plugins": "插件",
       "about": "关于 GETSSH",
@@ -67,6 +68,20 @@
       "importSuccessEmpty": "✅ 文件读取成功，但没有新配置需要导入。"
     },
     "security": {
+      "watchdogConnecting": "探针连接中...",
+      "watchdogSecure": "系统内核受全天候保护",
+      "watchdogWarning": "发现核心安全威胁！",
+      "watchdogStatus": "Rust Watchdog 守护进程实时状态 (IPC Ping: {{time}})",
+      "raspTitle": "RASP 运行态防御",
+      "raspDesc": "查看系统底层的安全探针与初始化脚本配置，防范零日注入。",
+      "privacyTitle": "隐私与自动锁屏",
+      "privacyDesc": "配置防窥视模式、无操作自动锁定等环境隐私策略。",
+      "safeStorageTitle": "SafeStorage 加密配置",
+      "safeStorageDesc": "管理系统主密码，开启最高级别的 AES-256-GCM 凭证保险箱。",
+      "exportTitle": "配置导出与管理",
+      "exportDesc": "安全地导入与导出您的所有连接配置和应用设置。",
+      "knownHostsDesc": "审查与管理已信任的服务器指纹，防范中间人拦截攻击 (MITM)。",
+      "backToDashboard": "返回安全中心概览",
       "safeStorageConfig": "SafeStorage 加密配置",
       "changeMasterPwd": "更改主密码",
       "disableEncryption": "关闭主密码加密",
@@ -96,7 +111,21 @@
       "globalInitScriptDesc": "连接到任何会话后，将按顺序自动执行的命令集。",
       "pwdUpdated": "✅ 主密码已安全更新并重加密完成！",
       "pwdDisabled": "⚠️ 加密已解除，配置已转为明文存储。",
-      "pwdEnabled": "🔒 SafeStorage 零知识加密已启动！"
+      "pwdEnabled": "🔒 SafeStorage 零知识加密已启动！",
+      "shieldClickToDetails": "点击查看安全防护详情",
+      "shieldDetailsTitle": "四大方位保护您的数据安全",
+      "shieldDetailsIntro": "GETSSH 采用从操作系统底层到应用层的纵深防御体系，通过以下四道独立的安全屏障，确保您的每一条连接、每一个密钥与每一次数据传输都处于军工级别的保护之下。",
+      "shieldDetailsWatchdog": "Rust 物理级看门狗 (Watchdog)",
+      "shieldDetailsWatchdogDesc": "独立于主进程运行的 Rust 二进制守护程序，通过 IPC 心跳检测主进程健康状态。一旦检测到异常（心跳中断超过 5 秒），将绕过 Node.js/V8，直接调用操作系统底层 API 强制终止整个进程，彻底防范 JavaScript 层被劫持后无法自救的场景。",
+      "shieldDetailsZeroize": "内存即焚 (Zeroize)",
+      "shieldDetailsZeroizeDesc": "所有 SSH 密码与私钥在完成加解密运算后，由 Rust 的 ZeroizeOnDrop 机制在微秒级别内强制用 0x00 覆写物理内存，同时 TypeScript 层在 finally 块中调用 buffer.fill(0) 进行二次擦除，彻底封堵内存快照（Memory Dump）攻击的窗口期。",
+      "shieldDetailsCrypto": "金库级加密引擎 (Crypto Vault)",
+      "shieldDetailsCryptoDesc": "凭证保险箱完全由 Rust 原生扩展（N-API）驱动，使用 PBKDF2-HMAC-SHA256（100,000 次迭代）派生密钥，配合 AES-256-GCM 认证加密，从根本上消除了 Node.js 原生 crypto 模块因 V8 垃圾回收机制造成的明文残留风险。",
+      "shieldDetailsNetwork": "Zero-copy 网络引擎",
+      "shieldDetailsNetworkDesc": "SFTP 大文件传输通道由 Rust N-API 扩展直接接管磁盘 I/O，数据缓冲区在本地落盘路径上做到零拷贝（Zero-copy），绕过 V8 堆内存，彻底杜绝大体积文件传输时的内存溢出（OOM）风险与 GC 停顿抖动。",
+      "watchdogDisabled": "不可用 (已休眠)",
+      "pollutedTitle": "系统已被污染",
+      "pollutedDesc": "系统已被污染，部分安全措施已经失效。请立即检查并清理异常进程。"
     },
     "appearance": {
       "uiTheme": "外观主题",
@@ -169,7 +198,13 @@
       "unpacking": "正在解包插件核心...",
       "installed": "已安装的扩展",
       "noPlugins": "暂未安装任何插件。",
-      "uninstall": "卸载"
+      "uninstall": "卸载",
+      "installSuccess": "✅ 插件 \"{{name}}\" 安装成功！请重启以激活。",
+      "installFailed": "❌ 安装失败：{{error}}",
+      "lifecycleGateError": "安全拦截：该插件未声明生命周期钩子 (lifecycle)，已拒绝安装。请联系插件开发者在 package.json 的 getssh.capabilities 中添加 \"lifecycle\" 声明。",
+      "installBtn": "安装插件",
+      "uninstallConfirm": "确定要卸载插件「{{name}}」吗？",
+      "uninstallSuccess": "🗑️ 插件已卸载。重启 GETSSH 后将彻底清理 UI 残留。"
     },
     "sidebar": {
       "savedSessions": "主机列表",
@@ -258,7 +293,7 @@
       "privacy": "隐私政策",
       "licenses": "第三方开源许可",
       "systemInfo": "系统信息",
-      "tagline": "GETSSH 终端平台 v1.3.1 (构建 K9V2X) - 安全沙盒核心。",
+      "tagline": "GETSSH 终端平台 v1.3.2 Preview (构建 R7K4S) - 安全沙盒核心。",
       "compliance": "合规性与法律条款",
       "openSourceDesc": "GETSSH 构建于强大的开源基础之上，包含 <strong>xterm.js</strong>、<strong>ssh2</strong>、<strong>React</strong> 和 <strong>Zustand</strong> 等。请查看第三方开源许可文档以获取完整的开源组件及其相应许可的注册表。",
       "copyright": "版权所有 © 2026 JiangchenShen。保留所有权利。",
@@ -289,6 +324,27 @@
       "bannerDesc": "有新版本可供升级，体验最新特性与修复。",
       "bannerDismiss": "暂不更新",
       "bannerDownload": "立即下载"
+    },
+    "crypto": {
+      "passwordMismatch": "两次输入的密码不一致",
+      "passwordTooShort": "密码太短（最少 4 个字符）",
+      "invalidPassword": "主密码无效或档案文件已损坏",
+      "skip": "跳过",
+      "skipTip": "暂时跳过 — 下次仍会提示",
+      "cancel": "取消",
+      "cancelTip": "取消 — 以后不再提示",
+      "lockedTitle": "零知识加密锁已开启",
+      "setupTitle": "初始化 SafeStorage",
+      "lockedDesc": "您的所有 SSH 配置和凭据正受到 AES-256-GCM 算法保护，请输入主密码进行解密。",
+      "setupDesc": "设置一个强密码来加密您的 SSH 会话配置。该密码仅保留在内存中，绝不会保存在磁盘或传输到网络。",
+      "unlocking": "正在解锁...",
+      "unlockScreen": "解锁屏幕",
+      "masterPassword": "主密码",
+      "confirmPassword": "确认主密码",
+      "retryBiometric": "重试生物验证",
+      "processing": "处理中...",
+      "decrypt": "解密本地凭证",
+      "encrypt": "加密并保存"
     }
   }
 }

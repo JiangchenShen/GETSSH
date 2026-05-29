@@ -15,12 +15,39 @@ export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => 
     return null;
   });
 
+  // Folder Selection Handler
+  ipcMain.handle('select-folder', async () => {
+    const win = getWin();
+    if (!win) return null;
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Select Download Folder',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (!canceled) {
+      return filePaths[0];
+    }
+    return null;
+  });
+
   // Context Menu
-  ipcMain.on('show-context-menu', (event) => {
-    const template = [
+  ipcMain.on('show-context-menu', (event, payload: any) => {
+    const template: any[] = [
       { role: 'copy' },
       { role: 'paste' }
     ];
+
+    if (payload && payload.extensions && payload.extensions.length > 0) {
+      template.push({ type: 'separator' });
+      for (const ext of payload.extensions) {
+        template.push({
+          label: ext.label,
+          click: () => {
+             ipcMain.emit('trigger-plugin-action', event, { pluginId: ext.pluginId, actionId: ext.actionId, contextData: payload.contextData });
+          }
+        });
+      }
+    }
+
     const menu = Menu.buildFromTemplate(template as any);
     const senderWin = BrowserWindow.fromWebContents(event.sender);
     if (senderWin) {

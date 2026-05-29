@@ -74,6 +74,7 @@ interface SessionStore {
   searchQuery: string;
   showSFTP: boolean;
   sftpWidth: number;
+  registeredPanels: Record<string, { title: string, renderUrl: string, pluginId: string }>;
 
   setSessions: (sessions: SessionProfile[]) => void;
   setTabs: (updater: Tab[] | ((prev: Tab[]) => Tab[])) => void;
@@ -91,6 +92,9 @@ interface SessionStore {
   updatePaneSizes: (tabId: string, paneId: string, sizes: [number, number]) => void;
 
   closeTab: (tabId: string) => void;
+
+  registerPluginPanel: (pluginId: string, panelId: string, title: string, renderUrl: string) => void;
+  openPluginPanel: (pluginId: string, panelId: string) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -146,6 +150,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   searchQuery: '',
   showSFTP: false,
   sftpWidth: 320,
+  registeredPanels: {},
 
   setSessions: (sessions) => set({ sessions }),
   setTabs: (updater) => set((state) => ({
@@ -194,4 +199,50 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
     window.electronAPI.sshDisconnect(tabId);
   },
+
+  registerPluginPanel: (pluginId, panelId, title, renderUrl) => {
+    set(state => ({
+      registeredPanels: {
+        ...state.registeredPanels,
+        [panelId]: { pluginId, title, renderUrl }
+      }
+    }));
+  },
+
+  openPluginPanel: (pluginId, panelId) => {
+    const { registeredPanels } = get();
+    const panel = registeredPanels[panelId];
+    if (!panel) {
+      console.error(`[PluginPanel] Panel ${panelId} is not registered`);
+      return;
+    }
+    
+    const tabId = `panel-${pluginId}-${panelId}`;
+    
+    set(state => {
+      // If tab already exists, just switch to it
+      if (state.tabs.find(t => t.id === tabId)) {
+        return { activeTabId: tabId };
+      }
+      
+      const newTab: Tab = {
+        id: tabId,
+        title: panel.title,
+        config: { pluginUrl: panel.renderUrl },
+        paneTree: {
+          type: 'leaf',
+          paneId: tabId,
+          paneType: 'plugin',
+          sessionId: null,
+          config: { pluginUrl: panel.renderUrl }
+        }
+      };
+      
+      return {
+        tabs: [...state.tabs, newTab],
+        activeTabId: tabId,
+        activePaneId: tabId
+      };
+    });
+  }
 }));

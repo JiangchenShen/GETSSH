@@ -1,7 +1,19 @@
-import { safeStorage, systemPreferences } from 'electron';
+import { app, safeStorage, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { join } from 'node:path';
+
+let vault: any = null;
+try {
+  const addonPath = join(__dirname, '../../rust-core/getssh-vault');
+  if (fs.existsSync(addonPath)) {
+     vault = require(addonPath);
+  } else {
+     console.warn('Vault native module not found at', addonPath);
+  }
+} catch (e) {
+  console.error("Failed to load getssh-vault native module:", e);
+}
 
 export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
   const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
@@ -49,8 +61,8 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
           if (safeStorage.isEncryptionAvailable()) {
             try {
               return JSON.parse(safeStorage.decryptString(data));
-            } catch (err: unknown) {
-              console.error('Failed to decrypt safeStorage fallback:', err);
+            } catch (err) {
+              // Ignore safeStorage fallback error in dev when using mock keychain
               return [];
             }
           }
@@ -68,30 +80,21 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       throw new Error('No profiles found');
     }
     
-    if (buffer.length < 44) throw new Error('Invalid encrypted profile');
-    
-    const salt = buffer.subarray(0, 16);
-    const iv = buffer.subarray(16, 28);
-    const authTag = buffer.subarray(28, 44);
-    const cipherText = buffer.subarray(44);
-    
-    const key = await new Promise<Buffer>((resolve, reject) => {
-      crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
-        if (err) reject(err);
-        else resolve(derivedKey);
-      });
-    });
-    
+    let decryptedBuffer: Buffer | null = null;
+    let masterPasswordBuffer: Buffer | null = null;
     try {
-      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-      decipher.setAuthTag(authTag);
+      if (!vault) throw new Error('Vault native module not loaded');
       
-      let decrypted = decipher.update(cipherText);
-      decrypted = Buffer.concat([decrypted, decipher.final()]);
-      
-      return JSON.parse(decrypted.toString('utf8'));
+      masterPasswordBuffer = Buffer.from(masterPassword);
+      decryptedBuffer = vault.decryptVault(masterPasswordBuffer, buffer);
+      if (!decryptedBuffer) throw new Error('Decryption returned null');
+      return JSON.parse(decryptedBuffer.toString('utf8'));
     } catch (e: unknown) {
       throw new Error('Invalid master password or corrupted file');
+    } finally {
+      // 物理级擦除 (Zeroize) - 脱离 V8 GC 控制
+      if (decryptedBuffer) decryptedBuffer.fill(0);
+      if (masterPasswordBuffer) masterPasswordBuffer.fill(0);
     }
   });
 
@@ -120,27 +123,27 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
        return true;
     }
     
-    const salt = crypto.randomBytes(16);
-    const iv = crypto.randomBytes(12);
-    const key = await new Promise<Buffer>((resolve, reject) => {
-      crypto.pbkdf2(masterPassword, salt, 100000, 32, 'sha256', (err, derivedKey) => {
-        if (err) reject(err);
-        else resolve(derivedKey);
-      });
-    });
-    
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    let encrypted = cipher.update(JSON.stringify(payload), 'utf8');
-    encrypted = Buffer.concat([encrypted, cipher.final()]);
-    const authTag = cipher.getAuthTag();
-    
-    const output = Buffer.concat([salt, iv, authTag, encrypted]);
-    await fs.promises.writeFile(tmpPath, output);
-    await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
+    let masterPasswordBuffer: Buffer | null = null;
     try {
-      await fs.promises.unlink(PROFILES_PLAIN_PATH);
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      if (!vault) throw new Error('Vault native module not loaded');
+      
+      masterPasswordBuffer = Buffer.from(masterPassword);
+      const payloadBuffer = Buffer.from(JSON.stringify(payload), 'utf8');
+      
+      const output = vault.encryptVault(masterPasswordBuffer, payloadBuffer);
+      payloadBuffer.fill(0); // Erase payload
+      
+      await fs.promises.writeFile(tmpPath, output);
+      await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
+      try {
+        await fs.promises.unlink(PROFILES_PLAIN_PATH);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    } catch (e: unknown) {
+      throw new Error('Encryption failed');
+    } finally {
+      if (masterPasswordBuffer) masterPasswordBuffer.fill(0);
     }
     
     // Save master password for biometric unlock

@@ -1,7 +1,20 @@
-import { BrowserWindow, globalShortcut, shell } from 'electron';
-import os from 'node:os';
+import { app, BrowserWindow, globalShortcut, shell } from 'electron';
+import fs from 'node:fs';
 import https from 'node:https';
+import { join } from 'node:path';
 import type { BackendConfig } from '../../../src/types/ipc';
+
+let sysprobe: any = null;
+try {
+  const addonPath = join(__dirname, '../../rust-core/getssh-sysprobe');
+  if (fs.existsSync(addonPath)) {
+     sysprobe = require(addonPath);
+  } else {
+     console.warn('Sysprobe native module not found at', addonPath);
+  }
+} catch (e) {
+  console.error("Failed to load getssh-sysprobe native module:", e);
+}
 
 let backendConfig: BackendConfig = { confirmQuit: false, globalHotkey: '' };
 
@@ -77,11 +90,31 @@ function checkLatestRelease(app: Electron.App): Promise<{ version: string, url: 
   });
 }
 
+import { autoUpdater } from 'electron-updater';
+
 export async function checkForUpdates(app: Electron.App, getWin: () => BrowserWindow | null) {
-  const update = await checkLatestRelease(app);
-  const win = getWin();
-  if (update && win && !win.isDestroyed()) {
-    win.webContents.send('update-available', update);
+  if (process.platform === 'darwin') {
+    // macOS unsigned builds can't auto-update, fallback to manual check
+    const update = await checkLatestRelease(app);
+    const win = getWin();
+    if (update && win && !win.isDestroyed()) {
+      win.webContents.send('update-available', update);
+    }
+  } else {
+    // Other platforms can use autoUpdater
+    try {
+      autoUpdater.autoDownload = false; // We can still prompt the user
+      const res = await autoUpdater.checkForUpdates();
+      const win = getWin();
+      if (res && res.updateInfo && win && !win.isDestroyed()) {
+        win.webContents.send('update-available', {
+          version: res.updateInfo.version,
+          url: `https://github.com/JiangchenShen/GETSSH/releases/latest`
+        });
+      }
+    } catch (e) {
+      console.error('autoUpdater error', e);
+    }
   }
 }
 
@@ -91,10 +124,14 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   setInterval(() => {
     const win = getWin();
     if (win && !win.isDestroyed()) {
-      win.webContents.send('sysmon:data', {
-        cpus: os.cpus(),
-        mem: { total: os.totalmem(), free: os.freemem() }
-      });
+      try {
+        if (sysprobe) {
+          const stats = sysprobe.getSystemStats();
+          win.webContents.send('sysmon:data', stats);
+        }
+      } catch (e) {
+        console.error("Sysprobe polling error:", e);
+      }
     }
   }, 1000);
 

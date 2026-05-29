@@ -57,12 +57,13 @@ function calculateCpuUsage(cpus) {
 }
 
 function updateSystemStats(data) {
-  const { cpus, mem } = data;
+  const { cpus, mem, net } = data;
   
-  if (cpus && cpus.length > 0) {
-    const usageInfo = calculateCpuUsage(cpus);
+  if (cpus && cpus.overall !== undefined) {
+    // New Rust Sysprobe Format
+    const usageInfo = cpus;
     
-    cpuVal.textContent = `${usageInfo.overall}%`;
+    cpuVal.textContent = `${Math.round(usageInfo.overall)}%`;
     cpuBar.style.width = `${usageInfo.overall}%`;
     
     // Render cores
@@ -70,7 +71,7 @@ function updateSystemStats(data) {
       cpuCoresContainer.innerHTML = usageInfo.cores.map((usage, i) => `
         <div class="core-box">
           <div class="core-fill" id="core-fill-${i}" style="height: ${usage}%"></div>
-          <div class="core-text">C${i} <span id="core-val-${i}">${usage}%</span></div>
+          <div class="core-text">C${i} <span id="core-val-${i}">${Math.round(usage)}%</span></div>
         </div>
       `).join('');
     } else {
@@ -79,7 +80,7 @@ function updateSystemStats(data) {
         const val = document.getElementById(`core-val-${i}`);
         if (fill && val) {
           fill.style.height = `${usage}%`;
-          val.textContent = `${usage}%`;
+          val.textContent = `${Math.round(usage)}%`;
         }
       });
     }
@@ -88,7 +89,7 @@ function updateSystemStats(data) {
   if (mem) {
     const totalGb = (mem.total / (1024 ** 3)).toFixed(1);
     const freeGb = (mem.free / (1024 ** 3)).toFixed(1);
-    const usedGb = (mem.total - mem.free) / (1024 ** 3);
+    const usedGb = (mem.used !== undefined ? mem.used : mem.total - mem.free) / (1024 ** 3);
     const memUsage = Math.round((usedGb / (mem.total / (1024 ** 3))) * 100);
     
     memTotal.textContent = totalGb;

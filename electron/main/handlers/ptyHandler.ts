@@ -2,7 +2,7 @@
  * ptyHandler.ts — Multi-Protocol Terminal Bus
  * 
  * Routes terminal sessions based on protocol:
- *   - 'local'  → @homebridge/node-pty-prebuilt-multiarch (local shell)
+ *   - 'local'  → node-pty (local shell)
  *   - 'telnet' → raw net.Socket with Telnet NVT negotiation (vt100 termType for network gear)
  * 
  * Data path (both protocols):
@@ -14,13 +14,14 @@
 import { BrowserWindow } from 'electron';
 import net from 'node:net';
 import { connectionManager } from '../services/ConnectionManager';
+import { sshBridge } from '../services/SSHBridge';
 
 // Lazy-load node-pty to avoid issues when native module not present
-let pty: typeof import('@homebridge/node-pty-prebuilt-multiarch') | null = null;
+let pty: typeof import('node-pty') | null = null;
 function getPty() {
   if (!pty) {
     try {
-      pty = require('@homebridge/node-pty-prebuilt-multiarch');
+      pty = require('node-pty');
     } catch (e) {
       throw new Error('node-pty-prebuilt-multiarch is not available: ' + String(e));
     }
@@ -29,7 +30,7 @@ function getPty() {
 }
 
 // Track pty processes keyed by sessionId so we can write/kill them
-const localPtyProcesses = new Map<string, import('@homebridge/node-pty-prebuilt-multiarch').IPty>();
+const localPtyProcesses = new Map<string, import('node-pty').IPty>();
 // Track telnet sockets
 const telnetSockets = new Map<string, net.Socket>();
 
@@ -96,8 +97,9 @@ export async function spawnLocalTerminal(
     ptyProcess.onData((data: string) => {
       const win = getWindow();
       if (win && !win.isDestroyed()) {
-        win.webContents.send(`ssh-data-${sessionId}`, data);
+        try { win.webContents.send(`ssh-data-${sessionId}`, data); } catch(e) {}
       }
+      sshBridge.broadcastData(sessionId, data);
     });
 
     ptyProcess.onExit(async () => {
@@ -105,7 +107,7 @@ export async function spawnLocalTerminal(
       await connectionManager.removeSession(sessionId);
       const win = getWindow();
       if (win && !win.isDestroyed()) {
-        win.webContents.send(`ssh-closed-${sessionId}`);
+        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
       }
     });
 
@@ -113,7 +115,7 @@ export async function spawnLocalTerminal(
     const localOs = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'generic';
     const win = getWindow();
     if (win && !win.isDestroyed()) {
-      win.webContents.send('os-fingerprint', { host: 'localhost', username: '', osType: localOs, sessionId });
+      try { win.webContents.send('os-fingerprint', { host: 'localhost', username: '', osType: localOs, sessionId }); } catch(e) {}
     }
 
     // Register a dummy session so connectionManager tracks it
@@ -233,8 +235,9 @@ export async function spawnTelnetSession(
       if (text) {
         const win = getWindow();
         if (win && !win.isDestroyed()) {
-          win.webContents.send(`ssh-data-${sessionId}`, text);
+          try { win.webContents.send(`ssh-data-${sessionId}`, text); } catch(e) {}
         }
+        sshBridge.broadcastData(sessionId, text);
         // Fingerprint from welcome banner (first packet only)
         if (!bannerFingerprinted) {
           bannerFingerprinted = true;
@@ -244,7 +247,7 @@ export async function spawnTelnetSession(
           if (lower.includes('cisco') || lower.includes('ios') || lower.includes('catalyst')) osType = 'cisco';
           else if (lower.includes('huawei') || lower.includes('vrp') || lower.includes('quidway')) osType = 'huawei';
           if (win && !win.isDestroyed()) {
-            win.webContents.send('os-fingerprint', { host, username: config?.username || '', osType, sessionId });
+            try { win.webContents.send('os-fingerprint', { host, username: config?.username || '', osType, sessionId }); } catch(e) {}
           }
         }
       }
@@ -255,7 +258,7 @@ export async function spawnTelnetSession(
       await connectionManager.removeSession(sessionId);
       const win = getWindow();
       if (win && !win.isDestroyed()) {
-        win.webContents.send(`ssh-closed-${sessionId}`);
+        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
       }
     });
 
@@ -264,7 +267,7 @@ export async function spawnTelnetSession(
       await connectionManager.removeSession(sessionId);
       const win = getWindow();
       if (win && !win.isDestroyed()) {
-        win.webContents.send(`ssh-closed-${sessionId}`);
+        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
       }
       resolve({ success: false, error: err.message });
     });

@@ -1,10 +1,32 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* ── Dark mode: use .dark class on <html> (mirrors old darkMode: 'class') ── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Tailwind v4 @theme — GETSSH Design Tokens ──────────────────────────── */
+
+@theme {
+  /* Brand color: maps to the old `primary` custom color using CSS variable */
+  --color-primary: rgb(var(--primary-color));
+
+  /* Border-radius: all squarified to 0px to preserve our sharp "Obsidian" aesthetic,
+     keeping `full` for circular avatars/badges */
+  --radius-none: 0px;
+  --radius-sm:   0px;
+  --radius-DEFAULT: 0px;
+  --radius-md:   0px;
+  --radius-lg:   0px;
+  --radius-xl:   0px;
+  --radius-2xl:  0px;
+  --radius-3xl:  0px;
+  --radius-full: 9999px;
+}
+
+/* ── Base design variables ───────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    --primary-color: 168 85 247; /* Default purple-500 equivalent */
+    --primary-color: 168 85 247; /* Default: purple-500 */
   }
 
   body {
@@ -13,7 +35,8 @@
   }
 }
 
-/* Make sure terminal canvas has a transparent background to let vibrancy show */
+/* ── xterm.js transparency (lets macOS vibrancy bleed through) ───────────── */
+
 .xterm-viewport {
   background-color: transparent !important;
 }
@@ -21,13 +44,14 @@
   background-color: transparent !important;
 }
 
-/* Hide scrollbar for terminal to make it look cleaner */
+/* Hide xterm scrollbar */
 .xterm-viewport::-webkit-scrollbar {
   display: none;
   width: 0px;
 }
 
-/* Minimal styling for global scrollbars */
+/* ── Global scrollbar styling ────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -44,7 +68,8 @@
   background: rgba(255, 255, 255, 0.3);
 }
 
-/* Glass panel utility */
+/* ── Glassmorphism utility ───────────────────────────────────────────────── */
+
 .glass-panel {
-  @apply bg-white/5 border border-white/10 backdrop-blur-md rounded-xl shadow-xl;
+  @apply bg-white/5 border border-white/10 backdrop-blur-md shadow-xl;
 }

@@ -29,13 +29,14 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
 
   useEffect(() => {
     // 1. Set up the event listener for messages coming from the iframe
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       // Security Check: Ensure the message is strictly from our sandbox iframe
-      if (iframeRef.current && event.source !== iframeRef.current.contentWindow) {
+      // #7 FIX: Use short-circuit negation — if iframeRef is null OR source doesn't match, reject
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) {
         return;
       }
 
-      const { type } = event.data || {};
+      const { type, method, payload, reqId } = event.data || {};
       if (!type) return;
 
       // Handle Ping from Plugin
@@ -43,7 +44,20 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         // Heartbeat received
       }
       
-      // Here we could handle other generic plugin actions like 'open-tab', 'show-notification', etc.
+      // Handle RPC Invoke
+      if (type === 'rpc-invoke') {
+        try {
+          // #8 FIX: Ignore pluginId from iframe (untrusted). Use paneId from props (host-controlled)
+          const res = await window.electronAPI.pluginRpcInvoke(paneId, method, payload);
+          if (iframeRef.current && iframeRef.current.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({ type: 'rpc-response', reqId, ...res }, '*');
+          }
+        } catch (err: any) {
+          if (iframeRef.current && iframeRef.current.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({ type: 'rpc-response', reqId, error: err.message }, '*');
+          }
+        }
+      }
     };
 
     window.addEventListener('message', handleMessage);
@@ -55,9 +69,18 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
       }
     });
 
+    // Forward backend push messages
+    const pluginId = paneId; // Assuming paneId matches the plugin name
+    const unsubscribeRpc = window.electronAPI.onPluginRpcMessage(pluginId, (payload: any) => {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage({ type: 'backend-message', payload }, '*');
+      }
+    });
+
     return () => {
       window.removeEventListener('message', handleMessage);
       unsubscribeSysmon();
+      unsubscribeRpc();
     };
   }, [paneId]);
 

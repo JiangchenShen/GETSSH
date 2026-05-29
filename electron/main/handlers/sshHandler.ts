@@ -14,6 +14,7 @@ import {
   ptyKill,
   sessionProtocols
 } from './ptyHandler';
+import { sshBridge } from '../services/SSHBridge';
 
 export interface KnownHost {
   host: string;
@@ -228,11 +229,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               
               const win = getWindow();
               if (win && !win.isDestroyed()) {
-                win.webContents.send('prompt-host-verification', {
-                  requestId,
-                  hostname: hostKey,
-                  fingerprint: hashedKey
-                });
+                try {
+                  win.webContents.send('prompt-host-verification', {
+                    requestId,
+                    hostname: hostKey,
+                    fingerprint: hashedKey
+                  });
+                } catch (e) {}
               } else {
                 callback(false);
               }
@@ -257,7 +260,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 },
                 command: 'connect' as any,
                 destination: {
-                  host: connectConfig.host,
+                  host: connectConfig.host || '',
                   port: connectConfig.port
                 }
               };
@@ -296,8 +299,11 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
             setTimeout(() => {
                isAttached = true;
                const win = getWindow();
-               if (dataBuffer && win && !win.isDestroyed()) {
-                   win.webContents.send(`ssh-data-${sessionId}`, dataBuffer);
+               if (dataBuffer) {
+                 if (win && !win.isDestroyed()) {
+                     try { win.webContents.send(`ssh-data-${sessionId}`, dataBuffer); } catch(e) {}
+                 }
+                 sshBridge.broadcastData(sessionId, dataBuffer);
                }
             }, 800); // Wait 800ms for React to mount the Terminal Component
 
@@ -305,18 +311,31 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               sshClient.end();
               await recordDisconnect(app, sessionId);
               await connectionManager.removeSession(sessionId);
+              sshBridge.cleanupSession(sessionId);
               const win = getWindow();
-              if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
+              if (win && !win.isDestroyed()) {
+                try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+              }
             }).on('data', (data: Buffer) => {
               const str = data.toString('utf-8');
               const win = getWindow();
               if (!isAttached) dataBuffer += str;
-              else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str);
+              else {
+                if (win && !win.isDestroyed()) {
+                  try { win.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                }
+                sshBridge.broadcastData(sessionId, str);
+              }
             }).stderr.on('data', (data: Buffer) => {
               const str = data.toString('utf-8');
               const win = getWindow();
               if (!isAttached) dataBuffer += str;
-              else if (win && !win.isDestroyed()) win.webContents.send(`ssh-data-${sessionId}`, str);
+              else {
+                if (win && !win.isDestroyed()) {
+                  try { win.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                }
+                sshBridge.broadcastData(sessionId, str);
+              }
             });
             stream.on('error', (streamErr: any) => {
                console.error("Stream emitted error: ", streamErr);
@@ -331,8 +350,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
             activeConnections.set(sessionId, {
               id: sessionId,
-              alias: config.alias || connectConfig.host,
-              host: connectConfig.host,
+              alias: config.alias || connectConfig.host || 'Unknown',
+              host: connectConfig.host || '',
               port: connectConfig.port || 22,
               connectedAtStr: new Date().toLocaleString(),
               connectedAtMs: Date.now()
@@ -360,11 +379,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                   const osType: OsType = osMap[rawId] || 'generic';
                   const win = getWindow();
                   if (win && !win.isDestroyed()) {
-                    win.webContents.send('os-fingerprint', {
-                      host: connectConfig.host,
-                      username: config.username,
-                      osType
-                    });
+                    try {
+                      win.webContents.send('os-fingerprint', {
+                        host: connectConfig.host,
+                        username: config.username,
+                        osType
+                      });
+                    } catch (e) {}
                   }
                 });
               });
@@ -373,8 +394,11 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
         }).on('error', async (err: any) => {
           await recordDisconnect(app, sessionId);
           await connectionManager.removeSession(sessionId);
+          sshBridge.cleanupSession(sessionId);
           const win = getWindow();
-          if (win && !win.isDestroyed()) win.webContents.send(`ssh-closed-${sessionId}`);
+          if (win && !win.isDestroyed()) {
+            try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+          }
           resolve({ success: false, error: err.message });
         }).connect(connectConfig);
         }).catch(async (err: unknown) => {
@@ -413,6 +437,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   ipcMain.on('ssh-disconnect', async (event, sessionId) => {
     const proto = sessionProtocols.get(sessionId);
     sessionProtocols.delete(sessionId);
+    sshBridge.cleanupSession(sessionId);
     if (proto === 'local' || proto === 'telnet') {
       await ptyKill(sessionId, proto);
       await recordDisconnect(app, sessionId);

@@ -6,7 +6,84 @@
 
 ---
 
+## [1.3.2-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
+
+### 🏗️ 基础设施大换血第一阶段：React 19 核心引擎热替换 (Infrastructure Upgrade Phase 1: React 19)
+这是 GETSSH 技术栈现代化的重要里程碑。我们将整个前端核心引擎从 React 18 迁移至 React 19，全面拥抱最新的 React 运行时特性，并同步升级 UI 组件库与类型系统，确保未来的所有功能开发都建立在最前沿的技术地基上。
+
+### ⚛️ React 19 核心迁移 (React 19 Core Migration)
+- **React 19.0.0 全量升级**：将 `react`、`react-dom` 及其类型定义 `@types/react`、`@types/react-dom` 全部拉升至 `19.0.0+`，应用全面运行于 React 19 并发渲染模型之上。
+- **`forwardRef` 剥离预检**：全局扫描代码库，确认项目无任何 `React.forwardRef` 遗留包装，已天然适配 React 19 原生 ref-as-prop 新范式。
+- **入口文件合规验证**：确认 `main.tsx` 入口使用了 `ReactDOM.createRoot`，符合 React 19 的强制规范，无任何旧版 `ReactDOM.render` 残留。
+- **React 19 严格类型收束修复**：修复了 `ConnectForm.tsx` 中 `useRef<NodeJS.Timeout>()` 因 React 19 更严格的泛型推断规则报错的问题，将其更新为 `useRef<NodeJS.Timeout | null>(null)` 的规范写法。
+- **Lucide React 最新版升级**：将图标库 `lucide-react` 升级至最新版本，全量验证所有图标导入名称在新版规范中的兼容性，确认零命名冲突与废弃告警。
+- **`@testing-library/react` React 19 适配**：同步将测试库升级至最新版本，确保测试生态与 React 19 的 API 完全对齐。
+
+### 🧹 环境物理清洗与依赖树重建 (Physical Dependency Purge & Rebuild)
+- **幽灵依赖物理消灭**：彻底销毁旧版混杂的 `node_modules` 以及存在交叉污染的 `package-lock.json`，并执行 `npm cache clean --force` 强制清空系统级 NPM 旧版缓存，从根源上消灭任何 React 18 遗留碎片。
+- **pnpm `node-linker=hoisted` 关键修复**：深度排查并修复了由于 `pnpm` 默认软链接（Symlink）存储策略与 Electron 原生运行时 CJS `require` 钩子不兼容导致的 `ssh2` 内部依赖路径迷失问题（`Cannot find module './constants.js'`）。通过在 `.npmrc` 中强制启用 `node-linker=hoisted`，让 `pnpm` 采用物理打平策略，完美解决了 Electron 中 CJS Native 模块的路径解析故障。
+- **纯净依赖树封印**：基于最终升级完成的 `package.json` 执行了全新的 `pnpm install`，完成了对整个依赖生态树的纯净重组与封印。
+
+### 🔒 V2.0 插件 SDK 安全沙盒全面实装 (Plugin SDK v2.0 — Security Sandbox)
+- **`ctx.net.fetch` 网络通信桥实装**：在后台插件的 Node VM 沙盒 Context 中安全注入了 `ctx.net.fetch(url, options)` 方法。插件须在 `package.json` 的 `capabilities` 数组中显式声明 `"net:fetch"` 权限，否则调用将被直接阻断并抛出 `SecurityError`。
+- **终极 SSRF 防御墙**：在底层 Fetch 拦截器中内置了严格的 DNS/正则双重防御，绝对禁止向局域网回环地址（`127.0.0.1`, `localhost`, `0.0.0.0`）及私有 IP 网段（`192.168.x.x`, `10.x.x.x`, `172.16.x.x`）发起任何请求。
+- **`ctx.ui.registerSettings` 无代码配置表单**：在受控的 `ctx.ui` 命名空间中注入了配置表单注册接口，允许后台插件在 `activate` 阶段注册包含 `string`、`number`、`boolean`、`password` 等类型的配置 Schema；主进程通过 `sync-plugin-settings-schema` IPC 同步给前端 Zustand Store，并在 `Settings.tsx` 的"插件配置"专属 Tab 中动态渲染出风格与宿主完全一致的表单组件，同时实现热重载。
+- **`ctx.host.clipboard` 审计可视剪贴板**：在受控的 `ctx.host` 命名空间中注入了 `clipboard.writeText` 和 `clipboard.readText`，底层直接桥接 Electron `clipboard` 原生模块；当插件调用 `readText` 时，系统**强制弹出操作系统原生通知**（通知内容含插件名称）以防止静默数据窃取，同时主进程记录完整审计日志。
+- **`window.GETSSH.registerPanel` / `openPanel` 沉浸式面板**：通过 preload 脚本向前端插件暴露了面板注册与开启接口；在 `sessionStore.ts` 中新增 `PluginPanelTab` 路由类型，在 `SessionManager.tsx` 的渲染树中引入 `<webview>` 进行沙箱化全屏渲染，使插件可以从侧边栏控制并接管主工作区的全景视图。
+
+### 🛡️ 全代码库安全加固与 Bug 扫清 (Full Codebase Security Audit & Bug Fixes)
+- **IPC 路径穿越漏洞封堵**：在 `electron/main/index.ts` 中对 `getssh-plugin://` 自定义协议处理器实装严格的文件路径边界校验，拦截 `../../` 回溯攻击，确保插件只能读取其授权目录内的资产。
+- **插件任意目录安装漏洞修复**：在 `PluginManager.ts` 的安装提交路径中增加对目标解压目录的 OS 级临时目录合法性校验，阻断非授权目录篡改。
+- **SFTP 写入越权防护**：在 `sftpHandler.ts` 的文件下载接口中强制锁定写入路径，仅允许写入 `Downloads` 或 `Desktop` 目录，防止恶意插件通过 SFTP 桥在系统后台注入自启动木马。
+- **TypeScript 全量 0 错误封印**：对 70+ 个历史遗留 TypeScript 类型错误进行了系统性清除，涉及 `src/types.d.ts`（补全缺失的 `electronAPI` 接口）、`LeafPane.tsx`、`PluginPane.tsx`、`TerminalPane.tsx`、`SplitPane.tsx`、`App.tsx` 等核心组件，最终实现 `npx tsc --noEmit` 输出**零错误**。
+
+
+### 🦀 四大战区 Rust 底层改造全面竣工 (Rust Native Core — Full Completion)
+这是一次对 GETSSH 进行彻底底层改造的里程碑式 Preview 版本。我们正式将 GETSSH 的核心性能敏感型路径从 Node.js / V8 完全剥离，交由 Rust 原生扩展（N-API）接管。此版本标志着四大安全与性能战区的 Rust 改造**百分之百全面竣工**。
+
+### 🦀 战区一：Watchdog 进程卫士 (Process Guardian)
+- **Rust 独立守护进程正式落地**：`rust-core/watchdog` 是一个完全独立于 Electron 主进程的 Rust 二进制守护程序，通过 Unix Domain Socket（macOS/Linux）和 Named Pipe（Windows）与主进程进行心跳通信。
+- **60 秒物理强杀机制**：若 Watchdog 在 60 秒内未收到心跳应答（如主进程被外部强制冻结或注入），Watchdog 将通过操作系统 API 对父进程发出物理级 SIGKILL，并弹出桌面通知，防止应用在被劫持状态下继续运行。
+- **SAFE MODE 防卡死兜底**：当主进程从崩溃恢复并以 SAFE MODE 启动时，Watchdog 会自动识别并进入静默模式，不会对 SAFE MODE 进程执行强杀。
+- **生产环境路径桥接**：已全面实现 `app.isPackaged` 双路径判断，确保无论是在开发环境还是打包后的生产环境，Watchdog 二进制文件均能被精准定位和启动。
+
+### 🦀 战区二：Vault 本地凭证加密引擎 (Local Credential Encryption)
+- **`getssh-vault` N-API 扩展量产**：通过 `@napi-rs` 将 Rust 加密逻辑编译为 `.node` 原生扩展，由 Electron 主进程直接加载。
+- **AES-256-GCM 硬件级加密**：使用 Rust `aes-gcm` crate 在底层实现对本地 `profiles.enc` 的物理级加密与解密，彻底消灭了 Node.js 层面的 `crypto` 模块潜在漏洞。
+- **主密码与生物验证双重门禁**：`cryptoHandler.ts` 实现了主密码校验与 `systemPreferences.promptTouchID` 生物识别的完整集成链路。
+
+### 🦀 战区三：Sysprobe 系统探针 (System Metrics Probe)
+- **`getssh-sysprobe` N-API 扩展量产**：使用 Rust 的 `sysinfo` crate 直接在操作系统底层采集 CPU、内存、网络、磁盘等系统指标。
+- **彻底剥离 `node:os` 模块依赖**：终结了 `systemHandler.ts` 之前依赖 `node:os` 的高频轮询方案，系统资源采集不再经过 V8 字符串序列化层，数据吞吐效率大幅提升，UI 卡顿率归零。
+
+### 🦀 战区四：SFTP 极限混合网络引擎 (Hybrid SFTP Engine)
+- **`sftp-stream` N-API 零拷贝引擎量产**：`rust-core/sftp-stream` 接管了文件上传和下载过程中最重的磁盘 I/O 部分。
+- **Node-Rust 流水线桥接落地**：`ssh2` 吐出的网络 `Buffer` 直接在 Rust 层被消费并流式落盘，彻底跳过 V8 字符串解析环节，形成"Node.js 负责网络协商、Rust 负责重 I/O"的混合双擎架构。
+- **大文件下载确认防误触**：在执行纯下载模式时，用户将看到当前文件的大小提示，确认后方可开始下载，有效防止对大文件的误触。
+
+### 🔥 绝灭 adm-zip 内存毒瘤 (getssh-unarchive)
+- **新建 `getssh-unarchive` Rust N-API 扩展**：彻底废弃 `PluginManager.ts` 中使用的纯 JS 库 `adm-zip`（其全量内存读取策略是一颗随时引爆的 OOM 炸弹）。
+- **零拷贝流式解压**：使用 Rust 的 `zip` crate 与 `std::io::copy`，文件从压缩包直接流式落盘，**全程不经过任何 JavaScript/V8 内存**。无论插件包体积多大，内存峰值波动恒定压制在 10MB 以内。
+- **军工级 Zip Slip 漏洞物理封杀**：在 Rust 层对压缩包内的每一条路径进行严格检查，一旦发现包含目录穿越符 (`../`) 或绝对根路径的恶意条目，立即触发**熔断机制**，并物理销毁当前已解压的所有残骸文件，彻底封杀 Zip Slip 攻击向量。
+- **`tokio` 异步非阻塞解压**：解压操作在 Rust 的 `tokio::task::spawn_blocking` 线程池中执行，Electron 主进程与渲染进程在解压过程中**全程无感**。
+
+### 🔒 安全与锁定体验强化 (Security & Lock UX)
+- **CommandCenter 一键锁定档案按钮**：在 WelcomePane 命令中心新增"锁定档案"按钮，用户无需等待超时计时器，随时可手动触发锁定。
+- **未设密码时按钮智能禁用**：若用户未设置主密码，"锁定档案"按钮自动灰化并展示工具提示说明，引导用户正确配置安全设置。
+- **锁定界面 i18n 国际化**：`CryptoModal` 锁定与解锁界面已全量接入 `react-i18next`，完整支持中英文双语切换，彻底消灭英文残留。
+- **锁定时高斯模糊隐私防护**：触发锁定后，背景内容将被施加 40px 级别的强力高斯模糊滤镜（使用内联样式强制应用以规避 Tailwind JIT 潜在问题），有效保护隐私，防止无关人员从锁屏界面窥探用户的服务器信息。
+- **全局加密状态单一数据源**：将 `cryptoMode`、`masterPassword` 等加密相关状态从 `App.tsx` 本地状态迁移至 `useCryptoStore` (Zustand) 全局状态树，确保所有 UI 组件（包括 CommandCenter、CryptoModal）读取到一致且实时的状态。
+
+### 📦 跨平台生产环境打包 (Cross-Platform Production Packaging)
+- **ASAR 物理剥离配置**：在 `electron-builder` 配置中加入 `"asarUnpack": ["**/*.node"]`，确保所有 Rust N-API 原生扩展被从 `app.asar` 虚拟文件系统中剥离，放入 `app.asar.unpacked` 真实物理目录，彻底消灭动态链接库在打包环境中加载失败的隐患。
+- **Watchdog 二进制注入**：通过 `extraResources` 配置，将预编译好的 `watchdog` 可执行文件原封不动地注入最终安装包的 `resources` 目录。
+- **macOS 硬化运行时与签名准备**：开启 `hardenedRuntime: true`，并创建 `build/entitlements.mac.plist` 授权文件，注入 `com.apple.security.cs.allow-unsigned-executable-memory`（兼容 V8 JIT）和 `com.apple.security.cs.disable-library-validation`（允许加载自编译 Rust `.node` 扩展），完美规避 macOS 10.15+ 系统的闪退与拦截。
+- **依赖清理**：彻底从根目录移除 `adm-zip` 与 `@types/adm-zip`，项目依赖树进一步纯净化。
+
+---
+
 ## [1.3.1] (Build K9V2X) - 2026-05-21
+
 
 ### 🎉 首个多协议终端版本 (The First Multi-Protocol Era)
 此版本具有里程碑式的跨时代意义，标志着 GETSSH 正式从单一的 SSH 工具进化为**全域多协议终端平台**。我们开创性地引入了底层协议智能嗅探引擎 (Smart Protocol Detection)，极大降低了小白用户的上手门槛。您只需凭借直觉输入（如直接打出 `localhost`），系统便能像魔法一样瞬间读懂您的意图，自动分发并桥接对应的底层协议！

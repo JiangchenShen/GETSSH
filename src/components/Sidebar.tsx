@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         ))}
         
-        <button type="button" onClick={onAddSession} className="flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-100 transition-all font-medium text-sm">
+        <button type="button" onClick={onAddSession} className="sidebar-add-btn flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-100 transition-all font-medium text-sm">
           <Plus className="w-4 h-4 shrink-0" />
           <span>{t('sidebar.newConnection')}</span>
         </button>

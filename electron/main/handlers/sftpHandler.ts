@@ -1,9 +1,12 @@
-import { shell } from 'electron';
+import { app, shell, dialog } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
+
+const addonPath = join(__dirname, '../../rust-core/sftp-stream');
+const { SftpDownloader, SftpUploader } = require(addonPath);
 
 function normalizeRemotePath(p: string): string | null {
   if (typeof p !== 'string') return null;
@@ -106,35 +109,95 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     if (!session || !session.sftp) throw new Error('SFTP session not available');
 
     const fileName = require('node:path').basename(remoteFilePath);
-    const tempPath = join(os.tmpdir(), `getssh_sync_${Date.now()}_${fileName}`);
-
+    
+    // 1. Safe Download using Rust N-API (max 500MB, Track A: Edit Mode)
+    const downloader = SftpDownloader.create(500 * 1024 * 1024, undefined);
+    
     await new Promise<void>((resolve, reject) => {
-      session.sftp!.fastGet(remoteFilePath, tempPath, (err: any) => {
-        if (err) reject(err);
-        else resolve();
+      const readStream = session.sftp!.createReadStream(remoteFilePath);
+      readStream.on('data', (chunk: Buffer) => {
+        try {
+          downloader.append(chunk);
+        } catch (e) {
+          readStream.destroy();
+          reject(e);
+        }
       });
+      readStream.on('end', () => resolve());
+      readStream.on('error', (err: any) => reject(err));
     });
 
-    shell.showItemInFolder(tempPath);
+    const { safePath, dirPath } = downloader.finish();
+    
+    // Rename to actual filename within the secure dir so external editors recognize the extension
+    const finalLocalPath = join(dirPath!, fileName);
+    fs.renameSync(safePath, finalLocalPath);
+
+    shell.showItemInFolder(finalLocalPath);
 
     let timeoutId: NodeJS.Timeout;
     let isUploading = false;
-    const watcher = fs.watch(tempPath, (eventType) => {
-      if (eventType === 'change') {
+    let pendingUpload = false;
+
+    const doUpload = async () => {
+      if (isUploading) {
+         pendingUpload = true;
+         return;
+      }
+      isUploading = true;
+      pendingUpload = false;
+
+      try {
+        const uploader = SftpUploader.open(finalLocalPath);
+        const writeStream = session.sftp!.createWriteStream(remoteFilePath);
+        
+        await new Promise<void>((resolve, reject) => {
+           writeStream.on('close', resolve);
+           writeStream.on('error', reject);
+           
+           const pipeNext = () => {
+             try {
+               const chunk = uploader.readChunk(64 * 1024); // 64KB chunks
+               if (!chunk) {
+                 writeStream.end();
+                 return;
+               }
+               const canContinue = writeStream.write(chunk);
+               if (canContinue) {
+                 setImmediate(pipeNext);
+               } else {
+                 writeStream.once('drain', pipeNext);
+               }
+             } catch (e) {
+               writeStream.destroy();
+               reject(e);
+             }
+           };
+           pipeNext();
+        });
+        
+        uploader.close();
+      } catch (err) {
+        console.error(`[SFTP Sync] Rust stream upload failed for ${remoteFilePath}:`, err);
+      } finally {
+        isUploading = false;
+        if (pendingUpload) {
+          doUpload();
+        }
+      }
+    };
+
+    const watcher = fs.watch(dirPath!, (eventType: string, eventFilename: string | null) => {
+      if (eventFilename === fileName && eventType === 'change') {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
-          if (isUploading) return;
-          isUploading = true;
-          session.sftp!.fastPut(tempPath, remoteFilePath, (err: any) => {
-            isUploading = false;
-            if (err) console.error(`[SFTP Sync] Failed to upload ${remoteFilePath}:`, err);
-          });
-        }, 1000);
+          doUpload();
+        }, 500); // Strict 500ms debounce
       }
     });
 
     const watchId = `${sessionId}_${remoteFilePath}`;
-    connectionManager.activeSftpWatchers[watchId] = { watcher, tempPath };
+    connectionManager.activeSftpWatchers[watchId] = { watcher, tempPath: dirPath! };
 
     return { success: true, watchId };
   });
@@ -144,14 +207,105 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     if (active) {
       active.watcher.close();
       try {
-        await fs.promises.unlink(active.tempPath);
+        await fs.promises.rm(active.tempPath, { recursive: true, force: true });
       } catch (e: any) {
-        if (e.code !== 'ENOENT') {
-          console.error('[SFTP Sync] Cleanup failed', e);
-        }
+        console.error('[SFTP Sync] Cleanup failed', e);
       }
       delete connectionManager.activeSftpWatchers[watchId];
     }
     return { success: true };
+  });
+
+  ipcMain.handle('sftp-download-file', async (event, sessionId: string, remoteFilePath: string, providedLocalDir?: string) => {
+    const session = connectionManager.sessions.get(sessionId); 
+    if (!session || !session.sftp) return { success: false, error: 'SFTP session not available' };
+
+    const fileName = require('node:path').basename(remoteFilePath);
+    
+    let targetFilePath = '';
+    
+    if (providedLocalDir) {
+      // Security Fix: Prevent arbitrary file write. Only allow downloads to OS Downloads or Desktop when bypassing the save dialog.
+      const downloadsPath = require('electron').app.getPath('downloads');
+      const desktopPath = require('electron').app.getPath('desktop');
+      const resolvedDir = require('node:path').resolve(providedLocalDir);
+      
+      if (!resolvedDir.startsWith(downloadsPath) && !resolvedDir.startsWith(desktopPath)) {
+        console.warn(`[Security] sftp-download-file rejected suspicious providedLocalDir: ${resolvedDir}`);
+        return { success: false, error: 'Security: Automatic downloads are only permitted to the Downloads or Desktop folders.' };
+      }
+      
+      targetFilePath = join(providedLocalDir, fileName);
+    } else {
+      const result = await dialog.showSaveDialog({
+        defaultPath: require('electron').app.getPath('downloads') + '/' + fileName,
+        properties: ['createDirectory', 'showOverwriteConfirmation']
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: true, canceled: true };
+      }
+      targetFilePath = result.filePath;
+    }
+
+    try {
+      // Get remote file size before downloading for user confirmation
+      const fileSize: number = await new Promise((resolve, reject) => {
+        session.sftp!.stat(remoteFilePath, (err: any, stats: any) => {
+          if (err) {
+            // If stat fails, allow download anyway (some SFTP servers don't support stat)
+            resolve(-1);
+          } else {
+            resolve(stats.size ?? -1);
+          }
+        });
+      });
+
+      // Show confirmation dialog for large files (> 100 MB) or any file when size is known
+      if (fileSize > 0) {
+        const fileSizeFormatted = fileSize >= 1024 * 1024 * 1024
+          ? `${(fileSize / 1024 / 1024 / 1024).toFixed(2)} GB`
+          : fileSize >= 1024 * 1024
+          ? `${(fileSize / 1024 / 1024).toFixed(2)} MB`
+          : `${(fileSize / 1024).toFixed(1)} KB`;
+
+        const { response } = await dialog.showMessageBox({
+          type: 'question',
+          buttons: ['下载', '取消'],
+          defaultId: 0,
+          cancelId: 1,
+          title: '确认下载',
+          message: `即将下载文件`,
+          detail: `文件名：${fileName}\n文件大小：${fileSizeFormatted}\n\n确定要下载此文件吗？`,
+        });
+
+        if (response === 1) {
+          return { success: true, canceled: true };
+        }
+      }
+
+      // Track B: Download Mode (max_size = 0, with target_local_path) — no size limit
+      const downloader = SftpDownloader.create(0, targetFilePath);
+      
+      await new Promise<void>((resolve, reject) => {
+        const readStream = session.sftp!.createReadStream(remoteFilePath);
+        readStream.on('data', (chunk: Buffer) => {
+          try {
+            downloader.append(chunk);
+          } catch (e) {
+            readStream.destroy();
+            reject(e);
+          }
+        });
+        readStream.on('end', () => resolve());
+        readStream.on('error', (err: any) => reject(err));
+      });
+
+      downloader.finish();
+      return { success: true };
+    } catch (error: any) {
+      console.error('[SFTP Download] Failed:', error);
+      return { success: false, error: error.message || 'Download failed' };
+    }
   });
 }

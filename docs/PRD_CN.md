@@ -227,6 +227,25 @@ GETSSH 是一款面向专业开发者与运维工程师的**跨平台桌面 SSH 
 
 ---
 
+### 4.4 【v2.0 终极演进纲领：钢铁骨骼重铸计划】
+
+**⚖️ 最高战略定力：局部绞杀，坚守底盘**
+无限期搁置 Tauri 迁移：鉴于全球开发者仍存在大量 Intel Mac 及旧版 Windows 10 设备，盲目迁移 Tauri 会因为系统原生 WebView (WebKit/WebView2) 版本的碎片化导致灾难性的 UI 白屏与错位。
+**绞杀藤架构 (Strangler Fig Pattern)**：坚守 Electron 作为全平台统一的 Chromium 渲染底座，保住 React + Tailwind 的绝对视觉资产。将 Node.js 彻底退化为纯粹的“消息转发器”，把核心算力与防御全面下沉至 Rust Native Addon（`.node` 扩展）。
+
+**🛠️ 融合后的三大核心战区（最高优先级行动指令）**
+
+*   **战区一：绝对防御核心 (The Crypto Vault & Watchdog)**
+    *   **凭证阅后即焚 (napi-rs + zeroize)**：用 Rust 接管加解密核心。当 TypeScript 需要凭证时，不返回字符串，而是由 Rust 密闭空间处理，变量一旦离开作用域，瞬间触发 Rust 的 Zeroize 特征，在物理内存层面覆写清零。
+    *   **物理级脱壳看门狗 (Rust Watchdog)**：编写一个完全独立于 Electron、不带 V8 垃圾回收、仅占用数 MB 内存的纯 Rust 后台守护进程。通过系统级匿名管道与主程序通信，一旦检测到 Node.js 遭遇 0-day 漏洞被注入，看门狗将在 OS 层面瞬间对风险进程执行物理强杀 (`kill -9`)，锁死凭证库。
+*   **战区二：重度 I/O 并发怪兽 (Zero-Copy Stream Parser)**
+    *   **SFTP 智能双轨制（已完成）**：修复了初版 Rust 模块的 Windows EBUSY 文件句柄死锁（改用 `Option<File>` 强制 `.take()` 释放）。单轨限制已重构为“双轨制”——编辑模式生成安全沙盒；纯下载模式解除限制（`maxSize = 0`），由 Rust 直接流式搬运巨型压缩包。
+    *   **零拷贝终端数据管道 (SSH2 Backend)**：逐步剥离脆弱的 Node `ssh2` 库，引入 Rust `tokio` 异步运行时与原生 SSH 隧道。数据直接在 Rust 多线程中完成 VT100 协议解析，并零拷贝绕过 Node.js 主线程直达前端 WebGL (`xterm.js`)，确保主界面绝对丝滑。
+*   **战区三：系统轻量级探针 (Audit Monitor)**
+    *   用纯 Rust 的 `sysinfo` 替代目前高开销的 `systemHandler.ts` 子进程派生。以近乎为零的系统级开销，毫秒级捕获本地 CPU/内存负载，杜绝僵尸进程隐患。
+
+---
+
 ## 5. 版本路线图
 
 | 版本 | 里程碑 |

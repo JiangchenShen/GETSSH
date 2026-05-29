@@ -12,7 +12,6 @@ interface TerminalPaneProps {
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
   onConnectInPane: (paneId: string, session: any) => void;
-  sessions: any[];
 }
 
 
@@ -47,8 +46,7 @@ const SplitPaneNode: React.FC<{
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
   onConnectInPane: (paneId: string, session: any) => void;
-  sessions: any[];
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane, sessions }) => {
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane }) => {
   const updatePaneSizes = useSessionStore(s => s.updatePaneSizes);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -100,7 +98,6 @@ const SplitPaneNode: React.FC<{
           onSplit={onSplit}
           onClosePane={onClosePane}
           onConnectInPane={onConnectInPane}
-          sessions={sessions}
         />
       </div>
 
@@ -119,7 +116,6 @@ const SplitPaneNode: React.FC<{
           onSplit={onSplit}
           onClosePane={onClosePane}
           onConnectInPane={onConnectInPane}
-          sessions={sessions}
         />
       </div>
     </div>
@@ -143,7 +139,6 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
         onSplit={props.onSplit}
         onClosePane={props.onClosePane}
         onConnectInPane={props.onConnectInPane}
-        sessions={props.sessions}
       />
     );
   }
@@ -158,7 +153,6 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
       onSplit={props.onSplit}
       onClosePane={props.onClosePane}
       onConnectInPane={props.onConnectInPane}
-      sessions={props.sessions}
     />
   );
 };

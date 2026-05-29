@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, Shield, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock, Trash2 } from 'lucide-react';
+import { Settings, Monitor, Terminal as TerminalIcon, Network, Command, Cpu, Blocks, Info, Shield, ShieldAlert, Upload, Download, Copy, Archive, ChevronLeft, ChevronRight, Lock, Trash2, EyeOff, FileJson, Server, ArrowLeft, Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
@@ -26,6 +26,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
+  const isPolluted = useAppStore(state => state.isPolluted);
+  const watchdogStatus = useAppStore(state => state.watchdogStatus);
+  const pollWatchdogStatus = useAppStore(state => state.pollWatchdogStatus);
   const appConfig = useAppStore(state => state.appConfig);
   const updateConfig = useAppStore(state => state.updateConfig);
   
@@ -35,6 +38,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // History Stack for Navigation
   const [history, setHistory] = useState<string[]>([settingsActiveTab]);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const [securePage, setSecurePage] = useState<'dashboard' | 'rasp' | 'privacy' | 'safestorage' | 'export' | 'known_hosts' | 'shield_details'>('dashboard');
+
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (settingsActiveTab === 'Security') {
+      pollWatchdogStatus();
+      interval = setInterval(pollWatchdogStatus, 3000);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [settingsActiveTab, pollWatchdogStatus]);
 
   React.useEffect(() => {
     if (history[historyIndex] !== settingsActiveTab) {
@@ -172,7 +185,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
            
            <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/5' : 'border-black/5'}`}></div>
            
-           <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Security' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Cpu className="w-5 h-5"/>{t('settings.security')}</button>
+          <button onClick={() => setSettingsActiveTab('Security')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Security' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><ShieldAlert className="w-5 h-5"/>{t("settings.secureCenter")}</button>
            <button onClick={() => setSettingsActiveTab('Audit')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Audit' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Archive className="w-5 h-5"/>{t('settings.auditLogs')}</button>
            <button onClick={() => setSettingsActiveTab('Plugins')} className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-all text-left font-medium ${settingsActiveTab === 'Plugins' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30' : 'hover:bg-white/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100'}`}><Blocks className="w-5 h-5"/>{t('settings.plugins')}</button>
            
@@ -214,7 +227,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {settingsActiveTab === 'Terminal' && <><TerminalIcon className="w-8 h-8 text-primary"/> {t('settings.terminal')}</>}
                 {settingsActiveTab === 'SSH' && <><Network className="w-8 h-8 text-primary"/> {t('settings.ssh')}</>}
                 {settingsActiveTab === 'System' && <><Command className="w-8 h-8 text-primary"/> {t('settings.general')}</>}
-                {settingsActiveTab === 'Security' && <><Cpu className="w-8 h-8 text-red-500"/> {t('settings.security')}</>}
+                {settingsActiveTab === 'Security' && <><ShieldAlert className="w-8 h-8 text-red-500"/> {t("settings.secureCenter")}</>}
                 {settingsActiveTab === 'Audit' && <><Archive className="w-8 h-8 text-orange-500"/> {t('settings.auditLogs')}</>}
                 {settingsActiveTab === 'Plugins' && <><Blocks className="w-8 h-8 text-purple-500"/> {t('settings.plugins')}</>}
                 {settingsActiveTab === 'About' && <><Info className="w-8 h-8 text-primary"/> {t('settings.about')}</>}
@@ -557,6 +570,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <label className="block text-sm font-medium mb-1 opacity-70">{t('ssh.port')}</label>
                 <input type="number" min="1" max="65535" value={appConfig.defaultPort || 22} onChange={(e) => updateConfig('defaultPort', parseInt(e.target.value) || 22)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 opacity-70">SFTP Default Download Path</label>
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={appConfig.sftpDownloadPath || ''} placeholder="Default (Downloads Folder)" className={`flex-1 p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
+                  <button onClick={async () => {
+                    const p = await window.electronAPI.selectFolder();
+                    if (p) updateConfig('sftpDownloadPath', p);
+                  }} className={`px-3 py-1 rounded text-sm transition-all ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
+                    Browse
+                  </button>
+                  {appConfig.sftpDownloadPath && (
+                    <button onClick={() => updateConfig('sftpDownloadPath', '')} className="px-3 py-1 rounded text-sm transition-all text-red-500 hover:bg-red-500/20">
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -593,6 +623,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       onChange={async (e) => {
                         const newMode = e.target.value as 'safe' | 'strict' | 'normal' | 'developer';
                         let finalToken = undefined;
+                        if (newMode === 'developer') {
+                          if (!window.confirm(
+                            "🚨 警告: 开发者模式 (Developer Mode) 🚨\n\n" +
+                            "启用此模式将完全关闭 Node.js VM 沙箱隔离！\n" +
+                            "插件将获得原生 require() 能力，可直接访问文件系统与系统进程。\n" +
+                            "仅在调试您自己编写的信任代码时开启此模式。\n\n" +
+                            "您确定要继续吗？"
+                          )) return;
+                        }
+
                         if (newMode === 'safe' || newMode === 'developer') {
                           // Intercept with Biometric / Master Password ONLY if encryption is enabled
                           if (!encryptionDisabled) {
@@ -609,10 +649,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                 }
                               }
                             } else {
-                              if (!window.confirm("WARNING: Are you sure you want to change to a critical security mode?")) return;
+                              if (!window.confirm(`WARNING: Are you sure you want to change to ${newMode} mode?`)) return;
                             }
                           } else {
-                            if (!window.confirm(`WARNING: You are switching to ${newMode} mode without a Master Password set. Are you sure?`)) return;
+                            if (newMode === 'safe' && !window.confirm(`WARNING: You are switching to safe mode without a Master Password set. Are you sure?`)) return;
                           }
                         }
                         
@@ -645,249 +685,415 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
 
           {settingsActiveTab === 'Security' && (
-            <div className="space-y-8 max-w-xl">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={appConfig.privacyMode || false} onChange={(e) => updateConfig('privacyMode', e.target.checked)} className="w-4 h-4 accent-primary rounded" />
-                <div>
-                  <div className="text-sm font-medium flex items-center gap-2">{t('security.privacyMode')} <Shield className="w-3 h-3 text-primary-400" /></div>
-                  <div className="text-xs opacity-50">{t('security.privacyModeDesc')}</div>
-                </div>
-              </label>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2">
-                  <Lock className="w-4 h-4" /> {t('security.autoLockTimeout')}
-                </label>
-                <select 
-                  value={appConfig.autoLockTimeout || 0}
-                  onChange={(e) => updateConfig('autoLockTimeout', parseInt(e.target.value) || 0)}
-                  className={`w-full p-2 border rounded-md text-sm outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
-                >
-                  <option value={0}>{t('security.autoLockOff')}</option>
-                  <option value={5}>5 {t('security.minutes')}</option>
-                  <option value={15}>15 {t('security.minutes')}</option>
-                  <option value={30}>30 {t('security.minutes')}</option>
-                  <option value={60}>60 {t('security.minutes')}</option>
-                </select>
-                <div className="text-xs opacity-50 mt-1">{t('security.autoLockTimeoutDesc')}</div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 opacity-70 flex items-center gap-2"><Cpu className="w-4 h-4" /> {t('security.globalInitScript')}</label>
-                <textarea 
-                  value={appConfig.initScript || ''} 
-                  onChange={(e) => updateConfig('initScript', e.target.value)} 
-                  rows={4}
-                  placeholder={t('security.globalInitScriptPlaceholder') as string} 
-                  className={`w-full p-4 border rounded-[20px] text-sm outline-none resize-none font-mono ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} 
-                />
-                <div className="text-xs opacity-50 mt-1">{t('security.globalInitScriptDesc')}</div>
-              </div>
-
-              <div className="pt-6 border-0 rounded-none">
-                 <h4 className="text-sm font-bold mb-3 flex items-center gap-2"><Shield className="w-4 h-4 text-primary"/> {t('security.safeStorageConfig')}</h4>
-                 <div className="space-y-3">
-                    {safeAction === 'none' ? (
-                       <>
-                         {!encryptionDisabled && !!masterPassword ? (
-                            <>
-                              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('change'); setSafeError(''); setSafeOldPwd(''); setSafeNewPwd(''); }} className={`py-2 px-3 text-sm font-medium rounded-lg border-0 transition-all ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
-                                 {t('security.changeMasterPwd')}
-                              </button>
-                              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('disable'); setSafeError(''); setSafeOldPwd(''); }} className="py-2 px-3 text-sm font-medium rounded-lg border-0 text-red-500 hover:bg-red-500/10 transition-all ml-[5px]">
-                                 {t('security.disableEncryption')}
-                              </button>
-                            </>
-                         ) : (
-                            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('enable'); setSafeError(''); setSafeNewPwd(''); }} className={`py-2 px-3 text-sm font-medium rounded-lg border-0 bg-primary hover:bg-primary/80 text-white transition-all shadow-lg shadow-primary/20`}>
-                               {t('security.enableEncryption')}
-                            </button>
-                         )}
-                       </>
+            <div className="w-full max-w-4xl flex flex-col gap-6">
+              {securePage === 'dashboard' ? (
+                <>
+                  {isPolluted && (
+                    <div className={`w-full mb-2 p-4 rounded-2xl flex items-center gap-3 border ${
+                      watchdogStatus?.level === 'red' ? 'bg-red-500/10 border-red-500/20' : 'bg-yellow-500/10 border-yellow-500/20'
+                    }`}>
+                      <ShieldAlert className={`w-6 h-6 animate-pulse shrink-0 ${
+                        watchdogStatus?.level === 'red' ? 'text-red-500' : 'text-yellow-500'
+                      }`} />
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-bold tracking-wide uppercase ${
+                          watchdogStatus?.level === 'red' ? 'text-red-500' : 'text-yellow-500'
+                        }`}>
+                          {watchdogStatus?.level === 'red' ? t('security.pollutedTitle', 'System Polluted') : 'Operation Blocked'}
+                        </span>
+                        <span className={`text-xs font-medium ${
+                          watchdogStatus?.level === 'red' ? 'text-red-500/80' : 'text-yellow-500/80'
+                        }`}>
+                          {watchdogStatus?.level === 'red' 
+                            ? t('security.pollutedDesc', '系统已被污染，部分安全措施已经失效。请立即检查并清理异常进程。')
+                            : '系统拦截了部分插件的高危操作请求，但核心运行状态正常。'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {/* Hero Shield Section */}
+                  <button onClick={() => setSecurePage('shield_details')} className={`w-full p-8 rounded-[30px] flex flex-col items-center justify-center gap-4 transition-all shadow-inner group cursor-pointer border ${
+                    !watchdogStatus ? (isDark ? 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/20' : 'bg-black/5 border-transparent hover:bg-black/10 hover:border-black/20') :
+                    watchdogStatus.watchdogDisabled ? (watchdogStatus.level === 'yellow' ? 'bg-yellow-500/10 border-yellow-500/30 hover:bg-yellow-500/20 hover:border-yellow-500/50' : 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50') :
+                    watchdogStatus.status === 'secure' ? 'bg-green-500/10 border-transparent hover:bg-green-500/20 hover:border-green-500/30' : 
+                    (watchdogStatus.level === 'yellow' ? 'bg-yellow-500/10 border-transparent hover:bg-yellow-500/20 hover:border-yellow-500/30' : 'bg-red-500/10 border-transparent hover:bg-red-500/20 hover:border-red-500/30')
+                  }`}>
+                    {watchdogStatus?.watchdogDisabled ? (
+                      <ShieldAlert className={`w-32 h-32 group-hover:scale-105 transition-transform ${
+                        watchdogStatus.level === 'yellow' ? 'text-yellow-500 drop-shadow-[0_0_20px_rgba(234,179,8,0.6)]' : 'text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.6)]'
+                      }`} />
+                    ) : watchdogStatus?.status === 'secure' ? (
+                      <Shield className="w-32 h-32 text-green-500 drop-shadow-[0_0_20px_rgba(34,197,94,0.6)] animate-pulse group-hover:scale-105 transition-transform" />
+                    ) : watchdogStatus?.status === 'warning' ? (
+                      <ShieldAlert className={`w-32 h-32 group-hover:scale-105 transition-transform ${
+                        watchdogStatus.level === 'yellow' ? 'text-yellow-500 drop-shadow-[0_0_20px_rgba(234,179,8,0.6)] animate-pulse' : 'text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-bounce'
+                      }`} />
                     ) : (
-                       <div className="p-6 rounded-none bg-transparent border-0 space-y-3">
-                         {safeError && <div className="text-red-500 text-xs font-medium">{safeError}</div>}
-                         
-                         {(safeAction === 'change' || safeAction === 'disable') && (
-                            <div>
-                              <label className="block text-xs font-medium mb-1 opacity-70">{t('security.currentPwd')}</label>
-                              <input autoFocus type="password" value={safeOldPwd} onChange={e => setSafeOldPwd(e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                            </div>
-                         )}
-                         
-                         {(safeAction === 'change' || safeAction === 'enable') && (
-                            <div>
-                              <label className="block text-xs font-medium mb-1 opacity-70">{t('security.newPwd')}</label>
-                              <input autoFocus={safeAction === 'enable'} type="password" value={safeNewPwd} onChange={e => setSafeNewPwd(e.target.value)} className={`w-full p-2 border rounded-md text-sm outline-none ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
-                            </div>
-                         )}
-
-                         {safeAction === 'disable' && (
-                            <div className="text-xs text-red-500 font-medium">{t('security.warningPlaintext')}</div>
-                         )}
-
-                         <div className="flex gap-2 pt-2">
-                            <button onClick={() => setSafeAction('none')} className={`flex-1 py-1.5 px-3 text-sm rounded-[20px] border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}>{t('security.cancel')}</button>
-                            <button onClick={handleConfirmSafeAction} className="flex-1 py-1.5 px-3 text-sm rounded-[20px] bg-primary hover:bg-primary/80 text-white transition-all shadow-md">{t('security.confirm')}</button>
-                         </div>
-                       </div>
+                      <Shield className="w-32 h-32 opacity-20 animate-pulse group-hover:scale-105 transition-transform" />
                     )}
-                 </div>
-              </div>
-
-              {/* ── Profile Import / Export ──────────────────────────── */}
-              <div className="pt-6">
-                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-primary" /> {t('settings.profileManagement')}
-                </h4>
-                <p className="text-xs opacity-50 mb-4">
-                  {t('settings.exportHint')}
-                </p>
-
-                {profilesStatus && (
-                  <div className={`mb-3 px-4 py-2 rounded-lg text-xs font-medium ${
-                    profilesStatus.type === 'success'
-                      ? 'bg-green-500/15 text-green-400'
-                      : 'bg-red-500/15 text-red-400'
-                  }`}>
-                    {profilesStatus.msg}
-                  </div>
-                )}
-
-                {/* No master password → show locked hint for export */}
-                {encryptionDisabled && (
-                  <div className={`mb-3 px-4 py-2.5 rounded-lg text-xs flex items-center gap-2 ${
-                    isDark ? 'bg-yellow-500/10 text-yellow-400' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'
-                  }`}>
-                    <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>{t('settings.exportNeedPwd')}</span>
-                  </div>
-                )}
-
-                <div className="flex gap-3">
-                  {/* Export — only available when master password is set */}
-                  <button
-                    onClick={async () => {
-                      setProfilesStatus(null);
-                      const res = await window.electronAPI.exportProfiles({
-                        sessions,
-                        masterPassword,
-                      });
-                      if (res.success) {
-                        setProfilesStatus({ type: 'success', msg: t('settings.exportSuccess', { count: res.count }) as string });
-                      } else if (res.reason !== 'canceled') {
-                        setProfilesStatus({ type: 'error', msg: t('settings.exportFailed', { reason: res.reason }) as string });
-                      }
-                    }}
-                    disabled={encryptionDisabled || sessions.length === 0}
-                    title={encryptionDisabled ? (t('settings.exportTooltipDisabled') as string) : (t('settings.exportTooltipEnabled') as string)}
-                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                      isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
-                    }`}
-                  >
-                    <Download className="w-4 h-4" /> {t('settings.exportBtn')}
+                    <div className="text-center mt-2">
+                      <h3 className="text-2xl font-black tracking-tight mb-2">
+                        {!watchdogStatus ? t("security.watchdogConnecting") : 
+                         watchdogStatus.watchdogDisabled 
+                           ? (watchdogStatus.level === 'red' ? t("security.pollutedDesc", "系统已被污染，部分安全措施已经失效。请立即检查并清理异常进程。") : '系统处于带警告的运行状态')
+                           : watchdogStatus.status === 'secure' ? t("security.watchdogSecure") : 
+                         t("security.watchdogWarning")}
+                      </h3>
+                      <p className="text-xs opacity-50 font-bold uppercase tracking-widest">{t("security.shieldClickToDetails", "Click to view protection details")}</p>
+                    </div>
                   </button>
 
-                  {/* Import — always available */}
-                  <button
-                    onClick={() => {
-                      setProfilesStatus(null);
-                      setImportPwd('');
-                      setImportPwdModal(true);
-                    }}
-                    className={`flex items-center gap-2 py-2 px-4 text-sm font-medium rounded-lg transition-all ${
-                      isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
-                    }`}
-                  >
-                    <Upload className="w-4 h-4" /> {t('settings.importBtn')}
+                  {/* Matrix Cards */}
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                    <button onClick={() => setSecurePage('rasp')} className={`p-6 rounded-[20px] border text-left transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5 hover:border-black/20'}`}>
+                      <div className="flex items-center gap-3 mb-3"><Cpu className="w-6 h-6 text-red-500 drop-shadow-md" /><span className="font-bold text-lg">{t("security.raspTitle")}</span></div>
+                      <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.raspDesc")}</p>
+                    </button>
+                    <button onClick={() => setSecurePage('privacy')} className={`p-6 rounded-[20px] border text-left transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5 hover:border-black/20'}`}>
+                      <div className="flex items-center gap-3 mb-3"><EyeOff className="w-6 h-6 text-blue-500 drop-shadow-md" /><span className="font-bold text-lg">{t("security.privacyTitle")}</span></div>
+                      <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.privacyDesc")}</p>
+                    </button>
+                    <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`p-6 rounded-[20px] border text-left transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5 hover:border-black/20'}`}>
+                      <div className="flex items-center gap-3 mb-3"><Lock className="w-6 h-6 text-green-500 drop-shadow-md" /><span className="font-bold text-lg">{t("security.safeStorageTitle")}</span></div>
+                      <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.safeStorageDesc")}</p>
+                    </button>
+                    <button onClick={() => setSecurePage('export')} className={`p-6 rounded-[20px] border text-left transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5 hover:border-black/20'}`}>
+                      <div className="flex items-center gap-3 mb-3"><FileJson className="w-6 h-6 text-orange-500 drop-shadow-md" /><span className="font-bold text-lg">{t("security.exportTitle")}</span></div>
+                      <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.exportDesc")}</p>
+                    </button>
+                    <button onClick={() => setSecurePage('known_hosts')} className={`p-6 rounded-[20px] border text-left transition-all group col-span-2 ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5 hover:border-black/20'}`}>
+                      <div className="flex items-center gap-3 mb-3"><Server className="w-6 h-6 text-purple-500 drop-shadow-md" /><span className="font-bold text-lg">{t("security.knownHostsTitle")}</span></div>
+                      <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.knownHostsDesc")}</p>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-6 max-w-3xl">
+                  {/* Breadcrumbs */}
+                  <button onClick={() => setSecurePage('dashboard')} className="flex items-center gap-2 text-sm font-bold opacity-60 hover:opacity-100 transition-opacity">
+                    <ArrowLeft className="w-4 h-4" /> {t("security.backToDashboard")}
                   </button>
-                </div>
-              </div>
+                  <div className={`pt-2 border-t ${isDark ? 'border-white/10' : 'border-black/10'}`}></div>
 
-              {/* ── Known Hosts Management ───────────────────────────── */}
-              <div className="pt-8 border-t mt-4 border-black/10 dark:border-white/10 w-full max-w-3xl">
-                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-primary" /> {t('security.knownHostsTitle')}
-                </h4>
-                
-                <div className={`rounded-none border ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white'} overflow-hidden`}>
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className={`text-xs uppercase tracking-wider opacity-60 ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-black/5'} border-b`}>
-                        <th className="p-3 font-medium">{t('security.host')}</th>
-                        <th className="p-3 font-medium">{t('security.fingerprint')}</th>
-                        <th className="p-3 font-medium">{t('security.trustedAt')}</th>
-                        <th className="p-3 font-medium text-center">{t('security.revokeTrust')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {knownHosts.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="p-8 text-center text-sm opacity-50">
-                            {t('security.knownHostsEmpty')}
-                          </td>
-                        </tr>
-                      ) : (
-                        knownHosts.map(h => {
-                          const hostKey = `${h.host}:${h.port}`;
-                          return (
-                          <tr key={hostKey} className={`border-b last:border-b-0 ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-black/5 hover:bg-black/5'} transition-colors`}>
-                            <td className="p-3 text-sm font-medium">
-                              <div>{h.host}</div>
-                              <div className="text-xs opacity-50 font-mono">Port: {h.port}</div>
-                            </td>
-                            <td className="p-3 max-w-[300px]">
-                              <div className="flex items-start gap-2">
-                                <code className={`flex-1 text-xs font-mono break-all ${isDark ? 'text-white/70' : 'text-black/70'}`}>
-                                  {h.fingerprint}
-                                </code>
-                                <button 
-                                  onClick={() => navigator.clipboard.writeText(h.fingerprint)} 
-                                  className={`p-1.5 rounded-none border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
-                                  title="Copy Fingerprint"
-                                >
-                                  <Copy className="w-3.5 h-3.5" />
+                  {securePage === 'rasp' && (
+                    <div className="space-y-6">
+                      <h4 className="text-xl font-black flex items-center gap-2"><Cpu className="w-6 h-6 text-red-500"/> {t("security.raspTitle")}</h4>
+                      <div>
+                        <label className="block text-sm font-medium mb-2 opacity-70 flex items-center gap-2"><Cpu className="w-4 h-4" /> {t('security.globalInitScript')}</label>
+                        <textarea 
+                          value={appConfig.initScript || ''} 
+                          onChange={(e) => updateConfig('initScript', e.target.value)} 
+                          rows={4}
+                          placeholder={t('security.globalInitScriptPlaceholder') as string} 
+                          className={`w-full p-4 border rounded-[20px] text-sm outline-none resize-none font-mono ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} 
+                        />
+                        <div className="text-xs opacity-50 mt-2 font-medium">{t('security.globalInitScriptDesc')}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {securePage === 'shield_details' && (
+                    <div className="space-y-6">
+                      <h4 className="text-2xl font-black flex items-center gap-3"><Shield className="w-8 h-8 text-green-500"/> {t("security.shieldDetailsTitle", "六大方位保护您的数据安全")}</h4>
+                      <p className="text-sm opacity-70 leading-relaxed font-medium">
+                        {t("security.shieldDetailsIntro", "GETSSH v2.0 采用了全套由底向上的物理级防御体系，确保您的任何核心资产都不会暴露在传统的内存劫持攻击中。")}
+                      </p>
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className={`relative p-6 rounded-[20px] border flex gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'} ${watchdogStatus?.watchdogDisabled ? 'grayscale opacity-50 cursor-not-allowed' : ''}`}>
+                          {watchdogStatus?.watchdogDisabled && (
+                            <div className="absolute top-2 right-4 px-2 py-1 bg-red-500/20 text-red-500 border border-red-500/30 rounded-md text-[10px] font-black uppercase tracking-widest shadow-sm">
+                              Unavailable
+                            </div>
+                          )}
+                          <div className="shrink-0"><Cpu className="w-6 h-6 text-red-500 drop-shadow-md"/></div>
+                          <div>
+                            <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsWatchdog", "The Rust Watchdog")}</h5>
+                            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsWatchdogDesc", "底层的 Rust 二进制看门狗进程。若主进程引擎被恶意代码挂起或停止心跳超过 5 秒，系统将立刻触发底层系统调用 (SIGKILL) 将被污染的内存物理强杀。")}</p>
+                          </div>
+                        </div>
+                        <div className={`p-6 rounded-[20px] border flex gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                          <div className="shrink-0"><Lock className="w-6 h-6 text-green-500 drop-shadow-md"/></div>
+                          <div>
+                            <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsCrypto", "AES-256-GCM 物理加密")}</h5>
+                            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "您的所有连接凭证与私钥均使用 SafeStorage 与 AES-256-GCM 算法进行极强度的本地加密，密钥不会上传至任何云端。")}</p>
+                          </div>
+                        </div>
+                        <div className={`p-6 rounded-[20px] border flex gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                          <div className="shrink-0"><EyeOff className="w-6 h-6 text-blue-500 drop-shadow-md"/></div>
+                          <div>
+                            <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsZeroize", "内存即焚 (Zeroize)")}</h5>
+                            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "当数据不再使用时，系统通过底层的 zeroize 机制在微秒级别内覆写内存地址，防止通过内存快照 (Memory Dump) 还原您的机密信息。")}</p>
+                          </div>
+                        </div>
+                        <div className={`p-6 rounded-[20px] border flex gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                          <div className="shrink-0"><Server className="w-6 h-6 text-purple-500 drop-shadow-md"/></div>
+                          <div>
+                            <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsNetwork", "Zero-copy (零拷贝) 网络引擎")}</h5>
+                            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsNetworkDesc", "抛弃低效不安全的传统 Node.js I/O 流，全面转向底层 Rust N-API 原生 Buffer 共享直连，阻断流量在 JS 引擎中的滞留泄露风险。")}</p>
+                          </div>
+                        </div>
+                        <div className={`p-6 rounded-[20px] border flex gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                          <div className="shrink-0"><ShieldAlert className="w-6 h-6 text-orange-500 drop-shadow-md"/></div>
+                          <div>
+                            <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsRasp", "RASP 运行态主动防御")}</h5>
+                            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsRaspDesc", "动态监控应用运行时的系统调用与执行流，精准拦截针对 Node.js 引擎的恶意代码注入及越权访问。")}</p>
+                          </div>
+                        </div>
+                        <div className={`p-6 rounded-[20px] border flex flex-col gap-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+                          <div className="flex gap-4">
+                            <div className="shrink-0"><Activity className="w-6 h-6 text-cyan-500 drop-shadow-md"/></div>
+                            <div className="flex-1">
+                              <h5 className="font-bold text-lg mb-1">{t("security.shieldDetailsMemory", "底层内存完整性校验 (Native Memory Scanner)")}</h5>
+                              <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsMemoryDesc", "直接穿透进程边界，定期校验关键系统函数内存首字节，从根本上粉碎任何 Inline Hook 企图。")}</p>
+                            </div>
+                          </div>
+                          {/* Placeholder button for future Native Scanner activation */}
+                          <div className="mt-2 flex justify-end">
+                            <button className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-500 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2">
+                              <Lock className="w-3 h-3" />
+                              {t("security.enableMemoryScanner", "启用极客内存校验 (需 Root 重启)")}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {securePage === 'privacy' && (
+                    <div className="space-y-8">
+                      <h4 className="text-xl font-black flex items-center gap-2"><EyeOff className="w-6 h-6 text-blue-500"/> {t("security.privacyTitle")}</h4>
+                      <label className="flex items-center gap-4 cursor-pointer p-4 rounded-xl border border-transparent hover:border-black/5 dark:hover:border-white/5 transition-colors">
+                        <input type="checkbox" checked={appConfig.privacyMode || false} onChange={(e) => updateConfig('privacyMode', e.target.checked)} className="w-5 h-5 accent-primary rounded" />
+                        <div>
+                          <div className="text-sm font-bold flex items-center gap-2">{t('security.privacyMode')} <Shield className="w-3 h-3 text-primary-400" /></div>
+                          <div className="text-xs opacity-60 mt-1 font-medium">{t('security.privacyModeDesc')}</div>
+                        </div>
+                      </label>
+                      <div className="p-4">
+                        <label className="block text-sm font-bold mb-3 opacity-90 flex items-center gap-2">
+                          <Lock className="w-4 h-4" /> {t('security.autoLockTimeout')}
+                        </label>
+                        <select 
+                          value={appConfig.autoLockTimeout || 0}
+                          onChange={(e) => updateConfig('autoLockTimeout', parseInt(e.target.value) || 0)}
+                          className={`w-full p-3 border rounded-xl text-sm font-medium outline-none shadow-sm focus:ring-2 focus:ring-primary/50 transition-colors ${isDark ? 'bg-black/50 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
+                        >
+                          <option value={0}>{t('security.autoLockOff')}</option>
+                          <option value={5}>5 {t('security.minutes')}</option>
+                          <option value={15}>15 {t('security.minutes')}</option>
+                          <option value={30}>30 {t('security.minutes')}</option>
+                          <option value={60}>60 {t('security.minutes')}</option>
+                        </select>
+                        <div className="text-xs opacity-50 mt-2 font-medium">{t('security.autoLockTimeoutDesc')}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {securePage === 'safestorage' && (
+                    <div className="space-y-6">
+                      <h4 className="text-xl font-black flex items-center gap-2"><Lock className="w-6 h-6 text-green-500"/> {t("security.safeStorageTitle")}</h4>
+                      <div className="space-y-4 max-w-xl">
+                        {safeAction === 'none' ? (
+                           <div className="flex gap-3 mt-4">
+                             {!encryptionDisabled && !!masterPassword ? (
+                                <>
+                                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('change'); setSafeError(''); setSafeOldPwd(''); setSafeNewPwd(''); }} className={`py-3 px-5 text-sm font-bold rounded-xl border-0 transition-all shadow-sm ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}>
+                                     {t('security.changeMasterPwd')}
+                                  </button>
+                                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('disable'); setSafeError(''); setSafeOldPwd(''); }} className="py-3 px-5 text-sm font-bold rounded-xl border-0 text-red-500 hover:bg-red-500/10 transition-all">
+                                     {t('security.disableEncryption')}
+                                  </button>
+                                </>
+                             ) : (
+                                <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSafeAction('enable'); setSafeError(''); setSafeNewPwd(''); }} className={`py-3 px-5 text-sm font-bold rounded-xl border-0 bg-primary hover:bg-primary/90 text-white transition-all shadow-lg shadow-primary/30`}>
+                                   {t('security.enableEncryption')}
                                 </button>
-                              </div>
-                            </td>
-                            <td className="p-3 text-xs opacity-70">
-                              {h.trustedAt ? new Date(h.trustedAt).toLocaleString() : 'N/A'}
-                            </td>
-                            <td className="p-3 text-center align-middle relative">
-                              {revokingHost === hostKey ? (
-                                <div className={`absolute top-1/2 right-full -translate-y-1/2 mr-2 w-64 p-3 rounded-none border shadow-xl z-10 ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-black/20 text-black'}`}>
-                                  <div className="text-xs mb-3 font-medium opacity-90 text-left">{t('security.revokeConfirm')}</div>
-                                  <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setRevokingHost(null)} className="px-2 py-1 text-xs font-medium border border-transparent opacity-70 hover:opacity-100">{t('security.cancel')}</button>
-                                    <button onClick={async () => {
-                                      if (window.electronAPI.deleteKnownHost) {
-                                        await window.electronAPI.deleteKnownHost(h.host, h.port);
-                                        if (window.electronAPI.getKnownHosts) {
-                                          const newHosts = await window.electronAPI.getKnownHosts();
-                                          setKnownHosts(newHosts);
-                                        }
-                                      }
-                                      setRevokingHost(null);
-                                    }} className="px-3 py-1 text-xs font-bold bg-red-500 hover:bg-red-600 text-white rounded-none">{t('security.confirm')}</button>
-                                  </div>
+                             )}
+                           </div>
+                        ) : (
+                           <div className={`p-6 rounded-2xl border space-y-4 shadow-sm ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white'}`}>
+                             {safeError && <div className="text-red-500 text-xs font-bold bg-red-500/10 p-2 rounded-lg">{safeError}</div>}
+                             
+                             {(safeAction === 'change' || safeAction === 'disable') && (
+                                <div>
+                                  <label className="block text-xs font-bold mb-2 opacity-70">{t('security.currentPwd')}</label>
+                                  <input autoFocus type="password" value={safeOldPwd} onChange={e => setSafeOldPwd(e.target.value)} className={`w-full p-3 border rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-primary/50 transition-all ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
                                 </div>
-                              ) : null}
-                              <button
-                                onClick={() => setRevokingHost(hostKey)}
-                                className={`px-3 py-1.5 rounded-none text-xs font-bold border transition-colors ${isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white' : 'border-red-500/30 text-red-600 hover:bg-red-500 hover:text-white'}`}
-                              >
-                                {t('security.revokeTrust')}
-                              </button>
-                            </td>
-                          </tr>
-                        )})
-                      )}
-                    </tbody>
-                  </table>
+                             )}
+                             
+                             {(safeAction === 'change' || safeAction === 'enable') && (
+                                <div>
+                                  <label className="block text-xs font-bold mb-2 opacity-70">{t('security.newPwd')}</label>
+                                  <input autoFocus={safeAction === 'enable'} type="password" value={safeNewPwd} onChange={e => setSafeNewPwd(e.target.value)} className={`w-full p-3 border rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-primary/50 transition-all ${isDark ? 'bg-black/50 border-white/10' : 'bg-white border-black/10'}`} />
+                                </div>
+                             )}
+
+                             {safeAction === 'disable' && (
+                                <div className="text-xs text-red-500 font-bold bg-red-500/10 p-3 rounded-lg leading-relaxed">{t('security.warningPlaintext')}</div>
+                             )}
+
+                             <div className="flex gap-3 pt-3">
+                                <button onClick={() => setSafeAction('none')} className={`flex-1 py-2.5 px-4 text-sm font-bold rounded-xl border transition-all ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}>{t('security.cancel')}</button>
+                                <button onClick={handleConfirmSafeAction} className="flex-1 py-2.5 px-4 text-sm font-bold rounded-xl bg-primary hover:bg-primary/90 text-white transition-all shadow-md">{t('security.confirm')}</button>
+                             </div>
+                           </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {securePage === 'export' && (
+                    <div className="space-y-6">
+                      <h4 className="text-xl font-black flex items-center gap-2"><FileJson className="w-6 h-6 text-orange-500"/> {t("security.exportTitle")}</h4>
+                      <div className="max-w-xl">
+                        <p className="text-sm opacity-60 mb-6 font-medium leading-relaxed">
+                          {t('settings.exportHint')}
+                        </p>
+
+                        {profilesStatus && (
+                          <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-bold shadow-sm ${
+                            profilesStatus.type === 'success'
+                              ? 'bg-green-500/15 text-green-500 border border-green-500/20'
+                              : 'bg-red-500/15 text-red-500 border border-red-500/20'
+                          }`}>
+                            {profilesStatus.msg}
+                          </div>
+                        )}
+
+                        {encryptionDisabled && (
+                          <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-3 shadow-sm ${
+                            isDark ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'
+                          }`}>
+                            <Shield className="w-5 h-5 shrink-0" />
+                            <span>{t('settings.exportNeedPwd')}</span>
+                          </div>
+                        )}
+
+                        <div className="flex gap-4">
+                          <button
+                            onClick={async () => {
+                              setProfilesStatus(null);
+                              const res = await window.electronAPI.exportProfiles({
+                                sessions,
+                                masterPassword,
+                              });
+                              if (res.success) {
+                                setProfilesStatus({ type: 'success', msg: t('settings.exportSuccess', { count: res.count }) as string });
+                              } else if (res.reason !== 'canceled') {
+                                setProfilesStatus({ type: 'error', msg: t('settings.exportFailed', { reason: res.reason }) as string });
+                              }
+                            }}
+                            disabled={encryptionDisabled || sessions.length === 0}
+                            title={encryptionDisabled ? (t('settings.exportTooltipDisabled') as string) : (t('settings.exportTooltipEnabled') as string)}
+                            className={`flex items-center justify-center flex-1 gap-2 py-3 px-4 text-sm font-bold rounded-xl transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                              isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
+                            }`}
+                          >
+                            <Download className="w-4 h-4" /> {t('settings.exportBtn')}
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setProfilesStatus(null);
+                              setImportPwd('');
+                              setImportPwdModal(true);
+                            }}
+                            className={`flex items-center justify-center flex-1 gap-2 py-3 px-4 text-sm font-bold rounded-xl transition-all shadow-sm ${
+                              isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'
+                            }`}
+                          >
+                            <Upload className="w-4 h-4" /> {t('settings.importBtn')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {securePage === 'known_hosts' && (
+                    <div className="space-y-6">
+                      <h4 className="text-xl font-black flex items-center gap-2"><Server className="w-6 h-6 text-purple-500"/> {t("security.knownHostsTitle")}</h4>
+                      <div className={`rounded-xl border shadow-sm ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white'} overflow-hidden max-w-4xl`}>
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className={`text-xs uppercase tracking-wider font-bold opacity-60 ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-50 border-black/5'} border-b`}>
+                              <th className="p-4">{t('security.host')}</th>
+                              <th className="p-4">{t('security.fingerprint')}</th>
+                              <th className="p-4">{t('security.trustedAt')}</th>
+                              <th className="p-4 text-center">{t('security.revokeTrust')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {knownHosts.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="p-10 text-center text-sm font-medium opacity-50">
+                                  {t('security.knownHostsEmpty')}
+                                </td>
+                              </tr>
+                            ) : (
+                              knownHosts.map(h => {
+                                const hostKey = `${h.host}:${h.port}`;
+                                return (
+                                <tr key={hostKey} className={`border-b last:border-b-0 ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-black/5 hover:bg-black/5'} transition-colors`}>
+                                  <td className="p-4 text-sm font-bold">
+                                    <div>{h.host}</div>
+                                    <div className="text-xs opacity-50 font-mono mt-1">Port: {h.port}</div>
+                                  </td>
+                                  <td className="p-4 max-w-[300px]">
+                                    <div className="flex items-start gap-2">
+                                      <code className={`flex-1 text-xs font-mono font-medium break-all ${isDark ? 'text-white/70' : 'text-black/70'}`}>
+                                        {h.fingerprint}
+                                      </code>
+                                      <button 
+                                        onClick={() => navigator.clipboard.writeText(h.fingerprint)} 
+                                        className={`p-2 rounded-lg border transition-colors ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
+                                        title="Copy Fingerprint"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="p-4 text-xs font-medium opacity-70">
+                                    {h.trustedAt ? new Date(h.trustedAt).toLocaleString() : 'N/A'}
+                                  </td>
+                                  <td className="p-4 text-center align-middle relative">
+                                    {revokingHost === hostKey ? (
+                                      <div className={`absolute top-1/2 right-full -translate-y-1/2 mr-3 w-72 p-4 rounded-xl border shadow-2xl z-10 ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-black/20 text-black'}`}>
+                                        <div className="text-sm mb-4 font-bold opacity-90 text-left">{t('security.revokeConfirm')}</div>
+                                        <div className="flex gap-2 justify-end">
+                                          <button onClick={() => setRevokingHost(null)} className="px-3 py-1.5 text-xs font-bold border border-transparent opacity-70 hover:opacity-100">{t('security.cancel')}</button>
+                                          <button onClick={async () => {
+                                            if (window.electronAPI.deleteKnownHost) {
+                                              await window.electronAPI.deleteKnownHost(h.host, h.port);
+                                              if (window.electronAPI.getKnownHosts) {
+                                                const newHosts = await window.electronAPI.getKnownHosts();
+                                                setKnownHosts(newHosts);
+                                              }
+                                            }
+                                            setRevokingHost(null);
+                                          }} className="px-4 py-1.5 text-xs font-black bg-red-500 hover:bg-red-600 text-white rounded-lg shadow-md">{t('security.confirm')}</button>
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                    <button
+                                      onClick={() => setRevokingHost(hostKey)}
+                                      className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white' : 'border-red-500/30 text-red-600 hover:bg-red-500 hover:text-white'}`}
+                                    >
+                                      {t('security.revokeTrust')}
+                                    </button>
+                                  </td>
+                                </tr>
+                              )})
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
             </div>
           )}
+
 
           {settingsActiveTab === 'Audit' && (
             <div className="space-y-6 w-full max-w-full">

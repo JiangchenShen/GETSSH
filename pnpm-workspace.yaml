@@ -1,6 +1,9 @@
 allowBuilds:
-  '@homebridge/node-pty-prebuilt-multiarch': true
   cpu-features: true
   electron: true
+  electron-winstaller: true
   esbuild: true
+  node-pty: true
   ssh2: true
+minimumReleaseAgeExclude:
+  - lucide-react@1.17.0

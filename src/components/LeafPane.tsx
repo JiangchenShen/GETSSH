@@ -1,10 +1,9 @@
 import { CommandCenter } from './CommandCenter';
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneNode, useSessionStore, patchLeafDisconnected, isSSHConfig } from '../store/sessionStore';
-import { Columns, Rows, X, Terminal as TerminalIcon, Cpu, Activity, Server, Search } from 'lucide-react';
+import { Columns, Rows, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { usePluginStore } from '../store/pluginStore';
 import { PluginPane } from './PluginPane';
 
 export const LeafPane: React.FC<{
@@ -16,42 +15,14 @@ export const LeafPane: React.FC<{
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
   onConnectInPane: (paneId: string, session: any) => void;
-  sessions: any[];
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane,  onConnectInPane,
-  sessions
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane,  onConnectInPane
 }) => {
   const { t } = useTranslation();
-  const installedPlugins = usePluginStore(state => state.installedPlugins);
   const activePaneId = useSessionStore(state => state.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
   const welcomeRef = useRef<HTMLDivElement>(null);
   const lastSplitTime = useRef<number>(0);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredSessions = sessions.filter(s => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (s.alias?.toLowerCase().includes(q)) ||
-           (s.name?.toLowerCase().includes(q)) ||
-           (s.host?.toLowerCase().includes(q)) ||
-           (s.username?.toLowerCase().includes(q));
-  });
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      if (filteredSessions.length > 0) {
-        onConnectInPane(node.paneId, filteredSessions[0]);
-      } else if (searchQuery) {
-        let username = '';
-        let host = searchQuery;
-        if (searchQuery.includes('@')) {
-          [username, host] = searchQuery.split('@');
-        }
-        onConnectInPane(node.paneId, { host, username, protocol: 'ssh' });
-      }
-    }
-  };
 
   const handleSplit = (direction: 'hsplit' | 'vsplit') => {
     const now = Date.now();
@@ -71,6 +42,8 @@ export const LeafPane: React.FC<{
     }
   }, [node.paneType]);
 
+  const tabTitle = useSessionStore(state => state.tabs.find(t => t.id === tabId)?.title);
+
   return (
     <div
       className="relative flex flex-col w-full h-full min-w-0 min-h-0 transition-all bg-transparent"
@@ -85,7 +58,7 @@ export const LeafPane: React.FC<{
         }`}
       >
         <span className="truncate opacity-70 font-medium">
-           {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? 'Plugin' : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : ''))}
+           {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : ''))}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -151,7 +124,7 @@ export const LeafPane: React.FC<{
              useSessionStore.setState(state => ({
                 tabs: state.tabs.map(t => {
                   if (t.id !== tabId || !t.paneTree) return t;
-                  const pluginUrl = `file://${plugin.localPath}/${plugin.main}`;
+                  const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
                   return {
                     ...t,
                     paneTree: patchLeafToPlugin(t.paneTree, node.paneId, pluginUrl),

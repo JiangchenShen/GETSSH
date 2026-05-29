@@ -3,6 +3,7 @@ import type { SysmonData, OsFingerprintData, HostVerificationData, BackendConfig
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: () => ipcRenderer.invoke('select-file'),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   onThemeChanged: (callback: (isDark: boolean) => void) => {
     const listener = (_event: IpcRendererEvent, isDark: boolean) => callback(isDark)
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sftpWriteFile: (sessionId: string, remotePath: string, data: string) => ipcRenderer.invoke('sftp-write-file', sessionId, remotePath, data),
   sftpEditSync: (sessionId: string, remoteFilePath: string) => ipcRenderer.invoke('sftp-edit-sync', sessionId, remoteFilePath),
   sftpEditStop: (watchId: string) => ipcRenderer.invoke('sftp-edit-stop', watchId),
+  sftpDownloadFile: (sessionId: string, remoteFilePath: string, providedLocalDir?: string) => ipcRenderer.invoke('sftp-download-file', sessionId, remoteFilePath, providedLocalDir),
   onSshData: (sessionId: string, callback: (data: string) => void) => {
     const listener = (_event: IpcRendererEvent, data: string) => callback(data)
     ipcRenderer.on(`ssh-data-${sessionId}`, listener)
@@ -47,6 +49,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app-focus', listener)
   },
   getPluginsList: () => ipcRenderer.invoke('get-plugin-list'),
+  previewPlugin: (zipPath: string) => ipcRenderer.invoke('preview-plugin', zipPath),
+  commitPluginInstall: (payload: any) => ipcRenderer.invoke('commit-plugin-install', payload),
+  abortPluginInstall: (tempDir: string) => ipcRenderer.invoke('abort-plugin-install', tempDir),
   uninstallPlugin: (pluginName: string) => ipcRenderer.invoke('uninstall-plugin', pluginName),
   getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
   reloadPlugins: () => ipcRenderer.invoke('reload-plugins'),
@@ -56,7 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update-available', listener)
     return () => ipcRenderer.removeListener('update-available', listener)
   },
-  showContextMenu: () => ipcRenderer.send('show-context-menu'),
+  showContextMenu: (payload?: any) => ipcRenderer.send('show-context-menu', payload),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   exportProfiles: (payload: ExportPayload) => ipcRenderer.invoke('export-profiles', payload),
   onSysmonData: (callback: (data: SysmonData) => void) => {
@@ -76,6 +81,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getKnownHosts: () => ipcRenderer.invoke('get-known-hosts'),
   deleteKnownHost: (host: string, port: number) => ipcRenderer.invoke('delete-known-host', host, port),
   getConnectionLogs: () => ipcRenderer.invoke('get-connection-logs'),
+  getWatchdogStatus: () => ipcRenderer.invoke('get-watchdog-status'),
   exportConnectionLogs: () => ipcRenderer.invoke('export-connection-logs'),
   getEnvInfo: () => ({
     electron: process.versions.electron,
@@ -100,4 +106,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('security-lockdown', listener);
   },
   resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore') => ipcRenderer.invoke('resolve-security-lockdown', action),
+  onSyncPluginUIExtensions: (callback: (payload: { terminal: any[], sftp: any[] }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { terminal: any[], sftp: any[] }) => callback(payload);
+    ipcRenderer.on('sync-plugin-ui-extensions', listener);
+    return () => ipcRenderer.removeListener('sync-plugin-ui-extensions', listener);
+  },
+  triggerPluginAction: (pluginId: string, actionId: string, contextData: any) => 
+    ipcRenderer.send('trigger-plugin-action', { pluginId, actionId, contextData }),
+  pluginRpcInvoke: (pluginId: string, method: string, payload: any) => ipcRenderer.invoke('plugin-rpc-invoke', pluginId, method, payload),
+  onPluginRpcMessage: (pluginId: string, callback: (payload: any) => void) => {
+    const listener = (_event: IpcRendererEvent, id: string, payload: any) => {
+      if (id === pluginId) callback(payload);
+    };
+    ipcRenderer.on('plugin-rpc-message', listener);
+    return () => ipcRenderer.removeListener('plugin-rpc-message', listener);
+  },
+  reloadPlugin: (pluginId: string) => ipcRenderer.invoke('reload-plugin', pluginId),
+  pluginStorageGet: (pluginId: string, key: string) => ipcRenderer.invoke('plugin-storage-get', pluginId, key),
+  pluginStorageSet: (pluginId: string, key: string, value: any) => ipcRenderer.invoke('plugin-storage-set', pluginId, key, value),
+  onSyncPluginSettingsSchemas: (callback: (payload: Record<string, any[]>) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: Record<string, any[]>) => callback(payload);
+    ipcRenderer.on('sync-plugin-settings-schemas', listener);
+    return () => ipcRenderer.removeListener('sync-plugin-settings-schemas', listener);
+  },
 })

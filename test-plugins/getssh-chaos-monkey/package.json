@@ -1,0 +1,15 @@
+{
+  "name": "getssh-chaos-monkey",
+  "version": "1.0.0",
+  "displayName": "Chaos Monkey SDK Tester",
+  "description": "Destructive testing plugin for GETSSH V2 SDK limits and security checks.",
+  "main": "index.js",
+  "getssh": {
+    "pluginId": "getssh-chaos-monkey",
+    "capabilities": [
+      "lifecycle",
+      "ssh:read",
+      "ssh:write"
+    ]
+  }
+}

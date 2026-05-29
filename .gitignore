@@ -19,3 +19,18 @@ mock_userData
 
 # Unwanted directories
 release notes/
+docs/V2_UPGRADE_ANALYSIS.md
+docs/RUST_MIGRATION_STATUS.md
+
+# Rust / Cargo
+target/
+Cargo.lock
+
+# Node / N-API binaries
+*.node
+
+# TypeScript build info
+*.tsbuildinfo
+
+# PNPM
+*.zip

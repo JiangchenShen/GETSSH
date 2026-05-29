@@ -30,6 +30,7 @@ export interface AppConfig {
   rightClickBehavior?: 'menu' | 'paste';
   terminalTheme: string;
   customThemes?: Record<string, any>;
+  sftpDownloadPath?: string;
 }
 
 const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
@@ -64,6 +65,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   bellStyle: 'visual',
   rightClickBehavior: isWindows ? 'paste' : 'menu',
   customThemes: {},
+  sftpDownloadPath: '',
 };
 
 interface AppStore {
@@ -87,6 +89,9 @@ interface AppStore {
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   isPolluted: boolean;
   setIsPolluted: (polluted: boolean) => void;
+  watchdogStatus: { status: 'secure' | 'warning', level?: 'red' | 'yellow', reason?: string, lastPing: number, watchdogDisabled?: boolean } | null;
+  setWatchdogStatus: (status: { status: 'secure' | 'warning', level?: 'red' | 'yellow', reason?: string, lastPing: number, watchdogDisabled?: boolean } | null) => void;
+  pollWatchdogStatus: () => void;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
 }
@@ -101,6 +106,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
   isFullScreen: false,
   isPolluted: false,
+  watchdogStatus: null,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -123,6 +129,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
         fingerprint: securityPrompt.fingerprint,
       });
       set({ securityPrompt: null });
+    }
+  },
+  
+  setWatchdogStatus: (status) => set({ watchdogStatus: status }),
+  
+  pollWatchdogStatus: async () => {
+    if (window.electronAPI?.getWatchdogStatus) {
+      try {
+        const status = await window.electronAPI.getWatchdogStatus();
+        set({ watchdogStatus: status });
+      } catch (e) {
+        console.error("Failed to fetch watchdog status", e);
+      }
     }
   },
 

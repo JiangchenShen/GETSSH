@@ -21,6 +21,7 @@ import { SecurityOverlay } from './components/SecurityOverlay';
 import { ShieldAlert } from 'lucide-react';
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
+import { useCryptoStore } from './store/cryptoStore';
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -84,9 +85,12 @@ function App() {
   const hasAutoStarted = useRef(false);
 
   // Crypto State
-  const [cryptoMode, setCryptoMode] = useState<'idle' | 'locked' | 'setup'>('idle');
-  const [masterPassword, setMasterPassword] = useState('');
-  const [encryptionDisabled, setEncryptionDisabled] = useState(false);
+  const cryptoMode = useCryptoStore(state => state.cryptoMode);
+  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
+  const masterPassword = useCryptoStore(state => state.masterPassword);
+  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
+  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
+  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
 
   const setUpdateAvailable = useAppStore(state => state.setUpdateAvailable);
   const updateAvailable = useAppStore(state => state.updateAvailable);
@@ -395,6 +399,17 @@ function App() {
     const tab = tabs.find(t => t.id === activeTabId);
     if (!tab?.paneTree) return;
 
+    // Helper to count current total leaves (panes) in the tree
+    const getLeafCount = (node: any): number => {
+      if (node.type === 'leaf') return 1;
+      return getLeafCount(node.children[0]) + getLeafCount(node.children[1]);
+    };
+
+    if (getLeafCount(tab.paneTree) >= 4) {
+      alert("达到分屏上限 (最多允许 4 个分屏窗口) / Maximum 4 split panes allowed.");
+      return;
+    }
+
     const newPaneId = `pane-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, paneType: 'welcome', sessionId: null, config: null };
 
@@ -543,7 +558,9 @@ function App() {
       {!isFullScreen && (
         <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
            {isPolluted && (
-             <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+             <span title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center' } as React.CSSProperties}>
+               <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
+             </span>
            )}
            GETSSH
         </div>
@@ -622,7 +639,6 @@ function App() {
                       onSplit={splitPane}
                       onClosePane={closePaneInTab}
                       onConnectInPane={connectInPane}
-                      sessions={sessions}
                     />
                   ) : (
                     /* Legacy fallback for tabs without paneTree */

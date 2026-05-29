@@ -37,7 +37,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
   // Local state to prevent React re-render lag and IME interruption
   const [localSession, setLocalSession] = useState(session);
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setLocalSession(session);

@@ -2,10 +2,14 @@
   "compilerOptions": {
     "composite": true,
     "skipLibCheck": true,
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "strict": true,
+    "emitDeclarationOnly": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "electron", "src/types/**/*", "src/store/**/*", "src/**/*.d.ts"]
+  "include": ["vite.config.ts", "electron"]
 }

@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, Server, Terminal as TerminalIcon, Activity, Cpu, Command, ArrowRight, Settings, Plus } from 'lucide-react';
+import { Search, Server, Terminal as TerminalIcon, Activity, Cpu, Command, ArrowRight, Settings, Plus, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSessionStore } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
+import { useCryptoStore } from '../store/cryptoStore';
 
 interface CommandCenterProps {
   onConnect: (session: any) => void;
@@ -15,11 +16,21 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
   const isDark = useAppStore(state => state.isDark);
   const sessions = useSessionStore(state => state.sessions);
   const installedPlugins = usePluginStore(state => state.installedPlugins);
+  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
+  const masterPassword = useCryptoStore(state => state.masterPassword);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [time, setTime] = useState(new Date());
   const [selectedIndex, setSelectedIndex] = useState(0);
   const sessionListRef = useRef<HTMLDivElement>(null);
+  const isPolluted = useAppStore(state => state.isPolluted);
+  const [watchdogInfo, setWatchdogInfo] = useState<{ level?: 'red' | 'yellow', reason?: string } | null>(null);
+
+  useEffect(() => {
+    if (isPolluted && window.electronAPI?.invoke) {
+      window.electronAPI.invoke('get-watchdog-status').then(res => setWatchdogInfo(res));
+    }
+  }, [isPolluted]);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 60000);
@@ -49,7 +60,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
        // Fallback for EmptyState
        useSessionStore.setState(state => {
          const newTabId = `cmd-${Date.now()}`;
-         const pluginUrl = `file://${plugin.localPath}/${plugin.main}`;
+         const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
          return {
            tabs: [...state.tabs, {
              id: newTabId,
@@ -97,6 +108,23 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
       </div>
 
       <div className="z-10 w-full max-w-3xl">
+        {isPolluted && watchdogInfo && (
+          <div className={`w-full p-4 mb-6 rounded-xl flex items-center justify-between border ${
+            watchdogInfo.level === 'red' 
+              ? 'bg-red-500/10 border-red-500/30 text-red-500' 
+              : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500'
+          }`}>
+            <div className="flex items-center gap-3">
+              <Activity className="w-5 h-5 animate-pulse" />
+              <div>
+                <p className="font-bold text-sm">
+                  {watchdogInfo.level === 'red' ? '⚠️ 当前系统已被污染 (高危)' : '⚠️ 插件高危操作已阻断 (警告)'}
+                </p>
+                <p className="text-xs opacity-80">{watchdogInfo.reason}</p>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex justify-between items-end mb-8">
           <div>
             <p className={`flex items-center gap-2 text-xs font-semibold tracking-[0.2em] uppercase mb-2 ${
@@ -171,6 +199,24 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
           >
             <Settings className="w-3.5 h-3.5" />
             {t('settings.title', 'Settings')}
+          </button>
+          
+          <button 
+            onClick={() => {
+              if (masterPassword) {
+                setCryptoMode('locked');
+              }
+            }}
+            disabled={!masterPassword}
+            title={!masterPassword ? t('welcome.lockProfileDisabledTip', '请先在设置中配置主密码才能使用档案锁定功能') : undefined}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold transition-all ${
+              !masterPassword
+                ? (isDark ? 'bg-white/5 text-white/30 cursor-not-allowed' : 'bg-black/5 text-black/30 cursor-not-allowed')
+                : (isDark ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-600')
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5" />
+            {t('welcome.lockProfile', '锁定档案')}
           </button>
         </div>
       )}
