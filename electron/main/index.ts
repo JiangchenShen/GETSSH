@@ -139,7 +139,7 @@ app.whenReady().then(async () => {
     const pluginPath = join(pluginsDir, decodedUrl);
     
     // Prevent Path Traversal (C-01)
-    if (!pluginPath.startsWith(pluginsDir + path.sep)) {
+    if (!pluginPath.startsWith(pluginsDir + require('path').sep)) {
       return new Response('Forbidden', { status: 403 });
     }
 
