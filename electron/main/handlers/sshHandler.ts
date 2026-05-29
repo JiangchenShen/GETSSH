@@ -53,17 +53,36 @@ async function getKnownHosts(app: Electron.App): Promise<Record<string, KnownHos
     const data = await fs.promises.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(data);
     
-    // Migration: If the old format (Record<string, string>) is detected, migrate it
     let needsMigration = false;
     for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === 'string') {
+      if (value && typeof value === 'object') {
+        const valObj = value as any;
+        if (valObj.fingerprint && typeof valObj.fingerprint === 'object') {
+          needsMigration = true;
+          // Recover Uint8Array or Buffer objects
+          let rawBuffer: Buffer | null = null;
+          if (valObj.fingerprint.type === 'Buffer' && Array.isArray(valObj.fingerprint.data)) {
+            rawBuffer = Buffer.from(valObj.fingerprint.data);
+          } else {
+            const values = Object.values(valObj.fingerprint);
+            if (values.length > 0 && values.every(v => typeof v === 'number')) {
+              rawBuffer = Buffer.from(values as number[]);
+            }
+          }
+          if (rawBuffer) {
+            valObj.fingerprint = 'SHA256:' + crypto.createHash('sha256').update(rawBuffer).digest('base64').replace(/=*$/, '');
+          } else {
+            valObj.fingerprint = 'INVALID_FINGERPRINT';
+          }
+        }
+      } else if (typeof value === 'string') {
         needsMigration = true;
         const [host, portStr] = key.split(':');
         parsed[key] = {
           host,
           port: portStr ? parseInt(portStr, 10) : 22,
           fingerprint: value,
-          trustedAt: Date.now() // Use current time as fallback for migrated entries
+          trustedAt: Date.now()
         };
       }
     }
@@ -217,10 +236,14 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           keepaliveInterval: config.keepaliveInterval !== undefined ? config.keepaliveInterval : 10000, // Heartbeat
           hostVerifier: (hashedKey: any, callback: (accept: boolean) => void) => {
             (async () => {
+              const fingerprintStr = Buffer.isBuffer(hashedKey) 
+                ? 'SHA256:' + crypto.createHash('sha256').update(hashedKey).digest('base64').replace(/=*$/, '')
+                : String(hashedKey);
+
               const hosts = await getKnownHosts(app);
               const hostKey = `${config.host}:${config.port || 22}`;
               
-              if (hosts[hostKey] && hosts[hostKey].fingerprint === hashedKey) {
+              if (hosts[hostKey] && hosts[hostKey].fingerprint === fingerprintStr) {
                 return callback(true);
               }
 
@@ -233,7 +256,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                   win.webContents.send('prompt-host-verification', {
                     requestId,
                     hostname: hostKey,
-                    fingerprint: hashedKey
+                    fingerprint: fingerprintStr
                   });
                 } catch (e) {}
               } else {
