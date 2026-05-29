@@ -4,7 +4,7 @@ import net from 'net';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { getBackendConfig, updateBackendConfigLocal } from '../handlers/systemHandler';
+import { getBackendConfig } from '../handlers/systemHandler';
 
 export class SecureCenter {
   private static instance: SecureCenter;
@@ -66,9 +66,7 @@ export class SecureCenter {
         console.warn('[SecureCenter] Booting in SAFE MODE due to Watchdog recovery.');
         this.isPolluted = true;
         this.watchdogDisabled = true; // Watchdog shouldn't kill safe mode
-        if (updateBackendConfigLocal) {
-            updateBackendConfigLocal({ pluginSecurityMode: 'safe' });
-        }
+        getBackendConfig().pluginSecurityMode = 'safe';
     }
 
     
@@ -249,9 +247,7 @@ export class SecureCenter {
 
     switch (action) {
       case 'restart-safe':
-        if (updateBackendConfigLocal) {
-           updateBackendConfigLocal({ pluginSecurityMode: 'safe' });
-        }
+        getBackendConfig().pluginSecurityMode = 'safe';
         // Gracefully deactivate all plugins before RASP kills the process
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown on restart-safe:', e); }
         // Tell watchdog we resolved it so it doesn't kill us while restarting
