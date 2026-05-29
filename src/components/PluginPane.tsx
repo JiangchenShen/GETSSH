@@ -104,6 +104,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         className="w-full h-full border-none"
         sandbox="allow-scripts allow-same-origin" // Strict security baseline: only allow scripts and same origin
         title={`plugin-${paneId}`}
+        data-plugin-id={paneId}
       />
     </div>
   );

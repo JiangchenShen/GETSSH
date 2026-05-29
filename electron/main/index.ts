@@ -152,6 +152,10 @@ app.whenReady().then(async () => {
               var PLUGIN_ID = ${JSON.stringify(pluginId)};
               // #2 FIX: Capture and verify parent origin once at load time
               var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
+              
+              window.__GETSSH_LOCALE = navigator.language;
+              window.__themeListeners = [];
+              window.__sidebarHandlers = {};
 
               window.GETSSH = {
                 _callbacks: {},
@@ -178,11 +182,26 @@ app.whenReady().then(async () => {
                 },
                 openPanel: function(panelId) {
                   window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "openPanel", payload: { panelId } }, PARENT_ORIGIN);
+                },
+                registerSidebarAction: function(id, icon, label) {
+                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "registerSidebarAction", payload: { id, icon, label } }, PARENT_ORIGIN);
+                },
+                showNotification: function(title, body) {
+                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "showNotification", payload: { title, body } }, PARENT_ORIGIN);
+                },
+                getLocale: function() {
+                  return window.__GETSSH_LOCALE;
+                },
+                onThemeChange: function(callback) {
+                  window.__themeListeners.push(callback);
                 }
               };
+
               window.addEventListener('message', (e) => {
                 if (e.source !== window.parent) return;
                 const data = e.data;
+                
+                // RPC and Backend Messages
                 if (data && data.type === 'rpc-response') {
                   const cb = window.GETSSH._callbacks[data.reqId];
                   if (cb) {
@@ -192,6 +211,24 @@ app.whenReady().then(async () => {
                   }
                 } else if (data && data.type === 'backend-message') {
                   window.GETSSH._backendListeners.forEach(fn => fn(data.payload));
+                }
+                
+                // Host UI/Env Messages
+                if (data && data.__getssh_host) {
+                  if (data.event === "sidebarClick") {
+                    var handler = window.__sidebarHandlers[data.actionId];
+                    if (handler) handler();
+                  } else if (data.event === "envChange") {
+                    if (data.locale) window.__GETSSH_LOCALE = data.locale;
+                    if (data.theme) {
+                      window.__themeListeners.forEach(cb => cb(data.theme));
+                    }
+                  }
+                }
+                
+                // Also handle direct host:theme-change from PluginPane
+                if (data && data.type === 'host:theme-change' && data.payload) {
+                   window.__themeListeners.forEach(cb => cb(data.payload));
                 }
               });
             })();
