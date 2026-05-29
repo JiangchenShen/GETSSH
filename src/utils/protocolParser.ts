@@ -23,7 +23,7 @@ export function detectProtocol(input: string): ProtocolDetectResult {
 
   // 2. Explicit telnet:// or :23 suffix
   if (trimmed.startsWith('telnet://') || /:23$/.test(trimmed)) {
-    const raw = input.replace(/^telnet:\/\//i, '');
+    const raw = input.trim().replace(/^telnet:\/\//i, '');
     const parsedHost = raw.split(':')[0];
     return { protocol: 'telnet', parsedHost: parsedHost || undefined };
   }
