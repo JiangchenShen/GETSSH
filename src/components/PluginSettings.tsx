@@ -262,10 +262,12 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
     if (isOpen) {
       const loadData = async () => {
         const data: Record<string, any> = {};
-        for (const field of schema) {
-          const val = await window.electronAPI.pluginStorageGet(pluginId, field.id);
-          data[field.id] = val !== null && val !== undefined ? val : field.default;
-        }
+        await Promise.all(
+          schema.map(async (field) => {
+            const val = await window.electronAPI.pluginStorageGet(pluginId, field.id);
+            data[field.id] = val !== null && val !== undefined ? val : field.default;
+          })
+        );
         setFormData(data);
       };
       loadData();
@@ -275,9 +277,11 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
   const handleSave = async () => {
     setSaving(true);
     try {
-      for (const [key, value] of Object.entries(formData)) {
-        await window.electronAPI.pluginStorageSet(pluginId, key, value);
-      }
+      await Promise.all(
+        Object.entries(formData).map(([key, value]) =>
+          window.electronAPI.pluginStorageSet(pluginId, key, value)
+        )
+      );
       await window.electronAPI.reloadPlugin(pluginId);
       alert('Settings saved. Plugin hot-reloaded successfully!');
     } catch (err: any) {
