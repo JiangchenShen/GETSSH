@@ -124,7 +124,8 @@ export const LeafPane: React.FC<{
              useSessionStore.setState(state => ({
                 tabs: state.tabs.map(t => {
                   if (t.id !== tabId || !t.paneTree) return t;
-                  const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
+                  const entryFile = (plugin as any).getssh?.entry || plugin.main || 'index.html';
+                  const pluginUrl = `getssh-plugin://${plugin.name}/${entryFile}`;
                   return {
                     ...t,
                     paneTree: patchLeafToPlugin(t.paneTree, node.paneId, pluginUrl),

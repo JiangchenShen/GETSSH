@@ -1,0 +1,14 @@
+{
+  "name": "sdk-tester",
+  "version": "1.0.0",
+  "description": "A diagnostic plugin to test all GETSSH Plugin SDK methods",
+  "author": "Antigravity",
+  "main": "main.js",
+  "getssh": {
+    "name": "SDK Diagnostics",
+    "icon": "Beaker",
+    "type": "hybrid",
+    "entry": "index.html",
+    "capabilities": ["lifecycle", "storage:default"]
+  }
+}

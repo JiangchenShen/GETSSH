@@ -46,7 +46,7 @@ function createWindow() {
   win = new BrowserWindow(getBrowserWindowOptions(preload));
   
   setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL, indexHtml);
-  bindWindowEvents(win, () => getBackendConfig().confirmQuit);
+  bindWindowEvents(win, () => getBackendConfig().confirmQuit ?? false);
 
   if (app.isPackaged) {
     win.loadFile(join(__dirname, '../../dist/index.html'))
@@ -131,17 +131,18 @@ app.whenReady().then(async () => {
   SecureCenter.getInstance().setPluginTeardown(() => pluginManager.deactivateAll());
   
   protocol.handle('getssh-plugin', (request) => {
-    // getssh-plugin://pluginName/entryPath
-    const url = request.url.substring('getssh-plugin://'.length);
-    const decodedUrl = decodeURIComponent(url);
-    const pluginId = decodedUrl.split('/')[0];
-    const pluginsDir = join(app.getPath('userData'), 'plugins');
-    const pluginPath = join(pluginsDir, decodedUrl);
-    
-    // Prevent Path Traversal (C-01)
-    if (!pluginPath.startsWith(pluginsDir + require('path').sep)) {
-      return new Response('Forbidden', { status: 403 });
-    }
+    try {
+      const parsedUrl = new URL(request.url);
+      const pluginId = parsedUrl.hostname;
+      const pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
+      
+      const pluginsDir = join(app.getPath('userData'), 'plugins');
+      const pluginPath = join(pluginsDir, pluginId, pathname);
+      
+      // Prevent Path Traversal (C-01)
+      if (!pluginPath.startsWith(pluginsDir + require('path').sep)) {
+        return new Response('Forbidden', { status: 403 });
+      }
 
     if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
       return require('fs').promises.readFile(pluginPath, 'utf-8').then((text: string) => {
@@ -257,10 +258,13 @@ app.whenReady().then(async () => {
       else if (pluginPath.endsWith('.png')) contentType = 'image/png';
       else if (pluginPath.endsWith('.jpg') || pluginPath.endsWith('.jpeg')) contentType = 'image/jpeg';
       
-      return new Response(data, {
+      return new Response(data as any, {
         headers: { 'content-type': contentType }
       });
     }).catch(() => new Response('Not Found', { status: 404 }));
+    } catch (e: any) {
+      return new Response('Bad Request: ' + e.message, { status: 400 });
+    }
   });
   
   registerAllIpcHandlers(ipcMain, app, () => win);

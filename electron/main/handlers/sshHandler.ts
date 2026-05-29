@@ -309,7 +309,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 command: 'connect' as any,
                 destination: {
                   host: connectConfig.host || '',
-                  port: connectConfig.port
+                  port: connectConfig.port || 22
                 }
               };
               const info = await SocksClient.createConnection(proxyOptions);

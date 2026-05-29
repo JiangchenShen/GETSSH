@@ -60,7 +60,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
        // Fallback for EmptyState
        useSessionStore.setState(state => {
          const newTabId = `cmd-${Date.now()}`;
-         const pluginUrl = `getssh-plugin://${plugin.name}/${plugin.main}`;
+         const entryFile = (plugin as any).getssh?.entry || plugin.main || 'index.html';
+         const pluginUrl = `getssh-plugin://${plugin.name}/${entryFile}`;
          return {
            tabs: [...state.tabs, {
              id: newTabId,

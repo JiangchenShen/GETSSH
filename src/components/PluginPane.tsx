@@ -47,8 +47,12 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
       // Handle RPC Invoke
       if (type === 'rpc-invoke') {
         try {
-          // #8 FIX: Ignore pluginId from iframe (untrusted). Use paneId from props (host-controlled)
-          const res = await window.electronAPI.pluginRpcInvoke(paneId, method, payload);
+          // #8 FIX: Ignore untrusted pluginId. Extract real pluginId from the pluginUrl.
+          const realPluginId = pluginUrl?.startsWith('getssh-plugin://') 
+            ? pluginUrl.split('/')[2] 
+            : (event.data.pluginId || paneId);
+            
+          const res = await window.electronAPI.pluginRpcInvoke(realPluginId, method, payload);
           if (iframeRef.current && iframeRef.current.contentWindow) {
             iframeRef.current.contentWindow.postMessage({ type: 'rpc-response', reqId, ...res }, '*');
           }
@@ -70,8 +74,11 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
     });
 
     // Forward backend push messages
-    const pluginId = paneId; // Assuming paneId matches the plugin name
-    const unsubscribeRpc = window.electronAPI.onPluginRpcMessage(pluginId, (payload: any) => {
+    const resolvedPluginId = pluginUrl?.startsWith('getssh-plugin://') 
+      ? pluginUrl.split('/')[2] 
+      : paneId;
+      
+    const unsubscribeRpc = window.electronAPI.onPluginRpcMessage(resolvedPluginId, (payload: any) => {
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.postMessage({ type: 'backend-message', payload }, '*');
       }
