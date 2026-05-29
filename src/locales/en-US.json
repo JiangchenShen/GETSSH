@@ -206,7 +206,20 @@
       "lifecycleGateError": "Security blocked: This plugin has not declared a lifecycle hook. Installation rejected. Please ask the plugin developer to add \"lifecycle\" to getssh.capabilities in package.json.",
       "installBtn": "Install Plugin",
       "uninstallConfirm": "Are you sure you want to uninstall \"{{name}}\"?",
-      "uninstallSuccess": "🗑️ Plugin uninstalled. Restart GETSSH to clear UI artifacts."
+      "uninstallSuccess": "🗑️ Plugin uninstalled. Restart GETSSH to clear UI artifacts.",
+      "permissionReview": "Plugin Permission Review",
+      "permissionDesc": "You are about to install <strong>{{name}}</strong>. Please review the requested capabilities before proceeding.",
+      "confirmInstall": "Accept & Install",
+      "caps": {
+        "storageUnlimited": "Unlimited disk storage access (High Risk)",
+        "storageExtended": "Extended storage up to 500MB (Warning)",
+        "storageDefault": "Storage limited to 5MB (Safe)",
+        "sshWrite": "Can inject commands into active SSH sessions (Warning)",
+        "sshRead": "Can read output from active SSH sessions (Safe)",
+        "lifecycle": "Standard plugin lifecycle management",
+        "hostClipboard": "Can read and write to your system clipboard (Warning)",
+        "none": "No special capabilities requested."
+      }
     },
     "sidebar": {
       "savedSessions": "Saved Sessions",

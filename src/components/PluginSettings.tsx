@@ -78,15 +78,15 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
   };
 
   const handleUninstall = async (pluginName: string, displayName: string) => {
-    if (window.confirm(t('plugins.uninstallConfirm', { name: displayName, defaultValue: `您确定要卸载 ${displayName} 吗？` }))) {
+    if (window.confirm(t('plugins.uninstallConfirm', { name: displayName, defaultValue: `Are you sure you want to uninstall ${displayName}?` }))) {
       setLoading(true);
       const res = await window.electronAPI.uninstallPlugin(pluginName);
       if (res.success) {
         const newList = await window.electronAPI.getPluginsList();
         setPlugins(newList || []);
-        alert(t('plugins.uninstallSuccess', { defaultValue: '🗑️ 插件已卸载。请重启 GETSSH 以清除界面缓存。' }));
+        alert(t('plugins.uninstallSuccess', { defaultValue: '🗑️ Plugin uninstalled. Restart GETSSH to clear UI.' }));
       } else {
-        alert(t('plugins.installFailed', { error: res.error, defaultValue: `安装失败: ${res.error}` }));
+        alert(t('plugins.installFailed', { error: res.error }));
       }
       setLoading(false);
     }
@@ -99,12 +99,10 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
           <div className={`w-full max-w-lg rounded-2xl p-6 shadow-2xl border ${isDark ? 'bg-zinc-900 border-white/10' : 'bg-white border-black/10'}`}>
             <div className="flex items-center gap-3 mb-4 text-primary">
               <ShieldAlert className="w-8 h-8" />
-              <h2 className="text-xl font-bold">{t('plugins.permissionReview', '插件权限审查')}</h2>
+              <h2 className="text-xl font-bold">{t('plugins.permissionReview', 'Plugin Permission Review')}</h2>
             </div>
             
-            <p className="text-sm opacity-80 mb-6 leading-relaxed">
-              您即将安装 <strong>{pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name}</strong>。
-              在继续之前，请仔细审查该插件请求的系统权限。
+            <p className="text-sm opacity-80 mb-6 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('plugins.permissionDesc', { name: pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name, defaultValue: `You are about to install <strong>${pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name}</strong>. Please review the requested capabilities before proceeding.` }) }}>
             </p>
 
             <div className="space-y-3 mb-8">
@@ -118,7 +116,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="storage:unlimited" className="flex gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500">
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>storage:unlimited</strong> — 无限制存储空间访问 (高风险)
+                        <strong>storage:unlimited</strong> — {t('plugins.caps.storageUnlimited', 'Unlimited disk storage access (High Risk)')}
                       </div>
                     </div>
                   );
@@ -127,7 +125,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="storage:extended" className="flex gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-500">
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>storage:extended</strong> — 扩展存储空间至 500MB (警告)
+                        <strong>storage:extended</strong> — {t('plugins.caps.storageExtended', 'Extended storage up to 500MB (Warning)')}
                       </div>
                     </div>
                   );
@@ -136,7 +134,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="storage:default" className="flex gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-500">
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>storage</strong> — 默认存储空间限制为 5MB (安全)
+                        <strong>storage</strong> — {t('plugins.caps.storageDefault', 'Storage limited to 5MB (Safe)')}
                       </div>
                     </div>
                   );
@@ -147,7 +145,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="ssh:write" className="flex gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-500">
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>ssh:write</strong> — 允许向活动的 SSH 会话中注入和执行命令 (高风险)
+                        <strong>ssh:write</strong> — {t('plugins.caps.sshWrite', 'Can inject commands into active SSH sessions (Warning)')}
                       </div>
                     </div>
                   );
@@ -158,7 +156,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="ssh:read" className="flex gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-500">
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>ssh:read</strong> — 允许读取活动的 SSH 会话终端输出 (安全)
+                        <strong>ssh:read</strong> — {t('plugins.caps.sshRead', 'Can read output from active SSH sessions (Safe)')}
                       </div>
                     </div>
                   );
@@ -169,7 +167,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="lifecycle" className="flex gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-500">
                       <CheckCircle2 className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>lifecycle</strong> — 标准的插件生命周期管理
+                        <strong>lifecycle</strong> — {t('plugins.caps.lifecycle', 'Standard plugin lifecycle management')}
                       </div>
                     </div>
                   );
@@ -180,7 +178,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                     <div key="host:clipboard" className="flex gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-500">
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>host:clipboard</strong> — 允许读取和写入您的系统剪贴板 (警告)
+                        <strong>host:clipboard</strong> — {t('plugins.caps.hostClipboard', 'Can read and write to your system clipboard (Warning)')}
                       </div>
                     </div>
                   );
@@ -188,7 +186,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
 
                 return items.length > 0 ? items : (
                   <div className="text-sm opacity-50 p-2 text-center border border-dashed rounded">
-                    该插件未请求任何特殊系统权限，它是安全的。
+                    {t('plugins.caps.none', 'No special capabilities requested.')}
                   </div>
                 );
               })()}
@@ -199,14 +197,14 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                 onClick={cancelInstall}
                 className={`px-6 py-2 rounded-lg font-medium transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
               >
-                {t('common.cancel', '取消')}
+                {t('common.cancel', 'Cancel')}
               </button>
               <button 
                 onClick={confirmInstall}
                 disabled={loading}
                 className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg font-medium transition-colors shadow-lg shadow-primary/20"
               >
-                {loading ? t('common.loading', '安装中...') : t('plugins.confirmInstall', '同意并安装')}
+                {loading ? t('common.loading', 'Loading...') : t('plugins.confirmInstall', 'Accept & Install')}
               </button>
             </div>
           </div>

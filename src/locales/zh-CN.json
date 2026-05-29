@@ -204,7 +204,20 @@
       "lifecycleGateError": "安全拦截：该插件未声明生命周期钩子 (lifecycle)，已拒绝安装。请联系插件开发者在 package.json 的 getssh.capabilities 中添加 \"lifecycle\" 声明。",
       "installBtn": "安装插件",
       "uninstallConfirm": "确定要卸载插件「{{name}}」吗？",
-      "uninstallSuccess": "🗑️ 插件已卸载。重启 GETSSH 后将彻底清理 UI 残留。"
+      "uninstallSuccess": "🗑️ 插件已卸载。重启 GETSSH 后将彻底清理 UI 残留。",
+      "permissionReview": "插件权限审查",
+      "permissionDesc": "您即将安装 <strong>{{name}}</strong>。在继续之前，请仔细审查该插件请求的系统权限。",
+      "confirmInstall": "同意并安装",
+      "caps": {
+        "storageUnlimited": "无限制存储空间访问 (高风险)",
+        "storageExtended": "扩展存储空间至 500MB (警告)",
+        "storageDefault": "默认存储空间限制为 5MB (安全)",
+        "sshWrite": "允许向活动的 SSH 会话中注入和执行命令 (高风险)",
+        "sshRead": "允许读取活动的 SSH 会话终端输出 (安全)",
+        "lifecycle": "标准的插件生命周期管理",
+        "hostClipboard": "允许读取和写入您的系统剪贴板 (警告)",
+        "none": "该插件未请求任何特殊系统权限，它是安全的。"
+      }
     },
     "sidebar": {
       "savedSessions": "主机列表",
