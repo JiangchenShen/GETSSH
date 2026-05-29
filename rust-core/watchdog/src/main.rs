@@ -161,18 +161,18 @@ fn main() {
                     let chunk = String::from_utf8_lossy(&buffer[..n]);
                     leftover.push_str(&chunk);
 
-                    // Guard against runaway buffer growth
-                    if leftover.len() > MAX_LEFTOVER {
-                        eprintln!("Watchdog: IPC buffer overflow (>64KB without newline). Resetting buffer.");
-                        leftover.clear();
-                    }
-
                     while let Some(pos) = leftover.find('\n') {
                         let line = leftover[..pos].trim().to_string();
                         leftover = leftover[pos + 1..].to_string();
                         if !line.is_empty() {
                             let _ = tx_read.send(line);
                         }
+                    }
+
+                    // Guard against runaway buffer growth
+                    if leftover.len() > MAX_LEFTOVER {
+                        eprintln!("Watchdog: IPC buffer overflow (>64KB without newline). Resetting buffer.");
+                        leftover.clear();
                     }
                 }
                 Err(_) => break,
