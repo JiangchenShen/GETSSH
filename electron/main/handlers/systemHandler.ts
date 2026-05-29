@@ -120,10 +120,20 @@ export async function checkForUpdates(app: Electron.App, getWin: () => BrowserWi
 
 export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.App, getWin: () => BrowserWindow | null) {
   
-  // System Monitor Stream
-  setInterval(() => {
-    const win = getWin();
-    if (win && !win.isDestroyed()) {
+  // [M-09] Security Fix: Properly manage sysmon interval lifecycle
+  let sysmonInterval: NodeJS.Timeout | null = null;
+
+  const startSysmon = () => {
+    if (sysmonInterval) return;
+    sysmonInterval = setInterval(() => {
+      const win = getWin();
+      if (!win || win.isDestroyed()) {
+        if (sysmonInterval) {
+          clearInterval(sysmonInterval);
+          sysmonInterval = null;
+        }
+        return;
+      }
       try {
         if (sysprobe) {
           const stats = sysprobe.getSystemStats();
@@ -132,8 +142,14 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       } catch (e) {
         console.error("Sysprobe polling error:", e);
       }
-    }
-  }, 1000);
+    }, 1000);
+  };
+
+  startSysmon();
+  
+  app.on('browser-window-created', () => {
+    startSysmon();
+  });
 
   // Background config and hotkeys
   ipcMain.on('update-backend-config', async (event, config: BackendConfig, authToken?: string) => {

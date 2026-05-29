@@ -139,7 +139,17 @@ async function recordDisconnect(app: Electron.App, sessionId: string) {
     let history: AuditLogRecord[] = [];
     if (fs.existsSync(filePath)) {
       const data = await fs.promises.readFile(filePath, 'utf-8');
-      history = JSON.parse(data);
+      try {
+        const parsed = JSON.parse(data);
+        // [M-15] Security Fix: Enforce basic schema validation on connection_history to prevent UI crashes if file is tampered
+        if (Array.isArray(parsed)) {
+          history = parsed;
+        } else {
+          console.warn('[Audit] connection_history.json is not an array, resetting');
+        }
+      } catch (parseErr) {
+        console.warn('[Audit] connection_history.json contains invalid JSON, resetting');
+      }
     }
     history.push(record);
     history = history.slice(-500);
@@ -511,7 +521,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     if (fs.existsSync(filePath)) {
       try {
         const data = await fs.promises.readFile(filePath, 'utf-8');
-        history = JSON.parse(data);
+        const parsed = JSON.parse(data);
+        // [M-15] Security Fix: Enforce basic schema validation
+        if (Array.isArray(parsed)) {
+          history = parsed;
+        } else {
+          history = [];
+        }
       } catch (e) {
         history = [];
       }

@@ -29,8 +29,9 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
         setError(t('crypto.passwordMismatch', 'Passwords do not match'));
         return;
       }
-      if (password.length < 4) {
-        setError(t('crypto.passwordTooShort', 'Password too short (min 4 chars)'));
+      // [M-08] Security Fix: Enforce minimum password length of 8 characters
+      if (password.length < 8) {
+        setError(t('crypto.passwordTooShort', 'Password too short (min 8 chars)'));
         return;
       }
       setLoading(true);

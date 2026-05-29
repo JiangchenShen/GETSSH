@@ -189,5 +189,13 @@
       "shortcutName": "GETSSH",
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder",
+      "node-pty",
+      "esbuild"
+    ]
   }
 }

@@ -89,10 +89,13 @@ function createWindow() {
       {
         label: 'View',
         submenu: [
-          { role: 'reload' },
-          { role: 'forceReload' },
-          { role: 'toggleDevTools' },
-          { type: 'separator' },
+          // [L-04] Security Fix: Disable DevTools and Reload in production environment
+          ...(app.isPackaged ? [] : [
+            { role: 'reload' },
+            { role: 'forceReload' },
+            { role: 'toggleDevTools' },
+            { type: 'separator' }
+          ] as any),
           { role: 'togglefullscreen' }
         ]
       },

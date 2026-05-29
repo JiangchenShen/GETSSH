@@ -86,10 +86,11 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
       
       session.sftp.stat(remotePath, (statErr: any, stats: any) => {
-         if (statErr) return resolve({ success: false, error: statErr.message });
+         // If stat fails (e.g. symlinks, or servers that don't support it), allow the read anyway
+         const fileSize = stats?.size ?? -1;
          
          // [C-06] Security Fix: Enforce 10MB limit for direct memory reads to prevent V8 OOM crashes
-         if (stats.size > 10 * 1024 * 1024) {
+         if (fileSize > 10 * 1024 * 1024) {
              return resolve({ 
                  success: false, 
                  error: '文件过大(>10MB)。为防止内存溢出，请直接下载或双击使用本地编辑器同步修改，不要直接在应用内预览。' 
