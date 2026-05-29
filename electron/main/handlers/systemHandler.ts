@@ -232,7 +232,3 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
 export function getBackendConfig() {
   return backendConfig;
 }
-
-export function updateBackendConfigLocal(config: BackendConfig) {
-  backendConfig = { ...backendConfig, ...config };
-}
