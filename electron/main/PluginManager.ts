@@ -440,16 +440,18 @@ export class PluginManager {
               const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
 
               const safeRequire = (moduleName: string) => {
+                const normalizedModuleName = moduleName.startsWith('node:') ? moduleName.slice(5) : moduleName;
+
                 if (securityMode === 'strict') {
                   // STRICT: Only path and os
                   const whitelist = ['path', 'os'];
-                  if (whitelist.includes(moduleName)) return require(moduleName);
+                  if (whitelist.includes(normalizedModuleName)) return require(moduleName);
                   SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require restricted module '${moduleName}' in Strict Mode.`, 'yellow');
                   throw new Error(`Sandbox violation: Cannot require module '${moduleName}' in Strict Mode`);
                 } else {
                   // NORMAL: Relaxed but block extremely dangerous ones
                   const blacklist = ['fs', 'fs/promises', 'child_process', 'net'];
-                  if (blacklist.includes(moduleName)) {
+                  if (blacklist.includes(normalizedModuleName)) {
                     SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require dangerous module '${moduleName}' in Normal Mode.`, 'yellow');
                     throw new Error(`Sandbox violation: Cannot require dangerous module '${moduleName}' in Normal Mode`);
                   }
