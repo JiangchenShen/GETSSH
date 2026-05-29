@@ -46,20 +46,10 @@ describe('detectProtocol', () => {
     });
 
     it('should ignore case and spaces for telnet:// prefix', () => {
-      // Note: The logic in protocolParser.ts parses `raw = input.replace(/^telnet:\/\//i, '')`
-      // Since `input` has leading spaces but the regex anchors with ^, it doesn't match the replace,
-      // resulting in `raw` being '  TELNET://example.com  ', parsedHost being '  TELNET', which is a bug in the code.
-      // We will adjust the test to use `trimmed` in our expectations, or rather we should just test lowercase
-      // without leading spaces, because the host code trims first, but then does replace on original input.
-      // Let's test uppercase instead of spaces to verify the `i` flag in regex.
-      expect(detectProtocol('TELNET://example.com')).toEqual({
+      expect(detectProtocol('  TELNET://example.com  ')).toEqual({
         protocol: 'telnet',
         parsedHost: 'example.com',
       });
-      // The bug is that input.replace uses ^telnet but input might have leading spaces.
-      // So if it has leading spaces, the parsed host is wrong. We'll leave the test passing the current code
-      // or actually it's better to verify the current behavior, or fix the source.
-      // I will fix the test to test uppercase which works correctly since it doesn't have leading space.
     });
   });
 
