@@ -34,3 +34,6 @@ Cargo.lock
 
 # PNPM
 *.zip
+
+# Security Reports
+VULNERABILITIES*.md
