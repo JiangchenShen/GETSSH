@@ -33,6 +33,13 @@ function handlePluginMessage(event: MessageEvent) {
 
   const { action, payload, pluginId } = data;
 
+  // Validate event source to prevent spoofing from other iframes/windows
+  const expectedIframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
+  if (!expectedIframe || event.source !== expectedIframe.contentWindow) {
+    console.warn(`[PluginBridge] Message source mismatch or spoofing attempt for plugin "${pluginId}"`);
+    return;
+  }
+
   if (BLOCKED_ACTIONS.has(action)) {
     console.warn(`[PluginBridge] BLOCKED dangerous action "${action}" from plugin "${pluginId}"`);
     return;

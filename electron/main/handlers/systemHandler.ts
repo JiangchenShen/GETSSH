@@ -52,41 +52,46 @@ function compareSemVer(v1: string, v2: string) {
 }
 
 function checkLatestRelease(app: Electron.App): Promise<{ version: string, url: string } | null> {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/repos/JiangchenShen/GETSSH/releases/latest',
-      headers: {
-        'User-Agent': 'GETSSH-Updater'
-      }
-    };
+  return new Promise((resolve) => {
+    try {
+      const { net } = require('electron');
+      const request = net.request({
+        method: 'GET',
+        url: 'https://api.github.com/repos/JiangchenShen/GETSSH/releases/latest'
+      });
+      request.setHeader('User-Agent', 'GETSSH-Updater');
 
-    https.get(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          if (res.statusCode === 200) {
-            const release = JSON.parse(data);
-            const latestVersion = release.tag_name;
-            const currentVersion = app.getVersion();
-            if (compareSemVer(latestVersion, currentVersion) > 0) {
-              resolve({ version: latestVersion, url: release.html_url });
+      request.on('response', (res: Electron.IncomingMessage) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk.toString('utf-8'));
+        res.on('end', () => {
+          try {
+            if (res.statusCode === 200) {
+              const release = JSON.parse(data);
+              const latestVersion = release.tag_name;
+              const currentVersion = app.getVersion();
+              if (compareSemVer(latestVersion, currentVersion) > 0) {
+                resolve({ version: latestVersion, url: release.html_url });
+              } else {
+                resolve(null);
+              }
             } else {
               resolve(null);
             }
-          } else {
+          } catch (e) {
+            console.error('Failed to parse release data', e);
             resolve(null);
           }
-        } catch (e) {
-          console.error('Failed to parse release data', e);
-          resolve(null);
-        }
+        });
       });
-    }).on('error', (e) => {
-      console.error('Failed to check for updates', e);
+      request.on('error', (e: Error) => {
+        console.error('Update check failed', e);
+        resolve(null);
+      });
+      request.end();
+    } catch (e) {
       resolve(null);
-    });
+    }
   });
 }
 
@@ -221,6 +226,32 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       return { hasUpdate: false };
     } catch (e) {
       return { hasUpdate: false, error: String(e) };
+    }
+  });
+
+  // Config Encryption
+  ipcMain.handle('encrypt-config', async (_e, data: any) => {
+    try {
+      const { safeStorage } = require('electron');
+      if (safeStorage.isEncryptionAvailable()) {
+        return safeStorage.encryptString(JSON.stringify(data)).toString('base64');
+      }
+    } catch (err) {}
+    // Fallback to base64 if no encryption available
+    return Buffer.from(JSON.stringify(data)).toString('base64');
+  });
+
+  ipcMain.handle('decrypt-config', async (_e, base64: string) => {
+    try {
+      const { safeStorage } = require('electron');
+      const buf = Buffer.from(base64, 'base64');
+      if (safeStorage.isEncryptionAvailable()) {
+        return JSON.parse(safeStorage.decryptString(buf));
+      }
+      return JSON.parse(buf.toString('utf-8'));
+    } catch (err) {
+      // Return null if decryption fails
+      return null;
     }
   });
   

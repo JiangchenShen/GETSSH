@@ -19,6 +19,30 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
+// [M-11] Security Fix: Enforce senderFrame validation globally for all IPC channels
+const originalIpcOn = ipcMain.on.bind(ipcMain);
+ipcMain.on = (channel, listener) => {
+  return originalIpcOn(channel, (event, ...args) => {
+    // Only allow IPC messages from the top-level frame (the main GETSSH UI)
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      console.warn(`[Security] Blocked unauthorized IPC 'on' message from subframe to channel: ${channel}`);
+      return;
+    }
+    listener(event, ...args);
+  });
+};
+
+const originalIpcHandle = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, listener) => {
+  originalIpcHandle(channel, async (event, ...args) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      console.warn(`[Security] Blocked unauthorized IPC 'handle' message from subframe to channel: ${channel}`);
+      throw new Error('Unauthorized IPC channel access from subframe');
+    }
+    return listener(event, ...args);
+  });
+};
+
 // Chromium's os_crypt tries to store a key in the macOS keychain.
 // Because the app signature is absent (identity: null for small builds), macOS prompts the user. 
 // We use a mock keychain to prevent this annoying popup that blocks the main thread.
@@ -276,12 +300,19 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   win = null
+  // Clean up all sessions (PTY/SSH/Telnet) to prevent zombie processes
+  import('./handlers/sshHandler').then(({ killAllSessions }) => {
+    killAllSessions(app).catch(console.error);
+  });
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   // Gracefully deactivate all plugins before the process exits
   SecureCenter.getInstance().gracefulShutdown();
+  import('./handlers/sshHandler').then(({ killAllSessions }) => {
+    killAllSessions(app).catch(console.error);
+  });
 })
 
 app.on('activate', () => {

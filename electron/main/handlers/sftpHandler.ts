@@ -124,8 +124,9 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
 
     const fileName = require('node:path').basename(remoteFilePath);
     
-    // 1. Safe Download using Rust N-API (max 500MB, Track A: Edit Mode)
-    const downloader = SftpDownloader.create(500 * 1024 * 1024, undefined);
+    // 1. Safe Download using Rust N-API (max 5MB, Track A: Edit Mode)
+    // [L-01] Security Fix: Enforce 5MB limit on SFTP edit-sync to prevent local editor crashes
+    const downloader = SftpDownloader.create(5 * 1024 * 1024, undefined);
     
     await new Promise<void>((resolve, reject) => {
       const readStream = session.sftp!.createReadStream(remoteFilePath);

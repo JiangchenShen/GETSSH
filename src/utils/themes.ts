@@ -170,6 +170,7 @@ export const parseCustomTheme = (jsonString: string): ITheme | null => {
     // Flatten object
     const flatten = (obj: any, prefix = ''): Record<string, string> => {
       return Object.keys(obj).reduce((acc: any, k) => {
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') return acc;
         const pre = prefix.length ? prefix + '.' : '';
         if (typeof obj[k] === 'object' && obj[k] !== null && !Array.isArray(obj[k])) {
           Object.assign(acc, flatten(obj[k], pre + k));
@@ -177,7 +178,7 @@ export const parseCustomTheme = (jsonString: string): ITheme | null => {
           acc[pre + k] = obj[k];
         }
         return acc;
-      }, {});
+      }, Object.create(null));
     };
 
     const flat = flatten(raw);

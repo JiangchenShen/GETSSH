@@ -598,3 +598,23 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     return false;
   });
 }
+
+export async function killAllSessions(app: Electron.App) {
+  for (const sessionId of connectionManager.sessions.keys()) {
+    const proto = sessionProtocols.get(sessionId);
+    sessionProtocols.delete(sessionId);
+    sshBridge.cleanupSession(sessionId);
+    if (proto === 'local' || proto === 'telnet') {
+      await ptyKill(sessionId, proto);
+      await recordDisconnect(app, sessionId);
+      continue;
+    }
+    await recordDisconnect(app, sessionId);
+    const session = connectionManager.sessions.get(sessionId);
+    if (session) {
+      if (session.stream) session.stream.close();
+      if (session.client) session.client.end();
+    }
+    await connectionManager.removeSession(sessionId);
+  }
+}

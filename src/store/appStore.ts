@@ -145,13 +145,35 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  loadStoredConfig: () => {
+  loadStoredConfig: async () => {
     try {
       const storedConf = localStorage.getItem('appConfig');
       if (storedConf) {
         const parsed = JSON.parse(storedConf);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
           set({ appConfig: { ...DEFAULT_CONFIG, ...parsed } });
+          
+          // Load secure fields
+          if (window.electronAPI?.decryptConfig) {
+            const secureData = localStorage.getItem('appConfig_secure');
+            if (secureData) {
+              const dec = await window.electronAPI.decryptConfig(secureData);
+              if (dec) {
+                set((state) => ({ appConfig: { ...state.appConfig, ...dec } }));
+                if (window.electronAPI?.updateBackendConfig) {
+                  const currentAppConfig = get().appConfig;
+                  window.electronAPI.updateBackendConfig({ 
+                    confirmQuit: currentAppConfig.confirmQuit, 
+                    globalHotkey: currentAppConfig.globalHotkey,
+                    pluginSecurityMode: currentAppConfig.pluginSecurityMode,
+                    initScript: currentAppConfig.initScript,
+                    proxyHost: currentAppConfig.proxyHost,
+                    proxyPort: currentAppConfig.proxyPort
+                  });
+                }
+              }
+            }
+          }
         } else {
           set({ appConfig: { ...DEFAULT_CONFIG } });
         }
@@ -168,7 +190,26 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   syncConfigEffects: () => {
     const { appConfig, systemIsDark } = get();
-    localStorage.setItem('appConfig', JSON.stringify(appConfig));
+    
+    const safeConfig = { ...appConfig };
+    const sensitive = {
+      initScript: safeConfig.initScript,
+      proxyHost: safeConfig.proxyHost,
+      proxyPort: safeConfig.proxyPort
+    };
+    
+    delete safeConfig.initScript;
+    delete (safeConfig as any).proxyHost;
+    delete (safeConfig as any).proxyPort;
+    
+    localStorage.setItem('appConfig', JSON.stringify(safeConfig));
+    
+    if (window.electronAPI?.encryptConfig) {
+      window.electronAPI.encryptConfig(sensitive).then(enc => {
+        if (enc) localStorage.setItem('appConfig_secure', enc);
+      });
+    }
+
     const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';
     set({ isDark: dark });
     if (dark) {
@@ -180,7 +221,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.electronAPI.updateBackendConfig({ 
         confirmQuit: appConfig.confirmQuit, 
         globalHotkey: appConfig.globalHotkey,
-        pluginSecurityMode: appConfig.pluginSecurityMode
+        pluginSecurityMode: appConfig.pluginSecurityMode,
+        initScript: appConfig.initScript,
+        proxyHost: appConfig.proxyHost,
+        proxyPort: appConfig.proxyPort
       });
     }
   },

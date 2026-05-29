@@ -83,6 +83,8 @@ declare global {
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);
       onSyncPluginSettingsSchemas: (cb: (payload: any) => void) => (() => void);
+      encryptConfig: (data: any) => Promise<string>;
+      decryptConfig: (base64: string) => Promise<any>;
     };
   }
 }

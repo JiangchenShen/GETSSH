@@ -130,4 +130,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('sync-plugin-settings-schemas', listener);
     return () => ipcRenderer.removeListener('sync-plugin-settings-schemas', listener);
   },
+  encryptConfig: (data: any) => ipcRenderer.invoke('encrypt-config', data),
+  decryptConfig: (base64: string) => ipcRenderer.invoke('decrypt-config', base64),
 })

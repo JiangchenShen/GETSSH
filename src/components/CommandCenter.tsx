@@ -206,6 +206,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ onConnect, onOpenP
             onClick={() => {
               if (masterPassword) {
                 setCryptoMode('locked');
+                useCryptoStore.getState().setMasterPassword(''); // Clear from memory for security
               }
             }}
             disabled={!masterPassword}

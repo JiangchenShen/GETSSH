@@ -284,6 +284,7 @@ function App() {
       
       if (Date.now() - lastActive > appConfig.autoLockTimeout * 60 * 1000) {
         setCryptoMode('locked');
+        setMasterPassword(''); // Clear from memory for security
       }
     }, 10000); // check every 10 seconds
 

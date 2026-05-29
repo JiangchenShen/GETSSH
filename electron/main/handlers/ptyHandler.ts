@@ -169,6 +169,12 @@ export async function killLocalPty(sessionId: string) {
   await connectionManager.removeSession(sessionId);
 }
 
+export async function killAllPtys() {
+  for (const sessionId of localPtyProcesses.keys()) {
+    await killLocalPty(sessionId);
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // TELNET — RFC 854 NVT negotiation (minimal, network-gear compatible)
 // ────────────────────────────────────────────────────────────────────────────

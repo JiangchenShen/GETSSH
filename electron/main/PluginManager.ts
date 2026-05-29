@@ -416,6 +416,14 @@ export class PluginManager {
 
               // DEVELOPER MODE: Full native require, no sandbox
               if (securityMode === 'developer') {
+                try {
+                  const resolvedPath = require.resolve(mainEntryPath);
+                  if (require.cache[resolvedPath]) {
+                    delete require.cache[resolvedPath];
+                  }
+                } catch (e) {
+                  // Ignore if not resolvable yet
+                }
                 const pluginModule = require(mainEntryPath);
                 
                 const activateFn = typeof pluginModule.activate === 'function' ? pluginModule.activate : undefined;
