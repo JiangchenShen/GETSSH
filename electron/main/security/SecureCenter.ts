@@ -170,24 +170,25 @@ export class SecureCenter {
 
       const watchdogPath = app.isPackaged
         ? path.join(process.resourcesPath, watchdogExecutable)
-        : path.join(__dirname, '../../target/release', watchdogExecutable);
+        : path.join(__dirname, '../../../target/release', watchdogExecutable);
 
       console.log(`[SecureCenter] Spawning Watchdog: ${watchdogPath} with PID ${process.pid} and pipe ${pipeName}`);
 
       try {
         if (!fs.existsSync(watchdogPath)) {
             console.error(`[SecureCenter] Watchdog binary not found at ${watchdogPath}! Please compile it first.`);
-            return;
+            this.watchdogDisabled = true;
+            // Notice: we do NOT return here if we want manual RASP alerts to still show up as fallback
+        } else {
+          this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath], {
+            stdio: 'inherit',
+            windowsHide: true,
+          });
+
+          this.watchdogProcess.on('exit', (code) => {
+              console.error(`[SecureCenter] Watchdog exited with code ${code}.`);
+          });
         }
-
-        this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath], {
-          stdio: 'inherit',
-          windowsHide: true,
-        });
-
-        this.watchdogProcess.on('exit', (code) => {
-            console.error(`[SecureCenter] Watchdog exited with code ${code}.`);
-        });
 
         // Start PING interval
         this.monitorInterval = setInterval(() => {
@@ -220,7 +221,7 @@ export class SecureCenter {
   }
 
   public triggerLockdown(reason: string, level: 'red' | 'yellow' = 'yellow') {
-    if (this.isPolluted || this.lockdownMode || this.watchdogDisabled) return;
+    if (this.isPolluted || this.lockdownMode) return;
     this.isPolluted = true;
     this.lockdownMode = true;
 
@@ -228,6 +229,18 @@ export class SecureCenter {
     
     if (this.socket && !this.socket.destroyed) {
       try { this.socket.write(`LOCKDOWN_TRIGGER:${level.toUpperCase()}:${reason}\n`); } catch(e) {}
+    } else {
+      // Fallback: If watchdog is dead/missing, send alert manually immediately
+      this.lastLockdownReason = `【Fallback防御】${reason}`;
+      this.lastLockdownLevel = level;
+      const win = this.getWin?.();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('security-lockdown', {
+          reason: this.lastLockdownReason,
+          countdown: 60,
+          level: this.lastLockdownLevel
+        });
+      }
     }
   }
 

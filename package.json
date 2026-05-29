@@ -6,7 +6,8 @@
   "author": "Shen Jiangchen <shenjiangchen@example.com>",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && electron-builder",
+    "build": "pnpm run build:watchdog && vite build && electron-builder",
+    "build:watchdog": "cd rust-core/watchdog && cargo build --release",
     "build:plugin": "node scripts/package-plugin.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
@@ -87,7 +88,7 @@
     ],
     "extraResources": [
       {
-        "from": "rust-core/watchdog/target/release/watchdog",
+        "from": "target/release/watchdog",
         "to": "watchdog"
       }
     ],
@@ -95,6 +96,7 @@
       "dist/index.html",
       "dist/assets/**/*",
       "dist/plugins/**/*",
+      "!dist/plugins/test-plugin/**/*",
       "dist-electron/**/*",
       "rust-core/**/*.node",
       "rust-core/**/*.js",
