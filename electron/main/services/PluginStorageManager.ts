@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import pLimit from 'p-limit';
 import { SecureCenter } from '../security/SecureCenter';
 
 export interface IStorageEngine {
@@ -70,25 +71,31 @@ class JsonStorageEngine implements IStorageEngine {
 
     await this.init();
 
-    for (const pluginId of targets) {
-      try {
-        const data = this.storeCache.get(pluginId);
-        if (!data) continue;
-        
-        const quotaBytes = this.quotaMap.get(pluginId) || (5 * 1024 * 1024);
-        const jsonStr = JSON.stringify(data);
-        
-        if (quotaBytes !== Infinity && Buffer.byteLength(jsonStr, 'utf8') > quotaBytes) {
-          console.error(`[PluginStorageManager] FATAL: Plugin ${pluginId} exceeded quota during flush. Skipping write to prevent disk bloat.`);
-          continue;
-        }
+    const limit = pLimit(20);
 
-        const filePath = path.join(this.basePath, `${pluginId}.json`);
-        await fs.promises.writeFile(filePath, jsonStr, 'utf8');
-      } catch (e) {
-        console.error(`[PluginStorageManager] Failed to flush data to disk for plugin ${pluginId}:`, e);
-      }
-    }
+    await Promise.all(
+      targets.map((pluginId) =>
+        limit(async () => {
+          try {
+            const data = this.storeCache.get(pluginId);
+            if (!data) return;
+
+            const quotaBytes = this.quotaMap.get(pluginId) || (5 * 1024 * 1024);
+            const jsonStr = JSON.stringify(data);
+
+            if (quotaBytes !== Infinity && Buffer.byteLength(jsonStr, 'utf8') > quotaBytes) {
+              console.error(`[PluginStorageManager] FATAL: Plugin ${pluginId} exceeded quota during flush. Skipping write to prevent disk bloat.`);
+              return;
+            }
+
+            const filePath = path.join(this.basePath, `${pluginId}.json`);
+            await fs.promises.writeFile(filePath, jsonStr, 'utf8');
+          } catch (e) {
+            console.error(`[PluginStorageManager] Failed to flush data to disk for plugin ${pluginId}:`, e);
+          }
+        })
+      )
+    );
   }
 
   public async get(pluginId: string, key: string): Promise<any> {
