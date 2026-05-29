@@ -112,6 +112,8 @@ function App() {
           requestId: data.requestId,
           hostname: data.hostname,
           fingerprint: data.fingerprint,
+          isChanged: data.isChanged,
+          oldFingerprint: data.oldFingerprint,
         });
       });
       return removeListener;

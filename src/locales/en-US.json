@@ -319,7 +319,13 @@
     },
     "hostKey": {
       "title": "Security Warning",
+      "mitmTitle": "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!",
       "msg1": "The authenticity of host <1>{{hostname}}</1> can't be established.",
+      "mitmMsg1": "Someone could be eavesdropping on you right now (man-in-the-middle attack)!",
+      "mitmMsg2": "It is also possible that a host key has just been changed for <1>{{hostname}}</1>.",
+      "oldFingerprint": "Old Fingerprint (Local)",
+      "newFingerprint": "New Fingerprint (Server)",
+      "mitmAck": "I understand the risks and want to update the known host fingerprint.",
       "msg2": "Key fingerprint is:",
       "msg3": "Are you sure you want to continue connecting?",
       "acceptSave": "Accept and Save",

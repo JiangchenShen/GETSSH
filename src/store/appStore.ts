@@ -74,7 +74,7 @@ interface AppStore {
   systemIsDark: boolean;
   isAppBlurred: boolean;
   updateAvailable: { version: string; url: string } | null;
-  securityPrompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string } | null;
+  securityPrompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null;
   isMac: boolean;
   isFullScreen: boolean;
 
@@ -85,7 +85,7 @@ interface AppStore {
   setIsAppBlurred: (blurred: boolean) => void;
   setUpdateAvailable: (info: { version: string; url: string } | null) => void;
   setIsFullScreen: (full: boolean) => void;
-  setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string } | null) => void;
+  setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   isPolluted: boolean;
   setIsPolluted: (polluted: boolean) => void;

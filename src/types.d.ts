@@ -62,7 +62,7 @@ declare global {
       importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; profiles?: import('./store/sessionStore').SessionProfile[]; reason?: string }>;
       promptBiometricUnlock: () => Promise<{ success: boolean; masterPassword?: string; reason?: string }>;
       onSysmonData: (cb: (data: any) => void) => (() => void);
-      onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string }) => void) => (() => void);
+      onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string, isChanged?: boolean, oldFingerprint?: string }) => void) => (() => void);
       sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => void;
       getKnownHosts: () => Promise<{host: string, port: number, fingerprint: string, trustedAt: number}[]>;
       deleteKnownHost: (host: string, port: number) => Promise<boolean>;

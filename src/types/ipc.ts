@@ -14,6 +14,8 @@ export interface HostVerificationData {
   requestId: string;
   hostname: string;
   fingerprint: string;
+  isChanged?: boolean;
+  oldFingerprint?: string;
 }
 
 export interface BackendConfig {

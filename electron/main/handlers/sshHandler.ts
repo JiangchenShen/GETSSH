@@ -257,8 +257,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               const hosts = await getKnownHosts(app);
               const hostKey = `${config.host}:${config.port || 22}`;
               
-              if (hosts[hostKey] && hosts[hostKey].fingerprint === fingerprintStr) {
-                return callback(true);
+              let isChanged = false;
+              let oldFingerprint = undefined;
+
+              if (hosts[hostKey]) {
+                if (hosts[hostKey].fingerprint === fingerprintStr) {
+                  return callback(true);
+                } else {
+                  // Key changed! Potential MITM
+                  isChanged = true;
+                  oldFingerprint = hosts[hostKey].fingerprint;
+                }
               }
 
               const requestId = crypto.randomUUID();
@@ -270,7 +279,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                   win.webContents.send('prompt-host-verification', {
                     requestId,
                     hostname: hostKey,
-                    fingerprint: fingerprintStr
+                    fingerprint: fingerprintStr,
+                    isChanged,
+                    oldFingerprint
                   });
                 } catch (e) {}
               } else {
