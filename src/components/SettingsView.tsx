@@ -6,6 +6,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { PluginSettings } from './PluginSettings';
 import { parseCustomTheme } from '../utils/themes';
 import logoSrc from '../assets/logo.png';
+import DOMPurify from 'dompurify';
 
 interface SettingsViewProps {
   settingsActiveTab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit';
@@ -1242,7 +1243,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     );
                   })}
                 </div>
-                <p className={`text-[10px] leading-relaxed pt-2 px-1 ${isDark ? 'text-white/40' : 'text-black/40'}`} dangerouslySetInnerHTML={{ __html: t('about.openSourceDesc') as string }} />
+                <p className={`text-[10px] leading-relaxed pt-2 px-1 ${isDark ? 'text-white/40' : 'text-black/40'}`} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(t('about.openSourceDesc') as string) }} />
               </div>
 
               {/* Update & Copyright */}
