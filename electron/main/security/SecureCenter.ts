@@ -168,7 +168,7 @@ export class SecureCenter {
 
       const watchdogPath = app.isPackaged
         ? path.join(process.resourcesPath, watchdogExecutable)
-        : path.join(__dirname, '../../../target/release', watchdogExecutable);
+        : path.join(__dirname, '../../target/release', watchdogExecutable);
 
       console.log(`[SecureCenter] Spawning Watchdog: ${watchdogPath} with PID ${process.pid} and pipe ${pipeName}`);
 

@@ -165,10 +165,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
                   window.electronAPI.updateBackendConfig({ 
                     confirmQuit: currentAppConfig.confirmQuit, 
                     globalHotkey: currentAppConfig.globalHotkey,
-                    pluginSecurityMode: currentAppConfig.pluginSecurityMode,
-                    initScript: currentAppConfig.initScript,
-                    proxyHost: currentAppConfig.proxyHost,
-                    proxyPort: currentAppConfig.proxyPort
+                    pluginSecurityMode: currentAppConfig.pluginSecurityMode
                   });
                 }
               }
@@ -191,16 +188,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   syncConfigEffects: () => {
     const { appConfig, systemIsDark } = get();
     
-    const safeConfig = { ...appConfig };
-    const sensitive = {
-      initScript: safeConfig.initScript,
-      proxyHost: safeConfig.proxyHost,
-      proxyPort: safeConfig.proxyPort
-    };
-    
-    delete safeConfig.initScript;
-    delete (safeConfig as any).proxyHost;
-    delete (safeConfig as any).proxyPort;
+    const { initScript, proxyHost, proxyPort, ...safeConfig } = appConfig;
+    const sensitive = { initScript, proxyHost, proxyPort };
     
     localStorage.setItem('appConfig', JSON.stringify(safeConfig));
     
@@ -221,10 +210,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.electronAPI.updateBackendConfig({ 
         confirmQuit: appConfig.confirmQuit, 
         globalHotkey: appConfig.globalHotkey,
-        pluginSecurityMode: appConfig.pluginSecurityMode,
-        initScript: appConfig.initScript,
-        proxyHost: appConfig.proxyHost,
-        proxyPort: appConfig.proxyPort
+        pluginSecurityMode: appConfig.pluginSecurityMode
       });
     }
   },

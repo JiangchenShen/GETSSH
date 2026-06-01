@@ -27,6 +27,10 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resolvedUrl = resolvePluginUrl(pluginUrl);
 
+  const resolvedPluginId = pluginUrl?.startsWith('getssh-plugin://') 
+    ? pluginUrl.split('/')[2] 
+    : paneId;
+
   useEffect(() => {
     // 1. Set up the event listener for messages coming from the iframe
     const handleMessage = async (event: MessageEvent) => {
@@ -73,11 +77,6 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
       }
     });
 
-    // Forward backend push messages
-    const resolvedPluginId = pluginUrl?.startsWith('getssh-plugin://') 
-      ? pluginUrl.split('/')[2] 
-      : paneId;
-      
     const unsubscribeRpc = window.electronAPI.onPluginRpcMessage(resolvedPluginId, (payload: any) => {
       if (iframeRef.current && iframeRef.current.contentWindow) {
         iframeRef.current.contentWindow.postMessage({ type: 'backend-message', payload }, '*');
@@ -110,8 +109,8 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
         src={resolvedUrl}
         className="w-full h-full border-none"
         sandbox="allow-scripts" // [H-02] Security Fix: Removed allow-same-origin to enforce opaque origin
-        title={`plugin-${paneId}`}
-        data-plugin-id={paneId}
+        title={`plugin-${resolvedPluginId}`}
+        data-plugin-id={resolvedPluginId}
       />
     </div>
   );

@@ -850,7 +850,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           </div>
                           {/* Placeholder button for future Native Scanner activation */}
                           <div className="mt-2 flex justify-end">
-                            <button className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-500 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2">
+                            <button 
+                              className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-500 border border-cyan-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                              onClick={() => window.alert(t("security.memoryScannerRootHint", "提示：在 macOS 系统中，底层内存完整性校验需要内核级权限。请在终端中使用 `sudo` 运行此应用程序的二进制文件来激活它。") as string)}
+                            >
                               <Lock className="w-3 h-3" />
                               {t("security.enableMemoryScanner", "启用极客内存校验 (需 Root 重启)")}
                             </button>

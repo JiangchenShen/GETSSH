@@ -1,145 +1,217 @@
-# 🚀 GETSSH | Next-Generation SSH Client
+# GETSSH
 
 [中文版](README_CN.md) | English
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://reactjs.org/)
-[![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
-[![Zustand](https://img.shields.io/badge/State-Zustand-orange?style=flat-square)](https://github.com/pmndrs/zustand)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-V1.3.0--Updates-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
-[![Plugin SDK](https://img.shields.io/badge/Plugin_SDK-Docs-9cf?style=flat-square&logo=bookstack)](docs/PLUGIN_SDK_INTERNAL.md)
+[![Version](https://img.shields.io/badge/version-2.0.0--preview-blueviolet?style=flat-square)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
+[![Electron](https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
+[![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Changelog](https://img.shields.io/badge/Changelog-v2.0-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
 
-**GETSSH** is a next-generation, cross-platform **SSH / SFTP client** built for developers who demand peak efficiency, industrial-grade security, and state-of-the-art modern aesthetics.
+**GETSSH** is a next-generation cross-platform SSH terminal client built for developers and DevOps engineers. It is designed around three uncompromising principles: **military-grade physical security**, **a GPU-accelerated terminal experience**, and **a Glassmorphism UI that makes you actually want to open your terminal**.
 
-📢 **[View Latest Changelog (Update Log)](docs/CHANGELOG_EN.md)**
+Under the hood, GETSSH v2.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and the physical-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
 
-We break away from the dull, rigid constraints of traditional terminal tools by pairing a meticulously crafted **Glassmorphism design** with zero-knowledge cryptographic credential protection. Under the hood, GETSSH features a highly optimized, low-latency micro-component architecture to provide an unprecedented remote development and server management experience.
-
----
-
-## ✨ Core Features
-
-### 💎 1. Glassmorphism Visual Aesthetics
-- **Immersive Frosted Glass**: Meticulously designed with modern frosted glass and physical acrylic textures to present a premium, elegant visual hierarchy.
-- **Dynamic Custom Opacity**: Real-time, seamless adjustments for background transparency and blur, blending beautifully with any desktop wallpaper.
-- **Fluid Micro-interactions**: Every button, card, and sidebar is packed with buttery-smooth transition animations and hover effects, making every click highly responsive and satisfying.
-
-### 📁 2. Full-Featured SFTP File Management System
-*GETSSH integrates a high-performance, developer-focused SFTP management suite, liberating you from tedious CLI file manipulation:*
-- **🫳 Native Drag-and-Drop**: Effortlessly upload files and folders by dragging them directly into the remote SFTP file panel, and download them by dragging them back.
-- **✏️ Interactive Local Editing & Sync**: Open and edit remote configuration files or code locally with your favorite editor; GETSSH automatically uploads changes silently on save and performs secure temporary file cleanup on close.
-- **🔍 Dual-Mode Address Bar Navigation**:
-  - *Breadcrumbs Mode*: Visual path navigation with one-click upward folder jumping.
-  - *Editable Mode*: Click the empty space to toggle an absolute path input box (e.g., `/home/ubuntu/project`), type, and press `Enter` to navigate instantly.
-- **📁 Creation & Symbolic Link Support**: Create new files and directories directly within SFTP using a gorgeous, fully-controlled React Modal, with built-in indicators and seamless double-click traversal for Symbolic Links (Symlinks).
-
-### 🖥️ 3. GPU-Accelerated Terminal Kernel
-- **Ultra-Fast Performance**: Driven by the native `xterm.js` core with hardware-accelerated GPU rendering, maintaining flawless performance even during intense text-heavy outputs.
-- **Modern Tabbed Sessions**: Switch between terminal tabs just like a modern web browser—maintain parallel sessions without having to reconnect constantly.
-- **Intelligent Keep-Alive**: Built-in heartbeat detection and main-process keeping, ensuring that your background terminal sessions never drop when switching windows.
-
-### 🔒 4. Zero-Knowledge Local Cryptographic Defense
-- **Full AES-256 Encryption**: Your server connection profiles are fully encrypted locally using the robust AES-256 algorithm, driven entirely by your Master Password.
-- **Absolute Ownership**: There are no cloud servers and no password-recovery backdoors. **Keep your Master Password safe**; without it, even the developers cannot access or decrypt your credentials.
-- **Context-Isolated Plugin Sandbox**: All plugins run in a strictly-isolated context sandbox (Iframe Sandboxing) communicating via an IPC whitelist gateway, keeping high-privilege credentials like private keys completely safe from leaks.
-
-### 🧩 5. Dynamic Grid Splitting & Extensible Plugin Ecosystem
-- **Responsive Split Layout**: Built on a flexible grid splitter, allowing you to display Terminals, SFTP view, and monitor panels side-by-side at any custom sizing.
-- **Hot-Pluggable Plugins**: Third-party plugins can easily mount onto the bottom or right sidebar, offering limitless possibilities for your remote server workflows.
-
-### ⚡ 6. Ultra-Lightweight: Why is our Electron footprint so small?
-Many developers associate Electron with "memory bloating" and "slow startup." In GETSSH, we completely break this stereotype through cutting-edge technology and minimalist design patterns:
-- **Atomized Micro-Component Design**: The frontend view layer is deeply modularized, eliminating unnecessary global component re-renders. Combined with **Zustand's minimal state topology** and Selective Selectors, high-frequency data updates only re-render target atomic nodes, slashing memory and CPU overhead by up to 70%.
-- **Fully Asynchronous, Non-Blocking I/O**: Core functions like plugin loaders and AES decryption have been entirely refactored into asynchronous streams (`fs.promises` and non-blocking `crypto.pbkdf2`), completely freeing up Node's main thread and avoiding any renderer lag.
-- **Zero-Redundancy Bundling**: Rejecting bloated dependencies, all resources undergo rigorous Tree Shaking by Vite and esbuild, stripping away unused code for sub-second startup speeds and a featherweight bundle size.
+📢 **[View Full Changelog (v2.0)](docs/CHANGELOG_EN.md)**
 
 ---
 
-## 💡 Why We Built GETSSH? (Our Open-Source Philosophy)
+## ✨ What's New in v2.0
 
-As developers and DevOps engineers working daily with remote servers, we found ourselves constantly forced to make frustrating compromises with existing tools:
-- *Either they are fully featured but painfully ugly, looking like software from the 90s*;
-- *Or they look nice but are bloated, laggy, or locked behind expensive monthly/annual subscription models*;
-- *Or they are closed-source, raising serious security questions about whether private keys are secretly uploaded to external servers*.
+v2.0 is a ground-up architectural overhaul — not just a feature release:
 
-We firmly believe that **great tools should be shared freely among developers, not held hostage behind paywalls.** 
-That's why we created **GETSSH**—delivering a tool that is **100% open-source**, protected by **zero-knowledge local encryption**, and uncompromised in both aesthetic design and lightning-fast performance, returning sovereignty over credentials and digital assets back to the developers.
-
----
-
-## ⚖️ Comparison: Why Choose GETSSH?
-
-| Dimension | **GETSSH** (This Project) | **Termius** | **Tabby** | **PuTTY** |
-| :--- | :--- | :--- | :--- | :--- |
-| **Aesthetics** | **Exquisite Glassmorphism** | Modern flat but conventional | Customizable but heavy | Extremely outdated (classic UI) |
-| **Startup & RAM** | **Microsecond-level startup, ultra-low RAM** | Fast startup, medium RAM | Slow startup, high RAM usage | Instant startup, ultra-low RAM |
-| **SFTP Experience** | **Full (Drag-and-Drop + Local Live Edit)** | Locked behind paid Premium | Very basic features | No built-in graphical SFTP |
-| **Privacy Security**| **Open Source, Zero-Knowledge Local AES** | Closed source, cloud syncing risks | Open source but heavy | Open source, no modern encryption |
-| **Value** | **100% Free and Open Source** | Expensive monthly/annual plans | Free | Free |
+- 🦀 **Full Rust Native Core** — Five production Rust N-API addons replace the entire JS-layer crypto, SFTP I/O, and system monitoring stack
+- 🛡 **Six-Layer Physical Security Architecture** — Watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
+- 🔒 **32 Security Vulnerabilities Fixed** — Full internal security audit covering Critical, High, Medium, and Low severity findings, all resolved
+- ⚛️ **React 19 + Electron 42** — Rebuilt on the latest stable foundation
+- 🎨 **Tailwind CSS v4** — Complete style system overhaul
 
 ---
 
-## 🗺️ 2.0 Roadmap: Where We Are Headed
+## 🖥 Screenshots
 
-GETSSH is expanding rapidly, and we are working hard on several major milestones:
-- 🌐 **WebSSH Support**: Access light remote connection management directly inside any standard web browser.
-- 🔌 **Plugin SDK 2.0**: Exposing comprehensive dynamic UI mounting APIs, high-privilege bridging, and fully isolated sandbox runtimes, allowing anyone to build custom themes, protocols, and automation tools.
-- ⚡ **Cluster Command Automation**: Broadcast commands to multiple servers simultaneously in split-screen mode for rapid, synchronized multi-host management.
+> *Glassmorphism dark mode with split-pane terminal sessions and the Security Center RASP dashboard.*
 
 ---
+
+## 🔒 Security Architecture
+
+GETSSH v2.0 implements a **six-layer defense-in-depth architecture** extending from the OS kernel to the application layer:
+
+| Layer | Component | What It Does |
+|---|---|---|
+| **1. Rust Watchdog** | `rust-core/watchdog` — standalone binary | Runs independently from Electron. Monitors the main process via IPC heartbeat. If the heartbeat is missed for >5s, it calls OS-level APIs to forcibly kill the entire Node.js process — bypassing JavaScript entirely. |
+| **2. Memory Zeroize** | `getssh-vault` Rust N-API | All AES keys and decrypted credential buffers are wrapped in `ZeroizeOnDrop`. TypeScript's `finally` blocks call `buffer.fill(0)` as a second pass. No plaintext ever lingers in heap. |
+| **3. Crypto Vault** | `getssh-vault` Rust N-API | AES-256-GCM authenticated encryption. Key derived via PBKDF2-HMAC-SHA256 with 100,000 iterations and a 32-byte salt (NIST SP 800-132). V2 format with magic header for safe migration. |
+| **4. Zero-Copy Network** | `sftp-stream` Rust N-API | SFTP large-file transfers bypass the V8 heap entirely. Rust owns the disk I/O. No OOM from large file transfers. |
+| **5. RASP Defense** | `SecureCenter.ts` | Runtime Application Self-Protection. Audits plugin shell commands for fork bombs, `rm -rf /`, `mkfs`, and disk-destroying `dd`. Triggers the Watchdog lockdown protocol on detection. |
+| **6. Memory Scanner** | `getssh-sysprobe` Rust N-API | Periodically validates the first bytes of critical system function memory to detect Inline Hook attempts. Requires elevated privileges. |
+
+### IPC Security
+
+All `ipcMain.on` and `ipcMain.handle` calls are globally patched to reject any request originating from a sub-frame (`event.senderFrame.parent !== null`). Plugin iframes cannot escape their sandbox to call privileged IPC channels.
+
+### Plugin Sandbox
+
+Plugin UIs run inside `<iframe sandbox="allow-scripts">` — `allow-same-origin` is explicitly removed. `PluginBridge` validates every `postMessage` against the originating iframe's `contentWindow`. Dangerous actions (`sshWrite`, `saveProfiles`, `sftpDelete`, etc.) are on a permanent blocklist.
+
+---
+
+## 🧩 Plugin System
+
+GETSSH has a dual-mode plugin architecture:
+
+- **Main-process plugins** — Run as sandboxed `vm.Script` contexts in the Electron main process. They get a capability-gated API: `ssh:read`, `ssh:write`, `storage`, `clipboard`, `notification`, etc. Each capability must be declared in `package.json` and approved by the user at install time.
+- **Renderer plugins** — Run as sandboxed iframes. They communicate via a typed RPC bridge with `BLOCKED_ACTIONS` enforcement.
+
+**Extension Points:**
+- `registerSidebarAction` — Inject custom sidebar buttons (SVG sanitized via DOMPurify)
+- `registerPanel` / `openPanel` — Register and open custom panels as Pane Tree nodes
+- `registerUIExtension` — Add actions to terminal right-click menus and SFTP toolbars
+- `registerSettingsSchema` — Inject a custom settings UI into the settings panel
+- `pluginStorage` — Isolated KV store per plugin (`getssh-kv` Rust module)
+- `onSysmonData` — Subscribe to live CPU/memory/network data from the Rust sysprobe
+
+---
+
+## ⚡ Core Features
+
+### Multi-Protocol Terminal
+
+- **SSH** — `ssh2` library, password and private key auth, SOCKS5/HTTP proxy support
+- **Local Shell** — `node-pty`, macOS (Zsh/Bash), Windows (PowerShell), shell allowlist enforcement
+- **Telnet** — Raw `net.Socket` with NVT negotiation, forced `vt100` termType for network gear
+- **Protocol auto-detect** — `ssh://`, `telnet://`, `user@host` format parsed on input
+
+**Terminal Engine:** `xterm.js` v6 with WebGL rendering (canvas fallback), ligatures, configurable fonts/colors/cursor/scrollback/bell, anti-glare mode.
+
+**Split Pane Architecture:** Recursive binary tree (`PaneNode`). Any leaf can be independently split horizontally or vertically to arbitrary depth. Each pane independently holds a terminal session, a plugin panel, or the Command Center welcome screen.
+
+### SFTP File Manager
+
+- Dual-mode uploader/downloader via Rust `sftp-stream` (Zero-copy, no V8 heap involvement for large files)
+- File read limit: **10MB** for in-app preview (prevents OOM). No size limit for pure downloads.
+- Real-time local edit sync — double-click to open in your default editor, auto-uploads on save
+- Atomic write (`rename()` from UUID-suffixed temp file) prevents partial-write corruption
+- Full `path.posix.normalize()` path traversal defense on all remote paths
+
+### Command Center
+
+A Raycast/Spotlight-style launcher: full-text fuzzy search across all saved sessions (alias/host/username), keyboard-driven navigation (↑/↓/Enter/Esc), one-line `user@host` quick connect without saving a profile first. Security warnings from the Watchdog appear as inline banners.
+
+### SafeStorage Credential Vault
+
+- Rust `getssh-vault`: PBKDF2 (100k iterations) + AES-256-GCM, two format versions with auto-migration
+- `Electron.safeStorage` protects the master password at rest (macOS Keychain / Windows DPAPI)
+- Touch ID biometric unlock on macOS for passwordless app launch
+- Sensitive config fields (`initScript`, `proxyHost`, `proxyPort`) encrypted separately via `safeStorage` and stored outside the main localStorage key
+- Auto-lock: idle timeout triggers master password screen; Zustand `cryptoStore` is cleared on lock
+
+### Known Hosts & MITM Protection
+
+- SHA256 fingerprint verification on first connect
+- Changed fingerprint detection triggers a high-severity MITM warning overlay with old/new comparison
+- Full revocation management in Settings → Security → Known Hosts
+
+### Audit Logs
+
+Read-only connection metadata logging (alias, host, connected/disconnected timestamps, duration). No terminal content is ever captured. CSV export available.
+
 ---
 
 ## 🛠 Tech Stack
 
-| Category | Solution | Purpose & Value |
-| :--- | :--- | :--- |
-| **App Shell** | **Electron** | Cross-platform desktop integration and main process performance |
-| **State Engine** | **Zustand** | Multi-dimensional state topology with precise, selective component re-renders |
-| **Front-End View** | **React 18 + TS** | Type-safe, reusable micro-components for maximum maintainability |
-| **Styling** | **Vanilla CSS & Tailwind** | Atomic CSS utility meets absolute design system freedom |
-| **Bundling** | **Vite + esbuild** | Near-instant hot reloading in development and ultra-compact production sizes |
-| **Terminal Core** | **xterm.js** | Native-grade terminal rendering with high-throughput text capabilities |
+| Layer | Technology | Version |
+|---|---|---|
+| Desktop Shell | Electron | 42.x |
+| Frontend | React + TypeScript | 19.x + 6.x |
+| Build | Vite + vite-plugin-electron | 8.x |
+| Styling | TailwindCSS | v4.x |
+| State | Zustand | 5.x |
+| SSH/SFTP | ssh2 | 1.x |
+| Local Terminal | node-pty | 1.x |
+| Terminal Render | xterm.js + WebGL | 6.x |
+| Crypto Core | Rust (getssh-vault) | AES-256-GCM + PBKDF2 |
+| System Monitor | Rust (getssh-sysprobe) | sysinfo crate |
+| SFTP Engine | Rust (sftp-stream) | Zero-copy N-API |
+| Plugin Storage | Rust (getssh-kv) | Isolated KV |
+| Unarchiver | Rust (getssh-unarchive) | ZipSlip-hardened |
+| Watchdog | Rust (standalone binary) | OS-level kill |
+| i18n | react-i18next | en-US, zh-CN |
+| DOM Security | DOMPurify | 3.x |
+| Testing | Vitest + Playwright | Unit + E2E |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### 1. Prerequisites
-Ensure you have **Node.js (>= 18.x)** and npm installed.
+### Prerequisites
 
-### 2. Run Locally
+- **Node.js** ≥ 18.x
+- **pnpm** ≥ 9.x
+- **Rust toolchain** (for building native modules) — `rustup` recommended
+
+### Development
+
 ```bash
-# 1. Clone the repository
+# Clone
 git clone https://github.com/JiangchenShen/GETSSH.git
 cd GETSSH
 
-# 2. Install dependencies
-npm install
+# Install dependencies
+pnpm install
 
-# 3. Spin up development mode (Vite HMR)
-npm run dev
+# Build the Rust Watchdog binary (required for SecureCenter)
+pnpm run build:watchdog
+
+# Start Vite dev server + Electron with HMR
+pnpm run dev
 ```
 
-### 3. Build Desktop App
-Due to our architecture-specific build configuration, you can compile highly optimized, minimal installers for your specific machine:
+> **Note:** The five Rust `.node` addons (`getssh-vault`, `getssh-sysprobe`, `sftp-stream`, `getssh-kv`, `getssh-unarchive`) ship pre-compiled for macOS arm64/x64. If you are on Windows or Linux, you need to rebuild them with `napi build --release` inside each `rust-core/*` directory.
+
+### Build Distributable
+
 ```bash
-# Build macOS DMG (both Apple Silicon & Intel)
-npm run build -- --mac
+# Build all Rust components + Vite bundle + electron-builder package
+pnpm run build
 
-# Build Windows Setup EXE (both x64 & ARM64)
-npm run build -- --win
-
-# Build Linux AppImage & Debian package
-npm run build -- --linux
+# Platform-specific builds
+pnpm run build -- --mac      # macOS DMG (ULFO) — x64 + arm64
+pnpm run build -- --win      # Windows NSIS — x64 + arm64
+pnpm run build -- --linux    # Linux AppImage — x64 + arm64
 ```
 
 ---
 
-## 🛡 Security & Privacy
+## ⚖️ Why GETSSH?
 
-We strongly believe that productivity tools should respect your digital sovereignty. All of your SSH private keys, credentials, and session logs **never leave your local machine**. We do not, and will never, collect or harvest any of your sensitive information.
+| | **GETSSH** | Termius | Tabby | iTerm2 |
+|---|---|---|---|---|
+| **Security** | Rust AES-256-GCM + Watchdog daemon + RASP + Zeroize | Closed-source cloud sync | Open source, no hardware security | Open source, no encryption layer |
+| **SFTP** | Zero-copy Rust engine, real-time local edit sync | Paid tier only | Basic | Requires plugin |
+| **Architecture** | TS + Rust hybrid, 6 native addons | Proprietary | Electron + TS | Objective-C |
+| **Plugins** | Dual-mode sandbox (vm.Script + iframe), capability-gated | Limited | Theme-focused | Scripting API |
+| **Price** | **Free & Open Source** | Subscription | Free | Free (macOS only) |
 
 ---
 
-Copyright © 2026 Jiangchen Shen. Licensed under [Apache License 2.0](LICENSE).
+## 🗺 Roadmap
+
+- [ ] **v2.1** — CSP `unsafe-eval` full removal · Windows code signing · Workspace isolation (multi-vault)
+- [ ] **v2.2** — Plugin Marketplace · SSH Jump Host (ProxyJump) · In-terminal search
+- [ ] **v2.3** — Cluster broadcast (send command to N sessions simultaneously) · SSH config file import
+
+---
+
+## 🛡 Privacy Statement
+
+Everything stays local. SSH private keys, passwords, session logs, and connection metadata **never leave your machine**. GETSSH has no analytics, no telemetry, no cloud account, and no network calls except the GitHub Releases API for update checks.
+
+---
+
+## 📄 License
+
+Copyright © 2026 Jiangchen Shen. Licensed under the [Apache License 2.0](LICENSE).
