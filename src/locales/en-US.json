@@ -273,7 +273,7 @@
     },
     "welcome": {
       "title": "Welcome to GETSSH",
-      "subtitle": "Select a session from the sidebar or create a new connection",
+      "subtitle": "Access your remote infrastructure, launch tools, or start a new connection instantly.",
       "quickConnect": "Quick Connect",
       "commandCenter": "COMMAND CENTER",
       "whereTo": "Where do you want to go?",
@@ -282,7 +282,19 @@
       "hostsCount": "{{count}} Hosts",
       "noSavedSessions": "No saved sessions. Add one in the sidebar.",
       "searchPlaceholder": "Filter sessions or type user@host to quick connect...",
-      "quickConnectHint": "Press Enter to quick connect to this host..."
+      "quickConnectHint": "Press Enter to quick connect to this host...",
+      "readyToConnect": "Ready to Connect",
+      "openCommandCenter": "Press <1>Alt+Space</1> or <3>Option+Space</3> to wake up the Command Center",
+      "greeting": {
+        "midnight": "It's late, get some rest.",
+        "morning": "Good morning, a new day begins!",
+        "forenoon": "Good morning, stay focused!",
+        "noon": "Good noon, remember to have lunch.",
+        "afternoon": "Good afternoon, keep up the good work!",
+        "evening": "Good evening, enjoy your time.",
+        "lateNight": "It's getting late, take care of your eyes."
+      },
+      "quickAccess": "Quick Access"
     },
     "sftp": {
       "title": "SFTP File Explorer",
@@ -362,6 +374,22 @@
       "processing": "Processing...",
       "decrypt": "Decrypt Profiles",
       "encrypt": "Encrypt & Save"
+    },
+    "commandCenter": {
+      "quickConnect": "Quick Connect to {{host}}",
+      "execute": "Execute",
+      "copyIP": "Copy IP",
+      "ipCopied": "IP Copied",
+      "editProfile": "Edit Profile",
+      "deleteProfile": "Delete Profile",
+      "clickToConfirm": "Click to Confirm",
+      "pluginParameters": "Plugin Parameters",
+      "searchPlaceholder": "Search actions, hosts, plugins...",
+      "navigate": "Navigate",
+      "select": "Select",
+      "escToClose": "ESC TO CLOSE",
+      "noParameters": "This plugin does not expose any configurable parameters.",
+      "saveReload": "Save & Reload"
     }
   }
 }

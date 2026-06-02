@@ -25,12 +25,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteSession,
   openSettingsTab,
   settingsActiveTab,
-  openCommandCenterTab,
   isSettingsOpen
 }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const updateAvailable = useAppStore(state => state.updateAvailable);
+  const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   
   const sessions = useSessionStore(state => state.sessions);
   const searchQuery = useSessionStore(state => state.searchQuery);
@@ -90,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className={`w-80 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-colors bg-transparent ${isDark ? 'border-white/10' : 'border-black/10'}`}>
+    <div className={`w-64 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-colors bg-transparent ${isDark ? 'border-neutral-900' : 'border-black/10'}`}>
       <div className="flex items-center gap-2 mb-6">
         <img src={logoSrc} alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
         <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
@@ -114,12 +114,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
         <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 px-2">{t('sidebar.savedSessions')}</div>
         {filteredSessions.map((session, idx) => (
-           <div key={idx} className={`w-full flex items-center justify-between gap-1 px-3 py-2 rounded-xl border transition-all duration-200 text-sm group ${
+           <div key={idx} className={`w-full flex items-center justify-between gap-1 px-3 py-2 rounded-none border-l-2 transition-all duration-200 ease-out text-sm group ${
              selectedSessionIndex === idx 
-               ? 'bg-primary/20 text-primary border-primary shadow-sm' 
+               ? 'text-neutral-100 border-primary bg-obsidian-surf' 
                : isDark 
-                 ? 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200' 
-                 : 'bg-white/40 hover:bg-white/80 border-slate-200/50 text-slate-700 shadow-sm'
+                 ? 'text-neutral-500 hover:text-neutral-100 hover:bg-obsidian-panel border-transparent' 
+                 : 'bg-white/40 hover:bg-white/80 border-transparent text-slate-700 shadow-sm'
            }`}>
              <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="flex-1 flex items-center justify-start gap-2.5 truncate text-left">
                 <OsBadge osType={session.osType} protocol={session.protocol} isActive={selectedSessionIndex === idx} />
@@ -139,16 +139,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         ))}
         
-        <button type="button" onClick={onAddSession} className="sidebar-add-btn flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-xl border border-transparent bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-white/5 dark:hover:bg-white/10 dark:text-slate-100 transition-all font-medium text-sm">
+        <button type="button" onClick={onAddSession} className={`sidebar-add-btn flex items-center justify-center gap-2 w-full py-3 mt-4 rounded-none border border-transparent transition-all font-medium text-sm ${isDark ? 'text-neutral-500 hover:text-neutral-100 hover:bg-obsidian-panel' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Plus className="w-4 h-4 shrink-0" />
           <span>{t('sidebar.newConnection')}</span>
         </button>
       </div>
 
       {/* Global Tools Slot */}
-      <div className="pt-4 mt-4 border-t flex justify-start gap-2 items-center z-10 flex-wrap border-black/10 dark:border-white/10">
+      <div className={`pt-4 mt-4 border-t flex justify-start gap-2 items-center z-10 flex-wrap ${isDark ? 'border-neutral-900' : 'border-black/10'}`}>
         {sidebarActions.map(action => (
-           <button key={action.id} onClick={action.onClick} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
+           <button key={action.id} onClick={action.onClick} className={`p-2 transition-all duration-200 ease-out ${isDark ? 'text-neutral-500 hover:text-neutral-100 hover:scale-105' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={action.label}>
               <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(action.icon) }} className="w-5 h-5 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full" />
            </button>
         ))}
@@ -157,25 +157,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             if (isConnected) togglePanel('sftp');
           }} 
           disabled={!isConnected}
-          className={`p-2 rounded-lg transition-colors ${
+          className={`p-2 transition-all duration-200 ease-out ${
             !isConnected 
               ? 'opacity-30 cursor-not-allowed' 
               : activePanelId === 'sftp' 
                 ? 'text-primary' 
-                : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'
+                : isDark ? 'text-neutral-500 hover:text-neutral-100 hover:scale-105' : 'hover:bg-black/5 text-black/50 hover:text-black'
           }`} 
           title={isConnected ? "SFTP Manager" : t('sftp.disabledHint', "SFTP 只能在连接到实例后启用")}
         >
            <HardDrive className="w-5 h-5" />
         </button>
-        <button onClick={openCommandCenterTab} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Command Center">
+        <button onClick={() => setIsCommandCenterOpen(true)} className={`p-2 transition-all duration-200 ease-out ${isDark ? 'text-neutral-500 hover:text-neutral-100 hover:scale-105' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Command Center">
            <Command className="w-5 h-5" />
         </button>
-        <button onClick={() => openSettingsTab('Appearance', true)} className={`relative p-2 rounded-lg transition-colors ${(isSettingsOpen && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
+        <button onClick={() => openSettingsTab('Appearance', true)} className={`relative p-2 transition-all duration-200 ease-out ${(isSettingsOpen && settingsActiveTab !== 'About') ? 'text-primary' : isDark ? 'text-neutral-500 hover:text-neutral-100 hover:scale-105' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title="Settings">
            <Settings className="w-5 h-5" />
            {updateAvailable && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#1e1e1e]" />}
         </button>
-        <button onClick={() => openSettingsTab('About', true)} className={`p-2 rounded-lg transition-colors ${(isSettingsOpen && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
+        <button onClick={() => openSettingsTab('About', true)} className={`p-2 transition-all duration-200 ease-out ${(isSettingsOpen && settingsActiveTab === 'About') ? 'text-primary' : isDark ? 'text-neutral-500 hover:text-neutral-100 hover:scale-105' : 'hover:bg-black/5 text-black/50 hover:text-black'}`} title={t('settings.about')}>
            <Info className="w-5 h-5" />
         </button>
       </div>

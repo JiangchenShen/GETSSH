@@ -312,12 +312,19 @@ interface MainContextAPI {
   };
 
   /**
-   * UI extension points — inject items into native context menus.
-   * See Section 8 for full details.
+   * UI Extension Points — Inject custom context menus, or register plugin settings schema.
+   * See Section 8.
    */
   ui: {
     registerTerminalContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, selectionText: string }) => void): void;
     registerSFTPContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, currentPath: string, selectedFiles: string[] }) => void): void;
+    
+    /**
+     * [MANDATORY] Register the plugin's configuration schema.
+     * All backend plugins MUST call this exactly once during activate().
+     * Your plugin must provide at least one configuration parameter. You CANNOT pass an empty array `[]`; doing so will cause the kernel to reject the plugin.
+     */
+    registerSettings(schema: PluginSettingsSchema[]): void;
   };
 }
 ```
@@ -510,7 +517,26 @@ A backend plugin missing either of the following **will not install**:
 }
 ```
 
-> **Note**: Backend plugins must **not** set `"type": "sandbox"`.
+> **Note**: Backend plugins should **NOT** set `"type": "sandbox"`.
+
+### Runtime Mandatory Contract: Settings Registration
+
+In addition to `deactivate`, when running the `activate` hook, the plugin **MUST** register its parameter schema to prove compatibility with GETSSH's settings distribution pipeline:
+
+```javascript
+module.exports = {
+  activate(ctx) {
+    // ✅ MANDATORY: You must provide at least one valid parameter!
+    ctx.ui.registerSettings([
+      { id: 'debugMode', type: 'boolean', label: 'Enable Debug', default: false }
+    ]);
+    // If not called or called with an empty array, GETSSH will intercept the plugin launch, throw an exception, and destroy it.
+  },
+  deactivate() {
+    // Actual cleanup logic goes here
+  }
+}
+```
 
 ---
 
@@ -711,7 +737,12 @@ module.exports = {
       fileStream?.write(line);
     });
 
-    ctx.showNotification('SSH Audit', `Logging connections to ${logPath}`);
+    // ⛔ MANDATORY: Declare the configuration parameters for this plugin
+    ctx.ui.registerSettings([
+      { id: 'logLevel', type: 'string', label: 'Log Level', default: 'info' }
+    ]);
+
+    ctx.showNotification('SSH Audit', `Audit logging started at ${logPath}`);
   },
 
   // ⛔ This hook is mandatory — the plugin cannot be installed without it
@@ -765,8 +796,8 @@ Inside GETSSH: **Settings → Plugins → Install Plugin**, then select your `.z
 
 ### Install error: `[Security] ... does not export a 'deactivate' lifecycle hook`
 
-**Cause**: GETSSH's static scan of your `main.js` could not find the `deactivate` keyword.  
-**Fix**: Ensure your `main.js` exports a `deactivate` function, even if it's a no-op: `module.exports.deactivate = () => {};`
+**Cause**: GETSSH could not find the `deactivate` keyword in your `main.js` during static scanning, or it determined that your `deactivate` hook is an empty function (e.g., `() => {}`) during runtime analysis.
+**Solution**: Ensure your `main.js` exports a `deactivate` function and that it contains actual resource cleanup logic (disconnecting sockets, clearing intervals, etc.). **Empty functions are strictly forbidden to pass the security check.**
 
 ### Install error: `Invalid Architecture: Missing package.json manifest.`
 

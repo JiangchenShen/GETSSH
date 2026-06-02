@@ -6,8 +6,14 @@
 /* ── Tailwind v4 @theme — GETSSH Design Tokens ──────────────────────────── */
 
 @theme {
-  /* Brand color: maps to the old `primary` custom color using CSS variable */
+  /* Brand color */
   --color-primary: rgb(var(--primary-color));
+  
+  /* Obsidian Core Palette */
+  --color-obsidian-bg: #09090b;      /* 极深底色 */
+  --color-obsidian-panel: #121214;   /* 面板色 */
+  --color-obsidian-surf: #18181b;    /* 悬浮/激活色 */
+  --color-obsidian-border: #27272a;  /* 克制的边框色 */
 
   /* Border-radius: all squarified to 0px to preserve our sharp "Obsidian" aesthetic,
      keeping `full` for circular avatars/badges */
@@ -57,19 +63,35 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background: transparent;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+/* Only show scrollbar on hover to keep it minimalist */
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-obsidian-border); /* neutral-800 equivalent */
+}
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46; /* neutral-700 */
 }
 
 /* ── Glassmorphism utility ───────────────────────────────────────────────── */
 
+@utility glass-effect {
+  backdrop-filter: blur(16px);
+  background-color: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+}
+
 .glass-panel {
-  @apply bg-white/5 border border-white/10 backdrop-blur-md shadow-xl;
+  @apply glass-effect shadow-xl;
+}
+
+/* ── Water Glass utility (Design Lab) ────────────────────────────────────── */
+
+@utility water-glass {
+  backdrop-filter: blur(24px) saturate(120%);
+  background: linear-gradient(to bottom, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 16px 40px rgba(0,0,0,0.5);
 }

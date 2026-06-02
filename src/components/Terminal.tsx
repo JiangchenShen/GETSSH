@@ -454,7 +454,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
       {visualBell && <div className="absolute inset-0 bg-white/20 pointer-events-none z-50 transition-opacity duration-200" />}
-      <div className="flex-1 w-full h-full text-white" ref={terminalRef} style={{ color: 'white', padding: `${config.terminalPadding ?? 8}px` }}></div>
+      <div className="flex-1 w-full h-full text-white" ref={terminalRef} style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}></div>
       {isDisconnected && (
         <div
           ref={overlayRef}

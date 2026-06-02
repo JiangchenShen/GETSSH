@@ -50,7 +50,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   keepalive: 15,
   defaultPort: 22,
   confirmQuit: false,
-  globalHotkey: 'Option+Space',
+  globalHotkey: 'Control+`',
   proxyType: 'none',
   proxyHost: '127.0.0.1',
   proxyPort: 1080,
@@ -68,6 +68,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   sftpDownloadPath: '',
 };
 
+export interface ToastMsg {
+  id: string;
+  message: string;
+  type: 'success' | 'info' | 'warning' | 'error';
+}
+
 interface AppStore {
   appConfig: AppConfig;
   isDark: boolean;
@@ -77,6 +83,8 @@ interface AppStore {
   securityPrompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null;
   isMac: boolean;
   isFullScreen: boolean;
+  isCommandCenterOpen: boolean;
+  toasts: ToastMsg[];
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -85,6 +93,9 @@ interface AppStore {
   setIsAppBlurred: (blurred: boolean) => void;
   setUpdateAvailable: (info: { version: string; url: string } | null) => void;
   setIsFullScreen: (full: boolean) => void;
+  setIsCommandCenterOpen: (open: boolean) => void;
+  addToast: (message: string, type?: ToastMsg['type']) => void;
+  removeToast: (id: string) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   isPolluted: boolean;
@@ -105,6 +116,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   securityPrompt: null,
   isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
   isFullScreen: false,
+  isCommandCenterOpen: false,
+  toasts: [],
   isPolluted: false,
   watchdogStatus: null,
 
@@ -117,6 +130,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setIsAppBlurred: (blurred) => set({ isAppBlurred: blurred }),
   setUpdateAvailable: (info) => set({ updateAvailable: info }),
   setIsFullScreen: (full) => set({ isFullScreen: full }),
+  setIsCommandCenterOpen: (open) => set({ isCommandCenterOpen: open }),
+  
+  addToast: (message, type = 'info') => {
+    const id = crypto.randomUUID();
+    set(state => ({ toasts: [...state.toasts, { id, message, type }] }));
+    setTimeout(() => {
+      set(state => ({ toasts: state.toasts.filter(t => t.id !== id) }));
+    }, 3000);
+  },
+  
+  removeToast: (id) => set(state => ({ toasts: state.toasts.filter(t => t.id !== id) })),
+
   setIsPolluted: (polluted) => set({ isPolluted: polluted }),
   setSecurityPrompt: (prompt) => set({ securityPrompt: prompt }),
   resolveSecurityPrompt: (result) => {
@@ -151,6 +176,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (storedConf) {
         const parsed = JSON.parse(storedConf);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          // Migration: Option+Space is now strictly reserved for Command Center
+          if (parsed.globalHotkey === 'Option+Space') {
+            parsed.globalHotkey = 'Control+`';
+          }
           set({ appConfig: { ...DEFAULT_CONFIG, ...parsed } });
           
           // Load secure fields

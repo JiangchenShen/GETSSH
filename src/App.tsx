@@ -12,12 +12,15 @@ import { TabBar } from './components/TabBar';
 import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
+import { AnimatePresence } from 'framer-motion';
+import { CommandCenter } from './components/CommandCenter';
 import { Sidebar } from './components/Sidebar';
 import { CryptoModal } from './components/CryptoModal';
 import { HostKeyVerificationModal } from './components/HostKeyVerificationModal';
 import { ConnectForm } from './components/ConnectForm';
 import { SettingsView } from './components/SettingsView';
 import { SecurityOverlay } from './components/SecurityOverlay';
+import { ToastProvider } from './components/ToastProvider';
 import { ShieldAlert } from 'lucide-react';
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
@@ -33,6 +36,7 @@ function App() {
   const setTabs = useSessionStore(state => state.setTabs);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const activePaneId = useSessionStore(state => state.activePaneId);
   const setActivePaneId = useSessionStore(state => state.setActivePaneId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
@@ -56,23 +60,12 @@ function App() {
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
   const isPolluted = useAppStore(state => state.isPolluted);
+  const isCommandCenterOpen = useAppStore(state => state.isCommandCenterOpen);
+  const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   
   // Settings modal state
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  
-  const openCommandCenterTab = () => {
-    const newTabId = `cmd-${Date.now()}`;
-    setTabs([...tabs, { 
-      id: newTabId, 
-      title: 'Command Center', 
-      config: null,
-      paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'welcome', sessionId: null, config: null } 
-    }]);
-    setActiveTabId(newTabId);
-    setSelectedSessionIndex(null);
-  };
-
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance', toggle: boolean = false) => {
      if (isSettingsOpen && toggle) {
          setIsSettingsOpen(false);
@@ -215,6 +208,19 @@ function App() {
     };
   }, []); // Run ONCE on mount
 
+  // Global Shortcut for Command Center
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Toggle Command Center on Alt+Space (Option+Space on Mac)
+      if (e.altKey && e.code === 'Space') {
+        e.preventDefault();
+        setIsCommandCenterOpen(!isCommandCenterOpen);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCommandCenterOpen, setIsCommandCenterOpen]);
+
   // Watch i18n & Theme Color
   useEffect(() => {
     i18n.changeLanguage(appConfig.language);
@@ -305,6 +311,19 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const handleCreateSession = (e: CustomEvent) => {
+      const newSession = { host: e.detail, username: '', password: '', privateKeyPath: '', autoStart: false, protocol: 'auto' };
+      const updated = [...sessions, newSession as any];
+      syncProfiles(updated);
+      setSelectedSessionIndex(updated.length - 1);
+      setActiveTabId(null);
+    };
+    window.addEventListener('app:create-session', handleCreateSession as EventListener);
+    return () => window.removeEventListener('app:create-session', handleCreateSession as EventListener);
+  }, [sessions, syncProfiles, setSelectedSessionIndex, setActiveTabId]);
+
+
   const handleSetup = async (pwd: string) => {
      setMasterPassword(pwd);
      await window.electronAPI.saveProfiles({ masterPassword: pwd, payload: sessions });
@@ -348,16 +367,68 @@ function App() {
       const tabTitle = `${config.username}@${config.host}`;
       const rootPaneId = res.sessionId;
       const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
-      setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
-      setActiveTabId(res.sessionId);
-      setActivePaneId(rootPaneId);
-      setSelectedSessionIndex(null);
+
+      // Determine if we should replace the currently focused welcome pane
+      const currentTab = tabs.find(t => t.id === activeTabId);
+      let targetPaneId: string | null = null;
+      if (currentTab && currentTab.paneTree && activePaneId) {
+        const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
+        if (activeLeaf && activeLeaf.paneType === 'welcome') {
+          targetPaneId = activeLeaf.paneId;
+        }
+      }
+
+      if (targetPaneId) {
+        // Replace welcome pane with terminal pane
+        setTabs(tabs.map(t => {
+          if (t.id !== activeTabId || !t.paneTree) return t;
+          return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
+        }));
+      } else {
+        // Spawn new tab
+        setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
+        setActiveTabId(res.sessionId);
+        setActivePaneId(rootPaneId);
+        setSelectedSessionIndex(null);
+      }
     } else {
       if (res.error === 'Host denied (verification failed)') {
         setError(t('connect.hostDenied'));
       } else {
         setError(res.error || 'Connection failed');
       }
+    }
+  };
+
+  const handleOpenPlugin = (plugin: any) => {
+    const entryFile = plugin.getssh?.entry || plugin.main || 'index.html';
+    const pluginUrl = `getssh-plugin://${plugin.name}/${entryFile}`;
+    const tabTitle = plugin.getssh?.name || plugin.displayName || plugin.name;
+
+    const currentTab = tabs.find(t => t.id === activeTabId);
+    let targetPaneId: string | null = null;
+    
+    if (currentTab && currentTab.paneTree && activePaneId) {
+      const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
+      if (activeLeaf && activeLeaf.paneType === 'welcome') {
+        targetPaneId = activeLeaf.paneId;
+      }
+    }
+
+    if (targetPaneId) {
+      setTabs(tabs.map(t => {
+        if (t.id !== activeTabId || !t.paneTree) return t;
+        return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId, { paneType: 'plugin', sessionId: null, config: { pluginUrl } }) };
+      }));
+    } else {
+      const newTabId = `cmd-${Date.now()}`;
+      setTabs([...tabs, {
+        id: newTabId,
+        title: tabTitle,
+        config: { pluginUrl },
+        paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'plugin', sessionId: null, config: { pluginUrl } }
+      }]);
+      setActiveTabId(newTabId);
     }
   };
 
@@ -426,40 +497,6 @@ function App() {
     setActivePaneId(newPaneId);
   };
 
-  /** Connect a session within an existing Welcome pane */
-  const connectInPane = async (paneId: string, targetSession: any) => {
-    setConnecting(true);
-    setError(null);
-    const config = { 
-        host: targetSession.host, 
-        username: targetSession.username, 
-        password: targetSession.password, 
-        privateKeyPath: targetSession.privateKeyPath,
-        port: targetSession.port || appConfig.defaultPort || 22,
-        keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
-        protocol: targetSession.protocol,
-        proxyType: appConfig.proxyType,
-        proxyHost: appConfig.proxyHost,
-        proxyPort: appConfig.proxyPort,
-        initScript: appConfig.initScript
-    };
-    
-    const res = await window.electronAPI.sshConnect(config);
-    setConnecting(false);
-
-    if (res.success && res.sessionId) {
-      setTabs(tabs.map(t => {
-        if (t.id !== activeTabId || !t.paneTree) return t;
-        return { ...t, paneTree: updateLeafInTree(t.paneTree, paneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
-      }));
-    } else {
-      if (res.error === 'Host denied (verification failed)') {
-        window.alert(`${t('connect.hostDenied')}`);
-      } else {
-        window.alert(`Connection failed: ${res.error}`);
-      }
-    }
-  };
 
   /** Close a pane; if it's the last pane, close the entire tab */
   const closePaneInTab = (paneId: string) => {
@@ -513,11 +550,11 @@ function App() {
     containerClasses = 'bg-slate-50 text-slate-900 border border-black/5 shadow-sm';
   } else if (!appConfig.enableGlassmorphism) {
     // Dark Mode (Glass off): Solid, no blur
-    containerClasses = 'bg-[#1A1A1A] text-gray-100 border border-white/5 shadow-xl';
+    containerClasses = 'bg-obsidian-bg text-neutral-200 border-none';
   } else {
     // Dark Mode (Glass on): Semi-transparent, blur
-    appBgStyle = { backgroundColor: `rgba(0, 0, 0, ${appConfig.bgOpacity})` };
-    containerClasses = 'backdrop-blur-2xl text-gray-100 border border-white/10 shadow-xl';
+    appBgStyle = { backgroundColor: `rgba(9, 9, 11, ${appConfig.bgOpacity ?? 0.8})` };
+    containerClasses = 'glass-effect text-neutral-200 border-none';
   }
 
   return (
@@ -585,7 +622,6 @@ function App() {
         onDeleteSession={deleteSession}
         openSettingsTab={openSettingsTab}
         settingsActiveTab={settingsActiveTab}
-        openCommandCenterTab={openCommandCenterTab}
         isSettingsOpen={isSettingsOpen}
       />
 
@@ -644,7 +680,6 @@ function App() {
                       isTabActive={activeTabId === tab.id}
                       onSplit={splitPane}
                       onClosePane={closePaneInTab}
-                      onConnectInPane={connectInPane}
                     />
                   ) : (
                     /* Legacy fallback for tabs without paneTree */
@@ -740,6 +775,23 @@ function App() {
         </div>
       )}
       <HostKeyVerificationModal />
+
+      {/* Global Command Center Overlay */}
+      <AnimatePresence>
+        {isCommandCenterOpen && (
+          <CommandCenter
+            isOpen={isCommandCenterOpen}
+            onClose={() => setIsCommandCenterOpen(false)}
+            onConnect={handleConnect}
+            onOpenPlugin={handleOpenPlugin}
+            onDeleteSession={(s) => deleteSession({ stopPropagation: () => {} } as any, s)}
+            isDark={isDark}
+            appConfig={appConfig}
+            sessions={sessions}
+          />
+        )}
+      </AnimatePresence>
+      <ToastProvider />
     </div>
   );
 }

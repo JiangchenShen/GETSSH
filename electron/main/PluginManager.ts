@@ -160,6 +160,10 @@ export class PluginManager {
         this.syncUIExtensions();
       },
       registerSettings: (schema: PluginSettingsSchema[]) => {
+        if (!schema || schema.length === 0) {
+          throw new Error(`[Security] Plugins must register at least one valid parameter. Empty schemas are not allowed. Plugin: ${manifest.name}`);
+        }
+        (context as any).__settingsRegistered = true;
         this.settingsSchemas.set(manifest.name, schema);
         this.syncUIExtensions();
       }
@@ -353,13 +357,20 @@ export class PluginManager {
              tempRpcHandlers.set(method, handler);
           };
 
+          (context as any).__settingsRegistered = false;
           await activateFn(context);
+          
+          if (!(context as any).__settingsRegistered) {
+             throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
+          }
           
           this.runningPlugins.set(manifest.name, {
             deactivate: typeof deactivateFn === 'function' ? deactivateFn : () => {},
             listeners: [],
             rpcHandlers: tempRpcHandlers
           });
+        } else {
+           throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
         }
       }
     } catch (err) {
@@ -433,13 +444,24 @@ export class PluginManager {
                    throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
                 }
                 
-                if (activateFn) {
+                const deactSource = deactivateFn.toString().replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
+                if (deactSource === '()=>{}' || deactSource === 'function(){}' || deactSource === 'deactivate(){}') {
+                   throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
+                }
+                
+                if (typeof activateFn === 'function') {
                   const ctx = this.createMainContext(manifest);
-                  activateFn(ctx);
+                  (ctx as any).__settingsRegistered = false;
+                  await activateFn(ctx);
+                  
+                  if (!(ctx as any).__settingsRegistered) {
+                     throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
+                  }
+                  
                   const pending = (ctx as any).__pendingRpcHandlers as Map<string, any> | undefined;
                   this.runningPlugins.set(manifest.name, { deactivate: deactivateFn, rpcHandlers: pending });
                 } else {
-                  this.runningPlugins.set(manifest.name, { deactivate: deactivateFn });
+                  throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
                 }
                 return;
               }
@@ -500,14 +522,25 @@ export class PluginManager {
               if (typeof deactivateFn !== 'function') {
                  throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
               }
+              
+              const deactSource = deactivateFn.toString().replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
+              if (deactSource === '()=>{}' || deactSource === 'function(){}' || deactSource === 'deactivate(){}') {
+                 throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
+              }
 
               if (typeof activateFn === 'function') {
                 const ctx = this.createMainContext(manifest);
-                activateFn(ctx);
+                (ctx as any).__settingsRegistered = false;
+                await activateFn(ctx);
+                
+                if (!(ctx as any).__settingsRegistered) {
+                   throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
+                }
+                
                 const pending = (ctx as any).__pendingRpcHandlers as Map<string, any> | undefined;
                 this.runningPlugins.set(manifest.name, { deactivate: deactivateFn, rpcHandlers: pending });
               } else {
-                this.runningPlugins.set(manifest.name, { deactivate: deactivateFn });
+                throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
               }
             } catch (loadErr: unknown) {
               const isModuleNotFound = loadErr && typeof loadErr === 'object' && (loadErr as NodeJS.ErrnoException).code === 'ENOENT';
@@ -711,11 +744,15 @@ export class PluginManager {
           const mainEntryPath = path.join(sourceDir, manifest.main || 'index.js');
           try {
             const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
+            const strippedCode = pluginCode.replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
             if (!pluginCode.includes('deactivate')) {
               throw new Error(`[Security] Plugin '${manifest.name}' installation rejected: ` +
                 `The main script '${manifest.main || 'index.js'}' does not export a 'deactivate' lifecycle hook. ` +
                 `All backend plugins must clean up their resources for system stability.`
               );
+            }
+            if (strippedCode.includes('deactivate:()=>{}') || strippedCode.includes('deactivate:function(){}') || strippedCode.includes('deactivate(){}')) {
+              throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
             }
           } catch (e: any) {
             // If the error was generated by us, rethrow it

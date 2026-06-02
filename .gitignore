@@ -37,4 +37,7 @@ Cargo.lock
 
 # Security Reports
 VULNERABILITIES*.md
-VULNERABILITIES*.md
+
+# Design Lab
+src/DesignLab.tsx
+design-lab.html

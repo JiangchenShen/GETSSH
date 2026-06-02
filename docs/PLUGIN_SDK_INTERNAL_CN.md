@@ -311,12 +311,19 @@ interface MainContextAPI {
   };
 
   /**
-   * UI 扩展点 — 向原生右键菜单注入自定义菜单项。
+   * UI 扩展点 — 向原生右键菜单注入自定义菜单项，或注册插件配置参数。
    * 详见第 8 节。
    */
   ui: {
     registerTerminalContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, selectionText: string }) => void): void;
     registerSFTPContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, currentPath: string, selectedFiles: string[] }) => void): void;
+    
+    /**
+     * 【强制要求】注册插件的参数配置 Schema。
+     * 所有后端插件在 activate() 时必须且只能调用一次该方法。
+     * 你的插件必须提供至少一个配置参数。严禁传递空数组 `[]`，否则将被内核当场拦截并拒绝加载。
+     */
+    registerSettings(schema: PluginSettingsSchema[]): void;
   };
 }
 ```
@@ -508,6 +515,25 @@ SecureCenter.handleAction('restart-safe')
 ```
 
 > **注意**：后端插件 **不要** 填写 `"type": "sandbox"`。
+
+### 运行时强制契约：参数注册
+
+除了 `deactivate`，在运行 `activate` 钩子时，插件**必须**向系统注册其参数架构，以表明自身完全兼容 GETSSH 的参数下发管道：
+
+```javascript
+module.exports = {
+  activate(ctx) {
+    // ✅ 必须：提供至少一个真实的参数配置！
+    ctx.ui.registerSettings([
+      { id: 'debugMode', type: 'boolean', label: 'Enable Debug', default: false }
+    ]);
+    // 如果没有调用或者传递了空数组，GETSSH 将拦截插件的启动，抛出异常并直接销毁它。
+  },
+  deactivate() {
+    // 实际的资源释放逻辑
+  }
+}
+```
 
 ---
 
@@ -725,6 +751,11 @@ module.exports = {
       fileStream?.write(line);
     });
 
+    // ⛔ 这个钩子是强制必须的：声明本插件的配置参数
+    ctx.ui.registerSettings([
+      { id: 'logLevel', type: 'string', label: '日志等级', default: 'info' }
+    ]);
+
     ctx.showNotification('SSH 审计', `审计日志已开始记录至 ${logPath}`);
   },
 
@@ -779,8 +810,8 @@ my-plugin.zip
 
 ### 安装时报错：`[Security] ... does not export a 'deactivate' lifecycle hook`
 
-**原因**：GETSSH 在对您的 `main.js` 进行静态扫描时，没有找到 `deactivate` 关键字。
-**解决**：确保您的 `main.js` 中有 `deactivate` 函数的导出，哪怕是一个空实现：`module.exports.deactivate = () => {};`。
+**原因**：GETSSH 在对您的 `main.js` 进行静态扫描或运行时源码分析时，没有找到 `deactivate` 关键字，或者发现您的 `deactivate` 是一个没有实际内容的空壳函数（例如 `() => {}`）。
+**解决**：确保您的 `main.js` 中导出了 `deactivate` 并且其中包含了实际的资源清理逻辑（断开网络、清理定时器等）。**严禁使用空函数糊弄审查**。
 
 ### 安装时报错：`Invalid Architecture: Missing package.json manifest.`
 

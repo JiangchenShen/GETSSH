@@ -275,7 +275,7 @@
     },
     "welcome": {
       "title": "欢迎使用 GETSSH",
-      "subtitle": "请从左侧选择一个会话，或新建连接",
+      "subtitle": "快速访问您的远程服务器节点、拉起内置扩展或发起新的 SSH 连接。",
       "quickConnect": "快速连接",
       "commandCenter": "COMMAND CENTER",
       "whereTo": "接下来，您想做点什么？",
@@ -284,7 +284,19 @@
       "hostsCount": "{{count}} 个主机",
       "noSavedSessions": "暂无保存的会话，请在侧边栏添加。",
       "searchPlaceholder": "输入关键字过滤主机，或直接输入 user@host 回车发起闪电直连...",
-      "quickConnectHint": "敲击回车，立即发起闪电直连..."
+      "quickConnectHint": "敲击回车，立即发起闪电直连...",
+      "readyToConnect": "准备就绪",
+      "openCommandCenter": "按下 <1>Alt+Space</1> 或 <3>Option+Space</3> 唤醒智能指令中心",
+      "greeting": {
+        "midnight": "夜已深，早点休息。",
+        "morning": "早上好，新的一天开始啦！",
+        "forenoon": "上午好，专注工作！",
+        "noon": "中午好，记得按时吃饭。",
+        "afternoon": "下午好，继续努力！",
+        "evening": "晚上好，享受悠闲时光。",
+        "lateNight": "夜深了，注意护眼。"
+      },
+      "quickAccess": "快速访问"
     },
     "sftp": {
       "title": "SFTP 文件管理器",
@@ -364,6 +376,22 @@
       "processing": "处理中...",
       "decrypt": "解密本地凭证",
       "encrypt": "加密并保存"
+    },
+    "commandCenter": {
+      "quickConnect": "快速连接到 {{host}}",
+      "execute": "执行 (Execute)",
+      "copyIP": "复制 IP",
+      "ipCopied": "IP 已复制",
+      "editProfile": "编辑连接",
+      "deleteProfile": "删除连接",
+      "clickToConfirm": "点击确认删除",
+      "pluginParameters": "插件参数设置",
+      "searchPlaceholder": "搜索快捷指令、主机、插件...",
+      "navigate": "导航",
+      "select": "选择",
+      "escToClose": "按 ESC 关闭",
+      "noParameters": "该插件没有暴露出任何可供配置的参数。",
+      "saveReload": "保存并热重载"
     }
   }
 }

@@ -11,7 +11,6 @@ interface TerminalPaneProps {
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
-  onConnectInPane: (paneId: string, session: any) => void;
 }
 
 
@@ -25,14 +24,16 @@ const Divider: React.FC<{
 }> = ({ direction, isDark, onDragStart }) => (
   <div
     onMouseDown={onDragStart}
-    className={`shrink-0 transition-colors hover:bg-primary/50 ${
-      isDark ? 'bg-white/10' : 'bg-black/10'
-    } ${
-      direction === 'hsplit'
-        ? 'w-[4px] cursor-col-resize h-full'
-        : 'h-[4px] cursor-row-resize w-full'
+    className={`group shrink-0 relative z-10 ${
+      direction === 'hsplit' ? 'w-[1px] cursor-col-resize h-full' : 'h-[1px] cursor-row-resize w-full'
     }`}
-  />
+  >
+    <div className={`absolute transition-all duration-200 ease-out ${
+      direction === 'hsplit' 
+        ? 'top-0 bottom-0 left-1/2 -translate-x-1/2 w-[1px] group-hover:w-[4px]' 
+        : 'left-0 right-0 top-1/2 -translate-y-1/2 h-[1px] group-hover:h-[4px]'
+    } ${isDark ? 'bg-neutral-900 group-hover:bg-primary/80' : 'bg-black/10 group-hover:bg-primary/50'}`} />
+  </div>
 );
 
 // ── Split Pane (recursive) ────────────────────────────────────────────────
@@ -45,8 +46,7 @@ const SplitPaneNode: React.FC<{
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
-  onConnectInPane: (paneId: string, session: any) => void;
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane, onConnectInPane }) => {
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane }) => {
   const updatePaneSizes = useSessionStore(s => s.updatePaneSizes);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +97,6 @@ const SplitPaneNode: React.FC<{
           isTabActive={isTabActive}
           onSplit={onSplit}
           onClosePane={onClosePane}
-          onConnectInPane={onConnectInPane}
         />
       </div>
 
@@ -115,7 +114,6 @@ const SplitPaneNode: React.FC<{
           isTabActive={isTabActive}
           onSplit={onSplit}
           onClosePane={onClosePane}
-          onConnectInPane={onConnectInPane}
         />
       </div>
     </div>
@@ -138,7 +136,6 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
         isTabActive={props.isTabActive}
         onSplit={props.onSplit}
         onClosePane={props.onClosePane}
-        onConnectInPane={props.onConnectInPane}
       />
     );
   }
@@ -152,7 +149,6 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
       isTabActive={props.isTabActive}
       onSplit={props.onSplit}
       onClosePane={props.onClosePane}
-      onConnectInPane={props.onConnectInPane}
     />
   );
 };

@@ -17,8 +17,8 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
 
   return (
     <div
-      className={`flex items-center px-2 py-1.5 gap-1 border-b shrink-0 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/30'}`}
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
+      className={`flex items-center pt-2 px-0 gap-0 border-b shrink-0 ${isDark ? 'border-neutral-900 bg-obsidian-bg' : 'border-black/5 bg-slate-100'}`}
+      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
     >
       {sshTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
@@ -26,9 +26,10 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
-            className={`group flex items-center justify-between gap-3 px-3 py-1.5 rounded-md border cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
-              ? (isDark ? 'bg-black/60 border-white/10 text-white shadow-sm' : 'bg-white border-black/10 text-black shadow-sm relative z-10')
-              : (isDark ? 'bg-transparent border-transparent text-white/50 hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
+            className={`group flex items-center justify-between gap-3 px-4 py-1.5 border-r cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
+              ? (isDark ? 'bg-obsidian-panel border-neutral-900 text-neutral-100' : 'bg-white border-black/10 text-black relative z-10')
+              : (isDark ? 'bg-obsidian-bg border-neutral-900 text-neutral-500 hover:text-neutral-300' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
             }`}
           >
             <span className="truncate">{tab.title}</span>

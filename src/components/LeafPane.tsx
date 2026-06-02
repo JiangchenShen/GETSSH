@@ -1,10 +1,10 @@
-import { CommandCenter } from './CommandCenter';
 import React, { useRef, useEffect } from 'react';
 import { Terminal as TerminalComponent } from './Terminal';
 import { PaneLeaf, PaneNode, useSessionStore, patchLeafDisconnected, isSSHConfig } from '../store/sessionStore';
-import { Columns, Rows, X } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { Columns, Rows, X, TerminalSquare } from 'lucide-react';
+import { useTranslation, Trans } from 'react-i18next';
 import { PluginPane } from './PluginPane';
+import { EmptyState } from './EmptyState';
 
 export const LeafPane: React.FC<{
   node: PaneLeaf;
@@ -14,8 +14,7 @@ export const LeafPane: React.FC<{
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
   onClosePane: (paneId: string) => void;
-  onConnectInPane: (paneId: string, session: any) => void;
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane,  onConnectInPane
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane
 }) => {
   const { t } = useTranslation();
   const activePaneId = useSessionStore(state => state.activePaneId);
@@ -118,22 +117,21 @@ export const LeafPane: React.FC<{
       )}
 
       {node.paneType === 'welcome' && (
-        <CommandCenter 
-          onConnect={(s) => onConnectInPane(node.paneId, s)} 
-          onOpenPlugin={(plugin) => {
-             useSessionStore.setState(state => ({
-                tabs: state.tabs.map(t => {
-                  if (t.id !== tabId || !t.paneTree) return t;
-                  const entryFile = (plugin as any).getssh?.entry || plugin.main || 'index.html';
-                  const pluginUrl = `getssh-plugin://${plugin.name}/${entryFile}`;
-                  return {
-                    ...t,
-                    paneTree: patchLeafToPlugin(t.paneTree, node.paneId, pluginUrl),
-                  };
-                }),
-             }));
-          }}
-        />
+        <div className="w-full h-full flex items-center justify-center bg-transparent">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+              <TerminalSquare className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('welcome.readyToConnect', 'Ready to Connect')}</h3>
+              <p className={`text-sm mt-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                <Trans i18nKey="welcome.openCommandCenter">
+                  Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Alt+Space</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Option+Space</kbd> to open Command Center
+                </Trans>
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {node.paneType === 'plugin' && (
@@ -156,17 +154,3 @@ function patchLeafSessionId(node: PaneNode, paneId: string, newSessionId: string
   };
 }
 
-function patchLeafToPlugin(node: PaneNode, paneId: string, pluginUrl: string): PaneNode {
-  if (node.type === 'leaf') {
-    return node.paneId === paneId
-      ? { ...node, paneType: 'plugin', config: { pluginUrl: pluginUrl || '' } }
-      : node;
-  }
-  return {
-    ...node,
-    children: [
-      patchLeafToPlugin(node.children[0], paneId, pluginUrl),
-      patchLeafToPlugin(node.children[1], paneId, pluginUrl),
-    ] as [PaneNode, PaneNode],
-  };
-}
