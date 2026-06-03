@@ -69,9 +69,18 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
             try {
               return JSON.parse(safeStorage.decryptString(data));
             } catch (err) {
+              // Decryption failed (e.g. Dev vs Packaged bundle ID mismatch).
+              // Backup the file before returning [] so we don't permanently lose user data if they save!
+              try {
+                fs.renameSync(PROFILES_PLAIN_PATH, PROFILES_PLAIN_PATH + '.bak');
+                console.warn('safeStorage decryption failed. Backed up old profiles to profiles.json.bak');
+              } catch (e) {}
               return [];
             }
           }
+          try {
+            fs.renameSync(PROFILES_PLAIN_PATH, PROFILES_PLAIN_PATH + '.bak');
+          } catch (e) {}
           return [];
         }
       } catch (e: unknown) {
