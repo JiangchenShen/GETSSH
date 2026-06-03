@@ -7,3 +7,5 @@ allowBuilds:
   ssh2: true
 minimumReleaseAgeExclude:
   - lucide-react@1.17.0
+packages:
+  - '.'
