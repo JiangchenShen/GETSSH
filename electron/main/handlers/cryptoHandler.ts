@@ -4,18 +4,20 @@ import crypto from 'node:crypto';
 import { join } from 'node:path';
 
 let vault: any = null;
-try {
-  const addonPath = join(__dirname, '../../rust-core/getssh-vault');
-  if (fs.existsSync(addonPath)) {
-     vault = require(addonPath);
-  } else {
-     console.warn('Vault native module not found at', addonPath);
-  }
-} catch (e) {
-  console.error("Failed to load getssh-vault native module:", e);
+
+export function setVaultForTest(mockVault: any) {
+  vault = mockVault;
 }
 
 export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
+  if (!vault) {
+    try {
+      const addonPath = join(app.getAppPath(), 'rust-core/getssh-vault');
+      vault = require(addonPath);
+    } catch (e) {
+      console.error("Failed to load getssh-vault native module:", e);
+    }
+  }
   const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
   const PROFILES_PLAIN_PATH = join(app.getPath('userData'), 'profiles.json');
   const PROFILES_KEY_PATH = join(app.getPath('userData'), 'profiles.key');

@@ -1,6 +1,8 @@
 {
   "name": "getssh",
-  "version": "2.0.0-R7K4S",
+  "private": true,
+  "version": "2.0.1",
+  "type": "module",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
   "author": "Shen Jiangchen <shenjiangchen@example.com>",
@@ -10,8 +12,8 @@
     "build:watchdog": "cd rust-core/watchdog && cargo build --release",
     "build:plugin": "node scripts/package-plugin.js",
     "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "electron-updater": "^6.8.3",
@@ -21,6 +23,7 @@
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "4.3.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

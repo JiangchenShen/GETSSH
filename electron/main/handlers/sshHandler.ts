@@ -203,10 +203,10 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
        }
     }
 
-    // ── PROTOCOL DISPATCH ────────────────────────────────────────────────
-    const protocol: 'ssh' | 'local' | 'telnet' = config.protocol || 'ssh';
-    const sessionId = connectionManager.generateSessionId();
-    sessionProtocols.set(sessionId, protocol);
+    try {
+      const protocol: 'ssh' | 'local' | 'telnet' = config.protocol || 'ssh';
+      const sessionId = connectionManager.generateSessionId();
+      sessionProtocols.set(sessionId, protocol);
 
     if (protocol === 'local') {
       const result = await spawnLocalTerminal(config, sessionId, getWindow);
@@ -473,6 +473,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
       }
       })();
     });
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
   });
 
   ipcMain.on('ssh-write', (event, { sessionId, data }) => {

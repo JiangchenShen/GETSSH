@@ -17,12 +17,8 @@ function isMusl() {
   // For Node 10
   if (!process.report || typeof process.report.getReport !== 'function') {
     try {
-      const fs = require('fs')
-      const path = require('path')
-      const envPath = process.env.PATH || ''
-      const envPaths = envPath.split(path.delimiter)
-      const lddPath = envPaths.map(p => path.join(p, 'ldd')).find(p => fs.existsSync(p))
-      return lddPath ? fs.readFileSync(lddPath, 'utf8').includes('musl') : true
+      const lddPath = require('child_process').execSync('which ldd').toString().trim()
+      return readFileSync(lddPath, 'utf8').includes('musl')
     } catch (e) {
       return true
     }

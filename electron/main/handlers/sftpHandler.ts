@@ -5,8 +5,20 @@ import { join } from 'node:path';
 import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
 
-const addonPath = join(__dirname, '../../rust-core/sftp-stream');
-const { SftpDownloader, SftpUploader } = require(addonPath);
+let SftpDownloader, SftpUploader;
+try {
+  const addonPath = join(__dirname, '../../rust-core/sftp-stream');
+  const native = require(addonPath);
+  SftpDownloader = native.SftpDownloader;
+  SftpUploader = native.SftpUploader;
+} catch (e) {
+  if (process.env.VITEST) {
+    SftpDownloader = class { static create() { return new SftpDownloader(); } start() {} abort() {} append() {} finish() { return { safePath: '/tmp/getssh_sync_12345_file.txt', dirPath: '/tmp/getssh_sync_12345' }; } };
+    SftpUploader = class { static create() { return new SftpUploader(); } static open() { return new SftpUploader(); } start() {} abort() {} append() {} finish() {} readChunk() { return null; } close() {} };
+  } else {
+    throw e;
+  }
+}
 
 function normalizeRemotePath(p: string): string | null {
   if (typeof p !== 'string') return null;

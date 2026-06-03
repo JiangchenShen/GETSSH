@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command, HelpCircle } from 'lucide-react';
+import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command, HelpCircle, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store/appStore';
@@ -68,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const renderIcon = () => {
       if (protocol === 'local') return <Terminal className={iconCls} />;
-      if (!osType || osType === 'generic') return <HelpCircle className={iconCls} />;
+      if (!osType || osType === 'generic') return <Server className={iconCls} />;
       if (osType === 'macos')   return <Apple  className={iconCls} />;
       if (osType === 'windows') return <Monitor className={iconCls} />;
       if (osType === 'ubuntu')  return <span className={`${iconCls} flex items-center justify-center`} aria-label="Ubuntu"><svg viewBox="0 0 24 24" fill="#E95420" className="w-full h-full"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="white"/><circle cx="12" cy="4" r="2" fill="white"/><circle cx="4.5" cy="16" r="2" fill="white"/><circle cx="19.5" cy="16" r="2" fill="white"/></svg></span>;
