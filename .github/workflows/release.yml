@@ -83,7 +83,7 @@ jobs:
             echo "Building $module for ${{ matrix.rust_target }}..."
             cd rust-core/$module
             pnpm install
-            npx --package=@napi-rs/cli napi build --release --target ${{ matrix.rust_target }}
+            npx --package=@napi-rs/cli napi build --platform --release --target ${{ matrix.rust_target }}
             cd ../..
           done
         shell: bash
