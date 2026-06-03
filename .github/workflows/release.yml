@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build ${{ matrix.os }} - ${{ matrix.arch }}
@@ -93,11 +96,9 @@ jobs:
         shell: bash
 
       - name: Build and Package Electron App
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pnpm exec vite build
-          pnpm exec electron-builder ${{ matrix.eb_target }}
+          pnpm exec electron-builder -c.publish=null ${{ matrix.eb_target }}
         shell: bash
 
       - name: Upload Release Assets
