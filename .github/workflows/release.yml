@@ -1,0 +1,80 @@
+name: Release GETSSH v2.0
+
+on:
+  workflow_dispatch: # 允许手动点击触发
+  push:
+    tags:
+      - 'v*' # 当推送 v* 标签时自动触发发布
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install System Dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config gcc g++ make
+
+      - name: Install Node Dependencies
+        run: pnpm install
+
+      - name: Build Rust N-API Addons
+        run: |
+          for module in getssh-kv getssh-sysprobe getssh-unarchive getssh-vault sftp-stream; do
+            echo "Building $module..."
+            cd rust-core/$module
+            pnpm install
+            npx napi build --release
+            cd ../..
+          done
+        shell: bash
+
+      - name: Build Rust Watchdog
+        run: pnpm run build:watchdog
+
+      - name: Build and Package Electron App
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            pnpm run build -- --linux
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            pnpm run build -- --win
+          else
+            pnpm run build -- --mac
+          fi
+        shell: bash
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+          draft: true
+          prerelease: false
