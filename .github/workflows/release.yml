@@ -46,7 +46,7 @@ jobs:
             echo "Building $module..."
             cd rust-core/$module
             pnpm install
-            pnpm exec napi build --release
+            npx --package=@napi-rs/cli napi build --release
             cd ../..
           done
         shell: bash
