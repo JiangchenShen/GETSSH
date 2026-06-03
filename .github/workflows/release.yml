@@ -1,18 +1,43 @@
 name: Release GETSSH v2.0
 
 on:
-  workflow_dispatch: # 允许手动点击触发
+  workflow_dispatch:
   push:
     tags:
-      - 'v*' # 当推送 v* 标签时自动触发发布
+      - 'v*'
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build ${{ matrix.os }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-13
+            arch: x64
+            eb_target: --mac --x64
+            rust_target: x86_64-apple-darwin
+          - os: macos-latest
+            arch: arm64
+            eb_target: --mac --arm64
+            rust_target: aarch64-apple-darwin
+          - os: windows-latest
+            arch: x64
+            eb_target: --win --x64
+            rust_target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            arch: arm64
+            eb_target: --win --arm64
+            rust_target: aarch64-pc-windows-msvc
+          - os: ubuntu-latest
+            arch: x64
+            eb_target: --linux --x64
+            rust_target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            arch: arm64
+            eb_target: --linux --arm64
+            rust_target: aarch64-unknown-linux-gnu
     
     steps:
       - name: Checkout Code
@@ -30,12 +55,18 @@ jobs:
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Install System Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config gcc g++ make
+          if [ "${{ matrix.arch }}" == "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
 
       - name: Install Node Dependencies
         run: pnpm install
@@ -43,28 +74,30 @@ jobs:
       - name: Build Rust N-API Addons
         run: |
           for module in getssh-kv getssh-sysprobe getssh-unarchive getssh-vault sftp-stream; do
-            echo "Building $module..."
+            echo "Building $module for ${{ matrix.rust_target }}..."
             cd rust-core/$module
             pnpm install
-            npx --package=@napi-rs/cli napi build --release
+            npx --package=@napi-rs/cli napi build --release --target ${{ matrix.rust_target }}
             cd ../..
           done
         shell: bash
 
       - name: Build Rust Watchdog
-        run: pnpm run build:watchdog
+        run: |
+          cd rust-core/watchdog
+          cargo build --release --target ${{ matrix.rust_target }}
+          # 确保根目录的 package.json 里的 electron-builder 能把 watchdog 拷到正确地方
+          # 我们把生成的特定架构的 watchdog 复制到 target/release/watchdog
+          mkdir -p ../../target/release/
+          cp target/${{ matrix.rust_target }}/release/watchdog ../../target/release/watchdog || cp target/${{ matrix.rust_target }}/release/watchdog.exe ../../target/release/watchdog.exe || true
+        shell: bash
 
       - name: Build and Package Electron App
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            pnpm run build -- --linux
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            pnpm run build -- --win
-          else
-            pnpm run build -- --mac
-          fi
+          pnpm exec vite build
+          pnpm exec electron-builder ${{ matrix.eb_target }}
         shell: bash
 
       - name: Upload Release Assets
