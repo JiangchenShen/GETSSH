@@ -1202,7 +1202,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     { label: t('about.envElectron'), value: window.electronAPI?.getEnvInfo?.()?.electron || 'N/A' },
                     { label: t('about.envChrome'), value: window.electronAPI?.getEnvInfo?.()?.chrome || 'N/A' },
                     { label: t('about.envNode'), value: window.electronAPI?.getEnvInfo?.()?.node || 'N/A' },
-                    { label: t('about.versionCore'), value: 'V1.3.2 Preview (C9E2S)' },
+                    { label: t('about.versionCore'), value: '2.0.0-R7K4S' },
                     { label: t('about.hostPlatform'), value: (() => {
                         const p = window.electronAPI?.getEnvInfo?.()?.platform;
                         const a = window.electronAPI?.getEnvInfo?.()?.arch;
