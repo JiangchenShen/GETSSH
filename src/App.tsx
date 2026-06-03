@@ -126,10 +126,18 @@ function App() {
   useEffect(() => {
     if (!window.electronAPI?.onOsFingerprint) return;
     const unsub = window.electronAPI.onOsFingerprint(({ host, username, osType }) => {
-      updateSessionOsType(host, username, osType as any);
+      const currentSessions = useSessionStore.getState().sessions;
+      const matched = currentSessions.find(s => s.host.replace(/[/\s]+$/g, '') === host && s.username === username);
+      if (matched) {
+        updateSessionOsType(matched.host, username, osType as any);
+        // Persist the updated osType to disk so it doesn't revert to a question mark on restart
+        setTimeout(() => {
+          syncProfiles(useSessionStore.getState().sessions);
+        }, 50);
+      }
     });
     return unsub;
-  }, [updateSessionOsType]);
+  }, [updateSessionOsType, syncProfiles]);
 
   useEffect(() => {
     const bootCrypto = async () => {
