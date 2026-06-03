@@ -1,6 +1,6 @@
 {
   "name": "getssh",
-  "version": "2.0.0-R7K4S",
+  "version": "2.0.0_R7K4S",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
   "author": "Shen Jiangchen <shenjiangchen@example.com>",
