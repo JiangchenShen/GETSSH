@@ -44,7 +44,7 @@ jobs:
             arch: arm64
             eb_target: --linux --arm64
             rust_target: aarch64-unknown-linux-gnu
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -72,6 +72,9 @@ jobs:
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+            # Required by cc crate when napi-rs modules have C/C++ dependencies
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           fi
 
       - name: Install Node Dependencies
@@ -97,10 +100,14 @@ jobs:
           cd rust-core/watchdog
           cargo build --release --target ${{ matrix.rust_target }}
           cd ../..
-          # The binary is generated at target/${{ matrix.rust_target }}/release/watchdog
-          # We must copy it to target/release/watchdog for electron-builder to find it
           mkdir -p target/release
-          cp target/${{ matrix.rust_target }}/release/watchdog target/release/watchdog || cp target/${{ matrix.rust_target }}/release/watchdog.exe target/release/watchdog.exe || true
+          # Handle Windows (.exe) vs Unix binary naming explicitly
+          if [ -f "target/${{ matrix.rust_target }}/release/watchdog.exe" ]; then
+            cp "target/${{ matrix.rust_target }}/release/watchdog.exe" "target/release/watchdog.exe"
+          elif [ -f "target/${{ matrix.rust_target }}/release/watchdog" ]; then
+            cp "target/${{ matrix.rust_target }}/release/watchdog" "target/release/watchdog"
+            chmod +x "target/release/watchdog"
+          fi
         shell: bash
 
       - name: Build and Package Electron App

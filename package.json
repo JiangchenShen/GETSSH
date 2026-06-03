@@ -93,6 +93,10 @@
       {
         "from": "target/release/watchdog",
         "to": "watchdog"
+      },
+      {
+        "from": "target/release/watchdog.exe",
+        "to": "watchdog.exe"
       }
     ],
     "files": [
