@@ -122,6 +122,8 @@ function App() {
     }
   }, [setIsFullScreen]);
 
+  const syncProfilesRef = useRef<any>(null);
+
   // OS Fingerprint listener
   useEffect(() => {
     if (!window.electronAPI?.onOsFingerprint) return;
@@ -132,12 +134,12 @@ function App() {
         updateSessionOsType(matched.host, username, osType as any);
         // Persist the updated osType to disk so it doesn't revert to a question mark on restart
         setTimeout(() => {
-          syncProfiles(useSessionStore.getState().sessions);
+          if (syncProfilesRef.current) syncProfilesRef.current(useSessionStore.getState().sessions);
         }, 50);
       }
     });
     return unsub;
-  }, [updateSessionOsType, syncProfiles]);
+  }, [updateSessionOsType]);
 
   useEffect(() => {
     const bootCrypto = async () => {
@@ -318,6 +320,7 @@ function App() {
       setCryptoMode('setup');
     }
   };
+  syncProfilesRef.current = syncProfiles;
 
   useEffect(() => {
     const handleCreateSession = (e: CustomEvent) => {
