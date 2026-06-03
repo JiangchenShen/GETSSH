@@ -184,6 +184,11 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   });
 
   ipcMain.handle('ssh-connect', async (event, config) => {
+    if (typeof config.host === 'string') {
+        // Sanitize host input: remove 'ssh://', 'http://', trailing slashes, and spaces
+        config.host = config.host.replace(/^(https?|ssh):\/\//i, '').replace(/[\/\\\s]+$/g, '').trim();
+    }
+
     if (typeof config.host === 'string' && config.host.includes(':') && !config.host.includes(']')) {
        const parts = config.host.split(':');
        if (parts.length === 2 && !isNaN(parseInt(parts[1], 10))) {
