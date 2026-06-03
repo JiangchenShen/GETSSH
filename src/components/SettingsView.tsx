@@ -1233,10 +1233,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         'Privacy Policy': 'privacy',
                         'Third-Party Licenses': 'licenses'
                     } as Record<string, string>;
+                    
+                    const urlSlugMap = {
+                        'Terms of Service': 'terms',
+                        'Privacy Policy': 'privacy',
+                        'Third-Party Licenses': 'licenses'
+                    } as Record<string, string>;
+                    
+                    const langPrefix = appConfig.language?.startsWith('zh') ? 'zh' : 'en';
+
                     return (
                       <button 
                         key={doc} 
-                        onClick={() => window.electronAPI.openExternal(`https://github.com/JiangchenShen/GETSSH/blob/main/docs/legal/${doc.toUpperCase().replace(/ /g, '_').replace('-', '_')}.md`)}
+                        onClick={() => window.electronAPI.openExternal(`https://getssh.realmcloud.net/${langPrefix}/legal/${urlSlugMap[doc]}`)}
                         className={`py-3 px-4 flex items-center justify-between border-t transition-all group ${isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/5 hover:bg-black/5'}`}
                       >
                         <span className="text-sm font-medium opacity-80 group-hover:opacity-100 transition-opacity">
