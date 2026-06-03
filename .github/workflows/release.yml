@@ -89,16 +89,17 @@ jobs:
         run: |
           cd rust-core/watchdog
           cargo build --release --target ${{ matrix.rust_target }}
-          # 确保根目录的 package.json 里的 electron-builder 能把 watchdog 拷到正确地方
-          # 我们把生成的特定架构的 watchdog 复制到 target/release/watchdog
-          mkdir -p ../../target/release/
-          cp target/${{ matrix.rust_target }}/release/watchdog ../../target/release/watchdog || cp target/${{ matrix.rust_target }}/release/watchdog.exe ../../target/release/watchdog.exe || true
+          cd ../..
+          # The binary is generated at target/${{ matrix.rust_target }}/release/watchdog
+          # We must copy it to target/release/watchdog for electron-builder to find it
+          mkdir -p target/release
+          cp target/${{ matrix.rust_target }}/release/watchdog target/release/watchdog || cp target/${{ matrix.rust_target }}/release/watchdog.exe target/release/watchdog.exe || true
         shell: bash
 
       - name: Build and Package Electron App
         run: |
           pnpm exec vite build
-          pnpm exec electron-builder -c.publish=null ${{ matrix.eb_target }}
+          pnpm exec electron-builder --publish never ${{ matrix.eb_target }}
         shell: bash
 
       - name: Upload Release Assets
