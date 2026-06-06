@@ -25,9 +25,7 @@ docs/RUST_MIGRATION_STATUS.md
 # Rust / Cargo
 target/
 
-# Node / N-API binaries
-*.node
-!rust-core/**/*.node
+
 
 # TypeScript build info
 *.tsbuildinfo
