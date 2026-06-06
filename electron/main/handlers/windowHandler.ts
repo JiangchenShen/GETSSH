@@ -80,14 +80,10 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     height: 768,
     transparent: false,
     vibrancy: process.platform === 'darwin' ? 'fullscreen-ui' : undefined,
-    backgroundMaterial: process.platform === 'win32' ? 'mica' : undefined,
-    titleBarStyle: 'hidden',
+    backgroundMaterial: undefined,
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
-    titleBarOverlay: process.platform !== 'darwin' ? {
-      color: 'rgba(0,0,0,0)',
-      symbolColor: '#a1a1aa',
-      height: 40
-    } : false,
+    titleBarOverlay: false,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
