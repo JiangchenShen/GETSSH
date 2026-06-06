@@ -466,7 +466,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
                       {isActive && (
                         <div className="relative z-10 flex items-center gap-2">
                           <kbd className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${isDark ? 'border-white/20' : 'border-black/20'}`}>
-                            ⌘K
+                            {useAppStore.getState().isMac ? '⌘K' : 'Ctrl+K'}
                           </kbd>
                         </div>
                       )}
