@@ -82,18 +82,12 @@ jobs:
 
       - name: Build Rust N-API Addons
         run: |
-          for module in getssh-kv getssh-sysprobe getssh-unarchive getssh-vault sftp-stream; do
-            echo "Building $module for ${{ matrix.rust_target }}..."
-            cd rust-core/$module
-            pnpm install
-            if grep -q '"napi":' package.json; then
-              npx --package=@napi-rs/cli napi build --platform --release --target ${{ matrix.rust_target }}
-            else
-              npx --package=@napi-rs/cli napi build --release --target ${{ matrix.rust_target }}
-            fi
-            cd ../..
-          done
+          pnpm -r --filter "./rust-core/getssh-*" --filter "./rust-core/sftp-stream" --filter "./rust-core/nexus-core" install
+          pnpm -r --filter "./rust-core/getssh-*" --filter "./rust-core/sftp-stream" --filter "./rust-core/nexus-core" exec napi build --platform --release --target ${{ matrix.rust_target }}
         shell: bash
+
+      - name: Force Electron-Builder to allow .node files
+        run: node -e "const fs = require('fs'); fs.writeFileSync('.gitignore', fs.readFileSync('.gitignore', 'utf8').replace('*.node', ''))"
 
       - name: Build Rust Watchdog
         run: |

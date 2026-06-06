@@ -9,3 +9,4 @@ minimumReleaseAgeExclude:
   - lucide-react@1.17.0
 packages:
   - '.'
+  - 'rust-core/*'
