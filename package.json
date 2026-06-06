@@ -62,6 +62,7 @@
   "build": {
     "appId": "com.getssh.app",
     "productName": "GETSSH",
+    "compression": "maximum",
     "npmRebuild": false,
     "publish": {
       "provider": "github",
