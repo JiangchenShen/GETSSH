@@ -81,10 +81,9 @@ jobs:
         run: pnpm install
 
       - name: Build Rust N-API Addons
-        run: |
-          pnpm -r --filter "./rust-core/getssh-*" --filter "./rust-core/sftp-stream" --filter "./rust-core/nexus-core" install
-          pnpm -r --filter "./rust-core/getssh-*" --filter "./rust-core/sftp-stream" --filter "./rust-core/nexus-core" exec napi build --platform --release --target ${{ matrix.rust_target }}
-        shell: bash
+        run: node scripts/build-native.js
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
 
 
 
