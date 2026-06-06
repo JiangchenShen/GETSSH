@@ -85,7 +85,12 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
 
-
+      - name: Verify Native Modules Built
+        run: |
+          echo "=== Built .node files ==="
+          find rust-core -name "*.node" -type f
+          echo "========================="
+        shell: bash
 
       - name: Build Rust Watchdog
         run: |
