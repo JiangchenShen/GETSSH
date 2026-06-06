@@ -84,6 +84,7 @@ interface AppStore {
   isMac: boolean;
   isFullScreen: boolean;
   isCommandCenterOpen: boolean;
+  isSidebarCollapsed: boolean;
   toasts: ToastMsg[];
 
   setAppConfig: (config: AppConfig) => void;
@@ -94,6 +95,7 @@ interface AppStore {
   setUpdateAvailable: (info: { version: string; url: string } | null) => void;
   setIsFullScreen: (full: boolean) => void;
   setIsCommandCenterOpen: (open: boolean) => void;
+  setIsSidebarCollapsed: (collapsed: boolean) => void;
   addToast: (message: string, type?: ToastMsg['type']) => void;
   removeToast: (id: string) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
@@ -117,6 +119,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
   isFullScreen: false,
   isCommandCenterOpen: false,
+  isSidebarCollapsed: false,
   toasts: [],
   isPolluted: false,
   watchdogStatus: null,
@@ -131,6 +134,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setUpdateAvailable: (info) => set({ updateAvailable: info }),
   setIsFullScreen: (full) => set({ isFullScreen: full }),
   setIsCommandCenterOpen: (open) => set({ isCommandCenterOpen: open }),
+  setIsSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
   
   addToast: (message, type = 'info') => {
     const id = crypto.randomUUID();

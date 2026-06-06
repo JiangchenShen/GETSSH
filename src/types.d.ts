@@ -85,6 +85,18 @@ declare global {
       onSyncPluginSettingsSchemas: (cb: (payload: any) => void) => (() => void);
       encryptConfig: (data: any) => Promise<string>;
       decryptConfig: (base64: string) => Promise<any>;
+      nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<any>;
+      nexusTearOff: (paneId: string) => Promise<any>;
+      nexusClosePane: (paneId: string) => Promise<any>;
+      nexusToggleZoom: (paneId: string) => Promise<any>;
+      nexusUpdateSizes: (paneId: string, sizes: number[]) => Promise<any>;
+      nexusSetDisconnected: (paneId: string, disconnected: boolean) => Promise<any>;
+      nexusCloseTab: (tabId: string) => Promise<any>;
+      nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<any>;
+      onNexusPtyData: (paneId: string, cb: (data: Uint8Array) => void) => (() => void);
+      onNexusPatchLeaf: (cb: (paneId: string, updates: any) => void) => (() => void);
+      onNexusSyncTree: (cb: (tabId: string, tree: any) => void) => (() => void);
+      nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => Promise<any>;
     };
   }
 }

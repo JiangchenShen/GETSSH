@@ -132,4 +132,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   encryptConfig: (data: any) => ipcRenderer.invoke('encrypt-config', data),
   decryptConfig: (base64: string) => ipcRenderer.invoke('decrypt-config', base64),
+  
+  // Nexus Core API
+  nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => ipcRenderer.invoke('nexus:split', { targetPaneId, direction }),
+  nexusTearOff: (paneId: string) => ipcRenderer.invoke('nexus:tear-off', { paneId }),
+  nexusClosePane: (paneId: string) => ipcRenderer.invoke('nexus:close', { paneId }),
+  nexusToggleZoom: (paneId: string) => ipcRenderer.invoke('nexus:toggle-zoom', { paneId }),
+  nexusUpdateSizes: (paneId: string, sizes: number[]) => ipcRenderer.invoke('nexus:update-sizes', { paneId, sizes }),
+  nexusSetDisconnected: (paneId: string, disconnected: boolean) => ipcRenderer.invoke('nexus:set-disconnected', { paneId, disconnected }),
+  nexusCloseTab: (tabId: string) => ipcRenderer.invoke('nexus:close-tab', { tabId }),
+  nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => ipcRenderer.invoke('nexus:replace-pane', { paneId, paneType, sessionId, configJson }),
+  onNexusPtyData: (paneId: string, callback: (data: Uint8Array) => void) => {
+    const listener = (_event: IpcRendererEvent, data: Uint8Array) => callback(data);
+    ipcRenderer.on(`pty:data:${paneId}`, listener);
+    return () => ipcRenderer.removeListener(`pty:data:${paneId}`, listener);
+  },
+  onNexusPatchLeaf: (callback: (paneId: string, updates: any) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { paneId: string, updates: any }) => callback(payload.paneId, payload.updates);
+    ipcRenderer.on('nexus:patch-leaf', listener);
+    return () => ipcRenderer.removeListener('nexus:patch-leaf', listener);
+  },
+  nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => ipcRenderer.invoke('nexus:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title }),
+  onNexusSyncTree: (callback: (tabId: string, tree: any) => void) => {
+    const listener = (_event: IpcRendererEvent, tabId: string, tree: any) => callback(tabId, tree);
+    ipcRenderer.on('nexus:sync-tree', listener);
+    return () => ipcRenderer.removeListener('nexus:sync-tree', listener);
+  }
 })

@@ -549,6 +549,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 };
 
 const PluginDetailsModal = ({ plugin, isDark, onClose }: { plugin: any, isDark: boolean, onClose: () => void }) => {
+  const { t } = useTranslation();
   const schema = usePluginStore(state => state.settingsSchemas[plugin.name]);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);

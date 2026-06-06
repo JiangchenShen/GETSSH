@@ -10,7 +10,7 @@ interface TerminalPaneProps {
   isDark: boolean;
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
-  onClosePane: (paneId: string) => void;
+  parentDirection?: 'hsplit' | 'vsplit';
 }
 
 
@@ -24,15 +24,15 @@ const Divider: React.FC<{
 }> = ({ direction, isDark, onDragStart }) => (
   <div
     onMouseDown={onDragStart}
-    className={`group shrink-0 relative z-10 ${
-      direction === 'hsplit' ? 'w-[1px] cursor-col-resize h-full' : 'h-[1px] cursor-row-resize w-full'
+    className={`group shrink-0 relative z-10 flex items-center justify-center ${
+      direction === 'hsplit' ? 'w-4 cursor-col-resize h-full' : 'h-4 cursor-row-resize w-full'
     }`}
   >
-    <div className={`absolute transition-all duration-200 ease-out ${
+    <div className={`transition-all duration-200 ease-out rounded-full ${
       direction === 'hsplit' 
-        ? 'top-0 bottom-0 left-1/2 -translate-x-1/2 w-[1px] group-hover:w-[4px]' 
-        : 'left-0 right-0 top-1/2 -translate-y-1/2 h-[1px] group-hover:h-[4px]'
-    } ${isDark ? 'bg-neutral-900 group-hover:bg-primary/80' : 'bg-black/10 group-hover:bg-primary/50'}`} />
+        ? 'w-[2px] h-8 group-hover:bg-primary/80' 
+        : 'h-[2px] w-8 group-hover:bg-primary/80'
+    } ${isDark ? 'bg-[#333]' : 'bg-black/20'}`} />
   </div>
 );
 
@@ -45,9 +45,8 @@ const SplitPaneNode: React.FC<{
   isDark: boolean;
   isTabActive: boolean;
   onSplit: (paneId: string, direction: 'hsplit' | 'vsplit') => void;
-  onClosePane: (paneId: string) => void;
-}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, onClosePane }) => {
-  const updatePaneSizes = useSessionStore(s => s.updatePaneSizes);
+}> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit }) => {
+  const patchNexusSizes = useSessionStore(s => s.patchNexusSizes);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -66,7 +65,7 @@ const SplitPaneNode: React.FC<{
       const deltaPercent = (delta / totalSize) * 100;
       const newFirst = Math.max(10, Math.min(90, startSizes[0] + deltaPercent));
       const newSecond = 100 - newFirst;
-      updatePaneSizes(tabId, node.paneId, [newFirst, newSecond]);
+      patchNexusSizes(tabId, node.paneId, [newFirst, newSecond]);
     };
 
     const onUp = () => {
@@ -76,7 +75,7 @@ const SplitPaneNode: React.FC<{
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, [node, tabId, updatePaneSizes]);
+  }, [node, tabId, patchNexusSizes]);
 
   const isHorizontal = node.type === 'hsplit';
 
@@ -87,7 +86,7 @@ const SplitPaneNode: React.FC<{
     >
       <div
         className="min-w-0 min-h-0 overflow-hidden"
-        style={isHorizontal ? { width: `${node.sizes[0]}%` } : { height: `${node.sizes[0]}%` }}
+        style={{ flex: `0 0 calc(${node.sizes[0]}% - 8px)` }}
       >
         <TerminalPaneRenderer
           node={node.children[0]}
@@ -96,15 +95,15 @@ const SplitPaneNode: React.FC<{
           isDark={isDark}
           isTabActive={isTabActive}
           onSplit={onSplit}
-          onClosePane={onClosePane}
+          parentDirection={node.type}
         />
       </div>
 
       <Divider direction={node.type} isDark={isDark} onDragStart={handleDragStart} />
 
       <div
-        className="flex-1 min-w-0 min-h-0 overflow-hidden"
-        style={isHorizontal ? { width: `${node.sizes[1]}%` } : { height: `${node.sizes[1]}%` }}
+        className="min-w-0 min-h-0 overflow-hidden"
+        style={{ flex: `0 0 calc(${node.sizes[1]}% - 8px)` }}
       >
         <TerminalPaneRenderer
           node={node.children[1]}
@@ -113,7 +112,7 @@ const SplitPaneNode: React.FC<{
           isDark={isDark}
           isTabActive={isTabActive}
           onSplit={onSplit}
-          onClosePane={onClosePane}
+          parentDirection={node.type}
         />
       </div>
     </div>
@@ -128,14 +127,14 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
   if (node.type === 'leaf') {
     return (
       <LeafPane
-        key={node.sessionId}
+        key={node.paneId}
         node={node}
         tabId={props.tabId}
         appConfig={props.appConfig}
         isDark={props.isDark}
         isTabActive={props.isTabActive}
         onSplit={props.onSplit}
-        onClosePane={props.onClosePane}
+        parentDirection={props.parentDirection}
       />
     );
   }
@@ -148,7 +147,6 @@ export const TerminalPaneRenderer: React.FC<TerminalPaneProps> = (props) => {
       isDark={props.isDark}
       isTabActive={props.isTabActive}
       onSplit={props.onSplit}
-      onClosePane={props.onClosePane}
     />
   );
 };

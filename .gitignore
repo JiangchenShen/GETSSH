@@ -43,3 +43,6 @@ src/DesignLab.tsx
 design-lab.html
 .test-user-data
 vitest.config.ts
+
+# AI Skills
+.ai-skills/

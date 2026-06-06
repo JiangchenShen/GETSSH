@@ -1,11 +1,42 @@
 @import "tailwindcss";
 
+/* --- Reddit Sans (Latin & Digits) --- */
+@font-face {
+  font-family: 'Reddit Sans';
+  src: url('./assets/fonts/RedditSans-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Reddit Sans';
+  src: url('./assets/fonts/RedditSans-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+/* --- MiSans (Chinese CJK) --- */
+@font-face {
+  font-family: 'MiSans';
+  src: url('./assets/fonts/MiSans-Normal.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('./assets/fonts/MiSans-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+}
+
 /* ── Dark mode: use .dark class on <html> (mirrors old darkMode: 'class') ── */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ── Tailwind v4 @theme — GETSSH Design Tokens ──────────────────────────── */
 
 @theme {
+  /* Global sans-serif font stack (Dual-Star Setup) */
+  --font-sans: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
   /* Brand color */
   --color-primary: rgb(var(--primary-color));
   

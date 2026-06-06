@@ -143,6 +143,7 @@ function createWindow() {
 
 
 import { SecureCenter } from './security/SecureCenter'
+import { nexusBridge } from './nexus/nexusBridge'
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
@@ -295,7 +296,11 @@ app.whenReady().then(async () => {
   });
   
   registerAllIpcHandlers(ipcMain, app, () => win);
+  nexusBridge.setupIpcHandlers();
   createWindow();
+  if (win) {
+    nexusBridge.setupStateBroadcaster(win.webContents);
+  }
 })
 
 app.on('window-all-closed', () => {

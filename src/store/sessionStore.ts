@@ -1,14 +1,23 @@
 import { create } from 'zustand';
+import { immer } from 'zustand/middleware/immer';
 
 // ── Pane Layout Tree ──────────────────────────────────────────────────────
-//
-//  A Tab now holds a tree of PaneNodes:
-//
-//   { type: 'leaf', sessionId, config }
-//   { type: 'hsplit', children: [left, right], sizes: [50, 50] }
-//   { type: 'vsplit', children: [top, bottom], sizes: [50, 50] }
-//
-//  All sizes are percentages summing to 100.
+
+export interface SSHConnectConfig {
+    pluginUrl?: string;
+    protocol?: 'ssh' | 'local' | 'telnet';
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    privateKeyPath?: string;
+    keepaliveInterval?: number;
+    proxyType?: string;
+    proxyHost?: string;
+    proxyPort?: number;
+    initScript?: string;
+    alias?: string;
+}
 
 export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { isSettings: true } | null;
 
@@ -18,11 +27,12 @@ export const isSSHConfig = (config: PaneConfig): config is SSHConnectConfig => {
 
 export interface PaneLeaf {
   type: 'leaf';
-  paneId: string;      // unique per pane, used as React key / activePaneId
+  paneId: string;
   paneType: 'welcome' | 'terminal' | 'plugin';
-  sessionId: string | null;   // SSH session id
-  config: PaneConfig;         // SSH config (host, user, …) or plugin config
-  isDisconnected?: boolean;   // persisted disconnect state — survives re-renders
+  sessionId: string | null;
+  config: PaneConfig;
+  isDisconnected?: boolean;
+  isZoomed?: boolean;
 }
 
 export interface PaneSplit {
@@ -37,10 +47,10 @@ export type PaneNode = PaneLeaf | PaneSplit;
 // ── Tab ───────────────────────────────────────────────────────────────────
 
 export interface Tab {
-  id: string;           // same as the root pane's sessionId (for compat)
+  id: string;
   title: string;
-  config: PaneConfig;          // root SSH config (kept for backward compat)
-  paneTree?: PaneNode;  // undefined → legacy single-pane mode
+  config: PaneConfig;
+  paneTree?: PaneNode;
 }
 
 // ── Session Profile ───────────────────────────────────────────────────────
@@ -67,7 +77,7 @@ interface SessionStore {
   sessions: SessionProfile[];
   tabs: Tab[];
   activeTabId: string | null;
-  activePaneId: string | null;   // NEW: which leaf pane is focused
+  activePaneId: string | null;
   selectedSessionIndex: number | null;
   connecting: boolean;
   error: string | null;
@@ -77,7 +87,7 @@ interface SessionStore {
   registeredPanels: Record<string, { title: string, renderUrl: string, pluginId: string }>;
 
   setSessions: (sessions: SessionProfile[]) => void;
-  setTabs: (updater: Tab[] | ((prev: Tab[]) => Tab[])) => void;
+  setTabs: (tabs: Tab[]) => void;
   setActiveTabId: (id: string | null) => void;
   setActivePaneId: (id: string | null) => void;
   setSelectedSessionIndex: (idx: number | null) => void;
@@ -88,18 +98,19 @@ interface SessionStore {
   setSftpWidth: (w: number) => void;
   updateSessionOsType: (host: string, username: string, osType: OsType) => void;
 
-  // NEW: update a pane's size in the tree (for drag-resize)
-  updatePaneSizes: (tabId: string, paneId: string, sizes: [number, number]) => void;
-
+  // ⚡ NEXUS CORE SYNC RECEIVERS (Dumb terminal architecture)
+  syncNexusTree: (tabId: string, tree: PaneNode | null) => void;
+  patchNexusLeaf: (paneId: string, updates: Partial<PaneLeaf>) => void;
+  patchNexusSizes: (tabId: string, splitPaneId: string, sizes: [number, number]) => void;
+  
+  // Internal Legacy overrides (for compat)
   closeTab: (tabId: string) => void;
-
   registerPluginPanel: (pluginId: string, panelId: string, title: string, renderUrl: string) => void;
   openPluginPanel: (pluginId: string, panelId: string) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/** Recursively collect all sessionIds from a PaneNode tree */
 export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] {
   if (node.type === 'leaf') {
     if (node.sessionId) acc.push(node.sessionId);
@@ -110,139 +121,165 @@ export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] 
   return acc;
 }
 
-/** Recursively update isDisconnected flag on a specific leaf */
-export function patchLeafDisconnected(node: PaneNode, paneId: string, isDisconnected: boolean): PaneNode {
+// Immer mutators for deep tree patches
+function mutateLeafInTree(node: PaneNode, paneId: string, updates: Partial<PaneLeaf>, onPatched?: () => void) {
   if (node.type === 'leaf') {
-    return node.paneId === paneId ? { ...node, isDisconnected } : node;
+    if (node.paneId === paneId) {
+      Object.assign(node, updates);
+      if (onPatched) onPatched();
+    }
+  } else {
+    mutateLeafInTree(node.children[0], paneId, updates, onPatched);
+    mutateLeafInTree(node.children[1], paneId, updates, onPatched);
   }
-  return {
-    ...node,
-    children: [
-      patchLeafDisconnected(node.children[0], paneId, isDisconnected),
-      patchLeafDisconnected(node.children[1], paneId, isDisconnected),
-    ] as [PaneNode, PaneNode],
-  };
 }
 
-/** Recursively update sizes on a specific split node */
-function updateSizesInTree(node: PaneNode, targetPaneId: string, sizes: [number, number]): PaneNode {
-  if (node.type === 'leaf') return node;
-  if (node.paneId === targetPaneId) return { ...node, sizes };
-  return {
-    ...node,
-    children: [
-      updateSizesInTree(node.children[0], targetPaneId, sizes),
-      updateSizesInTree(node.children[1], targetPaneId, sizes),
-    ] as [PaneNode, PaneNode],
-  };
+function mutateSizesInTree(node: PaneNode, targetPaneId: string, sizes: [number, number]) {
+  if (node.type === 'leaf') return;
+  if (node.paneId === targetPaneId) {
+    node.sizes = sizes;
+  } else {
+    mutateSizesInTree(node.children[0], targetPaneId, sizes);
+    mutateSizesInTree(node.children[1], targetPaneId, sizes);
+  }
 }
 
 // ── Store Implementation ──────────────────────────────────────────────────
 
-export const useSessionStore = create<SessionStore>((set, get) => ({
-  sessions: [],
-  tabs: [],
-  activeTabId: null,
-  activePaneId: null,
-  selectedSessionIndex: null,
-  connecting: false,
-  error: null,
-  searchQuery: '',
-  showSFTP: false,
-  sftpWidth: 320,
-  registeredPanels: {},
+export const useSessionStore = create<SessionStore>()(
+  immer((set, get) => ({
+    sessions: [],
+    tabs: [],
+    activeTabId: null,
+    activePaneId: null,
+    selectedSessionIndex: null,
+    connecting: false,
+    error: null,
+    searchQuery: '',
+    showSFTP: false,
+    sftpWidth: 320,
+    registeredPanels: {},
 
-  setSessions: (sessions) => set({ sessions }),
-  setTabs: (updater) => set((state) => ({
-    tabs: typeof updater === 'function' ? updater(state.tabs) : updater
-  })),
-  setActiveTabId: (id) => set({ activeTabId: id }),
-  setActivePaneId: (id) => set({ activePaneId: id }),
-  setSelectedSessionIndex: (idx) => set({ selectedSessionIndex: idx }),
-  setConnecting: (val) => set({ connecting: val }),
-  setError: (err) => set({ error: err }),
-  setSearchQuery: (q) => set({ searchQuery: q }),
-  setShowSFTP: (show) => set({ showSFTP: show }),
-  setSftpWidth: (w) => set({ sftpWidth: w }),
-  updateSessionOsType: (host, username, osType) => set((state) => ({
-    sessions: state.sessions.map(s =>
-      s.host === host && s.username === username ? { ...s, osType } : s
-    )
-  })),
+    setSessions: (sessions) => set(state => { state.sessions = sessions }),
+    setTabs: (tabs) => set(state => { state.tabs = tabs }),
+    setActiveTabId: (id) => set(state => { state.activeTabId = id }),
+    setActivePaneId: (id) => set(state => { state.activePaneId = id }),
+    setSelectedSessionIndex: (idx) => set(state => { state.selectedSessionIndex = idx }),
+    setConnecting: (val) => set(state => { state.connecting = val }),
+    setError: (err) => set(state => { state.error = err }),
+    setSearchQuery: (q) => set(state => { state.searchQuery = q }),
+    setShowSFTP: (show) => set(state => { state.showSFTP = show }),
+    setSftpWidth: (w) => set(state => { state.sftpWidth = w }),
+    updateSessionOsType: (host, username, osType) => set(state => {
+      const s = state.sessions.find(s => s.host === host && s.username === username);
+      if (s) s.osType = osType;
+    }),
 
-  updatePaneSizes: (tabId, paneId, sizes) => {
-    set((state) => ({
-      tabs: state.tabs.map(tab => {
-        if (tab.id !== tabId || !tab.paneTree) return tab;
-        return { ...tab, paneTree: updateSizesInTree(tab.paneTree, paneId, sizes) };
-      }),
-    }));
-  },
-
-  closeTab: (tabId) => {
-    const { activeTabId } = get();
-    set((state) => {
-      const tab = state.tabs.find(t => t.id === tabId);
-      // Disconnect all sessions in the pane tree
-      if (tab?.paneTree) {
-        collectSessionIds(tab.paneTree).forEach(sid => {
-          if (sid !== tabId) window.electronAPI.sshDisconnect(sid);
-        });
-      }
-      const remaining = state.tabs.filter(t => t.id !== tabId);
-      let newActiveId = state.activeTabId;
-      if (activeTabId === tabId) {
-        const sshTabs = remaining.filter(t => t.id !== 'settings');
-        newActiveId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
-      }
-      return { tabs: remaining, activeTabId: newActiveId, activePaneId: null };
-    });
-    window.electronAPI.sshDisconnect(tabId);
-  },
-
-  registerPluginPanel: (pluginId, panelId, title, renderUrl) => {
-    set(state => ({
-      registeredPanels: {
-        ...state.registeredPanels,
-        [panelId]: { pluginId, title, renderUrl }
-      }
-    }));
-  },
-
-  openPluginPanel: (pluginId, panelId) => {
-    const { registeredPanels } = get();
-    const panel = registeredPanels[panelId];
-    if (!panel) {
-      console.error(`[PluginPanel] Panel ${panelId} is not registered`);
-      return;
-    }
-    
-    const tabId = `panel-${pluginId}-${panelId}`;
-    
-    set(state => {
-      // If tab already exists, just switch to it
-      if (state.tabs.find(t => t.id === tabId)) {
-        return { activeTabId: tabId };
-      }
-      
-      const newTab: Tab = {
-        id: tabId,
-        title: panel.title,
-        config: { pluginUrl: panel.renderUrl },
-        paneTree: {
-          type: 'leaf',
-          paneId: tabId,
-          paneType: 'plugin',
-          sessionId: null,
-          config: { pluginUrl: panel.renderUrl }
+    // ⚡ NEXUS RECEIVERS
+    syncNexusTree: (tabId, tree) => set(state => {
+      if (tree === null) {
+        state.tabs = state.tabs.filter(t => t.id !== tabId);
+        if (state.activeTabId === tabId) {
+          const sshTabs = state.tabs.filter(t => t.id !== 'settings');
+          state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
+          state.activePaneId = null;
         }
-      };
-      
-      return {
-        tabs: [...state.tabs, newTab],
-        activeTabId: tabId,
-        activePaneId: tabId
-      };
-    });
-  }
-}));
+        return;
+      }
+
+      const tab = state.tabs.find(t => t.id === tabId);
+      if (tab) {
+        tab.paneTree = tree;
+      } else {
+        // Rust spawned a new tab (e.g., via Tear-off)
+        let title = 'Torn Tab';
+        if (tree.type === 'leaf') {
+          if (tree.paneType === 'plugin') title = 'Torn Plugin';
+          if (tree.paneType === 'terminal') title = 'Torn Terminal';
+        }
+        
+        state.tabs.push({
+          id: tabId,
+          title,
+          config: null,
+          paneTree: tree,
+        });
+        state.activeTabId = tabId;
+      }
+    }),
+
+    patchNexusLeaf: (paneId, updates) => set(state => {
+      let patched = false;
+      state.tabs.forEach(tab => {
+        if (tab.paneTree) {
+          mutateLeafInTree(tab.paneTree, paneId, updates, () => { patched = true; });
+        }
+      });
+      if (patched && updates.isDisconnected !== undefined) {
+          window.electronAPI.nexusSetDisconnected(paneId, updates.isDisconnected).catch(console.error);
+      }
+    }),
+
+    patchNexusSizes: (tabId, splitPaneId, sizes) => set(state => {
+      const tab = state.tabs.find(t => t.id === tabId);
+      if (tab?.paneTree) {
+        mutateSizesInTree(tab.paneTree, splitPaneId, sizes);
+        window.electronAPI.nexusUpdateSizes(splitPaneId, sizes).catch(console.error);
+      }
+    }),
+
+    closeTab: (tabId) => {
+      const { activeTabId } = get();
+      set((state) => {
+        const tab = state.tabs.find(t => t.id === tabId);
+        if (tab?.paneTree) {
+          collectSessionIds(tab.paneTree).forEach(sid => {
+            if (sid !== tabId) window.electronAPI.sshDisconnect(sid);
+          });
+        }
+        state.tabs = state.tabs.filter(t => t.id !== tabId);
+        if (activeTabId === tabId) {
+          const sshTabs = state.tabs.filter(t => t.id !== 'settings');
+          state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
+          state.activePaneId = null;
+        }
+      });
+      window.electronAPI.sshDisconnect(tabId);
+      window.electronAPI.nexusCloseTab(tabId).catch(console.error);
+    },
+
+    registerPluginPanel: (pluginId, panelId, title, renderUrl) => set(state => {
+      state.registeredPanels[panelId] = { pluginId, title, renderUrl };
+    }),
+
+    openPluginPanel: (pluginId, panelId) => {
+      const { registeredPanels } = get();
+      const panel = registeredPanels[panelId];
+      if (!panel) return;
+      const tabId = `panel-${pluginId}-${panelId}`;
+      set(state => {
+        if (state.tabs.find(t => t.id === tabId)) {
+          state.activeTabId = tabId;
+          return;
+        }
+        state.tabs.push({
+          id: tabId,
+          title: panel.title,
+          config: { pluginUrl: panel.renderUrl },
+          paneTree: {
+            type: 'leaf',
+            paneId: tabId,
+            paneType: 'plugin',
+            sessionId: null,
+            config: { pluginUrl: panel.renderUrl }
+          }
+        });
+        state.activeTabId = tabId;
+        state.activePaneId = tabId;
+      });
+    }
+  }))
+);
+
+export function patchLeafDisconnected() { throw new Error('Legacy function removed. Use syncNexusTree instead.'); }
+export function patchLeafZoom() { throw new Error('Legacy function removed. Use syncNexusTree instead.'); }

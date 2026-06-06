@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command, HelpCircle, Server } from 'lucide-react';
+import { Search, Plus, Edit2, Zap, X, HardDrive, Settings, Info, Monitor, Apple, Terminal, Command, Server, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useAppStore } from '../store/appStore';
@@ -52,6 +52,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
+  const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
+  const setIsSidebarCollapsed = useAppStore(state => state.setIsSidebarCollapsed);
 
   const OsBadge = ({ osType, protocol, isActive }: { osType?: string; protocol?: string; isActive: boolean }) => {
     // 框架限定：冷灰色直角容器 (放大 ~25%)
@@ -89,11 +91,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
+  if (isSidebarCollapsed) {
+    return (
+      <div className={`w-14 border-r flex flex-col items-center py-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-all duration-300 bg-transparent ${isDark ? 'border-neutral-900' : 'border-black/10'}`}>
+        <button onClick={() => setIsSidebarCollapsed(false)} className={`p-2 mt-2 rounded transition-colors ${isDark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-black/10 text-black/50'}`} title="Expand Sidebar">
+          <PanelLeftOpen className="w-5 h-5" />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`w-64 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-colors bg-transparent ${isDark ? 'border-neutral-900' : 'border-black/10'}`}>
-      <div className="flex items-center gap-2 mb-6">
-        <img src={logoSrc} alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
-        <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
+    <div className={`w-64 border-r flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-all duration-300 bg-transparent ${isDark ? 'border-neutral-900' : 'border-black/10'}`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <img src={logoSrc} alt="GETSSH Logo" className="w-6 h-6 rounded border border-current opacity-90 shadow-sm object-cover" />
+          <h1 className="font-bold text-lg tracking-wider text-slate-800 dark:text-slate-100">GETSSH</h1>
+        </div>
+        <button onClick={() => setIsSidebarCollapsed(true)} className={`p-1.5 rounded transition-colors ${isDark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-black/10 text-black/50'}`} title="Collapse Sidebar">
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="relative mb-4">

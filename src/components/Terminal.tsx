@@ -202,6 +202,11 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     const unsubData = window.electronAPI.onSshData(sessionId, (data: string) => {
       term.write(data);
     });
+    
+    // 🔥 NEXUS CORE HIGH-THROUGHPUT PTY STREAM 🔥
+    const unsubNexusData = window.electronAPI.onNexusPtyData ? window.electronAPI.onNexusPtyData(sessionId, (data: Uint8Array) => {
+      term.write(data);
+    }) : undefined;
 
     const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
       isDisconnectedRef.current = true;
@@ -265,6 +270,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       resizeObserver.disconnect();
       dataDisp.dispose(); // Unbind data listener
       if (unsubData) unsubData();
+      if (unsubNexusData) unsubNexusData();
       if (unsubClosed) unsubClosed();
       element.removeEventListener('contextmenu', handleContextMenu);
       

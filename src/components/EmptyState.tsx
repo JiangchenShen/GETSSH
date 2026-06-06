@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Command, Sparkles, Server, Terminal, KeyRound } from 'lucide-react';
+import { Sparkles, Server, Terminal, KeyRound } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';

@@ -109,7 +109,21 @@ function App() {
           oldFingerprint: data.oldFingerprint,
         });
       });
-      return removeListener;
+      const removePatchListener = window.electronAPI.onNexusPatchLeaf((paneId: string, updates: any) => {
+        useSessionStore.getState().patchNexusLeaf(paneId, updates);
+      });
+      
+      let removeSyncListener: (() => void) | undefined;
+      if (window.electronAPI.onNexusSyncTree) {
+         removeSyncListener = window.electronAPI.onNexusSyncTree((tabId: string, tree: any) => {
+           useSessionStore.getState().syncNexusTree(tabId, tree);
+         });
+      }
+      return () => {
+        removeListener();
+        removePatchListener();
+        if (removeSyncListener) removeSyncListener();
+      };
     }
   }, []);
 
@@ -264,6 +278,7 @@ function App() {
                  const tabTitle = `${config.username}@${config.host}`;
                  setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
                  setActiveTabId(res.sessionId);
+                 window.electronAPI.nexusRegisterTab(res.sessionId, res.sessionId, res.sessionId, 'terminal', JSON.stringify(config), tabTitle).catch(e => console.error('[Stateless UI] Failed to register auto-start tab:', e));
                  if (config.initScript && res.sessionId) {
                      const sessionId = res.sessionId;
                      setTimeout(() => {
@@ -379,13 +394,22 @@ function App() {
       const rootPaneId = res.sessionId;
       const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
 
-      // Determine if we should replace the currently focused welcome pane
+      // Determine if we should replace a welcome pane
       const currentTab = tabs.find(t => t.id === activeTabId);
       let targetPaneId: string | null = null;
-      if (currentTab && currentTab.paneTree && activePaneId) {
-        const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
-        if (activeLeaf && activeLeaf.paneType === 'welcome') {
-          targetPaneId = activeLeaf.paneId;
+      if (currentTab && currentTab.paneTree) {
+        if (activePaneId) {
+            const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
+            if (activeLeaf && activeLeaf.paneType === 'welcome') {
+              targetPaneId = activeLeaf.paneId;
+            }
+        }
+        if (!targetPaneId) {
+            // Find any welcome pane in the current tab
+            const welcomeLeaf = findWelcomePane(currentTab.paneTree);
+            if (welcomeLeaf) {
+                targetPaneId = welcomeLeaf.paneId;
+            }
         }
       }
 
@@ -395,12 +419,22 @@ function App() {
           if (t.id !== activeTabId || !t.paneTree) return t;
           return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
         }));
+        try {
+            await window.electronAPI.nexusReplacePane(targetPaneId, 'terminal', res.sessionId, JSON.stringify(config));
+        } catch (e) {
+            console.error('[Stateless UI] Failed to replace pane in Rust:', e);
+        }
       } else {
         // Spawn new tab
         setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
         setActiveTabId(res.sessionId);
         setActivePaneId(rootPaneId);
         setSelectedSessionIndex(null);
+        try {
+            await window.electronAPI.nexusRegisterTab(res.sessionId, rootPaneId, res.sessionId, 'terminal', JSON.stringify(config), tabTitle);
+        } catch (e) {
+            console.error('[Stateless UI] Failed to register tab in Rust:', e);
+        }
       }
     } else {
       if (res.error === 'Host denied (verification failed)') {
@@ -419,27 +453,43 @@ function App() {
     const currentTab = tabs.find(t => t.id === activeTabId);
     let targetPaneId: string | null = null;
     
-    if (currentTab && currentTab.paneTree && activePaneId) {
-      const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
-      if (activeLeaf && activeLeaf.paneType === 'welcome') {
-        targetPaneId = activeLeaf.paneId;
+    if (currentTab && currentTab.paneTree) {
+      if (activePaneId) {
+          const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
+          if (activeLeaf && activeLeaf.paneType === 'welcome') {
+            targetPaneId = activeLeaf.paneId;
+          }
+      }
+      if (!targetPaneId) {
+          // Find any welcome pane in the current tab
+          const welcomeLeaf = findWelcomePane(currentTab.paneTree);
+          if (welcomeLeaf) {
+              targetPaneId = welcomeLeaf.paneId;
+          }
       }
     }
 
     if (targetPaneId) {
       setTabs(tabs.map(t => {
         if (t.id !== activeTabId || !t.paneTree) return t;
-        return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId, { paneType: 'plugin', sessionId: null, config: { pluginUrl } }) };
+        return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'plugin', sessionId: null, config: { pluginUrl } }) };
       }));
+      window.electronAPI.nexusReplacePane(targetPaneId, 'plugin', null, JSON.stringify({ pluginUrl })).catch(e => {
+        console.error('[Stateless UI] Failed to replace pane to plugin in Rust:', e);
+      });
     } else {
       const newTabId = `cmd-${Date.now()}`;
+      const newPaneId = `pane-${Date.now()}`;
       setTabs([...tabs, {
         id: newTabId,
         title: tabTitle,
         config: { pluginUrl },
-        paneTree: { type: 'leaf', paneId: `pane-${Date.now()}`, paneType: 'plugin', sessionId: null, config: { pluginUrl } }
+        paneTree: { type: 'leaf', paneId: newPaneId, paneType: 'plugin', sessionId: null, config: { pluginUrl } }
       }]);
       setActiveTabId(newTabId);
+      window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'plugin', JSON.stringify({ pluginUrl }), tabTitle).catch(e => {
+        console.error('[Stateless UI] Failed to register plugin tab in Rust:', e);
+      });
     }
   };
 
@@ -482,74 +532,14 @@ function App() {
 
   // ── Split Pane Logic ──────────────────────────────────────────────────
 
-  /** Insert a new split into the tree at the target pane, rendering a welcome screen */
   const splitPane = async (paneId: string, direction: 'hsplit' | 'vsplit') => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (!tab?.paneTree) return;
-
-    // Helper to count current total leaves (panes) in the tree
-    const getLeafCount = (node: any): number => {
-      if (node.type === 'leaf') return 1;
-      return getLeafCount(node.children[0]) + getLeafCount(node.children[1]);
-    };
-
-    if (getLeafCount(tab.paneTree) >= 4) {
-      alert("达到分屏上限 (最多允许 4 个分屏窗口) / Maximum 4 split panes allowed.");
-      return;
+    try {
+      const dirStr = direction === 'hsplit' ? 'horizontal' : 'vertical';
+      await window.electronAPI.nexusSplit(paneId, dirStr);
+      console.log(`[Stateless UI] Successfully dispatched ${dirStr} split for ${paneId} to Nexus Core.`);
+    } catch (e) {
+      console.error("[Stateless UI] Nexus Core error:", e);
     }
-
-    const newPaneId = `pane-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    const newLeaf: PaneLeaf = { type: 'leaf', paneId: newPaneId, paneType: 'welcome', sessionId: null, config: null };
-
-    setTabs(tabs.map(t => {
-      if (t.id !== activeTabId || !t.paneTree) return t;
-      return { ...t, paneTree: insertSplit(t.paneTree, paneId, direction, newLeaf) };
-    }));
-    setActivePaneId(newPaneId);
-  };
-
-
-  /** Close a pane; if it's the last pane, close the entire tab */
-  const closePaneInTab = (paneId: string) => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (!tab?.paneTree) return;
-
-    // Find session to disconnect
-    const leaf = findLeaf(tab.paneTree, paneId);
-    if (leaf && leaf.sessionId) window.electronAPI.sshDisconnect(leaf.sessionId);
-
-    // If this is the ONLY pane in the tree, we convert it to welcome pane instead of closing the tab
-    if (tab.paneTree.type === 'leaf' && tab.paneTree.paneId === paneId) {
-      if (tab.paneTree.paneType === 'welcome') {
-        // It's already a welcome pane! Closing it should just close the whole tab.
-        closeTab(tab.id);
-        return;
-      }
-
-      setTabs(tabs.map(t => {
-        if (t.id === activeTabId) {
-          return {
-            ...t,
-            paneTree: { ...tab.paneTree, paneType: 'welcome', sessionId: null, config: null } as PaneLeaf
-          };
-        }
-        return t;
-      }));
-      return; // Stop here, do not remove the tab
-    }
-
-    const newTree = removePane(tab.paneTree, paneId);
-    if (!newTree) {
-      // Last pane → close the whole tab
-      closeTab(tab.id);
-      return;
-    }
-
-    setTabs(tabs.map(t => t.id === activeTabId ? { ...t, paneTree: newTree } : t));
-
-    // Focus first remaining leaf
-    const firstLeaf = findFirstLeaf(newTree);
-    if (firstLeaf) setActivePaneId(firstLeaf.paneId);
   };
 
   // Global Background & Glassmorphism Logic
@@ -690,7 +680,6 @@ function App() {
                       isDark={isDark}
                       isTabActive={activeTabId === tab.id}
                       onSplit={splitPane}
-                      onClosePane={closePaneInTab}
                     />
                   ) : (
                     /* Legacy fallback for tabs without paneTree */
@@ -815,6 +804,11 @@ function findLeaf(node: PaneNode, paneId: string): PaneLeaf | null {
   return findLeaf(node.children[0], paneId) ?? findLeaf(node.children[1], paneId);
 }
 
+function findWelcomePane(node: PaneNode): PaneLeaf | null {
+  if (node.type === 'leaf') return node.paneType === 'welcome' ? node : null;
+  return findWelcomePane(node.children[0]) ?? findWelcomePane(node.children[1]);
+}
+
 function updateLeafInTree(node: PaneNode, targetPaneId: string, updates: Partial<PaneLeaf>): PaneNode {
   if (node.type === 'leaf') {
     if (node.paneId === targetPaneId) {
@@ -829,49 +823,6 @@ function updateLeafInTree(node: PaneNode, targetPaneId: string, updates: Partial
       updateLeafInTree(node.children[1], targetPaneId, updates),
     ] as [PaneNode, PaneNode],
   };
-}
-
-function findFirstLeaf(node: PaneNode): PaneLeaf | null {
-  if (node.type === 'leaf') return node;
-  return findFirstLeaf(node.children[0]);
-}
-
-function insertSplit(
-  node: PaneNode,
-  targetPaneId: string,
-  direction: 'hsplit' | 'vsplit',
-  newLeaf: PaneLeaf,
-): PaneNode {
-  if (node.type === 'leaf') {
-    if (node.paneId !== targetPaneId) return node;
-    return {
-      type: direction,
-      paneId: `split-${targetPaneId}-${newLeaf.paneId}`,
-      children: [node, newLeaf],
-      sizes: [50, 50],
-    };
-  }
-  return {
-    ...node,
-    children: [
-      insertSplit(node.children[0], targetPaneId, direction, newLeaf),
-      insertSplit(node.children[1], targetPaneId, direction, newLeaf),
-    ] as [PaneNode, PaneNode],
-  };
-}
-
-/** Remove a pane from the tree; returns null if the tree becomes empty */
-function removePane(node: PaneNode, paneId: string): PaneNode | null {
-  if (node.type === 'leaf') return node.paneId === paneId ? null : node;
-
-  const left  = removePane(node.children[0], paneId);
-  const right = removePane(node.children[1], paneId);
-
-  if (!left && !right) return null;
-  if (!left)  return right;
-  if (!right) return left;
-
-  return { ...node, children: [left, right] };
 }
 
 export default App;
