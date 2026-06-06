@@ -78,14 +78,15 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     title: 'GETSSH',
     width: 1024,
     height: 768,
-    transparent: process.platform !== 'darwin',
-    vibrancy: 'fullscreen-ui',
-    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    transparent: false,
+    vibrancy: process.platform === 'darwin' ? 'fullscreen-ui' : undefined,
+    backgroundMaterial: process.platform === 'win32' ? 'mica' : undefined,
+    titleBarStyle: 'hidden',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
     titleBarOverlay: process.platform !== 'darwin' ? {
       color: 'rgba(0,0,0,0)',
       symbolColor: '#a1a1aa',
-      height: 32
+      height: 40
     } : false,
     webPreferences: {
       preload: preloadPath,
