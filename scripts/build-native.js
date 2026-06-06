@@ -23,14 +23,13 @@ for (const mod of modules) {
   
   const cwd = `rust-core/${mod}`;
   
-  // Install dependencies if not already installed
-  console.log(`> Installing dependencies in ${cwd}...`);
-  execSync('npm install', { cwd, stdio: 'inherit', shell: true });
-  
   // Build N-API module
   console.log(`> Building N-API module in ${cwd}...`);
   try {
-    execSync(`npx --package=@napi-rs/cli napi build --platform --release --target ${target}`, { 
+    const pkg = JSON.parse(fs.readFileSync(`${cwd}/package.json`, 'utf8'));
+    const isPlatform = pkg.napi ? '--platform' : '';
+    
+    execSync(`pnpm exec napi build ${isPlatform} --release --target ${target}`, { 
       cwd, 
       stdio: 'inherit',
       shell: true 
