@@ -89,7 +89,7 @@
     },
     "asar": true,
     "asarUnpack": [
-      "**/*.node"
+      "rust-core/**/*"
     ],
     "extraResources": [
       {
