@@ -24,7 +24,6 @@ docs/RUST_MIGRATION_STATUS.md
 
 # Rust / Cargo
 target/
-Cargo.lock
 
 # Node / N-API binaries
 *.node
