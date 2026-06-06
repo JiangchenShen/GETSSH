@@ -86,8 +86,7 @@ jobs:
           pnpm -r --filter "./rust-core/getssh-*" --filter "./rust-core/sftp-stream" --filter "./rust-core/nexus-core" exec napi build --platform --release --target ${{ matrix.rust_target }}
         shell: bash
 
-      - name: Force Electron-Builder to allow .node files
-        run: node -e "const fs = require('fs'); fs.writeFileSync('.gitignore', fs.readFileSync('.gitignore', 'utf8').replace('*.node', ''))"
+
 
       - name: Build Rust Watchdog
         run: |
