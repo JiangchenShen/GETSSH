@@ -182,7 +182,7 @@ export const LeafPane: React.FC<{
               <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('welcome.readyToConnect', 'Ready to Connect')}</h3>
               <p className={`text-xs mt-1.5 leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'} max-w-[220px]`}>
                 <Trans i18nKey="welcome.openCommandCenter">
-                  Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Alt+Space</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Option+Space</kbd> to open Command Center
+                  Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Option+Space</kbd> to open Command Center
                 </Trans>
               </p>
             </div>

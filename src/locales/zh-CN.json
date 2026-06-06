@@ -286,7 +286,7 @@
       "searchPlaceholder": "输入关键字过滤主机，或直接输入 user@host 回车发起闪电直连...",
       "quickConnectHint": "敲击回车，立即发起闪电直连...",
       "readyToConnect": "准备就绪",
-      "openCommandCenter": "按下 <1>Alt+Space</1> 或 <3>Option+Space</3> 唤醒智能指令中心",
+      "openCommandCenter": "按下 <1>Ctrl+K</1> 或 <3>Option+Space</3> 唤醒智能指令中心",
       "greeting": {
         "midnight": "夜已深，早点休息。",
         "morning": "早上好，新的一天开始啦！",

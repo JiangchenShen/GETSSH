@@ -235,8 +235,12 @@ function App() {
   // Global Shortcut for Command Center
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Toggle Command Center on Alt+Space (Option+Space on Mac)
-      if (e.altKey && e.code === 'Space') {
+      // Toggle Command Center on Alt+Space/Option+Space, Ctrl+Space, or Cmd/Ctrl+K
+      const isAltSpace = e.altKey && e.code === 'Space';
+      const isCtrlSpace = e.ctrlKey && e.code === 'Space';
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
+      
+      if (isAltSpace || isCtrlSpace || isCmdK) {
         e.preventDefault();
         setIsCommandCenterOpen(!isCommandCenterOpen);
       }
@@ -606,7 +610,6 @@ function App() {
                <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
              </span>
            )}
-           GETSSH
         </div>
       )}
 

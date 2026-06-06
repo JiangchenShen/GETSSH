@@ -93,9 +93,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
             {t(`welcome.greeting.${getGreetingKey()}`)}
           </h3>
           <p className={`text-base max-w-md mx-auto leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-            <Trans i18nKey="welcome.openCommandCenter">
-              Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Alt+Space</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Option+Space</kbd> to wake up the Command Center
-            </Trans>
+              <Trans i18nKey="welcome.openCommandCenter">
+                Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Option+Space</kbd> to wake up the Command Center
+              </Trans>
           </p>
         </div>
         {/* Quick Access */}
