@@ -41,3 +41,20 @@ for (const mod of modules) {
 }
 
 console.log("\nAll native modules built successfully.");
+
+// CI Workaround: electron-builder strictly ignores files in .gitignore
+// To ensure the built .node files are packaged on all platforms (especially Windows),
+// we temporarily drop the `*.node` rule from .gitignore during the build process.
+try {
+  const gitignorePath = '.gitignore';
+  if (fs.existsSync(gitignorePath)) {
+    let gitignore = fs.readFileSync(gitignorePath, 'utf8');
+    if (gitignore.includes('*.node')) {
+      console.log('> Removing *.node from .gitignore temporarily for electron-builder...');
+      gitignore = gitignore.replace(/\*\.node/g, '');
+      fs.writeFileSync(gitignorePath, gitignore);
+    }
+  }
+} catch (e) {
+  console.warn("Failed to patch .gitignore for electron-builder", e);
+}

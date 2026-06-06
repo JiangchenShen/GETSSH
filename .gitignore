@@ -28,7 +28,6 @@ Cargo.lock
 
 # Node / N-API binaries
 *.node
-!rust-core/**/*.node
 
 # TypeScript build info
 *.tsbuildinfo
