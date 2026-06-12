@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal as TerminalComponent } from './components/Terminal';
+import { MoovierTile, MoovierFocusProvider } from '@moovier/core';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
@@ -563,239 +564,256 @@ function App() {
   }
 
   return (
-    <div 
-      onContextMenu={(e) => {
-        e.preventDefault();
-        window.electronAPI.showContextMenu();
-      }}
-      className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
-      <SecurityOverlay />
-      {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
-        <CryptoModal 
-          mode={cryptoMode} 
-          isDark={isDark} 
-          encryptionDisabled={encryptionDisabled}
-          onUnlock={handleUnlock} 
-          onSetup={handleSetup}
-          onSkip={cryptoMode === 'setup' ? () => {
-            // Skip this time — modal will show again next time a new session is added
-            setCryptoMode('idle');
-          } : undefined}
-          onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
-              if (cryptoMode === 'setup') {
-                 setEncryptionDisabled(true);
-                 window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-              }
-              setCryptoMode('idle');
-          }}
-          onRetryBiometric={async () => {
-             const bioRes = await window.electronAPI.promptBiometricUnlock();
-             if (bioRes.success && bioRes.masterPassword) {
-               try {
-                  const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                  setMasterPassword(bioRes.masterPassword);
-                  setSessions(decrypted);
-                  setCryptoMode('idle');
-               } catch (e) {
-                  console.warn('Biometric unlock failed on manual retry:', e);
-               }
-             }
-          }}
-        />
-      )}
-      {!isFullScreen && (
-        <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
-           {isPolluted && (
-             <span title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center' } as React.CSSProperties}>
-               <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
-             </span>
-           )}
-        </div>
-      )}
-
-      {/* Left Sidebar */}
-      <Sidebar 
-        onAddSession={() => {
-          const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
-          const updated = [...sessions, newSession];
-          syncProfiles(updated);
-          setSelectedSessionIndex(updated.length - 1);
-          setActiveTabId(null);
+    <MoovierFocusProvider>
+      <div 
+        ref={containerRef as React.RefObject<HTMLDivElement>}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          window.electronAPI.showContextMenu();
         }}
-        onToggleAutoStart={toggleAutoStart}
-        onDeleteSession={deleteSession}
-        openSettingsTab={openSettingsTab}
-        settingsActiveTab={settingsActiveTab}
-        isSettingsOpen={isSettingsOpen}
-      />
-
-      {/* Main Area - Switch Mode */}
-      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'pt-0' : (isMac ? 'pt-10' : 'pt-8')}`}>
-
-        {/* Tab Bar - Extracted Component */}
-        <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          isDark={isDark}
-          onSelectTab={(tabId) => { setActiveTabId(tabId); setSelectedSessionIndex(null); }}
-          onCloseTab={closeTab}
-        />
-
-
-
-        {/* Connect Form - always mounted, shown via CSS */}
-        <div
-          className="flex-1 flex items-center justify-center p-8 overflow-y-auto"
-          style={{ display: (selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings') ? 'flex' : 'none' }}
-        >
-          {selectedSessionIndex !== null && sessions[selectedSessionIndex] && (
-            <ConnectForm
-              session={sessions[selectedSessionIndex]}
-              index={selectedSessionIndex}
-              appConfig={appConfig}
-              isDark={isDark}
-              connecting={connecting}
-              error={error}
-              onConnect={handleConnect}
-              onUpdateSession={(index, updatedSession) => {
-                const u = [...sessions];
-                u[index] = updatedSession;
-                syncProfiles(u);
-              }}
-            />
-          )}
+        className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
+        
+        {/* Background Stress Test / Ambient Layer */}
+        <div className="absolute inset-0 pointer-events-none z-[-1]">
+           <div className="absolute inset-0 bg-gradient-to-br from-[#0a0014] via-[#110022] to-[#001122] opacity-80" />
+           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse" />
+           <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-blue-500 rounded-full mix-blend-screen filter blur-[120px] opacity-10" />
         </div>
 
-        {/* Terminals area with pane tree renderer */}
-        <div
-          className={`flex-1 flex overflow-hidden ${isDark ? 'bg-black/40' : 'bg-white/60'}`}
-          style={{ display: (tabs.filter(t => t.id !== 'settings').length > 0 && selectedSessionIndex === null && activeTabId && activeTabId !== 'settings') ? 'flex' : 'none' }}
-        >
-          <SplitPane isDark={isDark} activeTabId={activeTabId}>
-            <div className="absolute inset-0">
-              {tabs.filter(t => t.id !== 'settings').map(tab => (
-                <div key={tab.id} className={`absolute inset-0 flex ${activeTabId === tab.id ? 'z-10' : '-z-10 opacity-0 pointer-events-none'}`}>
-                  {tab.paneTree ? (
-                    <TerminalPaneRenderer
-                      node={tab.paneTree}
-                      tabId={tab.id}
-                      appConfig={appConfig}
-                      isDark={isDark}
-                      isTabActive={activeTabId === tab.id}
-                      onSplit={splitPane}
-                    />
-                  ) : (
-                    /* Legacy fallback for tabs without paneTree */
-                    <TerminalComponent
-                      sessionId={tab.id}
-                      onDisconnected={() => closeTab(tab.id)}
-                      onReconnect={() => handleReconnect(tab)}
-                      config={appConfig}
-                      isDark={isDark}
-                      isActive={activeTabId === tab.id}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          </SplitPane>
-        </div>
-
-        {/* Empty State */}
-        <div style={{ display: (selectedSessionIndex === null && !activeTabId) ? 'flex' : 'none' }} className="flex-1">
-          <EmptyState onConnect={handleConnect} />
-        </div>
-
-      {/* Floating Settings Modal */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all animate-in fade-in duration-300"
-             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-             onClick={(e) => {
-               if (e.target === e.currentTarget) {
-                 setIsSettingsOpen(false);
+        <SecurityOverlay />
+        {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
+          <CryptoModal 
+            mode={cryptoMode} 
+            isDark={isDark} 
+            encryptionDisabled={encryptionDisabled}
+            onUnlock={handleUnlock} 
+            onSetup={handleSetup}
+            onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
+            onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
+                if (cryptoMode === 'setup') {
+                   setEncryptionDisabled(true);
+                   window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+                }
+                setCryptoMode('idle');
+            }}
+            onRetryBiometric={async () => {
+               const bioRes = await window.electronAPI.promptBiometricUnlock();
+               if (bioRes.success && bioRes.masterPassword) {
+                 try {
+                    const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                    setMasterPassword(bioRes.masterPassword);
+                    setSessions(decrypted);
+                    setCryptoMode('idle');
+                 } catch (e) {
+                    console.warn('Biometric unlock failed on manual retry:', e);
+                 }
                }
-             }}>
-          <div 
-            className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-[32px] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
-              isDark ? 'bg-[#050505]/80 border-white/10' : 'bg-[#ffffff]/80 border-black/10'
-            } backdrop-blur-3xl animate-in zoom-in-95 duration-300`}
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            {/* Draggable OS-like Header */}
-            <div className={`h-16 shrink-0 flex items-center px-6 border-b select-none ${
-              isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
-            }`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-              <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                <div className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
-                     onClick={() => setIsSettingsOpen(false)}>
-                </div>
-                <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/50"></div>
-                <div className="w-3.5 h-3.5 rounded-full bg-green-500/50"></div>
-              </div>
-              <div className={`mx-auto font-bold text-sm tracking-widest uppercase ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                GETSSH COMMAND CENTER
-              </div>
-              <div className="w-[52px]"></div> {/* Spacer for balance */}
-            </div>
-            
-            {/* Content Area */}
-            <div className="flex-1 flex overflow-hidden relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-               <SettingsView 
-                 settingsActiveTab={settingsActiveTab}
-                 setSettingsActiveTab={setSettingsActiveTab}
-                 masterPassword={masterPassword}
-                 setMasterPassword={setMasterPassword}
-                 encryptionDisabled={encryptionDisabled}
-                 setEncryptionDisabled={setEncryptionDisabled}
-               />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-
-      {/* Update Toast Notification */}
-      {updateAvailable && (
-        <div className={`absolute bottom-6 right-6 p-4 rounded-xl shadow-2xl border flex flex-col gap-3 z-[200] max-w-sm animate-in slide-in-from-bottom-5 fade-in duration-300 ${isDark ? 'bg-[#2a2a2a] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0">
-                <Monitor className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="font-bold text-sm">{t('update.bannerTitle', { version: updateAvailable.version })}</h4>
-                <p className="text-xs opacity-70 mt-0.5">{t('update.bannerDesc')}</p>
-              </div>
-            </div>
-            <button onClick={() => setUpdateAvailable(null)} className="opacity-50 hover:opacity-100 p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setUpdateAvailable(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>{t('update.bannerDismiss')}</button>
-            <button onClick={() => { window.electronAPI.openExternal(updateAvailable.url); setUpdateAvailable(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">{t('update.bannerDownload')}</button>
-          </div>
-        </div>
-      )}
-      <HostKeyVerificationModal />
-
-      {/* Global Command Center Overlay */}
-      <AnimatePresence>
-        {isCommandCenterOpen && (
-          <CommandCenter
-            isOpen={isCommandCenterOpen}
-            onClose={() => setIsCommandCenterOpen(false)}
-            onConnect={handleConnect}
-            onOpenPlugin={handleOpenPlugin}
-            onDeleteSession={(s) => deleteSession({ stopPropagation: () => {} } as any, s)}
-            isDark={isDark}
-            appConfig={appConfig}
-            sessions={sessions}
+            }}
           />
         )}
-      </AnimatePresence>
-      <ToastProvider />
-    </div>
+        {!isFullScreen && (
+          <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+             {isPolluted && (
+               <span title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center' } as React.CSSProperties}>
+                 <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
+               </span>
+             )}
+          </div>
+        )}
+
+        {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
+        <div className={`flex w-full h-full p-4 gap-4 z-10 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')}`}>
+          
+          {/* Left Sidebar Tile */}
+          <MoovierTile 
+            exemptFromFocus 
+            dragLevel="fixed" 
+            className="w-64 h-full shrink-0 flex flex-col z-20"
+            style={{ borderRadius: '16px' }}
+          >
+            <Sidebar 
+              onAddSession={() => {
+                const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
+                const updated = [...sessions, newSession];
+                syncProfiles(updated);
+                setSelectedSessionIndex(updated.length - 1);
+                setActiveTabId(null);
+              }}
+              onToggleAutoStart={toggleAutoStart}
+              onDeleteSession={deleteSession}
+              openSettingsTab={openSettingsTab}
+              settingsActiveTab={settingsActiveTab}
+              isSettingsOpen={isSettingsOpen}
+            />
+          </MoovierTile>
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col gap-4 overflow-hidden relative">
+            
+            {/* Connect Form - Visible when a session is selected */}
+            <div
+              className="flex-1 flex items-center justify-center overflow-y-auto"
+              style={{ display: (selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings') ? 'flex' : 'none' }}
+            >
+              {selectedSessionIndex !== null && sessions[selectedSessionIndex] && (
+                <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 rounded-2xl w-full max-w-2xl">
+                  <ConnectForm
+                    session={sessions[selectedSessionIndex]}
+                    index={selectedSessionIndex}
+                    appConfig={appConfig}
+                    isDark={isDark}
+                    connecting={connecting}
+                    error={error}
+                    onConnect={handleConnect}
+                    onUpdateSession={(index, updatedSession) => {
+                      const u = [...sessions];
+                      u[index] = updatedSession;
+                      syncProfiles(u);
+                    }}
+                  />
+                </MoovierTile>
+              )}
+            </div>
+
+            {/* Terminal Dashboard Grid */}
+            <div
+              className="flex-1 grid gap-4 relative"
+              style={{ 
+                 display: (selectedSessionIndex === null && activeTabId !== 'settings' && tabs.length > 0) ? 'grid' : 'none',
+                 gridTemplateColumns: tabs.filter(t => t.id !== 'settings').length === 1 ? '1fr' : 'repeat(auto-fit, minmax(450px, 1fr))',
+                 gridAutoRows: '1fr'
+              }}
+            >
+              {tabs.filter(t => t.id !== 'settings').map((tab, idx) => (
+                 <MoovierTile
+                    key={tab.id}
+                    tileId={tab.id}
+                    dragLevel="local"
+                    dragConstraints={containerRef as React.RefObject<Element>}
+                    className="flex flex-col overflow-hidden"
+                    style={{ borderRadius: '16px' }}
+                    onPointerDown={() => setActiveTabId(tab.id)}
+                 >
+                    {/* Custom Draggable Header */}
+                    <div className="h-10 bg-white/5 border-b border-white/5 flex items-center px-4 shrink-0 transition-colors hover:bg-white/10" style={{ WebkitAppRegion: 'drag' } as any}>
+                       <div className="w-2 h-2 rounded-full bg-green-400 mr-3 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.5)]"></div>
+                       <div className="text-xs font-bold tracking-wider uppercase text-white/70 truncate">{tab.title}</div>
+                       <div className="flex-1" />
+                       <button onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }} className="w-5 h-5 rounded hover:bg-white/10 flex items-center justify-center transition-colors" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                          <X className="w-3 h-3 text-white/50" />
+                       </button>
+                    </div>
+                    {/* Terminal Content */}
+                    <div className="flex-1 relative" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                      {tab.paneTree ? (
+                        <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={true} onSplit={splitPane} />
+                      ) : (
+                        <TerminalComponent sessionId={tab.id} onDisconnected={() => closeTab(tab.id)} onReconnect={() => handleReconnect(tab)} config={appConfig} isDark={isDark} isActive={true} />
+                      )}
+                    </div>
+                 </MoovierTile>
+              ))}
+            </div>
+
+            {/* Empty State */}
+            <div style={{ display: (selectedSessionIndex === null && !activeTabId && tabs.length === 0) ? 'flex' : 'none' }} className="flex-1 items-center justify-center">
+              <MoovierTile dragLevel="fixed" className="w-full max-w-3xl h-96 p-8 flex items-center justify-center rounded-3xl" exemptFromFocus>
+                <EmptyState onConnect={handleConnect} />
+              </MoovierTile>
+            </div>
+          </div>
+        </div>
+
+        {/* Floating Settings Modal */}
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all animate-in fade-in duration-300"
+               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+               onClick={(e) => {
+                 if (e.target === e.currentTarget) {
+                   setIsSettingsOpen(false);
+                 }
+               }}>
+            <div 
+              className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-[32px] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
+                isDark ? 'bg-[#050505]/80 border-white/10' : 'bg-[#ffffff]/80 border-black/10'
+              } backdrop-blur-3xl animate-in zoom-in-95 duration-300`}
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              {/* Draggable OS-like Header */}
+              <div className={`h-16 shrink-0 flex items-center px-6 border-b select-none ${
+                isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
+              }`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+                <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                  <div className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
+                       onClick={() => setIsSettingsOpen(false)}>
+                  </div>
+                  <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/50"></div>
+                  <div className="w-3.5 h-3.5 rounded-full bg-green-500/50"></div>
+                </div>
+                <div className={`mx-auto font-bold text-sm tracking-widest uppercase ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+                  GETSSH COMMAND CENTER
+                </div>
+                <div className="w-[52px]"></div> {/* Spacer for balance */}
+              </div>
+              
+              {/* Content Area */}
+              <div className="flex-1 flex overflow-hidden relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                 <SettingsView 
+                   settingsActiveTab={settingsActiveTab}
+                   setSettingsActiveTab={setSettingsActiveTab}
+                   masterPassword={masterPassword}
+                   setMasterPassword={setMasterPassword}
+                   encryptionDisabled={encryptionDisabled}
+                   setEncryptionDisabled={setEncryptionDisabled}
+                 />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Update Toast Notification */}
+        {updateAvailable && (
+          <div className={`absolute bottom-6 right-6 p-4 rounded-xl shadow-2xl border flex flex-col gap-3 z-[200] max-w-sm animate-in slide-in-from-bottom-5 fade-in duration-300 ${isDark ? 'bg-[#2a2a2a] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0">
+                  <Monitor className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm">{t('update.bannerTitle', { version: updateAvailable.version })}</h4>
+                  <p className="text-xs opacity-70 mt-0.5">{t('update.bannerDesc')}</p>
+                </div>
+              </div>
+              <button onClick={() => setUpdateAvailable(null)} className="opacity-50 hover:opacity-100 p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setUpdateAvailable(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>{t('update.bannerDismiss')}</button>
+              <button onClick={() => { window.electronAPI.openExternal(updateAvailable.url); setUpdateAvailable(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">{t('update.bannerDownload')}</button>
+            </div>
+          </div>
+        )}
+        <HostKeyVerificationModal />
+
+        {/* Global Command Center Overlay */}
+        <AnimatePresence>
+          {isCommandCenterOpen && (
+            <CommandCenter
+              isOpen={isCommandCenterOpen}
+              onClose={() => setIsCommandCenterOpen(false)}
+              onConnect={handleConnect}
+              onOpenPlugin={handleOpenPlugin}
+              onDeleteSession={(s) => deleteSession({ stopPropagation: () => {} } as any, s)}
+              isDark={isDark}
+              appConfig={appConfig}
+              sessions={sessions}
+            />
+          )}
+        </AnimatePresence>
+        <ToastProvider />
+      </div>
+    </MoovierFocusProvider>
   );
 }
 

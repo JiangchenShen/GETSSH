@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../packages/moovier/src";
 
 /* --- Reddit Sans (Latin & Digits) --- */
 @font-face {

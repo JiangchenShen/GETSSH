@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  /* =========================================
+     MOOVIER SUPREME - Absolute Grid & Material
+     ========================================= */
+  --grid-unit: 4px;
+
+  /* --- 复合阴影 (Composite Shadows) --- */
+  /* L1: 近场轮廓阴影 (Near-field contour shadow) - 提供清晰物理边界 */
+  --shadow-moovier-l1: 0 4px 12px rgba(0, 0, 0, 0.30);
+  
+  /* L2: 中场悬浮阴影 (Mid-field hover shadow) - 提供深度与漂浮感 */
+  --shadow-moovier-l2: 0 16px 32px rgba(0, 0, 0, 0.15);
+  
+  /* L3: 远场漫射阴影 (Far-field diffuse shadow) - 模拟环境光遮蔽 (AO) */
+  --shadow-moovier-l3: 0 32px 64px rgba(0, 0, 0, 0.08);
+
+  /* 终极复合阴影变量 */
+  --shadow-moovier-composite: var(--shadow-moovier-l1), var(--shadow-moovier-l2), var(--shadow-moovier-l3);
+
+  /* --- 轮廓光与内发光 (Rim Light & Inner Glow) --- */
+  /* 左上 45° 虚拟光源。包含顶边高光、左侧次高光、右侧背光描边，底边无光交由阴影处理 */
+  --shadow-moovier-rim-default: inset 0 1px 0 rgba(255, 255, 255, 0.15), inset 1px 0 0 rgba(255, 255, 255, 0.08), inset -1px 0 0 rgba(0, 0, 0, 0.12);
+  
+  /* Hover 状态轮廓光：整体强度 ×1.5 */
+  --shadow-moovier-rim-hover: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 1px 0 0 rgba(255, 255, 255, 0.12), inset -1px 0 0 rgba(0, 0, 0, 0.12);
+  
+  /* 拖拽状态轮廓光：整体强度 ×2.0 (模拟玻璃拾起受光面积变大) */
+  --shadow-moovier-rim-drag: inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 1px 0 0 rgba(255, 255, 255, 0.16), inset -1px 0 0 rgba(0, 0, 0, 0.12);
+}

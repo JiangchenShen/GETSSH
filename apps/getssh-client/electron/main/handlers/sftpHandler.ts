@@ -5,7 +5,26 @@ import { join } from 'node:path';
 import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
 
-let SftpDownloader, SftpUploader;
+interface ISftpDownloader {
+  append(chunk: Buffer): void;
+  finish(): { safePath: string; dirPath?: string };
+}
+
+interface ISftpDownloaderConstructor {
+  create(maxSize: number, targetPath?: string): ISftpDownloader;
+}
+
+interface ISftpUploader {
+  readChunk(size: number): Buffer | null;
+  close(): void;
+}
+
+interface ISftpUploaderConstructor {
+  open(filePath: string): ISftpUploader;
+}
+
+let SftpDownloader: ISftpDownloaderConstructor;
+let SftpUploader: ISftpUploaderConstructor;
 try {
   const addonPath = join(__dirname, '../../rust-core/sftp-stream');
   const native = require(addonPath);
@@ -13,8 +32,8 @@ try {
   SftpUploader = native.SftpUploader;
 } catch (e) {
   if (process.env.VITEST) {
-    SftpDownloader = class { static create() { return new SftpDownloader(); } start() {} abort() {} append() {} finish() { return { safePath: '/tmp/getssh_sync_12345_file.txt', dirPath: '/tmp/getssh_sync_12345' }; } };
-    SftpUploader = class { static create() { return new SftpUploader(); } static open() { return new SftpUploader(); } start() {} abort() {} append() {} finish() {} readChunk() { return null; } close() {} };
+    SftpDownloader = class MockSftpDownloader { static create() { return new MockSftpDownloader(); } start() {} abort() {} append() {} finish() { return { safePath: '/tmp/getssh_sync_12345_file.txt', dirPath: '/tmp/getssh_sync_12345' }; } } as any;
+    SftpUploader = class MockSftpUploader { static create() { return new MockSftpUploader(); } static open() { return new MockSftpUploader(); } start() {} abort() {} append() {} finish() {} readChunk() { return null; } close() {} } as any;
   } else {
     throw e;
   }
