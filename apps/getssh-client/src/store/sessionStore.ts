@@ -97,6 +97,7 @@ interface SessionStore {
   setShowSFTP: (show: boolean) => void;
   setSftpWidth: (w: number) => void;
   updateSessionOsType: (host: string, username: string, osType: OsType) => void;
+  switchWorkspace: (targetWorkspaceId: string) => Promise<boolean>;
 
   // ⚡ NEXUS CORE SYNC RECEIVERS (Dumb terminal architecture)
   syncNexusTree: (tabId: string, tree: PaneNode | null) => void;
@@ -174,6 +175,47 @@ export const useSessionStore = create<SessionStore>()(
       const s = state.sessions.find(s => s.host === host && s.username === username);
       if (s) s.osType = osType;
     }),
+    switchWorkspace: async (targetWorkspaceId: string) => {
+      set({ connecting: true, error: null });
+      try {
+        const currentTabs = get().tabs;
+        const disconnectPromises = currentTabs.map(async (tab) => {
+          return window.electronAPI.nexusCloseTab(tab.id);
+        });
+        await Promise.all(disconnectPromises);
+
+        const mainSwitchResult = await window.electronAPI.workspace.switchWorkspace(targetWorkspaceId);
+        if (!mainSwitchResult.success) {
+          throw new Error(mainSwitchResult.error || 'Failed to switch workspace');
+        }
+
+        if (window.electronAPI.ai && window.electronAPI.ai.clearHistory) {
+           await window.electronAPI.ai.clearHistory(targetWorkspaceId);
+        }
+        
+        set({
+          tabs: [],
+          activeTabId: null,
+          activePaneId: null,
+          selectedSessionIndex: null,
+        });
+
+        if ((mainSwitchResult as any).profiles) {
+           set({ sessions: (mainSwitchResult as any).profiles });
+        }
+
+        if (mainSwitchResult.visualMeta?.themeColor) {
+          document.documentElement.style.setProperty('--primary-color', mainSwitchResult.visualMeta.themeColor);
+        }
+        
+        return true;
+      } catch (err: any) {
+        set({ error: err.message || 'Workspace switch failed' });
+        return false;
+      } finally {
+        set({ connecting: false });
+      }
+    },
 
     // ⚡ NEXUS RECEIVERS
     syncNexusTree: (tabId, tree) => set(state => {

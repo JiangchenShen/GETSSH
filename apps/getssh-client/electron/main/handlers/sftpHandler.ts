@@ -26,7 +26,7 @@ interface ISftpUploaderConstructor {
 let SftpDownloader: ISftpDownloaderConstructor;
 let SftpUploader: ISftpUploaderConstructor;
 try {
-  const addonPath = join(__dirname, '../../rust-core/sftp-stream');
+  const addonPath = join(app.getAppPath(), '../../rust-core/sftp-stream');
   const native = require(addonPath);
   SftpDownloader = native.SftpDownloader;
   SftpUploader = native.SftpUploader;

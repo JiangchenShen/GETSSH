@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
+import { MoovierTile } from '@moovier/core';
 
 interface ConnectFormProps {
   session: any;
@@ -136,241 +137,250 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }} className="p-8 w-full max-w-md space-y-6 flex flex-col bg-transparent border-0">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">{t('welcome.quickConnect')}</h2>
-        <p className="opacity-50 text-sm">{t('welcome.subtitle')}</p>
-      </div>
-      {error && <div className="bg-red-500/20 border border-red-500/50 text-red-600 dark:text-red-200 p-3 rounded-none text-sm">{error}</div>}
-
-      {/* ── Protocol Switcher ── */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs font-medium opacity-70 uppercase tracking-wider font-mono">
-              {t('connect.protocol.label')}
-            </label>
-            {/* Info icon — click to open modal */}
-            <button
-              type="button"
-              onClick={() => setShowProtocolHelp(true)}
-              className="cursor-pointer opacity-40 hover:opacity-90 transition-opacity focus:outline-none"
-              title={t('connect.protocol.label') as string}
-            >
-              <Info size={13} />
-            </button>
-          </div>
+    <form onSubmit={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }} className="w-full h-full flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-300">
+      
+      {/* Top Header Section */}
+      <div className="flex items-center justify-between px-2">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight mb-1">{t('welcome.quickConnect')}</h2>
+          <p className="opacity-50 text-sm">{t('welcome.subtitle')}</p>
+        </div>
+        <div className="flex gap-3">
           <button
             type="button"
-            onClick={unlockAuto}
-            title={t('connect.protocol.autoDesc') as string}
-            className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono font-bold rounded-none border transition-all ${
-              !isAutoLocked
-                ? 'border-primary/60 text-primary bg-primary/10'
-                : 'border-white/10 text-white/30 bg-transparent opacity-50 hover:opacity-100'
-            }`}
+            onClick={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }}
+            className={`px-6 py-3 font-bold uppercase tracking-wider text-xs rounded-[24px] transition-colors border ${isDark ? 'border-white/10 hover:bg-white/10 text-white/70' : 'border-black/10 hover:bg-black/5 text-black/70'}`}
           >
-            <span className={`inline-block w-1.5 h-1.5 rounded-full bg-primary ${!isAutoLocked && autoFlash ? 'animate-ping' : !isAutoLocked ? 'animate-pulse' : ''}`} />
-            ⚡ {t('connect.protocol.auto')}
+            {t('connect.saveAndConnect')}
+          </button>
+          <button
+            disabled={connecting}
+            type="submit"
+            className="px-8 py-3 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold uppercase tracking-wider text-xs rounded-[24px] transition-all shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5"
+          >
+            {connecting ? t('connect.connecting') : t('connect.connectBtn')}
           </button>
         </div>
-
-        <div className={`flex border ${isDark ? 'border-white/15' : 'border-black/15'} rounded-none overflow-hidden`}>
-          {tabs.map((p, i) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => handleManualProtocol(p.value)}
-              className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider transition-colors font-mono ${
-                !isAutoLocked && displayProtocol === 'auto'
-                  ? (isDark ? 'bg-white/5 text-white/40 hover:bg-white/10' : 'bg-black/5 text-black/40 hover:bg-black/10')
-                  : displayProtocol === p.value
-                    ? 'bg-primary text-white'
-                    : isDark
-                      ? 'bg-white/5 text-white/50 hover:bg-white/10'
-                      : 'bg-black/5 text-black/50 hover:bg-black/10'
-              } ${i > 0 ? (isDark ? 'border-l border-white/10' : 'border-l border-black/10') : ''}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Status line */}
-        <p className={`mt-1.5 text-xs font-mono transition-all ${!isAutoLocked ? 'text-primary/70' : 'opacity-40'}`}>
-          {!isAutoLocked
-            ? t('connect.protocol.autoDesc')
-            : isLocal
-              ? t('connect.protocol.localHint')
-              : isTelnet
-                ? t('connect.protocol.telnetHint')
-                : null}
-        </p>
       </div>
 
-      <div className="space-y-4">
-        {/* Alias — always visible */}
-        <div>
-          <label className="block text-xs font-medium opacity-70 mb-1">
-            {t('connect.alias')} <span className="opacity-50 ml-1">({t('connect.optional')})</span>
-          </label>
-          <input
-            value={localSession.alias || localSession.name || ''}
-            onChange={(e) => handleUpdate({ alias: e.target.value })}
-            onKeyDown={preventImeSubmit}
-            type="text"
-            placeholder={t('connect.placeholder.alias') as string}
-            className={inputCls}
-          />
-        </div>
+      {error && <div className="bg-red-500/20 border border-red-500/50 text-red-600 dark:text-red-200 p-4 rounded-[24px] text-sm font-medium">{error}</div>}
 
-        {/* Host + Port — hidden for local */}
-        {!isLocal && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-2">
-              <label className="block text-xs font-medium opacity-70 mb-1">
-                {!isAutoLocked
-                  ? <span>{t('connect.host')} <span className="text-primary/60 text-xs">/ URI</span></span>
-                  : t('connect.host')}
+      {/* Grid Content Area */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 flex-1">
+        
+        {/* Card 1: Protocol & Identity */}
+        <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 flex flex-col gap-6 rounded-[32px]">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <span className="font-mono font-bold text-lg">1</span>
+            </div>
+            <h3 className="text-lg font-bold">Identity</h3>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-60 mb-2">
+              {t('connect.alias')} <span className="opacity-50 lowercase tracking-normal">({t('connect.optional')})</span>
+            </label>
+            <input
+              value={localSession.alias || localSession.name || ''}
+              onChange={(e) => handleUpdate({ alias: e.target.value })}
+              onKeyDown={preventImeSubmit}
+              type="text"
+              placeholder={t('connect.placeholder.alias') as string}
+              className={inputCls + ' rounded-xl'}
+            />
+          </div>
+
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider opacity-60">
+                  {t('connect.protocol.label')}
+                </label>
+                <button type="button" onClick={() => setShowProtocolHelp(true)} className="opacity-40 hover:opacity-100 transition-opacity"><Info size={14} /></button>
+              </div>
+              <button
+                type="button"
+                onClick={unlockAuto}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider rounded-lg border transition-all ${
+                  !isAutoLocked ? 'border-primary/60 text-primary bg-primary/10' : 'border-white/10 text-white/40 bg-transparent hover:opacity-100'
+                }`}
+              >
+                <span className={`inline-block w-1.5 h-1.5 rounded-full bg-primary ${!isAutoLocked && autoFlash ? 'animate-ping' : !isAutoLocked ? 'animate-pulse' : ''}`} />
+                {t('connect.protocol.auto')}
+              </button>
+            </div>
+
+            <div className={`flex border ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-black/5'} rounded-xl p-1`}>
+              {tabs.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => handleManualProtocol(p.value)}
+                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                    !isAutoLocked && displayProtocol === 'auto'
+                      ? 'text-current opacity-40 hover:opacity-80'
+                      : displayProtocol === p.value
+                        ? 'bg-primary text-white shadow-md'
+                        : 'text-current opacity-40 hover:opacity-80'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            
+            <p className={`mt-3 text-xs leading-relaxed transition-all ${!isAutoLocked ? 'text-primary/70' : 'opacity-40'}`}>
+              {!isAutoLocked ? t('connect.protocol.autoDesc') : isLocal ? t('connect.protocol.localHint') : isTelnet ? t('connect.protocol.telnetHint') : null}
+            </p>
+          </div>
+        </MoovierTile>
+
+        {/* Card 2: Network / Host */}
+        <MoovierTile exemptFromFocus dragLevel="fixed" className={`p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''}`}>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+              <span className="font-mono font-bold text-lg">2</span>
+            </div>
+            <h3 className="text-lg font-bold">Network</h3>
+          </div>
+
+          <div className="flex-1 flex flex-col gap-6">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider opacity-60 mb-2">
+                {!isAutoLocked ? <span>{t('connect.host')} <span className="text-primary/60 text-[10px] ml-1">/ SMART URI</span></span> : t('connect.host')}
               </label>
               <input
-                required
+                required={!isLocal}
                 value={localSession.host || ''}
                 onChange={(e) => handleHostChange(e.target.value)}
                 onKeyDown={preventImeSubmit}
                 type="text"
-                placeholder={
-                  !isAutoLocked
-                    ? 'host / ssh://user@host / telnet://...'
-                    : t('connect.placeholder.host') as string
-                }
-                className={inputCls}
+                placeholder={!isAutoLocked ? 'ssh://user@host:22' : t('connect.placeholder.host') as string}
+                className={inputCls + ' rounded-xl h-12 text-base'}
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.port')}</label>
-              <input
-                required
-                value={localSession.port ?? (isTelnet ? 23 : (appConfig.defaultPort ?? 22))}
-                onChange={(e) => handleUpdate({ port: parseInt(e.target.value) || (isTelnet ? 23 : 22) })}
-                onKeyDown={preventImeSubmit}
-                type="number"
-                min="1"
-                max="65535"
-                className={inputCls}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Username — hidden for local */}
-        {!isLocal && (
-          <div>
-            <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.username')}</label>
-            <input
-              required
-              value={localSession.username || ''}
-              onChange={(e) => handleUpdate({ username: e.target.value })}
-              onKeyDown={preventImeSubmit}
-              type="text"
-              className={inputCls}
-            />
-          </div>
-        )}
-
-        {/* Auth block */}
-        {!isLocal && (
-          <div>
-            <label className="block text-xs font-medium opacity-70 mb-1">{t('connect.authMethod')}</label>
-            {!isTelnet && (
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <button
-                  type="button"
-                  onClick={() => handleUpdate({ authType: 'password' })}
-                  className={`py-1.5 text-xs rounded-none transition-colors border ${
-                    (!localSession.authType || localSession.authType === 'password')
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'
-                  }`}
-                >
-                  {t('connect.password')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdate({ authType: 'key' })}
-                  className={`py-1.5 text-xs rounded-none transition-colors border ${
-                    localSession.authType === 'key'
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : isDark ? 'border-white/10 hover:bg-white/5' : 'border-black/10 hover:bg-black/5'
-                  }`}
-                >
-                  {t('connect.privateKey')}
-                </button>
-              </div>
-            )}
-            {(isTelnet || !localSession.authType || localSession.authType === 'password') ? (
-              <input
-                value={localSession.password || ''}
-                onChange={(e) => handleUpdate({ password: e.target.value })}
-                onKeyDown={preventImeSubmit}
-                type="password"
-                placeholder={t('connect.password') as string}
-                className={inputCls}
-              />
-            ) : (
-              <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider opacity-60 mb-2">{t('connect.port')}</label>
                 <input
-                  value={localSession.privateKeyPath || ''}
-                  onChange={(e) => handleUpdate({ privateKeyPath: e.target.value })}
+                  required={!isLocal}
+                  value={localSession.port ?? (isTelnet ? 23 : (appConfig.defaultPort ?? 22))}
+                  onChange={(e) => handleUpdate({ port: parseInt(e.target.value) || (isTelnet ? 23 : 22) })}
+                  onKeyDown={preventImeSubmit}
+                  type="number"
+                  min="1"
+                  max="65535"
+                  className={inputCls + ' rounded-xl'}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider opacity-60 mb-2">{t('connect.username')}</label>
+                <input
+                  required={!isLocal}
+                  value={localSession.username || ''}
+                  onChange={(e) => handleUpdate({ username: e.target.value })}
                   onKeyDown={preventImeSubmit}
                   type="text"
-                  placeholder="~/.ssh/id_rsa"
-                  className={`flex-1 ${inputCls}`}
+                  className={inputCls + ' rounded-xl'}
                 />
-                <button
-                  type="button"
-                  onClick={async () => { const p = await window.electronAPI.selectFile(); if (p) handleUpdate({ privateKeyPath: p }); }}
-                  className={`px-3 border rounded-none text-sm shrink-0 ${isDark ? 'bg-white/10 hover:bg-white/20 border-white/10' : 'bg-white hover:bg-black/10 border-black/10'}`}
-                >
-                  {t('common.selectFile')}
-                </button>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Keep-Alive */}
-        {!isLocal && (
-          <label className="flex items-center gap-3 cursor-pointer pt-2">
-            <input
-              type="checkbox"
-              checked={localSession.useKeepAlive !== false}
-              onChange={(e) => handleUpdate({ useKeepAlive: e.target.checked })}
-              className="w-4 h-4 accent-primary rounded"
-            />
-            <div>
-              <div className="text-sm font-medium">{t('connect.keepAlive')}</div>
-              <div className="text-xs opacity-50">{t('connect.keepAliveDesc')}</div>
             </div>
-          </label>
-        )}
-      </div>
+          </div>
+        </MoovierTile>
 
-      <div className="flex gap-3 mt-4">
-        <button
-          disabled={connecting}
-          type="submit"
-          className="flex-1 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-medium py-3 rounded-none transition-colors shadow-lg shadow-primary/20"
-        >
-          {connecting ? t('connect.connecting') : t('connect.connectBtn')}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.preventDefault(); onConnect({ ...localSession, protocol: effectiveProtocol }); }}
-          className={`px-4 py-3 font-medium border rounded-none transition-colors ${isDark ? 'border-white/20 hover:bg-white/10' : 'border-black/20 hover:bg-black/5'}`}
-        >
-          {t('connect.saveAndConnect')}
-        </button>
+        {/* Card 3: Authentication & Advanced */}
+        <MoovierTile exemptFromFocus dragLevel="fixed" className={`p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''}`}>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0">
+              <span className="font-mono font-bold text-lg">3</span>
+            </div>
+            <h3 className="text-lg font-bold">Security</h3>
+          </div>
+
+          <div className="flex-1 flex flex-col gap-6">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider opacity-60">{t('connect.authMethod')}</label>
+              </div>
+              
+              {!isTelnet && (
+                <div className={`flex border ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-black/5'} rounded-xl p-1 mb-4`}>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ authType: 'password' })}
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                      (!localSession.authType || localSession.authType === 'password')
+                        ? 'bg-white/10 text-current shadow-sm'
+                        : 'text-current opacity-40 hover:opacity-80'
+                    }`}
+                  >
+                    {t('connect.password')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ authType: 'key' })}
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                      localSession.authType === 'key'
+                        ? 'bg-white/10 text-current shadow-sm'
+                        : 'text-current opacity-40 hover:opacity-80'
+                    }`}
+                  >
+                    {t('connect.privateKey')}
+                  </button>
+                </div>
+              )}
+
+              {(isTelnet || !localSession.authType || localSession.authType === 'password') ? (
+                <input
+                  value={localSession.password || ''}
+                  onChange={(e) => handleUpdate({ password: e.target.value })}
+                  onKeyDown={preventImeSubmit}
+                  type="password"
+                  placeholder={t('connect.password') as string}
+                  className={inputCls + ' rounded-xl'}
+                />
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    value={localSession.privateKeyPath || ''}
+                    onChange={(e) => handleUpdate({ privateKeyPath: e.target.value })}
+                    onKeyDown={preventImeSubmit}
+                    type="text"
+                    placeholder="~/.ssh/id_rsa"
+                    className={`flex-1 ${inputCls} rounded-xl`}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => { const p = await window.electronAPI.selectFile(); if (p) handleUpdate({ privateKeyPath: p }); }}
+                    className={`px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors border ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10' : 'bg-black/5 hover:bg-black/10 border-black/10'}`}
+                  >
+                    {t('common.selectFile')}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto">
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <div className="relative flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={localSession.useKeepAlive !== false}
+                    onChange={(e) => handleUpdate({ useKeepAlive: e.target.checked })}
+                    className="w-5 h-5 appearance-none rounded-md border-2 border-white/20 checked:border-primary checked:bg-primary transition-all cursor-pointer"
+                  />
+                  {localSession.useKeepAlive !== false && <span className="absolute text-white pointer-events-none text-xs font-bold">✓</span>}
+                </div>
+                <div>
+                  <div className="text-sm font-bold">{t('connect.keepAlive')}</div>
+                  <div className="text-[10px] opacity-50 uppercase tracking-wider mt-0.5">{t('connect.keepAliveDesc')}</div>
+                </div>
+              </label>
+            </div>
+          </div>
+        </MoovierTile>
+
       </div>
 
       {/* ── Protocol Help Modal ── */}

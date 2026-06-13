@@ -31,6 +31,11 @@ export interface AppConfig {
   terminalTheme: string;
   customThemes?: Record<string, any>;
   sftpDownloadPath?: string;
+  aiEndpoint?: string;
+  aiApiKey?: string;
+  aiProvider?: 'openai' | 'gemini' | 'ollama' | 'custom';
+  aiModel?: string;
+  aiEnabled?: boolean;
 }
 
 const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
@@ -66,6 +71,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   rightClickBehavior: isWindows ? 'paste' : 'menu',
   customThemes: {},
   sftpDownloadPath: '',
+  aiEndpoint: '',
+  aiApiKey: '',
+  aiProvider: 'openai',
+  aiModel: 'gpt-3.5-turbo',
+  aiEnabled: true,
 };
 
 export interface ToastMsg {
@@ -86,6 +96,15 @@ interface AppStore {
   isCommandCenterOpen: boolean;
   isSidebarCollapsed: boolean;
   toasts: ToastMsg[];
+  isAiCenterOpen: boolean;
+  isAiSettingsOpen: boolean;
+  isHoveringAiCenter: boolean;
+  isWorkspaceCenterOpen: boolean;
+  isSecureCenterOpen: boolean;
+  isPluginCenterOpen: boolean;
+  currentTerminalSelection: string;
+  workspaces: string[];
+  activeWorkspaceId: string;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -96,6 +115,15 @@ interface AppStore {
   setIsFullScreen: (full: boolean) => void;
   setIsCommandCenterOpen: (open: boolean) => void;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
+  setIsAiCenterOpen: (open: boolean) => void;
+  setIsAiSettingsOpen: (open: boolean) => void;
+  setIsHoveringAiCenter: (hovering: boolean) => void;
+  setIsWorkspaceCenterOpen: (open: boolean) => void;
+  setIsSecureCenterOpen: (open: boolean) => void;
+  setIsPluginCenterOpen: (open: boolean) => void;
+  setCurrentTerminalSelection: (text: string) => void;
+  setWorkspaces: (ws: string[]) => void;
+  setActiveWorkspaceId: (id: string) => void;
   addToast: (message: string, type?: ToastMsg['type']) => void;
   removeToast: (id: string) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
@@ -121,6 +149,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isCommandCenterOpen: false,
   isSidebarCollapsed: false,
   toasts: [],
+  isAiCenterOpen: false,
+  isAiSettingsOpen: false,
+  isHoveringAiCenter: false,
+  isWorkspaceCenterOpen: false,
+  isSecureCenterOpen: false,
+  isPluginCenterOpen: false,
+  currentTerminalSelection: '',
+  workspaces: [],
+  activeWorkspaceId: 'default',
   isPolluted: false,
   watchdogStatus: null,
 
@@ -135,6 +172,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setIsFullScreen: (full) => set({ isFullScreen: full }),
   setIsCommandCenterOpen: (open) => set({ isCommandCenterOpen: open }),
   setIsSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
+  setIsAiCenterOpen: (open) => set({ isAiCenterOpen: open }),
+  setIsAiSettingsOpen: (open) => set({ isAiSettingsOpen: open }),
+  setIsHoveringAiCenter: (hovering) => set({ isHoveringAiCenter: hovering }),
+  setIsWorkspaceCenterOpen: (open) => set({ isWorkspaceCenterOpen: open }),
+  setIsSecureCenterOpen: (open) => set({ isSecureCenterOpen: open }),
+  setIsPluginCenterOpen: (open) => set({ isPluginCenterOpen: open }),
+  setCurrentTerminalSelection: (text) => set({ currentTerminalSelection: text }),
+  setWorkspaces: (ws) => set({ workspaces: ws }),
+  setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
   
   addToast: (message, type = 'info') => {
     const id = crypto.randomUUID();
@@ -221,8 +267,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   syncConfigEffects: () => {
     const { appConfig, systemIsDark } = get();
     
-    const { initScript, proxyHost, proxyPort, ...safeConfig } = appConfig;
-    const sensitive = { initScript, proxyHost, proxyPort };
+    const { initScript, proxyHost, proxyPort, aiEndpoint, aiApiKey, aiProvider, aiModel, ...safeConfig } = appConfig;
+    const sensitive = { initScript, proxyHost, proxyPort, aiEndpoint, aiApiKey, aiProvider, aiModel };
     
     localStorage.setItem('appConfig', JSON.stringify(safeConfig));
     

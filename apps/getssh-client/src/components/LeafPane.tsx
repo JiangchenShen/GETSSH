@@ -131,7 +131,14 @@ export const LeafPane: React.FC<{
             title="Tear Off (Native Window)"
             onClick={(e) => { 
               e.stopPropagation(); 
-              window.electronAPI.nexusTearOff(node.paneId).catch(console.error);
+              window.electronAPI.windowTearArm();
+              window.electronAPI.windowTearExecute({
+                 screenX: window.screenX + 50,
+                 screenY: window.screenY + 50,
+                 width: Math.max(800, window.outerWidth * 0.8),
+                 height: Math.max(600, window.outerHeight * 0.8),
+                 paneId: node.paneId
+              });
             }}
             className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
           >

@@ -144,12 +144,20 @@ function createWindow() {
 
 import { SecureCenter } from './security/SecureCenter'
 import { nexusBridge } from './nexus/nexusBridge'
+import { HollowWindowPool } from './windowManager'
+import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   
   // Init GETSSH Secure Center (RASP)
   SecureCenter.getInstance().start(() => win);
+  
+  // Ignite Workspace 2.0 Engine (Generate sandbox if empty)
+  await bootstrapAppWorkspace();
+  
+  // Init Hollow Window Pool for multi-window tear-off
+  HollowWindowPool.getInstance().init();
   
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
@@ -299,7 +307,7 @@ app.whenReady().then(async () => {
   nexusBridge.setupIpcHandlers();
   createWindow();
   if (win) {
-    nexusBridge.setupStateBroadcaster(win.webContents);
+    nexusBridge.setupStateBroadcaster();
   }
 })
 

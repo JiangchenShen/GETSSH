@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion, HTMLMotionProps } from 'framer-motion';
 import { SPRING_FLUID, SPRING_SNAPPY, SPRING_GENTLE, CINEMATIC_OUT } from '../utils/physics';
 import { useMoovierFocus } from '../context/MoovierFocusContext';
+import { useMoovierLight } from '../context/MoovierLightContext';
+import { calculateRimLight } from '../utils/lightPhysics';
 
 export interface MoovierTileProps extends HTMLMotionProps<"div"> {
   children?: React.ReactNode;
@@ -52,6 +54,30 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
   // 150ms 脉冲动画状态 (对焦咔哒感)
   const [isPulsing, setIsPulsing] = useState(false);
 
+  // --- 动态光影追踪 (Light Tracking Engine) ---
+  const { lightPosition } = useMoovierLight();
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  
+  // Interaction Multiplier State
+  const [interactionState, setInteractionState] = useState<'default'|'hover'|'drag'>('default');
+
+  // Update rect periodically or on resize/scroll to ensure accurate light tracking
+  useEffect(() => {
+    if (tileRef.current) {
+      setRect(tileRef.current.getBoundingClientRect());
+    }
+    const updateRect = () => {
+      if (tileRef.current) setRect(tileRef.current.getBoundingClientRect());
+    };
+    window.addEventListener('resize', updateRect);
+    window.addEventListener('scroll', updateRect, { passive: true });
+    return () => {
+      window.removeEventListener('resize', updateRect);
+      window.removeEventListener('scroll', updateRect);
+    };
+  }, []);
+
   useEffect(() => {
     if (isFocused && activeTileId !== null) {
       // 获取焦点 150ms 后触发短促脉冲
@@ -61,12 +87,49 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
     }
   }, [isFocused, activeTileId]);
 
+  // 计算当前的动态边缘光 (Rim Light)
+  let currentMultiplier = 1.0;
+  if (isPulsing) currentMultiplier = 1.5;
+  if (interactionState === 'hover') currentMultiplier = 1.5;
+  if (interactionState === 'drag') currentMultiplier = 2.0;
+
+  const dynamicRimLight = calculateRimLight({
+    rect,
+    lightPosition,
+    interactionMultiplier: currentMultiplier
+  });
+  
+  // Combine with composite shadow
+  const dynamicBoxShadow = `var(--shadow-moovier-composite), ${dynamicRimLight}`;
+
   return (
     <motion.div
       {...props}
+      ref={tileRef}
+      data-moovier-tile-id={tileId}
       onPointerDown={(e) => {
         if (tileId) setActiveTileId(tileId);
         if (onPointerDown) onPointerDown(e);
+      }}
+      onFocusCapture={(e) => {
+        if (tileId) setActiveTileId(tileId);
+        if (props.onFocusCapture) props.onFocusCapture(e);
+      }}
+      onHoverStart={(e, info) => {
+        setInteractionState('hover');
+        if (props.onHoverStart) props.onHoverStart(e, info);
+      }}
+      onHoverEnd={(e, info) => {
+        setInteractionState('default');
+        if (props.onHoverEnd) props.onHoverEnd(e, info);
+      }}
+      onDragStart={(e, info) => {
+        setInteractionState('drag');
+        if (props.onDragStart) props.onDragStart(e, info);
+      }}
+      onDragEnd={(e, info) => {
+        setInteractionState('hover'); // Usually still hovering after drag ends
+        if (props.onDragEnd) props.onDragEnd(e, info);
       }}
       className={`
         relative overflow-hidden
@@ -91,22 +154,18 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
         opacity: isBlurTarget ? 0.8 : 1,
         // Z轴微缩，产生后退感
         scale: isBlurTarget ? 0.992 : 1,
-        // 光效调度：如果在脉冲期，调用强轮廓光
-        boxShadow: isPulsing 
-          ? "var(--shadow-moovier-composite), var(--shadow-moovier-rim-hover)" 
-          : "var(--shadow-moovier-composite), var(--shadow-moovier-rim-default)"
+        // 光效调度：使用动态光影追踪引擎
+        boxShadow: dynamicBoxShadow
       }}
       transition={{
         filter: { duration: 0.3, ease: CINEMATIC_OUT },
         opacity: { duration: 0.3, ease: CINEMATIC_OUT },
-        boxShadow: isPulsing ? { duration: 0.05 } : { duration: 0.3, ease: CINEMATIC_OUT },
+        boxShadow: isPulsing ? { duration: 0.05 } : { duration: 0.15 }, // Faster transition for dynamic light tracking
         scale: SPRING_GENTLE
       }}
 
       // --- 物理级交互动效 (Hover & Tap) ---
       whileHover={{
-        y: -2,
-        boxShadow: "var(--shadow-moovier-composite), var(--shadow-moovier-rim-hover)",
         transition: SPRING_FLUID
       }}
       whileTap={{
@@ -125,8 +184,6 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
       }}
       whileDrag={{
         scale: 1.02,
-        y: -4,
-        boxShadow: "var(--shadow-moovier-composite), var(--shadow-moovier-rim-drag)",
         cursor: "grabbing",
       }}
     >

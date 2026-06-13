@@ -6,6 +6,8 @@ import { registerProfileHandlers } from './profileHandler';
 import { registerSystemHandlers } from './systemHandler';
 import { registerThemeHandlers } from './themeHandler';
 import { registerWindowHandlers } from './windowHandler';
+import { registerAiHandlers } from './aiHandler';
+import { setupWorkspaceHandlers } from './workspaceHandler';
 
 /**
  * Central Registry for all Main Process IPC handlers.
@@ -30,4 +32,10 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
   
   // Window/Native OS Interactions
   registerWindowHandlers(ipcMain, getWin);
+
+  // AI Center Security Gateway
+  registerAiHandlers(ipcMain, getWin);
+
+  // Workspace 2.0 Engine
+  setupWorkspaceHandlers();
 }

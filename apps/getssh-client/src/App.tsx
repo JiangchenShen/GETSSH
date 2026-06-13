@@ -1,24 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal as TerminalComponent } from './components/Terminal';
 import { MoovierTile, MoovierFocusProvider } from '@moovier/core';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { Monitor, X } from 'lucide-react';
 import { SFTPManager } from './components/SFTPManager';
 import { useAppStore } from './store/appStore';
-import { Tab, PaneNode, PaneLeaf, useSessionStore, isSSHConfig, SessionProfile } from './store/sessionStore';
+import { PaneNode, PaneLeaf, useSessionStore, SessionProfile } from './store/sessionStore';
 import { usePanelStore } from './store/panelStore';
-import { SplitPane } from './components/SplitPane';
 import { usePluginStore } from './store/pluginStore';
-import { TabBar } from './components/TabBar';
-import { EmptyState } from './components/EmptyState';
 import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence } from 'framer-motion';
 import { CommandCenter } from './components/CommandCenter';
-import { Sidebar } from './components/Sidebar';
+import { GlobalWorkspaceBar } from './components/GlobalWorkspaceBar';
+import { ContextSidebar } from './components/ContextSidebar';
+import { NexusDashboard } from './components/NexusDashboard';
+import { WorkspaceCenter } from './components/WorkspaceCenter';
+import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
+import { AiCenter } from './components/AiCenter';
+import { AiSettingsModal } from './components/AiSettingsModal';
+import { PluginCenterModal } from './components/PluginCenterModal';
+import { UnlockVaultModal } from './components/UnlockVaultModal';
+import { SecureCenter } from './components/SecureCenter';
 import { CryptoModal } from './components/CryptoModal';
 import { HostKeyVerificationModal } from './components/HostKeyVerificationModal';
 import { ConnectForm } from './components/ConnectForm';
+import { TabBar } from './components/TabBar';
 import { SettingsView } from './components/SettingsView';
 import { SecurityOverlay } from './components/SecurityOverlay';
 import { ToastProvider } from './components/ToastProvider';
@@ -26,15 +32,29 @@ import { ShieldAlert } from 'lucide-react';
 // Types re-exported from stores for backward compatibility
 export type { AppConfig } from './store/appStore';
 import { useCryptoStore } from './store/cryptoStore';
+import { useWorkspaceStore } from './store/workspaceStore';
 
 function App() {
   const { t, i18n } = useTranslation();
+
+  // Workspace Store
+  const isSwitching = useWorkspaceStore(state => state.isSwitching);
+  const initWorkspaces = useWorkspaceStore(state => state.initWorkspaces);
+  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
+  const setIsVaultLocked = (locked: boolean) => useWorkspaceStore.setState({ isVaultLocked: locked });
+
+  useEffect(() => {
+    initWorkspaces();
+  }, [initWorkspaces]);
 
   // Session Store (Zustand)
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
   const tabs = useSessionStore(state => state.tabs);
   const setTabs = useSessionStore(state => state.setTabs);
+  const closeTab = useSessionStore(state => state.closeTab);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const activePaneId = useSessionStore(state => state.activePaneId);
@@ -45,7 +65,7 @@ function App() {
   const setConnecting = useSessionStore(state => state.setConnecting);
   const error = useSessionStore(state => state.error);
   const setError = useSessionStore(state => state.setError);
-  const closeTab = useSessionStore(state => state.closeTab);
+
   const updateSessionOsType = useSessionStore(state => state.updateSessionOsType);
 
   // App Store (Zustand)
@@ -63,20 +83,27 @@ function App() {
   const isPolluted = useAppStore(state => state.isPolluted);
   const isCommandCenterOpen = useAppStore(state => state.isCommandCenterOpen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
+  const isWorkspaceCenterOpen = useAppStore(state => state.isWorkspaceCenterOpen);
+  const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
+  const isSecureCenterOpen = useAppStore(state => state.isSecureCenterOpen);
+  
+  
+  const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
   
   // Settings modal state
-  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit'>('Appearance');
+  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'>('Appearance');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'Security'|'Plugins'|'About'|'Audit' = 'Appearance', toggle: boolean = false) => {
+  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'|string = 'Appearance', toggle: boolean = false) => {
      if (isSettingsOpen && toggle) {
          setIsSettingsOpen(false);
          return;
      }
-     setSettingsActiveTab(tab);
+     setSettingsActiveTab(tab as any);
      setIsSettingsOpen(true);
   };
 
   const hasAutoStarted = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Crypto State
   const cryptoMode = useCryptoStore(state => state.cryptoMode);
@@ -367,6 +394,8 @@ function App() {
        setMasterPassword(pwd);
        setSessions(decrypted);
        setCryptoMode('idle');
+       // Atomic unlock: simultaneously clear vault lock so sidebar never shows stale data
+       useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
        return true;
      } catch (e) {
        return false;
@@ -519,21 +548,7 @@ function App() {
     syncProfiles(updated);
   };
   
-  const handleReconnect = async (tab: Tab) => {
-    if (!isSSHConfig(tab.config)) return;
-    const res = await window.electronAPI.sshConnect(tab.config);
-    if (res.success && res.sessionId) {
-      // For legacy tabs without paneTree, also rebuild a leaf
-      const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: tab.config };
-      setTabs(tabs.map(t => t.id === tab.id ? { ...t, id: res.sessionId as string, paneTree } : t));
-      if (activeTabId === tab.id) {
-        setActiveTabId(res.sessionId as string);
-        setActivePaneId(res.sessionId as string);
-      }
-    } else {
-      console.error('Reconnect failed', res.error);
-    }
-  };
+  
 
   // ── Split Pane Logic ──────────────────────────────────────────────────
 
@@ -573,15 +588,14 @@ function App() {
         }}
         className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
         
-        {/* Background Stress Test / Ambient Layer */}
-        <div className="absolute inset-0 pointer-events-none z-[-1]">
-           <div className="absolute inset-0 bg-gradient-to-br from-[#0a0014] via-[#110022] to-[#001122] opacity-80" />
-           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full mix-blend-screen filter blur-[100px] opacity-20 animate-pulse" />
-           <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-blue-500 rounded-full mix-blend-screen filter blur-[120px] opacity-10" />
-        </div>
+
 
         <SecurityOverlay />
-        {(cryptoMode === 'locked' || cryptoMode === 'setup') && (
+        {(cryptoMode === 'locked' || cryptoMode === 'setup') && (() => {
+          const _activeWs = workspaces.find(w => w.id === activeWorkspaceId);
+          const _wsName = _activeWs?.name || activeWorkspaceId;
+          const _wsColor = _activeWs?.themeColor;
+          return (
           <CryptoModal 
             mode={cryptoMode} 
             isDark={isDark} 
@@ -604,13 +618,21 @@ function App() {
                     setMasterPassword(bioRes.masterPassword);
                     setSessions(decrypted);
                     setCryptoMode('idle');
+                    useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
                  } catch (e) {
                     console.warn('Biometric unlock failed on manual retry:', e);
                  }
                }
             }}
+            workspaceName={cryptoMode === 'locked' ? _wsName : undefined}
+            themeColor={cryptoMode === 'locked' ? _wsColor : undefined}
+            onSwitchWorkspace={cryptoMode === 'locked' && activeWorkspaceId !== 'default' ? async () => {
+              setCryptoMode('idle');
+              await switchWorkspace('default');
+            } : undefined}
           />
-        )}
+          );
+        })()}
         {!isFullScreen && (
           <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
              {isPolluted && (
@@ -622,33 +644,48 @@ function App() {
         )}
 
         {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
-        <div className={`flex w-full h-full p-4 gap-4 z-10 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')}`}>
+        <div 
+          className="w-full h-full"
+          style={{
+             display: 'grid',
+             gridTemplateColumns: `64px ${isSidebarCollapsed ? '0px' : '240px'} 1fr`,
+             gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`, /* Titlebar | Workspace | Statusbar */
+             zIndex: 'var(--z-app-chrome)',
+             backgroundColor: isDark 
+               ? `hsla(var(--glass-tint-color-dark), var(--glass-tint-opacity))`
+               : `hsla(var(--glass-tint-color-light), var(--glass-tint-opacity))`
+          }}
+        >
           
-          {/* Left Sidebar Tile */}
-          <MoovierTile 
-            exemptFromFocus 
-            dragLevel="fixed" 
-            className="w-64 h-full shrink-0 flex flex-col z-20"
-            style={{ borderRadius: '16px' }}
-          >
-            <Sidebar 
-              onAddSession={() => {
-                const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
-                const updated = [...sessions, newSession];
-                syncProfiles(updated);
-                setSelectedSessionIndex(updated.length - 1);
-                setActiveTabId(null);
-              }}
-              onToggleAutoStart={toggleAutoStart}
-              onDeleteSession={deleteSession}
-              openSettingsTab={openSettingsTab}
-              settingsActiveTab={settingsActiveTab}
-              isSettingsOpen={isSettingsOpen}
-            />
-          </MoovierTile>
+          {/* L3 Global Sidebar (Ultra-narrow) */}
+          <div style={{ gridColumn: '1 / 2', gridRow: '1 / 4', zIndex: 'var(--z-region-material)' }}>
+            <GlobalWorkspaceBar openSettingsTab={openSettingsTab} />
+          </div>
 
-          {/* Main Content Area */}
-          <div className="flex-1 flex flex-col gap-4 overflow-hidden relative">
+          {/* Left Sidebar (L4 Region Material, Edge-Flush) */}
+          <div style={{ gridColumn: '2 / 3', gridRow: '1 / 4', zIndex: 'var(--z-region-material)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <MoovierTile 
+              exemptFromFocus 
+              dragLevel="fixed" 
+              className="w-full h-full shrink-0 flex flex-col rounded-none"
+              style={{ borderRadius: 0 }}
+            >
+              <ContextSidebar 
+                onAddSession={() => {
+                  const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
+                  const updated = [...sessions, newSession];
+                  syncProfiles(updated);
+                  setSelectedSessionIndex(updated.length - 1);
+                  setActiveTabId(null);
+                }}
+                onToggleAutoStart={toggleAutoStart}
+                onDeleteSession={deleteSession}
+              />
+            </MoovierTile>
+          </div>
+
+          {/* Main Content Area (L5 Content) */}
+          <div style={{ gridColumn: '3 / 4', gridRow: '2 / 3', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
             
             {/* Connect Form - Visible when a session is selected */}
             <div
@@ -656,7 +693,7 @@ function App() {
               style={{ display: (selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings') ? 'flex' : 'none' }}
             >
               {selectedSessionIndex !== null && sessions[selectedSessionIndex] && (
-                <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 rounded-2xl w-full max-w-2xl">
+                <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 rounded-none w-full max-w-5xl border-none shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4)]" style={{ borderRadius: 0 }}>
                   <ConnectForm
                     session={sessions[selectedSessionIndex]}
                     index={selectedSessionIndex}
@@ -675,54 +712,57 @@ function App() {
               )}
             </div>
 
-            {/* Terminal Dashboard Grid */}
-            <div
-              className="flex-1 grid gap-4 relative"
-              style={{ 
-                 display: (selectedSessionIndex === null && activeTabId !== 'settings' && tabs.length > 0) ? 'grid' : 'none',
-                 gridTemplateColumns: tabs.filter(t => t.id !== 'settings').length === 1 ? '1fr' : 'repeat(auto-fit, minmax(450px, 1fr))',
-                 gridAutoRows: '1fr'
-              }}
+            {/* Tab Bar and Active Terminal */}
+            <div 
+              className="flex-1 flex flex-col min-h-0 overflow-hidden"
+              style={{ display: (selectedSessionIndex === null && activeTabId !== 'settings' && tabs.length > 0) ? 'flex' : 'none' }}
             >
-              {tabs.filter(t => t.id !== 'settings').map((tab, idx) => (
-                 <MoovierTile
+              <TabBar
+                tabs={tabs}
+                activeTabId={activeTabId}
+                isDark={isDark}
+                onSelectTab={setActiveTabId}
+                onCloseTab={closeTab}
+              />
+              <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden bg-black">
+                {tabs.map((tab) => (
+                  <div 
                     key={tab.id}
-                    tileId={tab.id}
-                    dragLevel="local"
-                    dragConstraints={containerRef as React.RefObject<Element>}
-                    className="flex flex-col overflow-hidden"
-                    style={{ borderRadius: '16px' }}
-                    onPointerDown={() => setActiveTabId(tab.id)}
-                 >
-                    {/* Custom Draggable Header */}
-                    <div className="h-10 bg-white/5 border-b border-white/5 flex items-center px-4 shrink-0 transition-colors hover:bg-white/10" style={{ WebkitAppRegion: 'drag' } as any}>
-                       <div className="w-2 h-2 rounded-full bg-green-400 mr-3 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.5)]"></div>
-                       <div className="text-xs font-bold tracking-wider uppercase text-white/70 truncate">{tab.title}</div>
-                       <div className="flex-1" />
-                       <button onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }} className="w-5 h-5 rounded hover:bg-white/10 flex items-center justify-center transition-colors" style={{ WebkitAppRegion: 'no-drag' } as any}>
-                          <X className="w-3 h-3 text-white/50" />
-                       </button>
-                    </div>
-                    {/* Terminal Content */}
-                    <div className="flex-1 relative" style={{ WebkitAppRegion: 'no-drag' } as any}>
-                      {tab.paneTree ? (
-                        <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={true} onSplit={splitPane} />
-                      ) : (
-                        <TerminalComponent sessionId={tab.id} onDisconnected={() => closeTab(tab.id)} onReconnect={() => handleReconnect(tab)} config={appConfig} isDark={isDark} isActive={true} />
-                      )}
-                    </div>
-                 </MoovierTile>
-              ))}
+                    className="absolute inset-0 flex flex-col"
+                    style={{ display: activeTabId === tab.id ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
+                  >
+                    {tab.paneTree ? (
+                      <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={splitPane} />
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-white/50">
+                        Waiting for Nexus Core...
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Empty State */}
-            <div style={{ display: (selectedSessionIndex === null && !activeTabId && tabs.length === 0) ? 'flex' : 'none' }} className="flex-1 items-center justify-center">
-              <MoovierTile dragLevel="fixed" className="w-full max-w-3xl h-96 p-8 flex items-center justify-center rounded-3xl" exemptFromFocus>
-                <EmptyState onConnect={handleConnect} />
-              </MoovierTile>
+            {/* Empty State / Nexus Dashboard */}
+            <div style={{ display: (selectedSessionIndex === null && !activeTabId && tabs.length === 0) ? 'flex' : 'none' }} className="flex-1 items-center justify-center overflow-y-auto overflow-x-hidden p-4">
+              <NexusDashboard openSettingsTab={openSettingsTab} />
             </div>
           </div>
         </div>
+
+        {/* Overlay Modals for Secure Center & Workspace Center */}
+        {isSecureCenterOpen && <SecureCenter 
+          masterPassword={masterPassword}
+          setMasterPassword={setMasterPassword}
+          encryptionDisabled={encryptionDisabled}
+          setEncryptionDisabled={setEncryptionDisabled}
+        />}
+        {isWorkspaceCenterOpen && <WorkspaceCenter />}
+        <CreateWorkspaceModal />
+        {isAiCenterOpen && <AiCenter />}
+        <AiSettingsModal />
+        <PluginCenterModal />
+        <UnlockVaultModal />
 
         {/* Floating Settings Modal */}
         {isSettingsOpen && (
@@ -734,7 +774,7 @@ function App() {
                  }
                }}>
             <div 
-              className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-[32px] overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
+              className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-none overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
                 isDark ? 'bg-[#050505]/80 border-white/10' : 'bg-[#ffffff]/80 border-black/10'
               } backdrop-blur-3xl animate-in zoom-in-95 duration-300`}
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -761,10 +801,7 @@ function App() {
                  <SettingsView 
                    settingsActiveTab={settingsActiveTab}
                    setSettingsActiveTab={setSettingsActiveTab}
-                   masterPassword={masterPassword}
-                   setMasterPassword={setMasterPassword}
                    encryptionDisabled={encryptionDisabled}
-                   setEncryptionDisabled={setEncryptionDisabled}
                  />
               </div>
             </div>

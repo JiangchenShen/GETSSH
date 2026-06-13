@@ -13,7 +13,7 @@ export interface IStorageEngine {
 }
 
 class JsonStorageEngine implements IStorageEngine {
-  private basePath: string;
+  private basePath!: string;
   private storeCache: Map<string, Record<string, any>> = new Map();
   private writeQueue: Set<string> = new Set();
   private writeTimeout: NodeJS.Timeout | null = null;
@@ -21,10 +21,14 @@ class JsonStorageEngine implements IStorageEngine {
   private quotaMap: Map<string, number> = new Map();
 
   constructor() {
-    this.basePath = path.join(app.getPath('userData'), 'plugin_data');
+    // Path will be dynamically resolved in init()
   }
 
   public async init() {
+    const { getActiveWorkspaceId } = require('../handlers/workspaceHandler');
+    const wsId = getActiveWorkspaceId();
+    this.basePath = path.join(app.getPath('home'), '.getssh', 'workspaces', wsId, 'plugins');
+
     if (!fs.existsSync(this.basePath)) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }
@@ -140,12 +144,11 @@ class JsonStorageEngine implements IStorageEngine {
 }
 
 class SqliteStorageEngine implements IStorageEngine {
-  private basePath: string;
+  private basePath!: string;
   private rustKv: any;
 
   constructor() {
-    this.basePath = path.join(app.getPath('userData'), 'plugin_data');
-    const addonPath = path.join(__dirname, '../../rust-core/getssh-kv');
+    const addonPath = path.join(app.getAppPath(), '../../rust-core/getssh-kv');
     try {
       this.rustKv = require(addonPath);
     } catch (e) {
@@ -166,6 +169,10 @@ class SqliteStorageEngine implements IStorageEngine {
 
 
   public async init() {
+    const { getActiveWorkspaceId } = require('../handlers/workspaceHandler');
+    const wsId = getActiveWorkspaceId();
+    this.basePath = path.join(app.getPath('home'), '.getssh', 'workspaces', wsId, 'plugins');
+
     if (!fs.existsSync(this.basePath)) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }

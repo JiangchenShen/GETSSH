@@ -1,4 +1,4 @@
-import { ipcMain, WebContents } from 'electron';
+import { app, ipcMain, WebContents, BrowserWindow } from 'electron';
 import { EventEmitter } from 'events';
 import { join } from 'path';
 
@@ -7,7 +7,7 @@ let nexusCore: any = null;
 
 try {
   // Safely attempt to load the N-API module
-  nexusCore = require(join(__dirname, '../../rust-core/nexus-core'));
+  nexusCore = require(join(app.getAppPath(), '../../rust-core/nexus-core'));
   console.log('[Nexus Bridge] Successfully linked Rust nexus-core binary');
 } catch (e: any) {
   console.warn('[Nexus Bridge] Nexus Core native module not found. Building is required via Cargo.', e.message);
@@ -21,7 +21,7 @@ class NexusBridge extends EventEmitter {
    /**
    * Setup state broadcaster from Rust to Electron Renderer
    */
-  public setupStateBroadcaster(webContents: Electron.WebContents) {
+  public setupStateBroadcaster() {
     if (nexusCore && typeof nexusCore.registerSyncTreeCallback === 'function') {
       nexusCore.registerSyncTreeCallback((...args: any[]) => {
         console.log('[Nexus Bridge] registerSyncTreeCallback invoked with args:', args);
@@ -29,14 +29,51 @@ class NexusBridge extends EventEmitter {
           // If first arg is null (err), the second arg is the treeJson
           const treeJson = args.length > 1 ? args[1] : args[0];
           const payload = JSON.parse(treeJson);
-          if (!webContents.isDestroyed()) {
-            webContents.send('nexus:sync-tree', payload.tabId, payload.tree);
+          
+          // Broadcast to all active windows
+          const windows = BrowserWindow.getAllWindows();
+          for (const win of windows) {
+             if (!win.webContents.isDestroyed()) {
+               win.webContents.send('nexus:sync-tree', payload.tabId, payload.tree);
+             }
           }
         } catch(e) {
           console.error('[Nexus Bridge] Failed to parse sync-tree JSON:', e);
         }
       });
     }
+  }
+
+  public async requestTearOff(paneId: string): Promise<any> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    return await nexusCore.requestTearOff(paneId);
+  }
+
+  public async bootstrapWorkspace(workspaceId: string): Promise<string> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    if (typeof nexusCore.bootstrapWorkspace !== 'function') {
+      console.warn('[Nexus Bridge] bootstrapWorkspace is not available in current nexusCore build');
+      return 'skip';
+    }
+    return await nexusCore.bootstrapWorkspace(workspaceId);
+  }
+
+  public async applyWorkspaceNetwork(workspaceId: string): Promise<string> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    if (typeof nexusCore.applyWorkspaceNetwork !== 'function') {
+      console.warn('[Nexus Bridge] applyWorkspaceNetwork is not available in current nexusCore build');
+      return 'skip';
+    }
+    return await nexusCore.applyWorkspaceNetwork(workspaceId);
+  }
+
+  public async clearNetworkTopology(): Promise<string> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    if (typeof nexusCore.clearNetworkTopology !== 'function') {
+      console.warn('[Nexus Bridge] clearNetworkTopology is not available in current nexusCore build');
+      return 'skip';
+    }
+    return await nexusCore.clearNetworkTopology();
   }
 
   /**
@@ -80,7 +117,7 @@ class NexusBridge extends EventEmitter {
 
     // 5. REGISTER INITIAL TAB
     ipcMain.handle('nexus:register-tab', async (event, payload: { tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string }) => {
-      if (typeof nexusCore.registerTab === 'function') {
+      if (nexusCore && typeof nexusCore.registerTab === 'function') {
         return await nexusCore.registerTab(payload.tabId, payload.rootPaneId, payload.sessionId, payload.paneType, payload.configJson, payload.title);
       }
       return null;

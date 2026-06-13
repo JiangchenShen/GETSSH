@@ -6,7 +6,7 @@ import type { BackendConfig } from '../../../src/types/ipc';
 
 let sysprobe: any = null;
 try {
-  const addonPath = join(__dirname, '../../rust-core/getssh-sysprobe');
+  const addonPath = join(app.getAppPath(), '../../rust-core/getssh-sysprobe');
   if (fs.existsSync(addonPath)) {
      sysprobe = require(addonPath);
   } else {

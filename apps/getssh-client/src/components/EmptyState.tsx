@@ -4,6 +4,7 @@ import { useTranslation, Trans } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { motion } from 'framer-motion';
+import { MoovierTile } from '@moovier/core';
 
 interface EmptyStateProps {
   onConnect?: (session: any) => void;
@@ -67,78 +68,95 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
   };
 
   return (
-    <div className="w-full h-full flex flex-1 items-center justify-center bg-transparent overflow-hidden">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="flex flex-col items-center gap-8 text-center max-w-2xl w-full px-6"
-      >
-        {/* Clock & Date */}
-        <div className="flex flex-col items-center gap-2 cursor-default select-none mb-4">
-          <motion.div 
-            className={`text-7xl md:text-8xl font-black tracking-tighter ${isDark ? 'text-transparent bg-clip-text bg-gradient-to-br from-white via-white/90 to-white/20' : 'text-transparent bg-clip-text bg-gradient-to-br from-slate-900 via-slate-800 to-slate-400'}`}
-          >
-            {timeString}
-          </motion.div>
-          <div className={`text-lg md:text-xl font-medium tracking-wide uppercase ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-            {dateString}
-          </div>
-        </div>
-
-        {/* Greeting */}
-        <div className="space-y-3">
-          <h3 className={`text-2xl font-bold flex items-center justify-center gap-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            <Sparkles className="w-6 h-6 text-purple-500" />
-            {t(`welcome.greeting.${getGreetingKey()}`)}
-          </h3>
-          <p className={`text-base max-w-md mx-auto leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-              <Trans i18nKey="welcome.openCommandCenter">
-                Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-xs mx-1">Option+Space</kbd> to wake up the Command Center
-              </Trans>
-          </p>
-        </div>
-        {/* Quick Access */}
-        {displaySessions.length > 0 && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="w-full max-w-3xl mt-6"
-          >
-            <div className="flex items-center gap-2 mb-4 px-2 opacity-50">
-              <Server className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-widest">{t('welcome.quickAccess', 'Quick Access')}</span>
+    <div className="w-full max-w-5xl mx-auto flex flex-col justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+      
+      {/* Top Row: Clock, Greeting and Hint */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        {/* Left: Clock & Greeting Tile */}
+        <MoovierTile exemptFromFocus dragLevel="fixed" className="col-span-1 md:col-span-2 p-10 flex flex-col justify-center rounded-[32px] min-h-[240px]">
+          <div className="flex flex-col items-start gap-4 cursor-default select-none">
+            <h3 className={`text-2xl font-bold flex items-center gap-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <Sparkles className="w-6 h-6 text-primary" />
+              {t(`welcome.greeting.${getGreetingKey()}`)}
+            </h3>
+            <div className="flex flex-col items-start">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, ease: "easeOut" }}
+                className={`text-6xl md:text-8xl font-black tracking-tighter ${isDark ? 'text-transparent bg-clip-text bg-gradient-to-br from-white via-white/90 to-white/20' : 'text-transparent bg-clip-text bg-gradient-to-br from-slate-900 via-slate-800 to-slate-400'}`}
+              >
+                {timeString}
+              </motion.div>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className={`mt-2 text-lg md:text-xl font-medium tracking-wide uppercase ${isDark ? 'text-white/40' : 'text-slate-500'}`}
+              >
+                {dateString}
+              </motion.div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {displaySessions.map((session, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => handleSessionClick(session)}
-                  className={`group relative flex flex-col p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
-                    isDark 
-                      ? 'border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20' 
-                      : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-sm hover:shadow-md'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-110 ${
-                    isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
-                  }`}>
-                    {session.protocol === 'local' ? <Terminal className="w-4 h-4" /> : <Server className="w-4 h-4" />}
-                  </div>
-                  <div className={`text-sm font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          </div>
+        </MoovierTile>
+
+        {/* Right: Hint Tile */}
+        <MoovierTile exemptFromFocus dragLevel="fixed" className="col-span-1 p-8 flex flex-col items-center justify-center text-center rounded-[32px] min-h-[240px] group">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.1, type: "spring", stiffness: 200, damping: 20 }}
+            className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 shadow-inner flex items-center justify-center mb-6 group-hover:bg-white/10 transition-colors duration-300"
+          >
+            <div className="text-xl font-black text-primary">⌘</div>
+          </motion.div>
+          <h3 className={`text-lg font-bold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Command Center
+          </h3>
+          <p className={`text-sm leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+            <Trans i18nKey="welcome.openCommandCenter">
+              Press <kbd className="px-2 py-1 rounded-md border border-current opacity-70 font-mono text-xs mx-1 bg-background/50 shadow-sm">Ctrl+K</kbd> or <kbd className="px-2 py-1 rounded-md border border-current opacity-70 font-mono text-xs mx-1 bg-background/50 shadow-sm">⌥ Space</kbd> to wake up the Command Center
+            </Trans>
+          </p>
+        </MoovierTile>
+      </div>
+
+      {/* Bottom Row: Quick Access Tiles */}
+      {displaySessions.length > 0 && (
+        <div className="w-full">
+          <div className="flex items-center gap-2 mb-4 px-2 opacity-50">
+            <Server className="w-4 h-4" />
+            <span className="text-xs font-bold uppercase tracking-widest">{t('welcome.quickAccess', 'Quick Access')}</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            {displaySessions.map((session, idx) => (
+              <MoovierTile
+                key={idx}
+                exemptFromFocus
+                dragLevel="fixed"
+                onClick={() => handleSessionClick(session)}
+                className="group relative flex flex-col p-6 rounded-[32px] cursor-pointer h-[200px]"
+              >
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-auto transition-transform duration-300 group-hover:scale-110 ${
+                  isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {session.protocol === 'local' ? <Terminal className="w-6 h-6" /> : <Server className="w-6 h-6" />}
+                </div>
+                <div>
+                  <div className={`text-xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     {session.alias || session.host}
                   </div>
-                  <div className={`text-xs mt-1 truncate flex items-center gap-1 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                    {session.authType === 'key' && <KeyRound className="w-3 h-3" />}
+                  <div className={`text-sm mt-2 truncate flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                    {session.authType === 'key' && <KeyRound className="w-3.5 h-3.5" />}
                     <span>{session.protocol === 'local' ? 'Local Terminal' : `${session.username}@${session.host}`}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </motion.div>
+              </MoovierTile>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

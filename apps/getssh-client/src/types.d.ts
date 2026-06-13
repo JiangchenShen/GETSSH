@@ -97,6 +97,21 @@ declare global {
       onNexusPatchLeaf: (cb: (paneId: string, updates: any) => void) => (() => void);
       onNexusSyncTree: (cb: (tabId: string, tree: any) => void) => (() => void);
       nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => Promise<any>;
+      onWindowHijackIdentity: (cb: (payload: { paneId: string }) => void) => (() => void);
+      windowTearArm: () => void;
+      windowTearExecute: (payload: { screenX: number; screenY: number; width: number; height: number; paneId: string }) => void;
+      
+      workspace: {
+        getWorkspaces: () => Promise<any[]>;
+        createWorkspace: (workspaceId: string, visualMeta?: any) => Promise<{ success: boolean; error?: string; visualMeta?: any }>;
+        switchWorkspace: (workspaceId: string) => Promise<{ success: boolean; error?: string; visualMeta?: any }>;
+      };
+      ai: {
+        invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string, provider?: string, model?: string }) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;
+        clearHistory: (workspaceId: string) => Promise<{ success: boolean }>;
+        getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => Promise<{ success: boolean; models?: string[]; error?: string }>;
+        onStreamChunk: (requestId: string, cb: (payload: { chunk: string, isDone: boolean, error?: string }) => void) => (() => void);
+      };
     };
   }
 }

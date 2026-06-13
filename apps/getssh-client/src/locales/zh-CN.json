@@ -392,6 +392,46 @@
       "escToClose": "按 ESC 关闭",
       "noParameters": "该插件没有暴露出任何可供配置的参数。",
       "saveReload": "保存并热重载"
+    },
+    "aiSettings": {
+      "title": "AI 配置中心",
+      "tabOverview": "系统总览",
+      "tabProviders": "服务商配置",
+      "tabModels": "模型选择",
+      "overviewTitle": "AI 核心总览",
+      "overviewDesc": "配置您的智能终端助手与工作区 AI 助理底座。",
+      "activeProvider": "当前底层驱动",
+      "activeModel": "当前激活模型",
+      "providersTitle": "服务商与 BYOK",
+      "providersDesc": "选择底层大模型服务商并绑定您自己的 API 密钥。我们完全支持通过 Ollama 驱动本地离线模型。",
+      "providerArchitecture": "提供商架构网络",
+      "providerOpenAI": "OpenAI (原生直连)",
+      "providerGemini": "Google Gemini",
+      "providerOllama": "Ollama (完全离线)",
+      "providerCustom": "自定义节点 (兼容 OpenAI 规范)",
+      "endpointUrl": "API 接口地址 (Endpoint URL)",
+      "apiKey": "API 密钥 (BYOK)",
+      "apiKeyDesc": "您的密钥受到高强度本地物理加密，永远不会被上传至我们的遥测服务器。",
+      "modelsTitle": "模型流调度",
+      "modelsDesc": "手动指定大模型，或尝试直接从服务商节点处拉取可用的模型清单。",
+      "fetchModelsBtn": "自动侦测并拉取模型",
+      "fetchError": "从该接口拉取模型列表失败，请检查网络或密钥配置是否正确。",
+      "availableModels": "节点可用模型",
+      "manualOverride": "强制指定标识",
+      "manualOverrideDesc": "如果自动侦测失败或您的节点不支持模型列表查询，请在此处强制指定。"
+    },
+    "workspaceCenter": {
+      "activeWorkspaces": "运行中的工作区",
+      "forgeWorkspace": "锻造新工作区",
+      "createTitle": "创建工作区",
+      "workspaceIdLabel": "工作区 ID",
+      "workspaceIdPlaceholder": "如: production-omega",
+      "identityColorLabel": "识别色",
+      "vaultEncryptionLabel": "保管库加密",
+      "vaultEncryptedDesc": "您的资产将被 AES-256-GCM 物理级强加密。若丢失母钥，工作区将永远崩塌。",
+      "vaultPlaintextDesc": "资产将以明文或系统默认 keychain 存储。访问极快但安全性极低。",
+      "masterKeyPlaceholder": "输入加密母钥",
+      "initializeWorkspaceBtn": "初始化工作区"
     }
   }
 }

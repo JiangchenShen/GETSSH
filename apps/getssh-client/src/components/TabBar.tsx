@@ -1,9 +1,9 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import type { PaneConfig } from '../store/sessionStore';
+import type { PaneConfig, Tab } from '../store/sessionStore';
 
 interface TabBarProps {
-  tabs: { id: string; title: string; config: PaneConfig }[];
+  tabs: Tab[];
   activeTabId: string | null;
   isDark: boolean;
   onSelectTab: (tabId: string) => void;
@@ -26,6 +26,26 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
+            draggable
+            onDragStart={(e) => {
+              window.electronAPI.windowTearArm();
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', tab.id);
+            }}
+            onDragEnd={(e) => {
+              if (e.clientY > 60 || e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth) {
+                const rootPaneId = tab.paneTree?.paneId;
+                if (rootPaneId) {
+                  window.electronAPI.windowTearExecute({
+                    screenX: e.screenX,
+                    screenY: e.screenY,
+                    width: Math.max(800, window.outerWidth * 0.8),
+                    height: Math.max(600, window.outerHeight * 0.8),
+                    paneId: rootPaneId
+                  });
+                }
+              }
+            }}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
             className={`group flex items-center justify-between gap-3 px-4 py-1.5 border-r cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
               ? (isDark ? 'bg-obsidian-panel border-neutral-900 text-neutral-100' : 'bg-white border-black/10 text-black relative z-10')

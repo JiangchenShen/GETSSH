@@ -5,7 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
-import { AppConfig } from '../store/appStore';
+import { AppConfig, useAppStore } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
 import { usePluginStore } from '../store/pluginStore';
 import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
@@ -381,22 +381,25 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     return () => clearTimeout(timer);
   }, [isActive, sessionId]);
 
-  // Handle Copy On Select as an intercept
+  // Handle Copy On Select and AI Center context extraction
   useEffect(() => {
     if (!xtermRef.current) return;
     const term = xtermRef.current;
-    let disp: any;
     
-    if (config.copyOnSelect) {
-       disp = term.onSelectionChange(() => {
-         const selection = term.getSelection();
-         if (selection) {
-           navigator.clipboard.writeText(selection).catch((err) => {
-             console.error('Failed to write to clipboard:', err);
-           });
-         }
-       });
-    }
+    const disp = term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      
+      // 1. 终端选区嗅探 (xterm.js Selection Hook for AI Center)
+      // Always sync the selection to the appStore for AI context extraction
+      useAppStore.getState().setCurrentTerminalSelection(selection || '');
+
+      // 2. Auto copy on select (if enabled)
+      if (config.copyOnSelect && selection) {
+        navigator.clipboard.writeText(selection).catch((err) => {
+          console.error('Failed to write to clipboard:', err);
+        });
+      }
+    });
     
     return () => {
         if (disp) disp.dispose();
@@ -458,9 +461,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   const containerBgColor = currentTheme.background;
 
   return (
-    <div className="w-full h-full p-0 flex flex-col flex-1 relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
+    <div className="w-full h-full p-0 flex flex-col flex-1 min-h-0 overflow-hidden relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
       {visualBell && <div className="absolute inset-0 bg-white/20 pointer-events-none z-50 transition-opacity duration-200" />}
-      <div className="flex-1 w-full h-full text-white" ref={terminalRef} style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}></div>
+      <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white" ref={terminalRef} style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}></div>
       {isDisconnected && (
         <div
           ref={overlayRef}

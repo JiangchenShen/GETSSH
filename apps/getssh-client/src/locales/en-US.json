@@ -390,6 +390,46 @@
       "escToClose": "ESC TO CLOSE",
       "noParameters": "This plugin does not expose any configurable parameters.",
       "saveReload": "Save & Reload"
+    },
+    "aiSettings": {
+      "title": "AI CENTER",
+      "tabOverview": "OVERVIEW",
+      "tabProviders": "PROVIDERS",
+      "tabModels": "MODELS",
+      "overviewTitle": "AI System Overview",
+      "overviewDesc": "Configure your intelligent co-pilot and AI-driven workspace assistants.",
+      "activeProvider": "Active Provider",
+      "activeModel": "Active Model",
+      "providersTitle": "Providers & BYOK",
+      "providersDesc": "Select an API provider and bring your own keys (BYOK). GETSSH supports local offline models via Ollama.",
+      "providerArchitecture": "Provider Architecture",
+      "providerOpenAI": "OpenAI (Native)",
+      "providerGemini": "Google Gemini",
+      "providerOllama": "Ollama (Local Offline)",
+      "providerCustom": "Custom (OpenAI-Compatible)",
+      "endpointUrl": "Endpoint URL",
+      "apiKey": "API Key (BYOK)",
+      "apiKeyDesc": "Keys are encrypted locally and never transmitted to GETSSH telemetry servers.",
+      "modelsTitle": "Model Selection",
+      "modelsDesc": "Choose a model or fetch available ones directly from your provider.",
+      "fetchModelsBtn": "Fetch Models",
+      "fetchError": "Failed to fetch models from the provider endpoint.",
+      "availableModels": "Available Models",
+      "manualOverride": "Manual Override",
+      "manualOverrideDesc": "If auto-fetching fails, manually specify the model string here."
+    },
+    "workspaceCenter": {
+      "activeWorkspaces": "Active Workspaces",
+      "forgeWorkspace": "Forge Workspace",
+      "createTitle": "CREATE WORKSPACE",
+      "workspaceIdLabel": "Workspace ID",
+      "workspaceIdPlaceholder": "e.g. production-omega",
+      "identityColorLabel": "Identity Color",
+      "vaultEncryptionLabel": "Vault Encryption",
+      "vaultEncryptedDesc": "Your assets will be physically locked using AES-256-GCM. If you lose the master key, the workspace is unrecoverable.",
+      "vaultPlaintextDesc": "Assets will be saved in plaintext or default OS keychain. Faster access, lower security.",
+      "masterKeyPlaceholder": "Enter Vault Master Key",
+      "initializeWorkspaceBtn": "INITIALIZE WORKSPACE"
     }
   }
 }

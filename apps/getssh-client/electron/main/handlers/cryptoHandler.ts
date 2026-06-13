@@ -12,18 +12,29 @@ export function setVaultForTest(mockVault: any) {
 export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
   if (!vault) {
     try {
-      const addonPath = join(app.getAppPath(), 'rust-core/getssh-vault');
+      const addonPath = join(app.getAppPath(), '../../rust-core/getssh-vault');
       vault = require(addonPath);
     } catch (e) {
       console.error("Failed to load getssh-vault native module:", e);
     }
   }
-  const PROFILES_ENC_PATH = join(app.getPath('userData'), 'profiles.enc');
-  const PROFILES_PLAIN_PATH = join(app.getPath('userData'), 'profiles.json');
-  const PROFILES_KEY_PATH = join(app.getPath('userData'), 'profiles.key');
+  // Dynamic path resolution helper
+  const getWorkspacePaths = () => {
+    const { getActiveWorkspaceId } = require('./workspaceHandler');
+    const wsId = getActiveWorkspaceId();
+    const wsPath = join(app.getPath('home'), '.getssh', 'workspaces', wsId);
+    return {
+      wsId,
+      wsPath,
+      PROFILES_ENC_PATH: join(wsPath, 'profiles.enc'),
+      PROFILES_PLAIN_PATH: join(wsPath, 'profiles.json'),
+      PROFILES_KEY_PATH: join(wsPath, 'vault.key'),
+    };
+  };
 
   ipcMain.handle('prompt-biometric-unlock', async () => {
     try {
+      const { PROFILES_KEY_PATH } = getWorkspacePaths();
       if (!fs.existsSync(PROFILES_KEY_PATH)) return { success: false, reason: 'no_key' };
       
       if (process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
@@ -48,12 +59,14 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   ipcMain.handle('check-profiles', () => {
+    const { PROFILES_ENC_PATH, PROFILES_PLAIN_PATH } = getWorkspacePaths();
     if (fs.existsSync(PROFILES_ENC_PATH)) return 'encrypted';
     if (fs.existsSync(PROFILES_PLAIN_PATH)) return 'plain';
     return 'none';
   });
 
   ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
+    const { PROFILES_ENC_PATH, PROFILES_PLAIN_PATH } = getWorkspacePaths();
     if (!masterPassword) {
       try {
         const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
@@ -116,6 +129,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
+    const { PROFILES_ENC_PATH, PROFILES_PLAIN_PATH, PROFILES_KEY_PATH } = getWorkspacePaths();
     const tmpPath = join(app.getPath('userData'), `profiles_${crypto.randomUUID()}.tmp`);
     
     if (!masterPassword) {
@@ -159,6 +173,19 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       throw new Error('Encryption failed');
     } finally {
       if (masterPasswordBuffer) masterPasswordBuffer.fill(0);
+    }
+    
+    // Update workspace_meta.json to reflect encryption state
+    try {
+      const metaPath = join(getWorkspacePaths().wsPath, 'workspace_meta.json');
+      let meta = { themeColor: '#1e293b', hasPassword: !!masterPassword };
+      if (fs.existsSync(metaPath)) {
+        meta = { ...meta, ...JSON.parse(await fs.promises.readFile(metaPath, 'utf8')) };
+        meta.hasPassword = !!masterPassword;
+      }
+      await fs.promises.writeFile(metaPath, JSON.stringify(meta));
+    } catch (err) {
+      console.error('Failed to update workspace meta:', err);
     }
     
     // Save master password for biometric unlock

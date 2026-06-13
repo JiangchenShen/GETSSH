@@ -18,7 +18,7 @@ export default defineConfig({
           build: {
             minify: true,
             rollupOptions: {
-              external: ['ssh2', 'node-pty', /rust-core/],
+              external: ['ssh2', 'node-pty', '@lancedb/lancedb', /@lancedb\/.*/, /rust-core/],
             },
             outDir: 'dist-electron/main',
           },

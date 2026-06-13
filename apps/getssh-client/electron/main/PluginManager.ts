@@ -702,7 +702,7 @@ export class PluginManager {
         const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'plugin_'));
         const resolvedTempDir = path.resolve(tempDir);
 
-        const addonPath = path.join(__dirname, '../../rust-core/getssh-unarchive');
+        const addonPath = path.join(app.getAppPath(), '../../rust-core/getssh-unarchive');
         const unarchive = require(addonPath);
         
         await unarchive.extractPlugin(zipPath, resolvedTempDir);
