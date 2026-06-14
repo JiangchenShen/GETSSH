@@ -136,15 +136,19 @@
       "pwdEnabled": "🔒 SafeStorage Zero-Knowledge Encryption enabled!",
       "shieldClickToDetails": "Click to view security protection details",
       "shieldDetailsTitle": "Six Pillars Protecting Your Data Security",
-      "shieldDetailsIntro": "GETSSH implements a defense-in-depth architecture from the OS kernel level up to the application layer. The following six independent security barriers ensure that every connection, every key, and every data transfer is protected at a military-grade standard.",
-      "shieldDetailsWatchdog": "Rust Physical-Level Watchdog",
-      "shieldDetailsWatchdogDesc": "A Rust binary daemon running independently from the main process. It monitors the main process health via IPC heartbeat. If an anomaly is detected (heartbeat missed for over 5 seconds), it bypasses Node.js/V8 entirely and calls OS-level APIs directly to forcibly terminate the whole process — preventing scenarios where the JavaScript layer is hijacked and unable to self-recover.",
-      "shieldDetailsZeroize": "Memory Zeroization (Zeroize)",
-      "shieldDetailsZeroizeDesc": "All SSH passwords and private keys are forcibly overwritten with 0x00 at the physical memory level within microseconds of completing cryptographic operations, via Rust's ZeroizeOnDrop mechanism. The TypeScript layer performs a secondary wipe with buffer.fill(0) in finally blocks — sealing the window of vulnerability for memory dump attacks.",
-      "shieldDetailsCrypto": "Vault-Grade Encryption Engine (Crypto Vault)",
-      "shieldDetailsCryptoDesc": "The credential vault is powered entirely by a Rust native extension (N-API), using PBKDF2-HMAC-SHA256 (100,000 iterations) for key derivation with AES-256-GCM authenticated encryption — eliminating the plaintext residue risk inherent in Node.js's native crypto module due to V8 garbage collection.",
-      "shieldDetailsNetwork": "Zero-Copy Network Engine",
-      "shieldDetailsNetworkDesc": "The SFTP large-file transfer channel uses a Rust N-API extension to take over disk I/O directly, achieving zero-copy data buffering on the local write path — bypassing the V8 heap to completely eliminate OOM risks and GC stutter during large file transfers.",
+      "shieldDetailsIntro": "A bottom-up defense-in-depth architecture. Six independent security barriers ensure your connections, keys, and data remain absolutely secure.",
+      "shieldDetailsWatchdog": "Rust Watchdog",
+      "shieldDetailsWatchdogDesc": "An independent daemon. If the main process is unexpectedly suspended, it bypasses V8 to forcefully terminate the polluted process via OS APIs.",
+      "shieldDetailsZeroize": "Memory Zeroization",
+      "shieldDetailsZeroizeDesc": "Credentials are wiped with 0x00 at the physical memory level via Rust's Zeroize immediately after use, preventing Memory Dump attacks.",
+      "shieldDetailsCrypto": "Crypto Vault Engine",
+      "shieldDetailsCryptoDesc": "AES-256-GCM encryption powered by N-API. Combined with robust PBKDF2 key derivation, it eliminates plaintext residue risks caused by V8 GC.",
+      "shieldDetailsNetwork": "Zero-copy Network",
+      "shieldDetailsNetworkDesc": "SFTP I/O is handled directly by Rust N-API. Zero-copy buffering bypasses the V8 heap, eliminating OOM risks and GC stutters for large files.",
+      "shieldDetailsRasp": "RASP Runtime Defense",
+      "shieldDetailsRaspDesc": "Runtime Application Self-Protection blocks and alerts on unauthorized actions or dangerous commands (like rm -rf) triggered by malicious code.",
+      "shieldDetailsMemory": "Memory Scanner (macOS Only)",
+      "shieldDetailsMemoryDesc": "Uses kernel-level privileges to actively scan and detect dynamic injections (e.g. Ptrace) from other processes targeting the main process.",
       "watchdogDisabled": "Unavailable (Disabled)",
       "pollutedTitle": "System Polluted",
       "pollutedDesc": "The system has been polluted. Some security measures are disabled. Please check for abnormal processes immediately."
@@ -166,7 +170,24 @@
       "importTheme": "Import Custom Theme (.json)",
       "importSuccess": "Theme imported successfully!",
       "importFail": "Failed to parse theme. Please ensure it's a valid JSON format.",
-      "deleteTheme": "Delete Theme"
+      "deleteTheme": "Delete Theme",
+      "themeColorsTitle": "System Accent & Duo-Tone Colors",
+      "monoColor": "Monochrome (Mono)",
+      "custom": "Custom",
+      "duoTone": "Duo-Tone (Dual-Track)",
+      "colors": {
+        "cyberPurple": "Cyber Purple",
+        "geekGreen": "Geek Green",
+        "deepBlue": "Deep Blue",
+        "geekRed": "Geek Red",
+        "goldBlack": "Glory Gold & Obsidian Black",
+        "blueGray": "Neon Blue & Mecha Gray",
+        "redBlack": "Flame Red & Mist Black",
+        "greenGray": "Lime Green & Charcoal Gray",
+        "pinkPurple": "Neon Pink & Night Purple",
+        "orangeBlue": "Sunset Orange & Sky Blue",
+        "mintRed": "Mint Green & Cherry Red"
+      }
     },
     "terminal": {
       "sessionClosed": "Session Closed",
@@ -293,7 +314,8 @@
       "connect": "Connect",
       "save": "Save",
       "cancel": "Cancel",
-      "selectFile": "Browse..."
+      "selectFile": "Browse...",
+      "confirmDelete": "Are you sure you want to delete this session? This cannot be undone."
     },
     "welcome": {
       "title": "Welcome to GETSSH",
@@ -310,15 +332,58 @@
       "readyToConnect": "Ready to Connect",
       "openCommandCenter": "Press <1>Ctrl+K</1> or <3>Option+Space</3> to wake up the Command Center",
       "greeting": {
-        "midnight": "It's late, get some rest.",
-        "morning": "Good morning, a new day begins!",
-        "forenoon": "Good morning, stay focused!",
-        "noon": "Good noon, remember to have lunch.",
-        "afternoon": "Good afternoon, keep up the good work!",
-        "evening": "Good evening, enjoy your time.",
-        "lateNight": "It's getting late, take care of your eyes."
+        "midnight": [
+          "It's late. You should get some rest.",
+          "The stars are bright, but your screen is brighter. Take care of your eyes.",
+          "Debugging in the dark? Remember to take a break.",
+          "Silence all around, only the sound of your keyboard typing."
+        ],
+        "morning": [
+          "Good morning! A new day begins.",
+          "Rise and shine! May your code be bug-free today.",
+          "Early bird catches the worm. Time to build something great!",
+          "First coffee, then coding. Let's get started."
+        ],
+        "forenoon": [
+          "Good morning! Stay focused.",
+          "The day is young and full of possibilities. Code on!",
+          "Perfect time to tackle those complex algorithms.",
+          "Keep the momentum going, you're doing great!"
+        ],
+        "noon": [
+          "Good noon. Remember to eat lunch.",
+          "Time for a break! Even servers need downtime.",
+          "Grab a bite and recharge your brain.",
+          "Midday already? Time flies when you're writing elegant code."
+        ],
+        "afternoon": [
+          "Good afternoon! Keep up the good work.",
+          "The afternoon slump? Not for you! Keep pushing.",
+          "Great time for code reviews and optimizations.",
+          "Almost there. Finish strong!"
+        ],
+        "evening": [
+          "Good evening. Enjoy your time.",
+          "The sun has set, but the server never sleeps.",
+          "Time to wrap up and reflect on today's commits.",
+          "A peaceful evening is perfect for designing architectures."
+        ],
+        "lateNight": [
+          "It's getting late. Mind your eyes.",
+          "Late night coding sessions are where the magic happens.",
+          "The world sleeps, but the hacker remains awake.",
+          "Don't let the bugs bite. Try again tomorrow."
+        ]
       },
-      "quickAccess": "Quick Access"
+      "quickAccess": "Quick Access",
+      "dashboard": {
+        "commandCenterDesc": "Runbooks & Global Terminal Access",
+        "secureCenterDesc": "Watchdog & RASP Security Posture",
+        "workspaceCenterDesc": "Workspace & Asset Isolation",
+        "aiCenterDesc": "Global AI Assistant & Models",
+        "pluginCenterDesc": "3rd-Party Plugins & Sandbox Control",
+        "settingsDesc": "Appearance, Terminal & Preferences"
+      }
     },
     "sftp": {
       "title": "SFTP File Explorer",

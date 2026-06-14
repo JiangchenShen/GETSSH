@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sparkles, Server, Terminal, KeyRound } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
@@ -67,6 +67,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
     return 'lateNight';
   };
 
+  const greetingIndex = useMemo(() => Math.floor(Math.random() * 10), []);
+
   return (
     <div className="w-full max-w-5xl mx-auto flex flex-col justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
       
@@ -78,7 +80,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
           <div className="flex flex-col items-start gap-4 cursor-default select-none">
             <h3 className={`text-2xl font-bold flex items-center gap-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
               <Sparkles className="w-6 h-6 text-primary" />
-              {t(`welcome.greeting.${getGreetingKey()}`)}
+              {(() => {
+                const greetingObj = t(`welcome.greeting.${getGreetingKey()}`, { returnObjects: true });
+                return Array.isArray(greetingObj) ? greetingObj[greetingIndex % greetingObj.length] : greetingObj;
+              })()}
             </h3>
             <div className="flex flex-col items-start">
               <motion.div 

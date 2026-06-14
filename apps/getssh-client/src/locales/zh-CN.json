@@ -136,15 +136,19 @@
       "pwdEnabled": "🔒 SafeStorage 零知识加密已启动！",
       "shieldClickToDetails": "点击查看安全防护详情",
       "shieldDetailsTitle": "六大方位保护您的数据安全",
-      "shieldDetailsIntro": "GETSSH 采用从操作系统底层到应用层的纵深防御体系，通过以下六道独立的安全屏障，确保您的每一条连接、每一个密钥与每一次数据传输都处于军工级别的保护之下。",
+      "shieldDetailsIntro": "GETSSH 采用自底向上的纵深防御体系，通过六道独立安全屏障，确保您的连接、密钥与数据处于绝对安全的保护之下。",
       "shieldDetailsWatchdog": "Rust 物理级看门狗 (Watchdog)",
-      "shieldDetailsWatchdogDesc": "独立于主进程运行的 Rust 二进制守护程序，通过 IPC 心跳检测主进程健康状态。一旦检测到异常（心跳中断超过 5 秒），将绕过 Node.js/V8，直接调用操作系统底层 API 强制终止整个进程，彻底防范 JavaScript 层被劫持后无法自救的场景。",
+      "shieldDetailsWatchdogDesc": "独立守护程序。若检测到主进程异常挂起，将绕过 V8 引擎直接调用系统底层强制终止被污染的进程，防范劫持。",
       "shieldDetailsZeroize": "内存即焚 (Zeroize)",
-      "shieldDetailsZeroizeDesc": "所有 SSH 密码与私钥在完成加解密运算后，由 Rust 的 ZeroizeOnDrop 机制在微秒级别内强制用 0x00 覆写物理内存，同时 TypeScript 层在 finally 块中调用 buffer.fill(0) 进行二次擦除，彻底封堵内存快照（Memory Dump）攻击的窗口期。",
+      "shieldDetailsZeroizeDesc": "核心凭证运算后，立刻通过 Rust Zeroize 机制在物理内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。",
       "shieldDetailsCrypto": "金库级加密引擎 (Crypto Vault)",
-      "shieldDetailsCryptoDesc": "凭证保险箱完全由 Rust 原生扩展（N-API）驱动，使用 PBKDF2-HMAC-SHA256（100,000 次迭代）派生密钥，配合 AES-256-GCM 认证加密，从根本上消除了 Node.js 原生 crypto 模块因 V8 垃圾回收机制造成的明文残留风险。",
+      "shieldDetailsCryptoDesc": "由 N-API 驱动的 AES-256-GCM 物理加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。",
       "shieldDetailsNetwork": "Zero-copy 网络引擎",
-      "shieldDetailsNetworkDesc": "SFTP 大文件传输通道由 Rust N-API 扩展直接接管磁盘 I/O，数据缓冲区在本地落盘路径上做到零拷贝（Zero-copy），绕过 V8 堆内存，彻底杜绝大体积文件传输时的内存溢出（OOM）风险与 GC 停顿抖动。",
+      "shieldDetailsNetworkDesc": "SFTP 传输由 Rust N-API 接管 I/O。通过本地零拷贝（Zero-copy）绕过 V8 堆内存，杜绝大文件传输时的 OOM 与 GC 卡顿。",
+      "shieldDetailsRasp": "RASP 运行态防御",
+      "shieldDetailsRaspDesc": "内置应用自我保护机制。实时拦截并警报由恶意代码引发的敏感越权行为或高危命令（如 rm -rf 等）。",
+      "shieldDetailsMemory": "内存态全量扫描 (macOS Only)",
+      "shieldDetailsMemoryDesc": "利用系统级底层权限实时扫描，检测其他进程针对主进程的动态注入（如 Ptrace）等高危篡改行为。",
       "watchdogDisabled": "不可用 (已休眠)",
       "pollutedTitle": "系统已被污染",
       "pollutedDesc": "系统已被污染，部分安全措施已经失效。请立即检查并清理异常进程。"
@@ -164,9 +168,26 @@
       "terminalTheme": "终端配色主题",
       "themeDefault": "系统默认",
       "importTheme": "导入自定义主题 (.json)",
-      "importSuccess": "自定义主题导入成功！",
-      "importFail": "主题解析失败，请确保您上传的是有效的 JSON 格式文件。",
-      "deleteTheme": "删除此自定义主题"
+      "importSuccess": "主题导入成功！",
+      "importFail": "解析主题失败，请确保文件是合法的 JSON 格式。",
+      "deleteTheme": "删除主题",
+      "themeColorsTitle": "系统强调色 & 双轨拼色 (DUO-TONE)",
+      "monoColor": "单色模式 (Mono)",
+      "custom": "自定义",
+      "duoTone": "双轨拼色 (Dual-Track)",
+      "colors": {
+        "cyberPurple": "赛博紫",
+        "geekGreen": "极客绿",
+        "deepBlue": "深空蓝",
+        "geekRed": "极客红",
+        "goldBlack": "荣耀金 & 曜石黑",
+        "blueGray": "电光蓝 & 机甲灰",
+        "redBlack": "赤焰红 & 迷雾黑",
+        "greenGray": "青柠绿 & 炭黑灰",
+        "pinkPurple": "霓虹粉 & 魅夜紫",
+        "orangeBlue": "日落橙 & 天空蓝",
+        "mintRed": "薄荷绿 & 樱桃红"
+      }
     },
     "terminal": {
       "sessionClosed": "会话已断开",
@@ -295,7 +316,8 @@
       "connect": "连接",
       "save": "保存",
       "cancel": "取消",
-      "selectFile": "选择文件"
+      "selectFile": "选择文件",
+      "confirmDelete": "确定要删除该连接记录吗？此操作无法撤销。"
     },
     "welcome": {
       "title": "欢迎使用 GETSSH",
@@ -312,15 +334,58 @@
       "readyToConnect": "准备就绪",
       "openCommandCenter": "按下 <1>Ctrl+K</1> 或 <3>Option+Space</3> 唤醒智能指令中心",
       "greeting": {
-        "midnight": "夜已深，早点休息。",
-        "morning": "早上好，新的一天开始啦！",
-        "forenoon": "上午好，专注工作！",
-        "noon": "中午好，记得按时吃饭。",
-        "afternoon": "下午好，继续努力！",
-        "evening": "晚上好，享受悠闲时光。",
-        "lateNight": "夜深了，注意护眼。"
+        "midnight": [
+          "夜已深，早点休息。",
+          "星河欲转千帆舞，夜半时分，请注意护眼。",
+          "醉后不知天在水，满船清梦压星河。还在修 Bug 吗？",
+          "万籁俱寂，唯有键盘的敲击声伴你左右。"
+        ],
+        "morning": [
+          "早上好，新的一天开始啦！",
+          "日出江花红胜火，早安，愿代码如春风般轻盈。",
+          "一日之计在于晨，今天也要写出完美的架构！",
+          "晨光微露，服务器的轰鸣声是你最好的伴奏。"
+        ],
+        "forenoon": [
+          "上午好，专注工作！",
+          "白日依山尽，黄河入海流。代码的海洋任你遨游。",
+          "阳光正好，正是攻克难题的最佳时机！",
+          "一杯咖啡，几行代码，勾勒出优雅的系统。"
+        ],
+        "noon": [
+          "中午好，记得按时吃饭。",
+          "锄禾日当午，汗滴禾下土。写累了就去吃顿好的吧！",
+          "午间小憩，让大脑重启一下，Bug 说不定就自己消失了。",
+          "阳光慵懒，暂时放下键盘，享受属于你的片刻宁静。"
+        ],
+        "afternoon": [
+          "下午好，继续努力！",
+          "夕阳无限好，只是近黄昏。把握下午的高效时光！",
+          "下午茶时间到了，给系统跑个监控，给自己泡杯茶。",
+          "灵感如泉涌的午后，一鼓作气拿下这个需求吧！"
+        ],
+        "evening": [
+          "晚上好，享受悠闲时光。",
+          "明月松间照，清泉石上流。夜晚是思考架构的绝佳时刻。",
+          "华灯初上，城市的霓虹为你闪烁，今天的 Commit 够多了吗？",
+          "晚风轻拂，伴随着编译成功的提示音，一切都显得那么完美。"
+        ],
+        "lateNight": [
+          "夜深了，注意护眼。",
+          "寻寻觅觅，冷冷清清。深夜的 Bug 总是最难抓的。",
+          "月落乌啼霜满天，江枫渔火对愁眠。早点休息，明天再战。",
+          "深夜是极客的主场，但也不要忘记身体是革命的本钱。"
+        ]
       },
-      "quickAccess": "快速访问"
+      "quickAccess": "快速访问",
+      "dashboard": {
+        "commandCenterDesc": "Runbooks & 全局终端接入",
+        "secureCenterDesc": "Watchdog & RASP 安全态势",
+        "workspaceCenterDesc": "工作区与资产隔离",
+        "aiCenterDesc": "全域智能副官与模型连通",
+        "pluginCenterDesc": "第三方插件与沙箱管控",
+        "settingsDesc": "外观、终端与偏好配置"
+      }
     },
     "sftp": {
       "title": "SFTP 文件管理器",

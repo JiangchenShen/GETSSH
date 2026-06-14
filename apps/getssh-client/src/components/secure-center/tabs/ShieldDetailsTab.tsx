@@ -16,7 +16,7 @@ export const ShieldDetailsTab: React.FC = () => {
           {t("security.shieldDetailsTitle", "六大方位保护您的数据安全")}
         </h4>
         <p className="text-sm opacity-70 leading-relaxed font-medium max-w-3xl">
-          {t("security.shieldDetailsIntro", "GETSSH v3.0 采用了全套由底向上的物理级防御体系，确保您的任何核心资产都不会暴露在传统的内存劫持攻击中。")}
+          {t("security.shieldDetailsIntro", "GETSSH 采用自底向上的纵深防御体系，通过六道独立安全屏障，确保您的连接、密钥与数据处于绝对安全的保护之下。")}
         </p>
       </div>
       
@@ -35,7 +35,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div>
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsWatchdog", "The Rust Watchdog")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsWatchdogDesc", "底层的 Rust 二进制看门狗进程。若主进程引擎被恶意代码挂起或停止心跳超过 5 秒，系统将立刻触发底层系统调用 (SIGKILL) 将被污染的内存物理强杀。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsWatchdogDesc", "独立守护程序。若检测到主进程异常挂起，将绕过 V8 引擎直接调用系统底层强制终止被污染的进程，防范劫持。")}</p>
           </div>
         </div>
 
@@ -47,7 +47,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div>
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsCrypto", "AES-256-GCM 物理加密")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "您的所有连接凭证与私钥均使用 SafeStorage 与 AES-256-GCM 算法进行极强度的本地加密，密钥不会上传至任何云端。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "由 N-API 驱动的 AES-256-GCM 物理加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。")}</p>
           </div>
         </div>
 
@@ -59,7 +59,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div>
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsZeroize", "内存即焚 (Zeroize)")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "我们在核心凭证流转周期中引入了零化处理（Zeroize），只要变量的生命周期结束，对应内存块会立刻被覆盖为乱码，防止内存 Dump 攻击。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "核心凭证运算后，立刻通过 Rust Zeroize 机制在物理内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。")}</p>
           </div>
         </div>
 
@@ -71,7 +71,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div>
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsNetwork", "Zero-copy (零拷贝) 网络引擎")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsNetworkDesc", "使用 Rust N-API 重写网络层，跳过 Node.js 的 V8 引擎直接与系统网卡进行零拷贝的数据交换，物理上隔绝 JavaScript 原生代码注入。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsNetworkDesc", "SFTP 传输由 Rust N-API 接管 I/O。通过本地零拷贝（Zero-copy）绕过 V8 堆内存，杜绝大文件传输时的 OOM 与 GC 卡顿。")}</p>
           </div>
         </div>
 
@@ -83,7 +83,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div>
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsRasp", "RASP 运行态主动防御")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsRaspDesc", "集成 RASP (Runtime Application Self-Protection)，所有由插件引发的高危命令（如 rm -rf /、提权操作）在被传递给系统内核前都会被拦截并提示。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsRaspDesc", "内置应用自我保护机制。实时拦截并警报由恶意代码引发的敏感越权行为或高危命令（如 rm -rf 等）。")}</p>
           </div>
         </div>
 
@@ -95,7 +95,7 @@ export const ShieldDetailsTab: React.FC = () => {
           </div>
           <div className="flex-1">
             <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsMemory", "内存态全量扫描 (macOS Only)")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsMemoryDesc", "对于 macOS，如果授予 GETSSH sudo 权限，它将在底层调用 `vmmap` 扫描其它进程试图对当前主进程进行的 Ptrace/注入攻击。")}</p>
+            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsMemoryDesc", "利用系统级底层权限实时扫描，检测其他进程针对主进程的动态注入（如 Ptrace）等高危篡改行为。")}</p>
           </div>
           <div className="mt-auto pt-4 flex justify-end">
             <button 

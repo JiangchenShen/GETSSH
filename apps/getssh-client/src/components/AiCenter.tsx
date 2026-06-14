@@ -51,6 +51,7 @@ function formatRelativeTime(ts: number): string {
 
 // ─── History View ─────────────────────────────────────────────────────────────
 const HistoryView: React.FC = () => {
+  const isDark = useAppStore(state => state.isDark);
   const conversations = useAiChatStore(s => s.conversations);
   const activeConversationId = useAiChatStore(s => s.activeConversationId);
   const setActiveConversation = useAiChatStore(s => s.setActiveConversation);
@@ -60,12 +61,12 @@ const HistoryView: React.FC = () => {
 
   if (conversations.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30 p-6">
+      <div className={`flex-1 flex flex-col items-center justify-center gap-3 p-6 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
         <MessageSquare className="w-10 h-10 opacity-20" />
         <div className="text-xs tracking-widest uppercase">暂无对话记录</div>
         <button
           onClick={() => newConversation()}
-          className="mt-2 flex items-center gap-2 px-4 py-2 border border-white/20 hover:bg-white/10 text-white/60 hover:text-white text-xs uppercase tracking-widest transition-colors rounded-xl"
+          className={`mt-2 flex items-center gap-2 px-4 py-2 border text-xs uppercase tracking-widest transition-colors rounded-xl ${isDark ? 'border-white/20 hover:bg-white/10 text-white/60 hover:text-white' : 'border-black/20 hover:bg-black/5 text-slate-500 hover:text-slate-900'}`}
         >
           <Plus className="w-3.5 h-3.5" /> 开始新对话
         </button>
@@ -86,17 +87,17 @@ const HistoryView: React.FC = () => {
               onClick={() => setActiveConversation(conv.id)}
               className={`group flex items-center gap-2 px-3 py-2.5 cursor-pointer transition-all border-l-2 ${
                 isActive
-                  ? 'border-primary bg-primary/10 text-white'
-                  : 'border-transparent hover:border-white/20 hover:bg-white/5 text-white/60 hover:text-white'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : (isDark ? 'border-transparent hover:border-white/20 hover:bg-white/5 text-white/60 hover:text-white' : 'border-transparent hover:border-black/20 hover:bg-black/5 text-slate-500 hover:text-slate-900')
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-50" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold truncate">{conv.title}</div>
-                <div className="text-[10px] text-white/30 truncate mt-0.5">{preview}</div>
+                <div className={`text-[10px] truncate mt-0.5 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{preview}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[9px] text-white/20 font-mono">
+                <span className={`text-[9px] font-mono ${isDark ? 'text-white/20' : 'text-slate-400'}`}>
                   {formatRelativeTime(conv.updatedAt)}
                 </span>
                 <button
@@ -113,16 +114,16 @@ const HistoryView: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-white/5 p-2 flex items-center gap-2">
+      <div className={`border-t p-2 flex items-center gap-2 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
         <button
           onClick={() => newConversation()}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 transition-all border border-transparent hover:border-white/10 rounded-xl"
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] uppercase tracking-widest transition-all border border-transparent rounded-xl ${isDark ? 'text-white/40 hover:text-white hover:bg-white/5 hover:border-white/10' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 hover:border-black/10'}`}
         >
           <Plus className="w-3 h-3" /> 新对话
         </button>
         <button
           onClick={clearAllConversations}
-          className="flex items-center justify-center gap-1.5 py-2 px-3 text-[10px] uppercase tracking-widest text-red-400/50 hover:text-red-400 hover:bg-red-500/5 transition-all border border-transparent hover:border-red-500/20 rounded-xl"
+          className="flex items-center justify-center gap-1.5 py-2 px-3 text-[10px] uppercase tracking-widest text-red-400/80 hover:text-red-500 hover:bg-red-500/10 transition-all border border-transparent hover:border-red-500/20 rounded-xl"
         >
           <Trash2 className="w-3 h-3" /> 清空全部
         </button>
@@ -133,6 +134,7 @@ const HistoryView: React.FC = () => {
 
 // ─── Chat View ────────────────────────────────────────────────────────────────
 const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperPlane }) => {
+  const isDark = useAppStore(state => state.isDark);
   const conversations = useAiChatStore(s => s.conversations);
   const activeConversationId = useAiChatStore(s => s.activeConversationId);
   const scrollEndRef = useRef<HTMLDivElement>(null);
@@ -152,25 +154,25 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
         const lang = lines.shift() || 'shell';
         const code = lines.join('\n').trim();
         return (
-          <div key={index} className="relative bg-black/40 p-3 rounded-xl my-2 font-mono text-xs group border border-white/5 shadow-inner max-w-full overflow-hidden">
-            <span className="text-[10px] text-white/30 absolute top-1.5 right-10 uppercase tracking-wider">{lang}</span>
+          <div key={index} className={`relative p-3 rounded-xl my-2 font-mono text-xs group border shadow-inner max-w-full overflow-hidden ${isDark ? 'bg-black/40 border-white/5' : 'bg-slate-100/50 border-black/5'}`}>
+            <span className={`text-[10px] absolute top-1.5 right-10 uppercase tracking-wider ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{lang}</span>
             <button
-              className="absolute top-1.5 right-1.5 p-1 bg-white/10 hover:bg-white/20 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+              className={`absolute top-1.5 right-1.5 p-1 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-black/5 hover:bg-black/10 text-slate-700'}`}
               onClick={() => onPaperPlane(code)}
             >
-              <Send size={12} className="text-cyan-400" />
+              <Send size={12} className={isDark ? 'text-cyan-400' : 'text-cyan-600'} />
             </button>
-            <pre className="whitespace-pre-wrap break-all text-emerald-400 max-w-full overflow-hidden">{code}</pre>
+            <pre className={`whitespace-pre-wrap break-all max-w-full overflow-hidden ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>{code}</pre>
           </div>
         );
       }
-      return <p key={index} className="whitespace-pre-wrap break-words max-w-full text-sm text-neutral-200 leading-relaxed my-1">{block}</p>;
+      return <p key={index} className={`whitespace-pre-wrap break-words max-w-full text-sm leading-relaxed my-1 ${isDark ? 'text-neutral-200' : 'text-slate-800'}`}>{block}</p>;
     });
   };
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-white/20 text-xs tracking-wider">
+      <div className={`flex-1 flex items-center justify-center text-xs tracking-wider ${isDark ? 'text-white/20' : 'text-slate-400'}`}>
         [ 等待指令输入 ]
       </div>
     );
@@ -188,21 +190,21 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
         >
           <div className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-xl border mt-0.5 ${
             msg.role === 'user'
-              ? 'bg-primary/20 border-primary/30 text-primary'
-              : 'bg-white/5 border-white/10 text-white/50'
+              ? (isDark ? 'bg-primary/20 border-primary/30 text-primary' : 'bg-primary/10 border-primary/20 text-slate-700')
+              : (isDark ? 'bg-white/5 border-white/10 text-white/50' : 'bg-white border-black/10 text-slate-500 shadow-sm')
           }`}>
             {msg.role === 'user' ? <User size={12} /> : <Bot size={12} />}
           </div>
           <div className={`flex-1 min-w-0 ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
             {msg.isThinking ? (
-              <div className="px-3 py-2 bg-white/5 border border-white/5 rounded-2xl">
+              <div className={`px-3 py-2 border rounded-2xl ${isDark ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
                 <ThinkingIndicator />
               </div>
             ) : (
               <div className={`px-4 py-2.5 text-sm leading-relaxed max-w-[95%] break-words shadow-sm ${
                 msg.role === 'user'
-                  ? 'bg-primary/20 border border-primary/30 text-white rounded-2xl rounded-tr-sm'
-                  : 'bg-white/5 border border-white/10 text-neutral-200 rounded-2xl rounded-tl-sm'
+                  ? (isDark ? 'bg-primary/20 border border-primary/30 text-primary rounded-2xl rounded-tr-sm' : 'bg-primary/10 border border-primary/20 text-slate-800 rounded-2xl rounded-tr-sm shadow-[0_2px_10px_rgba(0,0,0,0.02)]')
+                  : (isDark ? 'bg-white/5 border border-white/10 text-neutral-200 rounded-2xl rounded-tl-sm' : 'bg-white border border-black/10 text-slate-800 rounded-2xl rounded-tl-sm shadow-[0_2px_10px_rgba(0,0,0,0.02)]')
               }`}>
                 {msg.role === 'user'
                   ? <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -211,7 +213,7 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
                 {msg.isStreaming && <StreamCursor />}
               </div>
             )}
-            <span className="text-[9px] text-white/20 font-mono px-1">
+            <span className={`text-[9px] font-mono px-1 ${isDark ? 'text-white/20' : 'text-slate-400'}`}>
               {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
@@ -225,6 +227,7 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
 // ─── Main Component ───────────────────────────────────────────────────────────
 export const AiCenter: React.FC = () => {
   const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
+  const isDark = useAppStore(state => state.isDark);
 
   const setIsAiCenterOpen = useAppStore(state => state.setIsAiCenterOpen);
   const setIsHoveringAiCenter = useAppStore(state => state.setIsHoveringAiCenter);
@@ -377,19 +380,19 @@ export const AiCenter: React.FC = () => {
               dragLevel="global"
               dragConstraints={bounds}
               exemptFromFocus
-              className="w-full flex flex-col border border-white/10 shadow-[0_16px_32px_rgba(0,0,0,0.4)] bg-[#0a0a0a]/80 backdrop-blur-2xl overflow-hidden"
+              className={`w-full flex flex-col border backdrop-blur-2xl overflow-hidden ${isDark ? 'bg-[#0a0a0a]/80 border-white/10 shadow-[0_16px_32px_rgba(0,0,0,0.4)]' : 'bg-slate-50/80 border-black/10 shadow-[0_16px_40px_rgba(0,0,0,0.1)]'}`}
               style={{ borderRadius: '16px', WebkitAppRegion: 'no-drag', height: '580px' } as any}
             >
               {/* ── Header ── */}
-              <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between bg-white/[0.03] shrink-0">
+              <div className={`px-4 py-2.5 border-b flex items-center justify-between shrink-0 ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-black/[0.02] border-black/10'}`}>
                 <div className="flex items-center gap-1">
                   {/* Tab switcher */}
                   <button
                     onClick={() => setView('chat')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-xl ${
                       view === 'chat'
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/30 hover:text-white hover:bg-white/5'
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-slate-900')
+                        : (isDark ? 'text-white/30 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5')
                     }`}
                   >
                     <Bot size={11} /> CHAT
@@ -398,14 +401,14 @@ export const AiCenter: React.FC = () => {
                     onClick={() => setView('history')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-xl relative ${
                       view === 'history'
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/30 hover:text-white hover:bg-white/5'
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-black/10 text-slate-900')
+                        : (isDark ? 'text-white/30 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5')
                     }`}
                   >
                     <History size={11} />
                     HISTORY
                     {conversations.length > 0 && (
-                      <span className="ml-1 text-[9px] font-mono text-white/30 bg-white/10 px-1">
+                      <span className={`ml-1 text-[9px] font-mono px-1 ${isDark ? 'text-white/30 bg-white/10' : 'text-slate-500 bg-black/10'}`}>
                         {conversations.length}
                       </span>
                     )}
@@ -416,16 +419,16 @@ export const AiCenter: React.FC = () => {
                   {view === 'chat' && (
                     <button
                       onClick={() => newConversation()}
-                      className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-xl"
+                      className={`p-1.5 transition-colors rounded-xl ${isDark ? 'text-white/30 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-900 hover:bg-black/10'}`}
                       title="新对话"
                     >
                       <Plus size={13} />
                     </button>
                   )}
-                  <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-xl">
+                  <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className={`p-1.5 transition-colors rounded-xl ${isDark ? 'text-white/30 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-900 hover:bg-black/10'}`}>
                     <Settings size={13} />
                   </button>
-                  <button onClick={() => setIsAiCenterOpen(false)} className="p-1.5 text-white/30 hover:text-white hover:bg-white/10 transition-all rounded-xl">
+                  <button onClick={() => setIsAiCenterOpen(false)} className={`p-1.5 transition-all rounded-xl ${isDark ? 'text-white/30 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-900 hover:bg-black/10'}`}>
                     <X size={13} />
                   </button>
                 </div>
@@ -433,11 +436,11 @@ export const AiCenter: React.FC = () => {
 
               {/* ── Conversation breadcrumb (chat view) ── */}
               {view === 'chat' && activeConv && (
-                <div className="px-4 py-1.5 border-b border-white/5 flex items-center gap-2 shrink-0">
-                  <Clock className="w-3 h-3 text-white/20" />
-                  <span className="text-[10px] text-white/30 font-mono truncate flex-1">{activeConv.title}</span>
+                <div className={`px-4 py-1.5 border-b flex items-center gap-2 shrink-0 ${isDark ? 'border-white/5' : 'border-black/5'}`}>
+                  <Clock className={`w-3 h-3 ${isDark ? 'text-white/20' : 'text-slate-400'}`} />
+                  <span className={`text-[10px] font-mono truncate flex-1 ${isDark ? 'text-white/30' : 'text-slate-500'}`}>{activeConv.title}</span>
                   {appConfig.aiModel && (
-                    <span className="text-[9px] font-mono text-white/20 border border-white/10 px-1.5 py-0.5 shrink-0">
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 shrink-0 border ${isDark ? 'text-white/20 border-white/10' : 'text-slate-400 border-black/10'}`}>
                       {appConfig.aiModel}
                     </span>
                   )}
@@ -447,16 +450,16 @@ export const AiCenter: React.FC = () => {
               {/* ── Body ── */}
               <div className="flex-1 flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
                 {isLocked ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-white/40 gap-4 p-6">
+                  <div className={`flex-1 flex flex-col items-center justify-center gap-4 p-6 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
                     <div className="text-xs tracking-wider uppercase">[ AI CENTER IS DISABLED ]</div>
-                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-xl">
+                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className={`px-4 py-2 border text-xs uppercase tracking-widest transition-colors rounded-xl ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/10 text-slate-800'}`}>
                       Enable in Settings
                     </button>
                   </div>
                 ) : needsKey ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-white/40 gap-4 p-6">
+                  <div className={`flex-1 flex flex-col items-center justify-center gap-4 p-6 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
                     <div className="text-xs tracking-wider uppercase">[ API KEY REQUIRED ]</div>
-                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-xl">
+                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className={`px-4 py-2 border text-xs uppercase tracking-widest transition-colors rounded-xl ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-black/20 hover:bg-black/10 text-slate-800'}`}>
                       Bind API Key
                     </button>
                   </div>
@@ -469,7 +472,7 @@ export const AiCenter: React.FC = () => {
 
               {/* ── Input Area (only in chat mode, when not locked) ── */}
               {view === 'chat' && !isLocked && !needsKey && (
-                <div className="relative p-2 border-t border-white/10 bg-black/20 shrink-0">
+                <div className={`relative p-2 border-t shrink-0 ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-slate-50'}`}>
                   <AnimatePresence>
                     {currentTerminalSelection && (
                       <motion.div
@@ -489,7 +492,7 @@ export const AiCenter: React.FC = () => {
                     )}
                   </AnimatePresence>
 
-                  <form onSubmit={handleSubmit} className="flex gap-2">
+                  <form onSubmit={handleSubmit} className="flex gap-2 items-end">
                     <textarea
                       value={prompt}
                       onChange={e => setPrompt(e.target.value)}
@@ -501,20 +504,20 @@ export const AiCenter: React.FC = () => {
                       }}
                       disabled={isGenerating}
                       placeholder={isGenerating ? '正在回答中…' : '输入问题或上下文… (Enter 发送, Shift+Enter 换行)'}
-                      className="w-full h-[56px] bg-white/5 border border-white/10 text-white text-sm p-3 outline-none resize-none placeholder-white/25 rounded-xl transition-colors focus:border-white/20"
+                      className={`w-full h-[56px] border text-sm p-3 outline-none resize-none rounded-xl transition-colors ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/25 focus:border-white/20' : 'bg-white border-black/10 text-slate-900 placeholder-slate-400 focus:border-black/20 shadow-[0_2px_10px_rgba(0,0,0,0.02)]'}`}
                     />
                     <button
                       type="submit"
                       disabled={isGenerating || !prompt.trim()}
-                      className={`px-4 disabled:opacity-30 transition-colors flex items-center justify-center rounded-xl ${(!isGenerating && prompt.trim()) ? 'bg-cyan-500 hover:bg-cyan-400 text-black' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+                      className={`h-[56px] px-5 disabled:opacity-30 transition-all flex items-center justify-center rounded-xl shadow-sm ${(!isGenerating && prompt.trim()) ? 'bg-cyan-500 hover:bg-cyan-400 text-black' : (isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white border border-black/10 hover:bg-slate-50 text-slate-400')}`}
                     >
                       {isGenerating
                         ? <motion.div
-                            className="w-3.5 h-3.5 border-2 border-primary/60 border-t-transparent rounded-xl"
+                            className={`w-4 h-4 border-2 border-t-transparent rounded-full ${isDark ? 'border-primary/60' : 'border-slate-400'}`}
                             animate={{ rotate: 360 }}
                             transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
                           />
-                        : <Send size={15} />
+                        : <Send size={16} />
                       }
                     </button>
                   </form>

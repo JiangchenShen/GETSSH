@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../services/aiBridge';
 
 // Simple custom Markdown parser for the floating window to isolate code blocks
-const renderMarkdownWithPaperPlane = (text: string, onExecute: (code: string) => void) => {
+const renderMarkdownWithPaperPlane = (text: string, onExecute: (code: string) => void, isDark: boolean) => {
   const parts = text.split(/(```[\w]*\s*[\s\S]*?```)/g);
   return parts.map((part, idx) => {
     if (part.startsWith('```')) {
@@ -18,20 +18,20 @@ const renderMarkdownWithPaperPlane = (text: string, onExecute: (code: string) =>
         const isShell = ['bash', 'sh', ''].includes(lang.toLowerCase());
         
         return (
-          <div key={idx} className="relative my-2 rounded border border-white/10 bg-black/50 overflow-hidden group">
-            <div className="flex items-center justify-between px-3 py-1 bg-white/5 border-b border-white/10">
-              <span className="text-[10px] text-cyan-400 font-mono uppercase">{lang || 'sh'}</span>
+          <div key={idx} className={`relative my-2 rounded border overflow-hidden group ${isDark ? 'border-white/10 bg-black/50' : 'border-black/10 bg-slate-100'}`}>
+            <div className={`flex items-center justify-between px-3 py-1 border-b ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-black/10'}`}>
+              <span className={`text-[10px] font-mono uppercase ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>{lang || 'sh'}</span>
               {isShell && (
                 <button 
                   onClick={() => onExecute(code)}
                   title="Send to Terminal (No trailing newline)"
-                  className="text-white/50 hover:text-cyan-400 transition-colors p-1 rounded"
+                  className={`transition-colors p-1 rounded ${isDark ? 'text-white/50 hover:text-cyan-400' : 'text-slate-400 hover:text-cyan-600'}`}
                 >
                   <Send className="w-3.5 h-3.5 -rotate-45" />
                 </button>
               )}
             </div>
-            <pre className="p-3 text-xs font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className={`p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
               {code}
             </pre>
           </div>
@@ -48,6 +48,7 @@ export const FloatingAiCenter: React.FC = () => {
   const setFloatingCtx = useSessionStore(state => state.setFloatingAiContext);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const addToast = useAppStore(state => state.addToast);
+  const isDark = useAppStore(state => state.isDark);
   
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
@@ -134,17 +135,17 @@ export const FloatingAiCenter: React.FC = () => {
         exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 400, damping: 25 }}
         style={{ left: x, top: y }}
-        className="fixed z-[9999] w-[500px] bg-[#0a0a0a]/80 backdrop-blur-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-white/10 rounded-xl flex flex-col font-sans"
+        className={`fixed z-[9999] w-[500px] backdrop-blur-3xl border rounded-xl flex flex-col font-sans ${isDark ? 'bg-[#0a0a0a]/80 shadow-[0_0_50px_rgba(0,0,0,0.8)] border-white/10' : 'bg-white/90 shadow-[0_20px_50px_rgba(0,0,0,0.2)] border-black/10'}`}
       >
-        <div className="absolute inset-0 ring-1 ring-inset ring-white/5 pointer-events-none" />
+        <div className={`absolute inset-0 ring-1 ring-inset pointer-events-none ${isDark ? 'ring-white/5' : 'ring-black/5'}`} />
         
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-black/20">
-          <div className="flex items-center gap-2 text-cyan-400">
+        <div className={`flex items-center justify-between px-4 py-2 border-b ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-slate-50'}`}>
+          <div className={`flex items-center gap-2 ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
             <TerminalSquare className="w-4 h-4" />
             <span className="text-xs font-bold font-mono uppercase tracking-widest">GETSSH AI</span>
           </div>
-          <button onClick={() => setFloatingCtx(null)} className="text-white/50 hover:text-white transition-colors">
+          <button onClick={() => setFloatingCtx(null)} className={`transition-colors ${isDark ? 'text-white/50 hover:text-white' : 'text-slate-400 hover:text-slate-900'}`}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -164,8 +165,8 @@ export const FloatingAiCenter: React.FC = () => {
 
         {/* Output Area */}
         {response && (
-          <div className="px-4 py-3 max-h-80 overflow-y-auto text-sm text-slate-300 custom-scrollbar">
-            {renderMarkdownWithPaperPlane(response, handlePaperPlaneFill)}
+          <div className={`px-4 py-3 max-h-80 overflow-y-auto text-sm custom-scrollbar ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+            {renderMarkdownWithPaperPlane(response, handlePaperPlaneFill, isDark)}
           </div>
         )}
 
@@ -183,7 +184,7 @@ export const FloatingAiCenter: React.FC = () => {
                 }
               }}
               placeholder={t('ai.inputPlaceholder', 'Ask AI (Enter to send)')}
-              className="w-full bg-black/40 border border-white/10 text-white text-sm px-3 py-2 pr-10 focus:outline-none focus:border-cyan-500/50 resize-none rounded-xl placeholder-white/30"
+              className={`w-full border text-sm px-3 py-2 pr-10 focus:outline-none focus:border-cyan-500/50 resize-none rounded-xl ${isDark ? 'bg-black/40 border-white/10 text-white placeholder-white/30' : 'bg-slate-50 border-black/10 text-slate-900 placeholder-slate-400'}`}
               rows={3}
             />
             <button

@@ -124,28 +124,28 @@ export const AppearanceTab: React.FC = () => {
           {/* Right: Accent Color */}
           <div className="flex-1 flex flex-col justify-between relative">
             <div>
-              <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] mb-4 ml-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>系统强调色 & 双轨拼色 (DUO-TONE)</h3>
+              <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] mb-4 ml-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{t('appearance.themeColorsTitle')}</h3>
               <div className="flex flex-col gap-6 p-1.5">
                 
                 {/* Row 1: Solid Colors */}
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-bold opacity-50 uppercase tracking-widest`}>单色模式 (Mono)</span>
+                    <span className={`text-[10px] font-bold opacity-50 uppercase tracking-widest`}>{t('appearance.monoColor')}</span>
                     {/* Custom Duo-Tone Menu Trigger */}
                     <button
                       onClick={() => setIsCustomPickerOpen(true)}
                       className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg flex items-center gap-1.5 transition-all border ${isDark ? 'border-white/10 text-white/60 hover:text-white hover:bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'border-black/10 text-black/60 hover:text-black hover:bg-black/5 shadow-sm'}`}
                       title="Custom Theme Menu"
                     >
-                      <Palette size={12} /> 自定义
+                      <Palette size={12} /> {t('appearance.custom')}
                     </button>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     {[
-                      { name: 'Cyber Purple', color: '168 85 247', bg: 'bg-[#a855f7]' },
-                      { name: 'Geek Green',   color: '34 197 94',  bg: 'bg-[#22c55e]' },
-                      { name: 'Deep Blue',    color: '59 130 246', bg: 'bg-[#3b82f6]' },
-                      { name: 'Geek Red',     color: '239 68 68',  bg: 'bg-[#ef4444]' },
+                      { name: 'appearance.colors.cyberPurple', color: '168 85 247', bg: 'bg-[#a855f7]' },
+                      { name: 'appearance.colors.geekGreen',   color: '34 197 94',  bg: 'bg-[#22c55e]' },
+                      { name: 'appearance.colors.deepBlue',    color: '59 130 246', bg: 'bg-[#3b82f6]' },
+                      { name: 'appearance.colors.geekRed',     color: '239 68 68',  bg: 'bg-[#ef4444]' },
                     ].map(swatch => (
                       <button 
                         key={swatch.color}
@@ -158,7 +158,7 @@ export const AppearanceTab: React.FC = () => {
                             ? 'ring-2 ring-offset-4 ring-primary dark:ring-offset-[#1e1e1e] ring-offset-slate-50 scale-110 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]' 
                             : 'hover:scale-105 opacity-80 hover:opacity-100'
                         }`}
-                        title={swatch.name}
+                        title={t(swatch.name)}
                       />
                     ))}
                   </div>
@@ -166,16 +166,16 @@ export const AppearanceTab: React.FC = () => {
 
                 {/* Row 2: Duo-Tone Colors */}
                 <div className="flex flex-col gap-3">
-                  <span className={`text-[10px] font-bold opacity-50 uppercase tracking-widest`}>双轨拼色 (Dual-Track)</span>
+                  <span className={`text-[10px] font-bold opacity-50 uppercase tracking-widest`}>{t('appearance.duoTone')}</span>
                   <div className="flex items-center gap-3 flex-wrap">
                     {[
-                      { name: '荣耀金 & 曜石黑', a: '255 215 0', b: '0 0 0' },
-                      { name: '电光蓝 & 机甲灰', a: '0 212 255', b: '44 44 52' },
-                      { name: '赤焰红 & 迷雾黑', a: '230 26 35', b: '10 9 12' },
-                      { name: '青柠绿 & 炭黑灰', a: '191 255 0', b: '34 34 34' },
-                      { name: '霓虹粉 & 魅夜紫', a: '255 0 128', b: '106 13 173' },
-                      { name: '日落橙 & 天空蓝', a: '255 100 0', b: '110 240 255' },
-                      { name: '薄荷绿 & 樱桃红', a: '152 255 152', b: '210 4 45' },
+                      { name: 'appearance.colors.goldBlack', a: '255 215 0', b: '0 0 0' },
+                      { name: 'appearance.colors.blueGray', a: '0 212 255', b: '44 44 52' },
+                      { name: 'appearance.colors.redBlack', a: '230 26 35', b: '10 9 12' },
+                      { name: 'appearance.colors.greenGray', a: '191 255 0', b: '34 34 34' },
+                      { name: 'appearance.colors.pinkPurple', a: '255 0 128', b: '106 13 173' },
+                      { name: 'appearance.colors.orangeBlue', a: '255 100 0', b: '110 240 255' },
+                      { name: 'appearance.colors.mintRed', a: '152 255 152', b: '210 4 45' },
                     ].map(swatch => {
                       const isActive = appConfig.duoTone?.colorA === swatch.a && appConfig.duoTone?.colorB === swatch.b;
                       return (
@@ -187,7 +187,7 @@ export const AppearanceTab: React.FC = () => {
                               ? 'ring-2 ring-offset-4 ring-primary dark:ring-offset-[#1e1e1e] ring-offset-slate-50 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
                               : 'hover:scale-105 opacity-80 hover:opacity-100'
                           }`}
-                          title={swatch.name}
+                          title={t(swatch.name)}
                         >
                           <div className="w-1/2 h-full" style={{ backgroundColor: `rgb(${swatch.a})` }} />
                           <div className="w-1/2 h-full" style={{ backgroundColor: `rgb(${swatch.b})` }} />

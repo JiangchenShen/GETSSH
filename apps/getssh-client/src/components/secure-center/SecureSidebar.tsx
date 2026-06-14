@@ -59,27 +59,35 @@ export const SecureSidebar: React.FC<SecureSidebarProps> = ({ securePage, setSec
           <Shield className="w-28 h-28 opacity-20 animate-pulse group-hover:scale-105 transition-transform relative z-10" />
         )}
         <div className="text-center mt-2 relative z-10">
-          <h3 className="text-[17px] font-black tracking-tight mb-1 text-white whitespace-nowrap overflow-visible">
+          <h3 className={`text-[17px] font-black tracking-tight mb-1 whitespace-nowrap overflow-visible ${isDanger ? 'text-red-500' : isWarning ? 'text-yellow-600' : (isDark ? 'text-white' : 'text-slate-800')}`}>
             {!watchdogStatus ? t("security.watchdogConnecting") : 
              isWatchdogDisabled
                ? t("security.watchdogDisabled", "Unavailable (Disabled)")
                : watchdogStatus.status === 'secure' ? t("security.watchdogSecure") : 
              t("security.watchdogWarning")}
           </h3>
-          <p className="text-[10px] text-white/50 font-bold uppercase tracking-widest">{t("security.shieldClickToDetails", "View Details")}</p>
+          <p className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t("security.shieldClickToDetails", "View Details")}</p>
         </div>
       </button>
 
       {/* Navigation Menu */}
       <nav className="flex flex-col gap-2 overflow-y-auto">
-         <button onClick={() => setSecurePage('rasp')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold ${securePage === 'rasp' ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border border-transparent text-white/40 hover:text-white hover:bg-white/5'}`}><Cpu className="w-5 h-5"/>{t("security.raspTitle")}</button>
-         <button onClick={() => setSecurePage('privacy')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold ${securePage === 'privacy' ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border border-transparent text-white/40 hover:text-white hover:bg-white/5'}`}><EyeOff className="w-5 h-5"/>{t("security.privacyTitle")}</button>
-         <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold ${securePage === 'safestorage' ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border border-transparent text-white/40 hover:text-white hover:bg-white/5'}`}><Lock className="w-5 h-5"/>{t("security.safeStorageTitle")}</button>
-         
-         <div className={`my-2 h-px w-full ${isDark ? 'bg-white/5' : 'bg-black/5'}`}></div>
+         {(() => {
+           const activeItemClass = isDark ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm';
+           const inactiveItemClass = isDark ? 'border-transparent text-white/40 hover:text-white hover:bg-white/5' : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-black/5';
+           return (
+             <>
+               <button onClick={() => setSecurePage('rasp')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'rasp' ? activeItemClass : inactiveItemClass}`}><Cpu className="w-5 h-5"/>{t("security.raspTitle")}</button>
+               <button onClick={() => setSecurePage('privacy')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'privacy' ? activeItemClass : inactiveItemClass}`}><EyeOff className="w-5 h-5"/>{t("security.privacyTitle")}</button>
+               <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'safestorage' ? activeItemClass : inactiveItemClass}`}><Lock className="w-5 h-5"/>{t("security.safeStorageTitle")}</button>
+               
+               <div className={`my-2 h-px w-full ${isDark ? 'bg-white/5' : 'bg-black/5'}`}></div>
 
-         <button onClick={() => setSecurePage('export')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold ${securePage === 'export' ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border border-transparent text-white/40 hover:text-white hover:bg-white/5'}`}><FileJson className="w-5 h-5"/>{t("security.exportTitle")}</button>
-         <button onClick={() => setSecurePage('known_hosts')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold ${securePage === 'known_hosts' ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border border-transparent text-white/40 hover:text-white hover:bg-white/5'}`}><Server className="w-5 h-5"/>{t("security.knownHostsTitle")}</button>
+               <button onClick={() => setSecurePage('export')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'export' ? activeItemClass : inactiveItemClass}`}><FileJson className="w-5 h-5"/>{t("security.exportTitle")}</button>
+               <button onClick={() => setSecurePage('known_hosts')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'known_hosts' ? activeItemClass : inactiveItemClass}`}><Server className="w-5 h-5"/>{t("security.knownHostsTitle")}</button>
+             </>
+           );
+         })()}
       </nav>
     </div>
   );

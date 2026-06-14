@@ -110,11 +110,10 @@ function App() {
   // Crypto Boot Check
   useCryptoBoot();
 
-  // Watch i18n & Theme Color
+  // Watch i18n changes
   useEffect(() => {
     i18n.changeLanguage(appConfig.language);
-    document.documentElement.style.setProperty('--primary-color', appConfig.themeColor || '0 212 255');
-  }, [appConfig.language, appConfig.themeColor, i18n]);
+  }, [appConfig.language, i18n]);
 
   // Auto-Start trigger
   useAutoStart();

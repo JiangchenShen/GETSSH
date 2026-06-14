@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
@@ -34,6 +34,8 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
     return 'lateNight';
   };
 
+  const greetingIndex = useMemo(() => Math.floor(Math.random() * 10), []);
+
   // CSS variables for SPRING_FLUID hover effect
   const tileHoverClass = "group relative overflow-hidden transition-all duration-500 hover:-translate-y-2 cursor-pointer rounded-xl shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4),0_20px_40px_rgba(0,0,0,0.3)]";
   const glowOverlayClass = "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br pointer-events-none";
@@ -59,7 +61,10 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
             className={`text-xl font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}
           >
             <Sparkles className="w-5 h-5 text-primary" />
-            {t(`welcome.greeting.${getGreetingKey()}`)}
+            {(() => {
+              const greetingObj = t(`welcome.greeting.${getGreetingKey()}`, { returnObjects: true });
+              return Array.isArray(greetingObj) ? greetingObj[greetingIndex % greetingObj.length] : greetingObj;
+            })()}
           </motion.div>
           
           <motion.div 
@@ -95,7 +100,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>COMMAND CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-blue-200/50' : 'text-blue-800/60'}`}>Runbooks & 全局终端接入</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-blue-200/50' : 'text-blue-800/60'}`}>{t('welcome.dashboard.commandCenterDesc')}</p>
           </div>
         </MoovierTile>
 
@@ -118,7 +123,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>SECURE CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-emerald-200/50' : 'text-emerald-800/60'}`}>Watchdog & RASP 安全态势</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-emerald-200/50' : 'text-emerald-800/60'}`}>{t('welcome.dashboard.secureCenterDesc')}</p>
           </div>
         </MoovierTile>
 
@@ -137,7 +142,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>WORKSPACE CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-purple-200/50' : 'text-purple-800/60'}`}>工作区与资产隔离</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-purple-200/50' : 'text-purple-800/60'}`}>{t('welcome.dashboard.workspaceCenterDesc')}</p>
           </div>
         </MoovierTile>
 
@@ -156,7 +161,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>AI CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-amber-200/50' : 'text-amber-800/60'}`}>全域智能副官与模型连通</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-amber-200/50' : 'text-amber-800/60'}`}>{t('welcome.dashboard.aiCenterDesc')}</p>
           </div>
         </MoovierTile>
 
@@ -176,7 +181,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>PLUGIN CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-rose-200/50' : 'text-rose-800/60'}`}>第三方插件与沙箱管控</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-rose-200/50' : 'text-rose-800/60'}`}>{t('welcome.dashboard.pluginCenterDesc')}</p>
           </div>
         </MoovierTile>
 
@@ -195,7 +200,7 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
           </div>
           <div className="relative z-10 mt-auto pt-3">
             <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>SETTINGS</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-slate-300/50' : 'text-slate-600/60'}`}>外观、终端与偏好配置</p>
+            <p className={`text-[11px] font-medium ${isDark ? 'text-slate-300/50' : 'text-slate-600/60'}`}>{t('welcome.dashboard.settingsDesc')}</p>
           </div>
         </MoovierTile>
       </div>
