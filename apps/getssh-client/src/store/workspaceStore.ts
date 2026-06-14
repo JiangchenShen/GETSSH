@@ -8,14 +8,32 @@ export interface WorkspaceMeta {
   hasPassword?: boolean;
 }
 
+export interface Runbook {
+  id: string;
+  name: string;
+  description?: string;
+  command: string;
+  dangerLevel: 'low' | 'high';
+  requireMfa?: boolean;
+}
+
+export interface AgentProposal {
+  id: string;
+  intent: string;
+  command: string;
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
 interface WorkspaceState {
   workspaces: WorkspaceMeta[];
   activeWorkspaceId: string;
+  runbooks: Runbook[];
   isSwitching: boolean;
   isCreateModalOpen: boolean;
   /** Zero-Trust: true when the active workspace has a password and hasn't been decrypted yet */
   isVaultLocked: boolean;
   isUnlockModalOpen: boolean;
+  pendingAgentProposal: AgentProposal | null;
 
   // Actions
   initWorkspaces: () => Promise<void>;
@@ -25,18 +43,22 @@ interface WorkspaceState {
   setIsCreateModalOpen: (open: boolean) => void;
   setIsUnlockModalOpen: (open: boolean) => void;
   unlockVault: (password: string) => Promise<boolean>;
+  setPendingAgentProposal: (proposal: AgentProposal | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: 'default',
+  runbooks: [],
   isSwitching: false,
   isCreateModalOpen: false,
   isVaultLocked: false,
   isUnlockModalOpen: false,
+  pendingAgentProposal: null,
 
   setWorkspaces: (workspaces) => set({ workspaces }),
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
+  setPendingAgentProposal: (proposal) => set({ pendingAgentProposal: proposal }),
   setIsCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
   setIsUnlockModalOpen: (open) => set({ isUnlockModalOpen: open }),
 
@@ -79,7 +101,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   switchWorkspace: async (targetId: string) => {
-    const { activeWorkspaceId, workspaces } = get();
+    const { activeWorkspaceId } = get();
     if (targetId === activeWorkspaceId) return true;
 
     set({ isSwitching: true });
@@ -91,7 +113,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (window.electronAPI?.workspace?.switchWorkspace) {
         const res = await window.electronAPI.workspace.switchWorkspace(targetId);
         if (res && res.success) {
-          set({ activeWorkspaceId: targetId });
+          set({ activeWorkspaceId: targetId, runbooks: res.visualMeta?.runbooks || (res as any).runbooks || [] });
           
           // Try to update theme color + check vault lock using a single lookup
           const targetWs = get().workspaces.find(w => w.id === targetId);

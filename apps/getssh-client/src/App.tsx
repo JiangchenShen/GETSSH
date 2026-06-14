@@ -1,98 +1,96 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MoovierTile, MoovierFocusProvider } from '@moovier/core';
 import { TerminalPaneRenderer } from './components/TerminalPane';
-import { Monitor, X } from 'lucide-react';
-import { SFTPManager } from './components/SFTPManager';
-import { useAppStore } from './store/appStore';
-import { PaneNode, PaneLeaf, useSessionStore, SessionProfile } from './store/sessionStore';
-import { usePanelStore } from './store/panelStore';
-import { usePluginStore } from './store/pluginStore';
-import { initPluginBridge, bootSandboxedPlugins } from './plugins/PluginBridge';
+import { ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AnimatePresence } from 'framer-motion';
-import { CommandCenter } from './components/CommandCenter';
+import { AnimatePresence, motion } from 'framer-motion';
+
+// Stores
+import { useAppStore } from './store/appStore';
+import { PaneNode, useSessionStore } from './store/sessionStore';
+import { useWorkspaceStore, Runbook } from './store/workspaceStore';
+import { useCryptoStore } from './store/cryptoStore';
+
+// Hooks
+import { useAppBoot } from './hooks/useAppBoot';
+import { useAppIPC } from './hooks/useAppIPC';
+import { useAppEvents } from './hooks/useAppEvents';
+import { useCoreAppEvents } from './hooks/useCoreAppEvents';
+import { useCryptoBoot } from './hooks/useCryptoBoot';
+import { useAutoStart } from './hooks/useAutoStart';
+import { useSessionManager } from './hooks/useSessionManager';
+
+
+// Components
 import { GlobalWorkspaceBar } from './components/GlobalWorkspaceBar';
 import { ContextSidebar } from './components/ContextSidebar';
 import { NexusDashboard } from './components/NexusDashboard';
-import { WorkspaceCenter } from './components/WorkspaceCenter';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
 import { AiCenter } from './components/AiCenter';
-import { AiSettingsModal } from './components/AiSettingsModal';
-import { PluginCenterModal } from './components/PluginCenterModal';
 import { UnlockVaultModal } from './components/UnlockVaultModal';
-import { SecureCenter } from './components/SecureCenter';
 import { CryptoModal } from './components/CryptoModal';
 import { HostKeyVerificationModal } from './components/HostKeyVerificationModal';
-import { ConnectForm } from './components/ConnectForm';
 import { TabBar } from './components/TabBar';
-import { SettingsView } from './components/SettingsView';
-import { SecurityOverlay } from './components/SecurityOverlay';
+import { CommandCenter } from './components/CommandCenter';
 import { ToastProvider } from './components/ToastProvider';
-import { ShieldAlert } from 'lucide-react';
-// Types re-exported from stores for backward compatibility
+
+// Overlays
+import { SettingsModalOverlay } from './components/app-overlays/SettingsModalOverlay';
+import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
+import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
+
 export type { AppConfig } from './store/appStore';
-import { useCryptoStore } from './store/cryptoStore';
-import { useWorkspaceStore } from './store/workspaceStore';
 
 function App() {
   const { t, i18n } = useTranslation();
 
-  // Workspace Store
-  const isSwitching = useWorkspaceStore(state => state.isSwitching);
-  const initWorkspaces = useWorkspaceStore(state => state.initWorkspaces);
+  // Boot Application & Bind IPC / Window Events
+  useAppBoot();
+  useAppIPC();
+  useAppEvents();
+
+  // Workspace
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
-  const setIsVaultLocked = (locked: boolean) => useWorkspaceStore.setState({ isVaultLocked: locked });
 
-  useEffect(() => {
-    initWorkspaces();
-  }, [initWorkspaces]);
-
-  // Session Store (Zustand)
+  // Session
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
   const tabs = useSessionStore(state => state.tabs);
-  const setTabs = useSessionStore(state => state.setTabs);
   const closeTab = useSessionStore(state => state.closeTab);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
-  const activePaneId = useSessionStore(state => state.activePaneId);
-  const setActivePaneId = useSessionStore(state => state.setActivePaneId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const connecting = useSessionStore(state => state.connecting);
-  const setConnecting = useSessionStore(state => state.setConnecting);
   const error = useSessionStore(state => state.error);
-  const setError = useSessionStore(state => state.setError);
 
-  const updateSessionOsType = useSessionStore(state => state.updateSessionOsType);
-
-  // App Store (Zustand)
+  // App
   const appConfig = useAppStore(state => state.appConfig);
   const isDark = useAppStore(state => state.isDark);
-  const systemIsDark = useAppStore(state => state.systemIsDark);
-  const isAppBlurred = useAppStore(state => state.isAppBlurred);
-  const setSystemIsDark = useAppStore(state => state.setSystemIsDark);
-  const setIsAppBlurred = useAppStore(state => state.setIsAppBlurred);
-  const loadStoredConfig = useAppStore(state => state.loadStoredConfig);
-  const syncConfigEffects = useAppStore(state => state.syncConfigEffects);
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
-  const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
   const isPolluted = useAppStore(state => state.isPolluted);
+  const isAppBlurred = useAppStore(state => state.isAppBlurred);
   const isCommandCenterOpen = useAppStore(state => state.isCommandCenterOpen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
-  const isWorkspaceCenterOpen = useAppStore(state => state.isWorkspaceCenterOpen);
   const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
-  const isSecureCenterOpen = useAppStore(state => state.isSecureCenterOpen);
-  
-  
   const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
   
-  // Settings modal state
+  // Crypto State
+  const cryptoMode = useCryptoStore(state => state.cryptoMode);
+  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
+  const masterPassword = useCryptoStore(state => state.masterPassword);
+  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
+  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
+  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
+
+  // Local State
+  const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'>('Appearance');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'|string = 'Appearance', toggle: boolean = false) => {
      if (isSettingsOpen && toggle) {
          setIsSettingsOpen(false);
@@ -102,496 +100,170 @@ function App() {
      setIsSettingsOpen(true);
   };
 
-  const hasAutoStarted = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Crypto State
-  const cryptoMode = useCryptoStore(state => state.cryptoMode);
-  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
-  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
-  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
-
-  const setUpdateAvailable = useAppStore(state => state.setUpdateAvailable);
-  const updateAvailable = useAppStore(state => state.updateAvailable);
-  useEffect(() => {
-    if (window.electronAPI?.onUpdateAvailable) {
-      const removeUpdateListener = window.electronAPI.onUpdateAvailable((info) => {
-        setUpdateAvailable(info);
-      });
-      return removeUpdateListener;
-    }
-  }, [setUpdateAvailable]);
-
-  // IPC: Host Key Verification Prompt
-  useEffect(() => {
-    if (window.electronAPI?.onPromptHostVerification) {
-      const removeListener = window.electronAPI.onPromptHostVerification((data) => {
-        useAppStore.getState().setSecurityPrompt({
-          isOpen: true,
-          requestId: data.requestId,
-          hostname: data.hostname,
-          fingerprint: data.fingerprint,
-          isChanged: data.isChanged,
-          oldFingerprint: data.oldFingerprint,
-        });
-      });
-      const removePatchListener = window.electronAPI.onNexusPatchLeaf((paneId: string, updates: any) => {
-        useSessionStore.getState().patchNexusLeaf(paneId, updates);
-      });
-      
-      let removeSyncListener: (() => void) | undefined;
-      if (window.electronAPI.onNexusSyncTree) {
-         removeSyncListener = window.electronAPI.onNexusSyncTree((tabId: string, tree: any) => {
-           useSessionStore.getState().syncNexusTree(tabId, tree);
-         });
-      }
-      return () => {
-        removeListener();
-        removePatchListener();
-        if (removeSyncListener) removeSyncListener();
-      };
-    }
-  }, []);
-
-  useEffect(() => {
-    if (window.electronAPI?.onFullScreenState) {
-      const removeListener = window.electronAPI.onFullScreenState((full) => {
-        setIsFullScreen(full);
-      });
-      return removeListener;
-    }
-  }, [setIsFullScreen]);
+  const handleHomeClick = () => {
+    setSelectedSessionIndex(null);
+    setActiveTabId(null);
+  };
 
   const syncProfilesRef = useRef<any>(null);
 
-  // OS Fingerprint listener
-  useEffect(() => {
-    if (!window.electronAPI?.onOsFingerprint) return;
-    const unsub = window.electronAPI.onOsFingerprint(({ host, username, osType }) => {
-      const currentSessions = useSessionStore.getState().sessions;
-      const matched = currentSessions.find(s => s.host.replace(/[/\s]+$/g, '') === host && s.username === username);
-      if (matched) {
-        updateSessionOsType(matched.host, username, osType as any);
-        // Persist the updated osType to disk so it doesn't revert to a question mark on restart
-        setTimeout(() => {
-          if (syncProfilesRef.current) syncProfilesRef.current(useSessionStore.getState().sessions);
-        }, 50);
-      }
-    });
-    return unsub;
-  }, [updateSessionOsType]);
-
-  useEffect(() => {
-    const bootCrypto = async () => {
-       const status = await window.electronAPI.checkProfiles();
-       if (status === 'encrypted') {
-          setEncryptionDisabled(false);
-          // Render the modal first to blur the background, then prompt biometric
-          setCryptoMode('locked');
-          const bioRes = await window.electronAPI.promptBiometricUnlock();
-          if (bioRes.success && bioRes.masterPassword) {
-            try {
-               const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-               setMasterPassword(bioRes.masterPassword);
-               setSessions(decrypted);
-               setCryptoMode('idle');
-               return; // Successfully unlocked biometrically
-            } catch (e) {
-               console.warn('Biometric unlock failed to decrypt:', e);
-            }
-          }
-          // If biometric fails, modal is already shown for manual entry fallback.
-       } else if (status === 'plain') {
-          const plainSessions = await window.electronAPI.unlockProfiles('');
-          setSessions(plainSessions);
-          setEncryptionDisabled(true);
-          setCryptoMode('idle');
-       } else {
-          setCryptoMode('idle');
-       }
-    };
-    bootCrypto();
-
-    loadStoredConfig();
-
-    // Fetch plugins as early as possible so UI (Welcome/Sidebar) is responsive instantly
-    if (window.electronAPI && window.electronAPI.getPluginsList) {
-      window.electronAPI.getPluginsList().then((res) => {
-        usePluginStore.getState().setPlugins(res || []);
-      });
-    }
-
-    // Boot Plugins in Sandbox (secure)
-    const cleanupPluginBridge = initPluginBridge();
-    bootSandboxedPlugins().catch(e => console.error('Failed to boot plugins:', e));
-
-    // Register core panels in the dynamic panel engine
-    usePanelStore.getState().registerPanel({
-      id: 'sftp',
-      title: 'SFTP Manager',
-      component: SFTPManager,
-      position: 'bottom',
-      defaultSize: 280,
-      minSize: 180,
-      maxSize: 520,
-    });
-
-    // Init Theme Sync
-    let unsubTheme: (() => void) | undefined;
-    let unsubBlur: (() => void) | undefined;
-    let unsubFocus: (() => void) | undefined;
-    if (window.electronAPI && window.electronAPI.getTheme) {
-      window.electronAPI.getTheme().then(setSystemIsDark);
-      unsubTheme = window.electronAPI.onThemeChanged(setSystemIsDark);
-      
-      if (window.electronAPI.onAppBlur) {
-        unsubBlur = window.electronAPI.onAppBlur(() => setIsAppBlurred(true));
-        unsubFocus = window.electronAPI.onAppFocus(() => setIsAppBlurred(false));
-      }
-    }
-    
-    return () => {
-      if (unsubTheme) unsubTheme();
-      if (unsubBlur) unsubBlur();
-      if (unsubFocus) unsubFocus();
-      if (cleanupPluginBridge) cleanupPluginBridge();
-    };
-  }, []); // Run ONCE on mount
-
-  // Global Shortcut for Command Center
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Toggle Command Center on Alt+Space/Option+Space, Ctrl+Space, or Cmd/Ctrl+K
-      const isAltSpace = e.altKey && e.code === 'Space';
-      const isCtrlSpace = e.ctrlKey && e.code === 'Space';
-      const isCmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
-      
-      if (isAltSpace || isCtrlSpace || isCmdK) {
-        e.preventDefault();
-        setIsCommandCenterOpen(!isCommandCenterOpen);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isCommandCenterOpen, setIsCommandCenterOpen]);
+  // Crypto Boot Check
+  useCryptoBoot();
 
   // Watch i18n & Theme Color
   useEffect(() => {
     i18n.changeLanguage(appConfig.language);
-    document.documentElement.style.setProperty('--primary-color', appConfig.themeColor);
-  }, [appConfig.language, appConfig.themeColor]);
+    document.documentElement.style.setProperty('--primary-color', appConfig.themeColor || '0 212 255');
+  }, [appConfig.language, appConfig.themeColor, i18n]);
 
   // Auto-Start trigger
-  useEffect(() => {
-    if (sessions.length > 0 && !hasAutoStarted.current) {
-        hasAutoStarted.current = true;
-        const autoSessions = sessions.filter(s => s.autoStart);
-        autoSessions.forEach(autoSession => {
-            const config = { 
-                host: autoSession.host, 
-                username: autoSession.username, 
-                password: autoSession.password, 
-                privateKeyPath: autoSession.privateKeyPath,
-                port: autoSession.port || appConfig.defaultPort || 22,
-                keepaliveInterval: appConfig.keepalive * 1000,
-                protocol: autoSession.protocol,
-                // Append Proxy
-                proxyType: appConfig.proxyType,
-                proxyHost: appConfig.proxyHost,
-                proxyPort: appConfig.proxyPort,
-                autoStart: autoSession.autoStart,
-                initScript: appConfig.initScript
-            };
-            
-            window.electronAPI.sshConnect(config).then(res => {
-               if (res.success && res.sessionId) {
-                 const tabTitle = `${config.username}@${config.host}`;
-                 setTabs([...tabs, { id: res.sessionId as string, title: tabTitle, config }]);
-                 setActiveTabId(res.sessionId);
-                 window.electronAPI.nexusRegisterTab(res.sessionId, res.sessionId, res.sessionId, 'terminal', JSON.stringify(config), tabTitle).catch(e => console.error('[Stateless UI] Failed to register auto-start tab:', e));
-                 if (config.initScript && res.sessionId) {
-                     const sessionId = res.sessionId;
-                     setTimeout(() => {
-                        // [H-05] Security Fix: Require explicit user confirmation before executing initScript to prevent XSS-to-RCE escalation
-                        if (window.confirm(`[Security Check]\nAn initialization script is about to be executed on this server:\n\n${config.initScript}\n\nDo you want to allow this?`)) {
-                          window.electronAPI.sshWrite(sessionId, config.initScript + '\n');
-                        }
-                     }, 1500); // Allow shell load buffer
-                 }
-               }
-            });
-        });
-    }
-  }, [sessions, appConfig]);
+  useAutoStart();
 
-  // Sync config effect
-  useEffect(() => {
-    syncConfigEffects();
-  }, [appConfig, systemIsDark, syncConfigEffects]);
+  // Core App Events & Session Management
+  const {
+    syncProfiles,
+    handleSetup,
+    handleUnlock,
+    deleteSession,
+    toggleAutoStart,
+    handleConnect,
+    handleOpenPlugin,
+    splitPane
+  } = useSessionManager();
 
-  // ── Auto-Lock Inactivity Engine ───────────────────────────────────────
-  useEffect(() => {
-    if (!appConfig.autoLockTimeout) return; // 0 means disabled
-    
-    let lastActive = Date.now();
-    const updateActivity = () => { lastActive = Date.now(); };
-    
-    window.addEventListener('mousemove', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('click', updateActivity);
-
-    const checkInterval = setInterval(() => {
-      if (cryptoMode !== 'idle') return;
-      
-      if (Date.now() - lastActive > appConfig.autoLockTimeout * 60 * 1000) {
-        setCryptoMode('locked');
-        setMasterPassword(''); // Clear from memory for security
-      }
-    }, 10000); // check every 10 seconds
-
-    return () => {
-      window.removeEventListener('mousemove', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('click', updateActivity);
-      clearInterval(checkInterval);
-    };
-  }, [appConfig.autoLockTimeout, setCryptoMode, cryptoMode]);
-
-  const syncProfiles = async (updatedSessions: any[]) => {
-    setSessions(updatedSessions);
-    if (masterPassword || encryptionDisabled) {
-      await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: updatedSessions });
-    } else {
-      setCryptoMode('setup');
-    }
-  };
   syncProfilesRef.current = syncProfiles;
 
-  useEffect(() => {
-    const handleCreateSession = (e: CustomEvent) => {
-      const newSession = { host: e.detail, username: '', password: '', privateKeyPath: '', autoStart: false, protocol: 'auto' };
-      const updated = [...sessions, newSession as any];
-      syncProfiles(updated);
-      setSelectedSessionIndex(updated.length - 1);
-      setActiveTabId(null);
-    };
-    window.addEventListener('app:create-session', handleCreateSession as EventListener);
-    return () => window.removeEventListener('app:create-session', handleCreateSession as EventListener);
-  }, [sessions, syncProfiles, setSelectedSessionIndex, setActiveTabId]);
-
-
-  const handleSetup = async (pwd: string) => {
-     setMasterPassword(pwd);
-     await window.electronAPI.saveProfiles({ masterPassword: pwd, payload: sessions });
-     setCryptoMode('idle');
-  };
-
-  const handleUnlock = async (pwd: string) => {
-     try {
-       const decrypted = await window.electronAPI.unlockProfiles(pwd);
-       setMasterPassword(pwd);
-       setSessions(decrypted);
-       setCryptoMode('idle');
-       // Atomic unlock: simultaneously clear vault lock so sidebar never shows stale data
-       useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-       return true;
-     } catch (e) {
-       return false;
-     }
-  };
-
-  const handleConnect = async (targetSession: any) => {
-    setError(null);
-    setConnecting(true);
-
-    const config = { 
-        host: targetSession.host, 
-        username: targetSession.username, 
-        password: targetSession.password, 
-        privateKeyPath: targetSession.privateKeyPath,
-        port: targetSession.port || appConfig.defaultPort || 22,
-        keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
-        protocol: targetSession.protocol,
-        proxyType: appConfig.proxyType,
-        proxyHost: appConfig.proxyHost,
-        proxyPort: appConfig.proxyPort,
-        initScript: appConfig.initScript
-    };
-    
-    const res = await window.electronAPI.sshConnect(config);
-    setConnecting(false);
-
-    if (res.success && res.sessionId) {
-      const tabTitle = `${config.username}@${config.host}`;
-      const rootPaneId = res.sessionId;
-      const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
-
-      // Determine if we should replace a welcome pane
-      const currentTab = tabs.find(t => t.id === activeTabId);
-      let targetPaneId: string | null = null;
-      if (currentTab && currentTab.paneTree) {
-        if (activePaneId) {
-            const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
-            if (activeLeaf && activeLeaf.paneType === 'welcome') {
-              targetPaneId = activeLeaf.paneId;
-            }
-        }
-        if (!targetPaneId) {
-            // Find any welcome pane in the current tab
-            const welcomeLeaf = findWelcomePane(currentTab.paneTree);
-            if (welcomeLeaf) {
-                targetPaneId = welcomeLeaf.paneId;
-            }
-        }
-      }
-
-      if (targetPaneId) {
-        // Replace welcome pane with terminal pane
-        setTabs(tabs.map(t => {
-          if (t.id !== activeTabId || !t.paneTree) return t;
-          return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId, { paneType: 'terminal', sessionId: res.sessionId, config }) };
-        }));
-        try {
-            await window.electronAPI.nexusReplacePane(targetPaneId, 'terminal', res.sessionId, JSON.stringify(config));
-        } catch (e) {
-            console.error('[Stateless UI] Failed to replace pane in Rust:', e);
-        }
-      } else {
-        // Spawn new tab
-        setTabs([...tabs, { id: res.sessionId, title: tabTitle, config, paneTree }]);
-        setActiveTabId(res.sessionId);
-        setActivePaneId(rootPaneId);
-        setSelectedSessionIndex(null);
-        try {
-            await window.electronAPI.nexusRegisterTab(res.sessionId, rootPaneId, res.sessionId, 'terminal', JSON.stringify(config), tabTitle);
-        } catch (e) {
-            console.error('[Stateless UI] Failed to register tab in Rust:', e);
-        }
-      }
-    } else {
-      if (res.error === 'Host denied (verification failed)') {
-        setError(t('connect.hostDenied'));
-      } else {
-        setError(res.error || 'Connection failed');
-      }
-    }
-  };
-
-  const handleOpenPlugin = (plugin: any) => {
-    const entryFile = plugin.getssh?.entry || plugin.main || 'index.html';
-    const pluginUrl = `getssh-plugin://${plugin.name}/${entryFile}`;
-    const tabTitle = plugin.getssh?.name || plugin.displayName || plugin.name;
-
-    const currentTab = tabs.find(t => t.id === activeTabId);
-    let targetPaneId: string | null = null;
-    
-    if (currentTab && currentTab.paneTree) {
-      if (activePaneId) {
-          const activeLeaf = findLeaf(currentTab.paneTree, activePaneId);
-          if (activeLeaf && activeLeaf.paneType === 'welcome') {
-            targetPaneId = activeLeaf.paneId;
-          }
-      }
-      if (!targetPaneId) {
-          // Find any welcome pane in the current tab
-          const welcomeLeaf = findWelcomePane(currentTab.paneTree);
-          if (welcomeLeaf) {
-              targetPaneId = welcomeLeaf.paneId;
-          }
-      }
-    }
-
-    if (targetPaneId) {
-      setTabs(tabs.map(t => {
-        if (t.id !== activeTabId || !t.paneTree) return t;
-        return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'plugin', sessionId: null, config: { pluginUrl } }) };
-      }));
-      window.electronAPI.nexusReplacePane(targetPaneId, 'plugin', null, JSON.stringify({ pluginUrl })).catch(e => {
-        console.error('[Stateless UI] Failed to replace pane to plugin in Rust:', e);
-      });
-    } else {
-      const newTabId = `cmd-${Date.now()}`;
-      const newPaneId = `pane-${Date.now()}`;
-      setTabs([...tabs, {
-        id: newTabId,
-        title: tabTitle,
-        config: { pluginUrl },
-        paneTree: { type: 'leaf', paneId: newPaneId, paneType: 'plugin', sessionId: null, config: { pluginUrl } }
-      }]);
-      setActiveTabId(newTabId);
-      window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'plugin', JSON.stringify({ pluginUrl }), tabTitle).catch(e => {
-        console.error('[Stateless UI] Failed to register plugin tab in Rust:', e);
-      });
-    }
-  };
-
-  const deleteSession = (e: React.MouseEvent, targetSession: SessionProfile) => {
-    e.stopPropagation();
-    const targetIdx = sessions.indexOf(targetSession);
-    if (targetIdx === -1) return;
-    
-    if (selectedSessionIndex === targetIdx) setSelectedSessionIndex(null);
-    else if (selectedSessionIndex !== null && selectedSessionIndex > targetIdx) setSelectedSessionIndex(selectedSessionIndex - 1);
-
-    const updated = sessions.filter((_, idx) => idx !== targetIdx);
-    syncProfiles(updated);
-  };
-  
-  const toggleAutoStart = (e: React.MouseEvent, targetSession: SessionProfile) => {
-    e.stopPropagation();
-    const updated = sessions.map(s => {
-       if(s === targetSession) return { ...s, autoStart: !s.autoStart };
-       return s;
-    });
-    syncProfiles(updated);
-  };
-  
-  
-
-  // ── Split Pane Logic ──────────────────────────────────────────────────
-
-  const splitPane = async (paneId: string, direction: 'hsplit' | 'vsplit') => {
-    try {
-      const dirStr = direction === 'hsplit' ? 'horizontal' : 'vertical';
-      await window.electronAPI.nexusSplit(paneId, dirStr);
-      console.log(`[Stateless UI] Successfully dispatched ${dirStr} split for ${paneId} to Nexus Core.`);
-    } catch (e) {
-      console.error("[Stateless UI] Nexus Core error:", e);
-    }
-  };
+  useCoreAppEvents(setPendingHighRiskRunbook, setIsSettingsOpen, syncProfiles);
 
   // Global Background & Glassmorphism Logic
-  let appBgStyle = {};
+  let appBgStyle = { '--titlebar-height': isMac ? '40px' : '32px' } as React.CSSProperties;
   let containerClasses = '';
 
   if (!isDark) {
-    // Light Mode: Solid, no blur
-    containerClasses = 'bg-slate-50 text-slate-900 border border-black/5 shadow-sm';
+    // Light Mode (Glass on): Pure white base with very high opacity, using primary color as extremely subtle tint
+    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(255, 255, 255, ${appConfig.bgOpacity ?? 0.85})` };
+    containerClasses = 'bg-primary/[0.02] text-slate-900 border-none';
   } else if (!appConfig.enableGlassmorphism) {
     // Dark Mode (Glass off): Solid, no blur
-    containerClasses = 'bg-obsidian-bg text-neutral-200 border-none';
+    containerClasses = 'bg-[#0A0A0A] text-neutral-200 border-none';
   } else {
     // Dark Mode (Glass on): Semi-transparent, blur
-    appBgStyle = { backgroundColor: `rgba(9, 9, 11, ${appConfig.bgOpacity ?? 0.8})` };
+    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${appConfig.bgOpacity ?? 0.8})` };
     containerClasses = 'glass-effect text-neutral-200 border-none';
   }
 
   return (
     <MoovierFocusProvider>
       <div 
-        ref={containerRef as React.RefObject<HTMLDivElement>}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          window.electronAPI.showContextMenu();
-        }}
-        className={`h-screen w-screen flex relative overflow-hidden transition-all ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`} style={appBgStyle}>
-        
+        className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
+        style={appBgStyle}
+      >
+        {/* Subtle Duo-Tone Ambient Glow - Enabled in both modes! */}
+        <div className={`absolute inset-0 pointer-events-none z-[0] transition-all duration-1000 bg-gradient-duo ${isDark ? 'opacity-[0.12] mix-blend-screen' : 'opacity-[0.04] mix-blend-normal'}`} />
 
+        <AnimatePresence>
+          {pendingHighRiskRunbook && (
+            <motion.div 
+               initial={{ opacity: 0, scale: 0.95 }}
+               animate={{ opacity: 1, scale: 1 }}
+               exit={{ opacity: 0, scale: 0.95 }}
+               className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-auto"
+            >
+              <div className="bg-[#1a1a1a] border border-red-500/30 p-8 rounded-xl max-w-md w-full shadow-2xl">
+                <h3 className="text-xl font-bold text-red-500 mb-4 flex items-center gap-2">
+                  <ShieldAlert className="w-6 h-6 animate-pulse" /> High Risk Operation
+                </h3>
+                <p className="text-sm text-gray-300 mb-6">You are about to execute a high-risk runbook. Please enter your master password to authorize this action.</p>
+                <CryptoModal 
+                  mode="locked" 
+                  isDark={true}
+                  onSetup={async () => {}}
+                  onUnlock={async (pwd) => {
+                     try {
+                        const success = await window.electronAPI.unlockProfiles(pwd);
+                        if (!success) return false;
+                        
+                        const getActiveSessionId = (): string | null => {
+                          const state = useSessionStore.getState();
+                          if (!state.activeTabId || !state.activePaneId) return null;
+                          const tab = state.tabs.find(t => t.id === state.activeTabId);
+                          if (!tab || !tab.paneTree) return null;
+                          let foundSessionId: string | null = null;
+                          const traverse = (node: PaneNode) => {
+                            if (node.type === 'leaf') {
+                              if (node.paneId === state.activePaneId && node.paneType === 'terminal') foundSessionId = node.sessionId || null;
+                            } else if (node.type === 'hsplit' || node.type === 'vsplit') {
+                              if (node.children[0]) traverse(node.children[0]);
+                              if (node.children[1]) traverse(node.children[1]);
+                            }
+                          };
+                          traverse(tab.paneTree);
+                          return foundSessionId;
+                        };
+                        
+                        const sessionId = getActiveSessionId();
+                        if (!sessionId) {
+                          useAppStore.getState().addToast('未找到活动的终端面板以执行剧本', 'warning');
+                        } else {
+                          const sanitized = pendingHighRiskRunbook.command.replace(/[\r\n]+/g, ' ').trim();
+                          if (window.electronAPI?.sshWrite) {
+                            window.electronAPI.sshWrite(sessionId, sanitized);
+                            useAppStore.getState().addToast('剧本命令已安全填入终端缓冲', 'success');
+                          }
+                        }
+                        setPendingHighRiskRunbook(null);
+                        return true;
+                     } catch (e) {
+                        console.warn('Unlock failed:', e);
+                        return false;
+                     }
+                  }}
+                  onRetryBiometric={async () => {
+                     const bioRes = await window.electronAPI.promptBiometricUnlock();
+                     if (bioRes.success && bioRes.masterPassword) {
+                       try {
+                          await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                          const getActiveSessionId = (): string | null => {
+                            const state = useSessionStore.getState();
+                            if (!state.activeTabId || !state.activePaneId) return null;
+                            const tab = state.tabs.find(t => t.id === state.activeTabId);
+                            if (!tab || !tab.paneTree) return null;
+                            let foundSessionId: string | null = null;
+                            const traverse = (node: PaneNode) => {
+                              if (node.type === 'leaf') {
+                                if (node.paneId === state.activePaneId && node.paneType === 'terminal') foundSessionId = node.sessionId;
+                              } else {
+                                traverse(node.children[0]); traverse(node.children[1]);
+                              }
+                            };
+                            traverse(tab.paneTree);
+                            return foundSessionId;
+                          };
+                          
+                          const sessionId = getActiveSessionId();
+                          if (!sessionId) {
+                            useAppStore.getState().addToast(t('commandCenter.noActiveTerminal', '未找到活动的终端面板以执行剧本'), 'warning');
+                          } else {
+                            const sanitized = pendingHighRiskRunbook.command.replace(/[\r\n]+/g, ' ').trim();
+                            if (window.electronAPI?.sshWrite) {
+                              window.electronAPI.sshWrite(sessionId, sanitized);
+                              useAppStore.getState().addToast(t('commandCenter.runbookFilled', '剧本命令已安全填入终端缓冲'), 'success');
+                            }
+                          }
+                          setPendingHighRiskRunbook(null);
+                       } catch (e) {
+                          console.warn('Biometric unlock failed on manual retry:', e);
+                       }
+                     }
+                  }}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        <SecurityOverlay />
-        {(cryptoMode === 'locked' || cryptoMode === 'setup') && (() => {
+        {/* ── STANDARD LOCK SCREEN ── */}
+        {(cryptoMode === 'locked' || cryptoMode === 'setup') && !pendingHighRiskRunbook && (() => {
           const _activeWs = workspaces.find(w => w.id === activeWorkspaceId);
           const _wsName = _activeWs?.name || activeWorkspaceId;
           const _wsColor = _activeWs?.themeColor;
@@ -601,7 +273,7 @@ function App() {
             isDark={isDark} 
             encryptionDisabled={encryptionDisabled}
             onUnlock={handleUnlock} 
-            onSetup={handleSetup}
+            onSetup={async (pwd) => { await handleSetup(pwd); }}
             onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
             onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
                 if (cryptoMode === 'setup') {
@@ -633,6 +305,7 @@ function App() {
           />
           );
         })()}
+        
         {!isFullScreen && (
           <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
              {isPolluted && (
@@ -645,21 +318,17 @@ function App() {
 
         {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
         <div 
-          className="w-full h-full"
+          className="w-full h-full bg-transparent"
           style={{
              display: 'grid',
-             gridTemplateColumns: `64px ${isSidebarCollapsed ? '0px' : '240px'} 1fr`,
-             gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`, /* Titlebar | Workspace | Statusbar */
-             zIndex: 'var(--z-app-chrome)',
-             backgroundColor: isDark 
-               ? `hsla(var(--glass-tint-color-dark), var(--glass-tint-opacity))`
-               : `hsla(var(--glass-tint-color-light), var(--glass-tint-opacity))`
+             gridTemplateColumns: `64px ${isSidebarCollapsed ? '48px' : '240px'} 1fr`,
+             gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`,
+             zIndex: 'var(--z-app-chrome)'
           }}
         >
-          
           {/* L3 Global Sidebar (Ultra-narrow) */}
           <div style={{ gridColumn: '1 / 2', gridRow: '1 / 4', zIndex: 'var(--z-region-material)' }}>
-            <GlobalWorkspaceBar openSettingsTab={openSettingsTab} />
+            <GlobalWorkspaceBar openSettingsTab={openSettingsTab} onHomeClick={handleHomeClick} />
           </div>
 
           {/* Left Sidebar (L4 Region Material, Edge-Flush) */}
@@ -667,7 +336,7 @@ function App() {
             <MoovierTile 
               exemptFromFocus 
               dragLevel="fixed" 
-              className="w-full h-full shrink-0 flex flex-col rounded-none"
+              className={`w-full h-full shrink-0 flex flex-col rounded-xl ${!isDark && '!bg-black/[0.02] border-r !border-black/5 !shadow-none'}`}
               style={{ borderRadius: 0 }}
             >
               <ContextSidebar 
@@ -687,152 +356,79 @@ function App() {
           {/* Main Content Area (L5 Content) */}
           <div style={{ gridColumn: '3 / 4', gridRow: '2 / 3', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
             
-            {/* Connect Form - Visible when a session is selected */}
-            <div
-              className="flex-1 flex items-center justify-center overflow-y-auto"
-              style={{ display: (selectedSessionIndex !== null && sessions[selectedSessionIndex] && activeTabId !== 'settings') ? 'flex' : 'none' }}
-            >
-              {selectedSessionIndex !== null && sessions[selectedSessionIndex] && (
-                <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 rounded-none w-full max-w-5xl border-none shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4)]" style={{ borderRadius: 0 }}>
-                  <ConnectForm
-                    session={sessions[selectedSessionIndex]}
-                    index={selectedSessionIndex}
-                    appConfig={appConfig}
-                    isDark={isDark}
-                    connecting={connecting}
-                    error={error}
-                    onConnect={handleConnect}
-                    onUpdateSession={(index, updatedSession) => {
-                      const u = [...sessions];
-                      u[index] = updatedSession;
-                      syncProfiles(u);
-                    }}
-                  />
-                </MoovierTile>
-              )}
-            </div>
-
-            {/* Tab Bar and Active Terminal */}
-            <div 
-              className="flex-1 flex flex-col min-h-0 overflow-hidden"
-              style={{ display: (selectedSessionIndex === null && activeTabId !== 'settings' && tabs.length > 0) ? 'flex' : 'none' }}
-            >
+            {/* Tab Bar ALWAYS visible if tabs.length > 0 */}
+            {(tabs.length > 0 && activeTabId !== 'settings') && (
               <TabBar
                 tabs={tabs}
                 activeTabId={activeTabId}
                 isDark={isDark}
-                onSelectTab={setActiveTabId}
+                onSelectTab={(id) => {
+                  setActiveTabId(id);
+                  setSelectedSessionIndex(null);
+                }}
                 onCloseTab={closeTab}
               />
-              <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden bg-black">
-                {tabs.map((tab) => (
-                  <div 
-                    key={tab.id}
-                    className="absolute inset-0 flex flex-col"
-                    style={{ display: activeTabId === tab.id ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
-                  >
-                    {tab.paneTree ? (
-                      <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={splitPane} />
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center text-white/50">
-                        Waiting for Nexus Core...
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
 
-            {/* Empty State / Nexus Dashboard */}
-            <div style={{ display: (selectedSessionIndex === null && !activeTabId && tabs.length === 0) ? 'flex' : 'none' }} className="flex-1 items-center justify-center overflow-y-auto overflow-x-hidden p-4">
-              <NexusDashboard openSettingsTab={openSettingsTab} />
+            <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
+              
+              {/* Active Terminal Panes */}
+              {tabs.map((tab) => (
+                <div 
+                  key={tab.id}
+                  className="absolute inset-0 flex flex-col"
+                  style={{ display: (activeTabId === tab.id && selectedSessionIndex === null) ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
+                >
+                  {tab.paneTree ? (
+                    <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={(paneId, direction) => splitPane(paneId, direction, {})} />
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-white/50">
+                      Waiting for Nexus Core...
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Welcome Dashboard Overlay */}
+              {(selectedSessionIndex === null && !activeTabId) && (
+                <div className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}>
+                  <NexusDashboard openSettingsTab={openSettingsTab} />
+                </div>
+              )}
+
+              {/* Connect Form Overlay */}
+              <ConnectFormOverlay
+                tabsLength={tabs.length}
+                isDark={isDark}
+                selectedSessionIndex={selectedSessionIndex}
+                sessions={sessions}
+                activeTabId={activeTabId}
+                appConfig={appConfig}
+                connecting={connecting}
+                error={error}
+                handleConnect={handleConnect}
+                syncProfiles={syncProfiles}
+              />
+
             </div>
           </div>
         </div>
 
-        {/* Overlay Modals for Secure Center & Workspace Center */}
-        {isSecureCenterOpen && <SecureCenter 
-          masterPassword={masterPassword}
-          setMasterPassword={setMasterPassword}
-          encryptionDisabled={encryptionDisabled}
-          setEncryptionDisabled={setEncryptionDisabled}
-        />}
-        {isWorkspaceCenterOpen && <WorkspaceCenter />}
+        {/* Overlays / Modals */}
         <CreateWorkspaceModal />
         {isAiCenterOpen && <AiCenter />}
-        <AiSettingsModal />
-        <PluginCenterModal />
         <UnlockVaultModal />
-
-        {/* Floating Settings Modal */}
-        {isSettingsOpen && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all animate-in fade-in duration-300"
-               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-               onClick={(e) => {
-                 if (e.target === e.currentTarget) {
-                   setIsSettingsOpen(false);
-                 }
-               }}>
-            <div 
-              className={`relative w-[90vw] h-[90vh] max-w-[1400px] max-h-[900px] rounded-none overflow-hidden flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] border ${
-                isDark ? 'bg-[#050505]/80 border-white/10' : 'bg-[#ffffff]/80 border-black/10'
-              } backdrop-blur-3xl animate-in zoom-in-95 duration-300`}
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            >
-              {/* Draggable OS-like Header */}
-              <div className={`h-16 shrink-0 flex items-center px-6 border-b select-none ${
-                isDark ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
-              }`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-                <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                  <div className="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 cursor-pointer flex items-center justify-center transition-colors" 
-                       onClick={() => setIsSettingsOpen(false)}>
-                  </div>
-                  <div className="w-3.5 h-3.5 rounded-full bg-yellow-500/50"></div>
-                  <div className="w-3.5 h-3.5 rounded-full bg-green-500/50"></div>
-                </div>
-                <div className={`mx-auto font-bold text-sm tracking-widest uppercase ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                  GETSSH COMMAND CENTER
-                </div>
-                <div className="w-[52px]"></div> {/* Spacer for balance */}
-              </div>
-              
-              {/* Content Area */}
-              <div className="flex-1 flex overflow-hidden relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                 <SettingsView 
-                   settingsActiveTab={settingsActiveTab}
-                   setSettingsActiveTab={setSettingsActiveTab}
-                   encryptionDisabled={encryptionDisabled}
-                 />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Update Toast Notification */}
-        {updateAvailable && (
-          <div className={`absolute bottom-6 right-6 p-4 rounded-xl shadow-2xl border flex flex-col gap-3 z-[200] max-w-sm animate-in slide-in-from-bottom-5 fade-in duration-300 ${isDark ? 'bg-[#2a2a2a] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0">
-                  <Monitor className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm">{t('update.bannerTitle', { version: updateAvailable.version })}</h4>
-                  <p className="text-xs opacity-70 mt-0.5">{t('update.bannerDesc')}</p>
-                </div>
-              </div>
-              <button onClick={() => setUpdateAvailable(null)} className="opacity-50 hover:opacity-100 p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setUpdateAvailable(null)} className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white/70 hover:text-white' : 'border-black/20 hover:bg-black/5 text-black/70 hover:text-black'}`}>{t('update.bannerDismiss')}</button>
-              <button onClick={() => { window.electronAPI.openExternal(updateAvailable.url); setUpdateAvailable(null); }} className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-primary hover:bg-primary/80 text-white shadow-md shadow-primary/20 transition-all">{t('update.bannerDownload')}</button>
-            </div>
-          </div>
-        )}
+        <SettingsModalOverlay 
+          isOpen={isSettingsOpen} 
+          isDark={isDark} 
+          settingsActiveTab={settingsActiveTab} 
+          encryptionDisabled={encryptionDisabled}
+          onClose={() => setIsSettingsOpen(false)} 
+          setSettingsActiveTab={setSettingsActiveTab}
+        />
+        <UpdateToastOverlay />
         <HostKeyVerificationModal />
-
+        
         {/* Global Command Center Overlay */}
         <AnimatePresence>
           {isCommandCenterOpen && (
@@ -841,7 +437,7 @@ function App() {
               onClose={() => setIsCommandCenterOpen(false)}
               onConnect={handleConnect}
               onOpenPlugin={handleOpenPlugin}
-              onDeleteSession={(s) => deleteSession({ stopPropagation: () => {} } as any, s)}
+              onDeleteSession={deleteSession as any}
               isDark={isDark}
               appConfig={appConfig}
               sessions={sessions}
@@ -852,35 +448,6 @@ function App() {
       </div>
     </MoovierFocusProvider>
   );
-}
-
-
-// ── Pane Tree Helpers (module-level, no hooks) ────────────────────────────
-
-function findLeaf(node: PaneNode, paneId: string): PaneLeaf | null {
-  if (node.type === 'leaf') return node.paneId === paneId ? node : null;
-  return findLeaf(node.children[0], paneId) ?? findLeaf(node.children[1], paneId);
-}
-
-function findWelcomePane(node: PaneNode): PaneLeaf | null {
-  if (node.type === 'leaf') return node.paneType === 'welcome' ? node : null;
-  return findWelcomePane(node.children[0]) ?? findWelcomePane(node.children[1]);
-}
-
-function updateLeafInTree(node: PaneNode, targetPaneId: string, updates: Partial<PaneLeaf>): PaneNode {
-  if (node.type === 'leaf') {
-    if (node.paneId === targetPaneId) {
-      return { ...node, ...updates } as PaneLeaf;
-    }
-    return node;
-  }
-  return {
-    ...node,
-    children: [
-      updateLeafInTree(node.children[0], targetPaneId, updates),
-      updateLeafInTree(node.children[1], targetPaneId, updates),
-    ] as [PaneNode, PaneNode],
-  };
 }
 
 export default App;

@@ -66,7 +66,7 @@ export const UnlockVaultModal: React.FC = () => {
             animate={{ scale: shake ? [1, 1.01, 0.99, 1.01, 1] : 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 24, opacity: 0 }}
             transition={SPRING_FLUID}
-            className={`relative w-full max-w-sm flex flex-col overflow-hidden border rounded-none shadow-[0_32px_64px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)] ${
+            className={`relative w-full max-w-sm flex flex-col overflow-hidden border rounded-xl shadow-[0_32px_64px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)] ${
               isDark
                 ? 'bg-[#0a0a0a]/90 border-white/10 text-white'
                 : 'bg-white/90 border-black/10 text-slate-900'
@@ -78,10 +78,10 @@ export const UnlockVaultModal: React.FC = () => {
             {/* Header */}
             <div className="flex flex-col items-center gap-3 px-8 pt-10 pb-6 text-center">
               <div className="relative">
-                <div className="w-16 h-16 rounded-none flex items-center justify-center bg-red-500/10 border border-red-500/20">
+                <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20">
                   <Lock className="w-8 h-8 text-red-400" />
                 </div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-none flex items-center justify-center">
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-xl flex items-center justify-center">
                   <ShieldAlert className="w-2.5 h-2.5 text-white" />
                 </div>
               </div>
@@ -115,7 +115,7 @@ export const UnlockVaultModal: React.FC = () => {
                 </motion.div>
               )}
 
-              <div className={`flex items-center border rounded-none transition-colors focus-within:border-primary/50 ${
+              <div className={`flex items-center border rounded-xl transition-colors focus-within:border-primary/50 ${
                 isDark ? 'bg-black/40 border-white/10' : 'bg-black/5 border-black/10'
               }`}>
                 <KeyRound className="w-4 h-4 mx-3 opacity-40 shrink-0" />
@@ -132,7 +132,7 @@ export const UnlockVaultModal: React.FC = () => {
               <button
                 type="submit"
                 disabled={loading || !password.trim()}
-                className={`flex items-center justify-center gap-2 w-full py-3 font-black text-sm uppercase tracking-[0.2em] transition-all disabled:opacity-30 rounded-none border ${
+                className={`flex items-center justify-center gap-2 w-full py-3 font-black text-sm uppercase tracking-[0.2em] transition-all disabled:opacity-30 rounded-xl border ${
                   loading
                     ? 'bg-primary/20 border-primary/30 text-primary'
                     : 'bg-primary border-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20'
@@ -140,7 +140,7 @@ export const UnlockVaultModal: React.FC = () => {
               >
                 {loading ? (
                   <>
-                    <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-none animate-spin" />
+                    <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-xl animate-spin" />
                     解密中...
                   </>
                 ) : (

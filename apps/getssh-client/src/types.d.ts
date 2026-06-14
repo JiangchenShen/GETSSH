@@ -110,6 +110,8 @@ declare global {
         invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string, provider?: string, model?: string }) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;
         clearHistory: (workspaceId: string) => Promise<{ success: boolean }>;
         getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => Promise<{ success: boolean; models?: string[]; error?: string }>;
+        saveApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>;
+        deleteApiKey: () => Promise<{ success: boolean; error?: string }>;
         onStreamChunk: (requestId: string, cb: (payload: { chunk: string, isDone: boolean, error?: string }) => void) => (() => void);
       };
     };

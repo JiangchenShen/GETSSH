@@ -21,7 +21,7 @@ const ThinkingIndicator: React.FC = () => (
       {[0, 1, 2].map(i => (
         <motion.span
           key={i}
-          className="w-1 h-1 bg-white/40 rounded-none inline-block"
+          className="w-1 h-1 bg-white/40 rounded-xl inline-block"
           animate={{ opacity: [0.2, 1, 0.2] }}
           transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
         />
@@ -65,7 +65,7 @@ const HistoryView: React.FC = () => {
         <div className="text-xs tracking-widest uppercase">暂无对话记录</div>
         <button
           onClick={() => newConversation()}
-          className="mt-2 flex items-center gap-2 px-4 py-2 border border-white/20 hover:bg-white/10 text-white/60 hover:text-white text-xs uppercase tracking-widest transition-colors rounded-none"
+          className="mt-2 flex items-center gap-2 px-4 py-2 border border-white/20 hover:bg-white/10 text-white/60 hover:text-white text-xs uppercase tracking-widest transition-colors rounded-xl"
         >
           <Plus className="w-3.5 h-3.5" /> 开始新对话
         </button>
@@ -101,7 +101,7 @@ const HistoryView: React.FC = () => {
                 </span>
                 <button
                   onClick={e => { e.stopPropagation(); deleteConversation(conv.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all rounded-none"
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all rounded-xl"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -116,13 +116,13 @@ const HistoryView: React.FC = () => {
       <div className="border-t border-white/5 p-2 flex items-center gap-2">
         <button
           onClick={() => newConversation()}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 transition-all border border-transparent hover:border-white/10 rounded-none"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 transition-all border border-transparent hover:border-white/10 rounded-xl"
         >
           <Plus className="w-3 h-3" /> 新对话
         </button>
         <button
           onClick={clearAllConversations}
-          className="flex items-center justify-center gap-1.5 py-2 px-3 text-[10px] uppercase tracking-widest text-red-400/50 hover:text-red-400 hover:bg-red-500/5 transition-all border border-transparent hover:border-red-500/20 rounded-none"
+          className="flex items-center justify-center gap-1.5 py-2 px-3 text-[10px] uppercase tracking-widest text-red-400/50 hover:text-red-400 hover:bg-red-500/5 transition-all border border-transparent hover:border-red-500/20 rounded-xl"
         >
           <Trash2 className="w-3 h-3" /> 清空全部
         </button>
@@ -152,19 +152,19 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
         const lang = lines.shift() || 'shell';
         const code = lines.join('\n').trim();
         return (
-          <div key={index} className="relative bg-black/40 p-3 rounded-none my-2 font-mono text-xs group border border-white/5 shadow-inner">
+          <div key={index} className="relative bg-black/40 p-3 rounded-xl my-2 font-mono text-xs group border border-white/5 shadow-inner max-w-full overflow-hidden">
             <span className="text-[10px] text-white/30 absolute top-1.5 right-10 uppercase tracking-wider">{lang}</span>
             <button
-              className="absolute top-1.5 right-1.5 p-1 bg-white/10 hover:bg-white/20 text-white rounded-none opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute top-1.5 right-1.5 p-1 bg-white/10 hover:bg-white/20 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={() => onPaperPlane(code)}
             >
               <Send size={12} className="text-cyan-400" />
             </button>
-            <pre className="whitespace-pre-wrap break-words text-emerald-400">{code}</pre>
+            <pre className="whitespace-pre-wrap break-all text-emerald-400 max-w-full overflow-hidden">{code}</pre>
           </div>
         );
       }
-      return <p key={index} className="whitespace-pre-wrap break-words text-sm text-neutral-200 leading-relaxed my-1">{block}</p>;
+      return <p key={index} className="whitespace-pre-wrap break-words max-w-full text-sm text-neutral-200 leading-relaxed my-1">{block}</p>;
     });
   };
 
@@ -186,7 +186,7 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
           transition={{ duration: 0.2 }}
           className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
         >
-          <div className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-none border mt-0.5 ${
+          <div className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-xl border mt-0.5 ${
             msg.role === 'user'
               ? 'bg-primary/20 border-primary/30 text-primary'
               : 'bg-white/5 border-white/10 text-white/50'
@@ -195,14 +195,14 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
           </div>
           <div className={`flex-1 min-w-0 ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
             {msg.isThinking ? (
-              <div className="px-3 py-2 bg-white/5 border border-white/5">
+              <div className="px-3 py-2 bg-white/5 border border-white/5 rounded-2xl">
                 <ThinkingIndicator />
               </div>
             ) : (
-              <div className={`px-3 py-2 text-sm leading-relaxed ${
+              <div className={`px-4 py-2.5 text-sm leading-relaxed max-w-[95%] break-words shadow-sm ${
                 msg.role === 'user'
-                  ? 'bg-primary/15 border border-primary/20 text-white'
-                  : 'bg-white/5 border border-white/5 text-neutral-200'
+                  ? 'bg-primary/20 border border-primary/30 text-white rounded-2xl rounded-tr-sm'
+                  : 'bg-white/5 border border-white/10 text-neutral-200 rounded-2xl rounded-tl-sm'
               }`}>
                 {msg.role === 'user'
                   ? <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -225,7 +225,7 @@ const ChatView: React.FC<{ onPaperPlane: (code: string) => void }> = ({ onPaperP
 // ─── Main Component ───────────────────────────────────────────────────────────
 export const AiCenter: React.FC = () => {
   const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
-  const setIsAiSettingsOpen = useAppStore(state => state.setIsAiSettingsOpen);
+
   const setIsAiCenterOpen = useAppStore(state => state.setIsAiCenterOpen);
   const setIsHoveringAiCenter = useAppStore(state => state.setIsHoveringAiCenter);
   const currentTerminalSelection = useAppStore(state => state.currentTerminalSelection);
@@ -325,7 +325,6 @@ export const AiCenter: React.FC = () => {
           provider: appConfig.aiProvider,
           model: appConfig.aiModel,
           endpoint: appConfig.aiEndpoint,
-          apiKey: appConfig.aiApiKey,
         },
         (payload) => {
           if (payload.chunk) {
@@ -358,11 +357,11 @@ export const AiCenter: React.FC = () => {
   };
 
   const isLocked = !appConfig.aiEnabled;
-  const needsKey = !appConfig.aiApiKey && appConfig.aiProvider !== 'ollama';
+  const needsKey = !appConfig.hasAiApiKey && appConfig.aiProvider !== 'ollama';
   const activeConv = conversations.find(c => c.id === activeConversationId);
 
   return (
-    <div className="absolute bottom-6 left-16 ml-4 z-[9999] flex flex-col-reverse items-start gap-4" style={{ WebkitAppRegion: 'no-drag' } as any}>
+    <div className="absolute bottom-6 left-16 ml-4 z-[9999] flex flex-col-reverse items-start gap-4 pointer-events-none" style={{ WebkitAppRegion: 'no-drag' } as any}>
       <AnimatePresence>
         {isAiCenterOpen && (
           <motion.div
@@ -370,15 +369,16 @@ export const AiCenter: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={SPRING_SNAPPY}
-            className="w-[460px]"
+            className="w-[560px] pointer-events-auto"
             onPointerEnter={() => setIsHoveringAiCenter(true)}
             onPointerLeave={() => setIsHoveringAiCenter(false)}
           >
             <MoovierTile
               dragLevel="global"
               dragConstraints={bounds}
-              className="w-full flex flex-col border border-white/10 shadow-[0_16px_32px_rgba(0,0,0,0.4)] bg-[#0a0a0a]/80 backdrop-blur-2xl"
-              style={{ borderRadius: '0px', WebkitAppRegion: 'no-drag', minHeight: '480px' } as any}
+              exemptFromFocus
+              className="w-full flex flex-col border border-white/10 shadow-[0_16px_32px_rgba(0,0,0,0.4)] bg-[#0a0a0a]/80 backdrop-blur-2xl overflow-hidden"
+              style={{ borderRadius: '16px', WebkitAppRegion: 'no-drag', height: '580px' } as any}
             >
               {/* ── Header ── */}
               <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between bg-white/[0.03] shrink-0">
@@ -386,7 +386,7 @@ export const AiCenter: React.FC = () => {
                   {/* Tab switcher */}
                   <button
                     onClick={() => setView('chat')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-none ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-xl ${
                       view === 'chat'
                         ? 'bg-white/10 text-white'
                         : 'text-white/30 hover:text-white hover:bg-white/5'
@@ -396,7 +396,7 @@ export const AiCenter: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setView('history')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-none relative ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all rounded-xl relative ${
                       view === 'history'
                         ? 'bg-white/10 text-white'
                         : 'text-white/30 hover:text-white hover:bg-white/5'
@@ -416,16 +416,16 @@ export const AiCenter: React.FC = () => {
                   {view === 'chat' && (
                     <button
                       onClick={() => newConversation()}
-                      className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-none"
+                      className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-xl"
                       title="新对话"
                     >
                       <Plus size={13} />
                     </button>
                   )}
-                  <button onClick={() => setIsAiSettingsOpen(true)} className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-none">
+                  <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="p-1.5 transition-colors text-white/30 hover:text-white hover:bg-white/10 rounded-xl">
                     <Settings size={13} />
                   </button>
-                  <button onClick={() => setIsAiCenterOpen(false)} className="p-1.5 text-white/30 hover:text-white hover:bg-white/10 transition-all rounded-none">
+                  <button onClick={() => setIsAiCenterOpen(false)} className="p-1.5 text-white/30 hover:text-white hover:bg-white/10 transition-all rounded-xl">
                     <X size={13} />
                   </button>
                 </div>
@@ -449,14 +449,14 @@ export const AiCenter: React.FC = () => {
                 {isLocked ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-white/40 gap-4 p-6">
                     <div className="text-xs tracking-wider uppercase">[ AI CENTER IS DISABLED ]</div>
-                    <button onClick={() => setIsAiSettingsOpen(true)} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-none">
+                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-xl">
                       Enable in Settings
                     </button>
                   </div>
                 ) : needsKey ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-white/40 gap-4 p-6">
                     <div className="text-xs tracking-wider uppercase">[ API KEY REQUIRED ]</div>
-                    <button onClick={() => setIsAiSettingsOpen(true)} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-none">
+                    <button onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))} className="px-4 py-2 border border-white/20 hover:bg-white/10 text-white text-xs uppercase tracking-widest transition-colors rounded-xl">
                       Bind API Key
                     </button>
                   </div>
@@ -494,20 +494,23 @@ export const AiCenter: React.FC = () => {
                       value={prompt}
                       onChange={e => setPrompt(e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e as any);
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSubmit(e as any);
+                        }
                       }}
                       disabled={isGenerating}
-                      placeholder={isGenerating ? '正在回答中…' : '输入问题或上下文… (⌘↵ 发送)'}
-                      className="w-full h-[56px] bg-white/5 border border-white/10 text-white text-sm p-3 outline-none resize-none placeholder-white/25 rounded-none transition-colors focus:border-white/20"
+                      placeholder={isGenerating ? '正在回答中…' : '输入问题或上下文… (Enter 发送, Shift+Enter 换行)'}
+                      className="w-full h-[56px] bg-white/5 border border-white/10 text-white text-sm p-3 outline-none resize-none placeholder-white/25 rounded-xl transition-colors focus:border-white/20"
                     />
                     <button
                       type="submit"
                       disabled={isGenerating || !prompt.trim()}
-                      className="px-4 bg-white/10 hover:bg-white/20 text-white disabled:opacity-30 transition-colors flex items-center justify-center rounded-none"
+                      className={`px-4 disabled:opacity-30 transition-colors flex items-center justify-center rounded-xl ${(!isGenerating && prompt.trim()) ? 'bg-cyan-500 hover:bg-cyan-400 text-black' : 'bg-white/10 hover:bg-white/20 text-white'}`}
                     >
                       {isGenerating
                         ? <motion.div
-                            className="w-3.5 h-3.5 border-2 border-primary/60 border-t-transparent rounded-none"
+                            className="w-3.5 h-3.5 border-2 border-primary/60 border-t-transparent rounded-xl"
                             animate={{ rotate: 360 }}
                             transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
                           />

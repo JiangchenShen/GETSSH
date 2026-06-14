@@ -1,6 +1,24 @@
-import { IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { IpcMainInvokeEvent, BrowserWindow, app, safeStorage } from 'electron';
 import { streamLLM, fetchAvailableModels } from '../services/llmService';
 import { RagManager } from '../services/ragManager';
+import fs from 'node:fs';
+import { join } from 'node:path';
+
+const getAiVaultPath = () => join(app.getPath('userData'), 'ai_vault.enc');
+
+function getSecureApiKey(): string {
+  const vaultPath = getAiVaultPath();
+  if (!fs.existsSync(vaultPath)) return '';
+  try {
+    const encrypted = fs.readFileSync(vaultPath);
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(encrypted);
+    }
+  } catch (e) {
+    console.error('[AI Gateway] Failed to decrypt AI API Key:', e);
+  }
+  return '';
+}
 
 /**
  * AI CENTER Proxy Gateway (Workspace 2.0)
@@ -8,6 +26,41 @@ import { RagManager } from '../services/ragManager';
  */
 export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
   
+  // =====================================================================
+  // 【0】 API Key 安全托管 (BYOK Vault)
+  // =====================================================================
+  ipcMain.handle('ai-save-api-key', async (event: IpcMainInvokeEvent, apiKey: string) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
+    }
+    if (!apiKey) return { success: false };
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        const encrypted = safeStorage.encryptString(apiKey);
+        fs.writeFileSync(getAiVaultPath(), encrypted);
+        return { success: true };
+      }
+      return { success: false, error: 'OS Keychain encryption unavailable' };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-delete-api-key', async (event: IpcMainInvokeEvent) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
+    }
+    try {
+      const vaultPath = getAiVaultPath();
+      if (fs.existsSync(vaultPath)) {
+        fs.unlinkSync(vaultPath);
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // =====================================================================
   // 【1】&【2】 主进程特权 IPC 注册与溯源验证 & 统一安全洗涤层
   // =====================================================================
@@ -48,9 +101,11 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
 
     // BYOK 加密解密与云端大模型 API 直连逻辑
     const endpoint = payload?.endpoint || '';
-    const apiKey = payload?.apiKey || '';
     const provider = payload?.provider || 'openai';
     const model = payload?.model || 'gpt-3.5-turbo';
+    
+    // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey
+    const apiKey = provider === 'ollama' ? '' : getSecureApiKey();
 
     // 发起不阻塞主流程的流式请求，并将 chunk 发回对应 requestId 的专属频道
     streamLLM(
@@ -90,8 +145,10 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     }
     
     const endpoint = payload?.endpoint || '';
-    const apiKey = payload?.apiKey || '';
     const provider = payload?.provider || 'openai';
+    
+    // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey
+    const apiKey = provider === 'ollama' ? '' : getSecureApiKey();
 
     try {
       const models = await fetchAvailableModels(endpoint, apiKey, provider);

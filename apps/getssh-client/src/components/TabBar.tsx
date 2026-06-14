@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import type { PaneConfig, Tab } from '../store/sessionStore';
+import type { Tab } from '../store/sessionStore';
 
 interface TabBarProps {
   tabs: Tab[];
@@ -52,7 +52,12 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
               : (isDark ? 'bg-obsidian-bg border-neutral-900 text-neutral-500 hover:text-neutral-300' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
             }`}
           >
-            <span className="truncate">{tab.title}</span>
+            <div className="flex flex-col h-full max-w-full relative">
+              <span className="truncate font-semibold tracking-wide w-full" title={tab.title}>
+                {tab.title}
+              </span>
+              <div className={`absolute bottom-0 left-0 w-full h-[2px] bg-gradient-duo transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-x-0'}`} />
+            </div>
             <button
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
               className={`p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}

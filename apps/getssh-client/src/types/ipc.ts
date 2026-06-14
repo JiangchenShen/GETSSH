@@ -50,6 +50,7 @@ export interface SshConnectConfig {
   proxyType?: 'none' | 'socks5' | 'http';
   proxyHost?: string;
   proxyPort?: number;
+  enableAuditLogging?: boolean;
 }
 
 export interface UIExtensionAction {

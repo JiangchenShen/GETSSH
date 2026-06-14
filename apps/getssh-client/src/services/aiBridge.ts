@@ -73,69 +73,29 @@ export class AiBridge {
   }
 
   /**
-   * Fetches the live list of models directly from the provider's REST API.
-   * Bypasses the backend entirely for maximum freshness and reliability.
+   * Fetches the live list of models securely via the Main Process Gateway.
+   * This ensures the API key is retrieved from the secure Vault on disk.
    */
   static async getModels(request: Omit<AiRequest, 'requestId' | 'prompt'>): Promise<string[]> {
-    const { provider, apiKey, endpoint } = request;
+    const { provider, endpoint } = request;
 
     try {
-      // ─── Ollama ──────────────────────────────────────────────────────────
-      if (provider === 'ollama') {
-        const base = endpoint?.replace(/\/$/, '') || 'http://127.0.0.1:11434';
-        const res = await fetch(`${base}/api/tags`);
-        if (!res.ok) throw new Error(`Ollama responded with ${res.status}`);
-        const data = await res.json();
-        return (data.models as Array<{ name: string }> || []).map(m => m.name);
+      if (!window.electronAPI || !window.electronAPI.ai) {
+        throw new Error('Security Error: AI Bridge is not available in the current context.');
       }
-
-      // ─── Google Gemini ───────────────────────────────────────────────────
+      
+      const response = await window.electronAPI.ai.getModels({ endpoint, provider });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch models from AI Gateway.');
+      }
+      
+      // The backend returns a raw list of models (except for gemini which might need some mapping, 
+      // but llmService.fetchAvailableModels already maps it properly)
+      let models = response.models || [];
       if (provider === 'gemini') {
-        if (!apiKey) throw new Error('Gemini requires an API key.');
-        // Use Authorization header — more robust than ?key= for all API key formats
-        const res = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models',
-          { headers: { 'x-goog-api-key': apiKey.trim() } }
-        );
-        if (!res.ok) {
-          const body = await res.text();
-          throw new Error(`Gemini API ${res.status}: ${body}`);
-        }
-        const data = await res.json();
-        return (data.models as Array<{ name: string; supportedGenerationMethods?: string[] }> || [])
-          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-          .map(m => m.name.replace('models/', ''))
-          .sort();
+        models = models.sort();
       }
-
-      // ─── OpenAI (and OpenAI-compatible custom) ───────────────────────────
-      {
-        const base =
-          provider === 'openai'
-            ? 'https://api.openai.com'
-            : (endpoint?.replace(/\/$/, '') || 'https://api.openai.com');
-
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
-        const res = await fetch(`${base}/v1/models`, { headers });
-        if (!res.ok) throw new Error(`API responded with ${res.status}: ${await res.text()}`);
-        const data = await res.json();
-        const models: string[] = (data.data as Array<{ id: string; owned_by?: string }> || [])
-          .map(m => m.id)
-          .filter(id =>
-            // Keep only language models – filter out embedding/tts/image models
-            !id.includes('embedding') &&
-            !id.includes('dall-e') &&
-            !id.includes('tts') &&
-            !id.includes('whisper') &&
-            !id.includes('babbage') &&
-            !id.includes('davinci') &&
-            !id.includes('ada')
-          )
-          .sort();
-        return models;
-      }
+      return models;
     } catch (error: any) {
       console.error('[AiBridge] 🔴 Failed to fetch models from provider API:', error);
       throw new Error(`Failed to fetch models: ${error.message}`);

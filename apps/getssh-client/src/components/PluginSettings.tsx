@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { usePluginStore } from '../store/pluginStore';
-import { Trash, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Trash, ShieldAlert, CheckCircle2, AlertTriangle, Box, Settings2, PackagePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
@@ -93,13 +93,13 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
   };
 
   return (
-    <div className="space-y-8 max-w-xl">
+    <div className="w-full h-full flex flex-col gap-10">
       {pendingInstall && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className={`w-full max-w-lg rounded-2xl p-6 shadow-2xl border ${isDark ? 'bg-zinc-900 border-white/10' : 'bg-white border-black/10'}`}>
-            <div className="flex items-center gap-3 mb-4 text-primary">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-xl p-4 transition-all">
+          <div className={`w-full max-w-lg rounded-3xl p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)] border ${isDark ? 'bg-[#151515]/90 border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] text-white' : 'bg-white/90 border-black/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] text-slate-900'}`}>
+            <div className="flex items-center gap-3 mb-4 text-rose-500">
               <ShieldAlert className="w-8 h-8" />
-              <h2 className="text-xl font-bold">{t('plugins.permissionReview', 'Plugin Permission Review')}</h2>
+              <h2 className="text-2xl font-black tracking-wide">{t('plugins.permissionReview', 'Permission Review')}</h2>
             </div>
             
             <p className="text-sm opacity-80 mb-6 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('plugins.permissionDesc', { name: pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name, defaultValue: `You are about to install <strong>${pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name}</strong>. Please review the requested capabilities before proceeding.` }) }}>
@@ -192,17 +192,17 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
               })()}
             </div>
 
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 mt-6">
               <button 
                 onClick={cancelInstall}
-                className={`px-6 py-2 rounded-lg font-medium transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+                className={`px-6 py-2.5 rounded-xl font-bold transition-all active:scale-95 ${isDark ? 'hover:bg-white/10 text-white/70 hover:text-white' : 'hover:bg-black/5 text-slate-500 hover:text-slate-900'}`}
               >
                 {t('common.cancel', 'Cancel')}
               </button>
               <button 
                 onClick={confirmInstall}
                 disabled={loading}
-                className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg font-medium transition-colors shadow-lg shadow-primary/20"
+                className="px-6 py-2.5 bg-rose-500 text-white hover:bg-rose-600 rounded-xl font-bold transition-all active:scale-95 shadow-lg shadow-rose-500/20"
               >
                 {loading ? t('common.loading', 'Loading...') : t('plugins.confirmInstall', 'Accept & Install')}
               </button>
@@ -214,38 +214,72 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
       <div 
         onDrop={handleDrop} 
         onDragOver={(e) => e.preventDefault()}
-        className={`border-2 border-dashed rounded-[20px] p-12 text-center cursor-pointer transition-all font-medium ${isDark ? 'border-primary-600/50 bg-primary-900/10 hover:bg-primary-900/30 text-primary-400' : 'border-primary-300 bg-primary-50/50 hover:bg-primary-100/50 text-primary-600'}`}
+        className={`relative group overflow-hidden rounded-3xl p-16 text-center cursor-pointer transition-all duration-500 border-2 border-dashed ${
+          isDark 
+            ? 'border-white/10 bg-white/5 hover:border-rose-500/50 hover:bg-white/10 text-rose-300' 
+            : 'border-black/10 bg-black/5 hover:border-rose-600/50 hover:bg-black/10 text-rose-600'
+        } shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-md shrink-0`}
       >
-        {loading && !pendingInstall ? t('plugins.unpacking') : t('plugins.dropzone')}
+        <div className="absolute inset-0 bg-gradient-to-br from-rose-500/20 via-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+        <div className="relative z-10 flex flex-col items-center justify-center gap-4">
+          <div className={`p-4 rounded-full transition-transform duration-500 group-hover:-translate-y-2 group-hover:scale-110 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>
+            <PackagePlus className="w-10 h-10" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold mb-1 tracking-wide">{loading && !pendingInstall ? t('plugins.unpacking') : t('plugins.dropzone')}</h3>
+            <p className="text-sm font-medium opacity-60">Drag and drop a valid .zip plugin package here</p>
+          </div>
+        </div>
       </div>
       
-      <div className="space-y-4">
-        <h3 className="font-semibold opacity-70 uppercase tracking-widest text-sm mb-4">{t('plugins.installed')}</h3>
+      <div className="flex-1 flex flex-col min-h-0">
+        <h3 className="font-black opacity-80 uppercase tracking-widest text-lg mb-6 flex items-center gap-3">
+          <Box className="w-5 h-5 text-rose-500" />
+          {t('plugins.installed')}
+        </h3>
         {installedPlugins.length === 0 && (
-          <div className="text-sm opacity-50">{t('plugins.noPlugins')}</div>
+          <div className="flex-1 flex items-center justify-center text-sm font-medium opacity-50 border-2 border-dashed rounded-3xl p-10 border-black/10 dark:border-white/10">
+            {t('plugins.noPlugins')}
+          </div>
         )}
-        {installedPlugins.map(p => {
-          const displayName = (p as any).getssh?.name || p.displayName || p.name;
-          const hasSchema = !!usePluginStore.getState().settingsSchemas[p.name];
-          
-          return (
-            <div key={p.name} className={`flex flex-col p-4 border rounded-xl shadow-sm ${isDark ? 'border-white/10 bg-black/20' : 'border-black/5 bg-white/50'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h4 className="font-bold cursor-default">{displayName} <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-mono opacity-70 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>v{p.version}</span></h4>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handleUninstall(p.name, displayName)} className="text-red-500/50 hover:text-red-500 hover:bg-red-500/10 p-1.5 rounded-md transition-all" title={t('plugins.uninstall')}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-10 no-scrollbar pr-2">
+          {installedPlugins.map(p => {
+            const displayName = (p as any).getssh?.name || p.displayName || p.name;
+            const hasSchema = !!usePluginStore.getState().settingsSchemas[p.name];
+            
+            return (
+              <div key={p.name} className={`group relative flex flex-col p-6 rounded-3xl backdrop-blur-xl transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] border ${isDark ? 'border-white/10 bg-[#1A1A1A]/80 hover:border-rose-500/40' : 'border-black/5 bg-white/80 hover:border-rose-500/40 shadow-sm'}`}>
+                {/* Glow Overlay */}
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-rose-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                
+                <div className="relative z-10 flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 flex items-center justify-center rounded-xl font-black text-lg shadow-inner ${isDark ? 'bg-white/10 text-rose-400' : 'bg-rose-100 text-rose-600'}`}>
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-lg leading-tight tracking-tight">{displayName}</h4>
+                      <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider ${isDark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-slate-500'}`}>v{p.version}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => handleUninstall(p.name, displayName)} className={`p-2 rounded-xl transition-all active:scale-95 ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'}`} title={t('plugins.uninstall')}>
                     <Trash className="w-4 h-4" />
                   </button>
                 </div>
+                
+                <p className="relative z-10 text-sm opacity-70 mb-4 line-clamp-2 leading-relaxed flex-1">
+                  {p.description || "No description provided."}
+                </p>
+                
+                {hasSchema && (
+                  <div className="relative z-10 mt-auto pt-4 border-t border-black/5 dark:border-white/10">
+                    <PluginConfigPanel pluginId={p.name} isDark={isDark} />
+                  </div>
+                )}
               </div>
-              <p className="text-sm opacity-60 mt-1">{p.description}</p>
-              
-              {hasSchema && <PluginConfigPanel pluginId={p.name} isDark={isDark} />}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -293,16 +327,17 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
   if (!schema || schema.length === 0) return null;
 
   return (
-    <div className="mt-4 pt-4 border-t border-black/5 dark:border-white/5">
+    <div className="w-full">
       <button 
         onClick={() => setIsOpen(!isOpen)} 
-        className="text-sm font-medium text-primary hover:opacity-80 transition-opacity flex items-center gap-2"
+        className={`w-full py-2 flex items-center justify-center gap-2 text-xs font-bold rounded-xl transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 text-white/70' : 'bg-black/5 hover:bg-black/10 text-slate-700'}`}
       >
-        {isOpen ? '▼ Hide Configuration' : '▶ Configure Plugin'}
+        <Settings2 className="w-3.5 h-3.5" />
+        {isOpen ? 'Hide Configuration' : 'Configure Plugin'}
       </button>
 
       {isOpen && (
-        <div className="mt-4 space-y-4 pl-2 border-l-2 border-primary/20">
+        <div className={`mt-4 space-y-4 p-4 rounded-xl border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-black/5'}`}>
           {schema.map(field => (
             <div key={field.id} className="flex flex-col gap-1">
               <label className="text-sm font-semibold opacity-80">{field.label}</label>
@@ -313,36 +348,30 @@ const PluginConfigPanel = ({ pluginId, isDark }: { pluginId: string, isDark: boo
                   type="checkbox" 
                   checked={!!formData[field.id]}
                   onChange={e => setFormData({ ...formData, [field.id]: e.target.checked })}
-                  className="mt-1 w-4 h-4"
-                />
-              ) : field.type === 'password' ? (
-                <input 
-                  type="password"
-                  value={formData[field.id] || ''}
-                  onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}
-                  className={`mt-1 px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
-                />
-              ) : field.type === 'number' ? (
-                <input 
-                  type="number"
-                  value={formData[field.id] || ''}
-                  onChange={e => setFormData({ ...formData, [field.id]: parseFloat(e.target.value) })}
-                  className={`mt-1 px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
+                  className="mt-1 w-4 h-4 rounded text-primary focus:ring-primary/50"
                 />
               ) : (
-                <input 
-                  type="text"
-                  value={formData[field.id] || ''}
-                  onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}
-                  className={`mt-1 px-3 py-1.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
-                />
+                <div className="relative group">
+                  <input 
+                    type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
+                    value={formData[field.id] || ''}
+                    onChange={e => setFormData({ ...formData, [field.id]: field.type === 'number' ? parseFloat(e.target.value) : e.target.value })}
+                    className={`mt-1 w-full px-4 py-2.5 rounded-xl border border-transparent text-sm outline-none transition-all ${
+                      isDark 
+                        ? 'bg-black/20 text-white focus:bg-black/40 placeholder:text-white/20' 
+                        : 'bg-black/5 text-slate-900 focus:bg-black/10 placeholder:text-black/30'
+                    }`}
+                  />
+                  {/* Neon Indicator */}
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-[2px] bg-primary rounded-full transition-all duration-300 group-focus-within:w-[calc(100%-24px)] shadow-[0_0_8px_rgba(0,180,216,0.8)] pointer-events-none" />
+                </div>
               )}
             </div>
           ))}
           <button 
             onClick={handleSave}
             disabled={saving}
-            className="mt-2 px-4 py-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+            className="mt-4 px-5 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/90 transition-all active:scale-95 shadow-lg shadow-primary/20"
           >
             {saving ? 'Saving...' : 'Save & Restart Plugin'}
           </button>

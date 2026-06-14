@@ -15,6 +15,7 @@ import {
   sessionProtocols
 } from './ptyHandler';
 import { sshBridge } from '../services/SSHBridge';
+import { nexusBridge } from '../nexus/nexusBridge';
 
 export interface KnownHost {
   host: string;
@@ -359,6 +360,27 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
             let isAttached = false;
             let dataBuffer = '';
+            
+            let auditStream: any = null;
+            let startTime = Date.now() / 1000;
+            
+            if (config.enableAuditLogging) {
+              try {
+                 // Load the N-API module
+                 const { AuditStream } = require('../../../../../rust-core/audit-stream/index.js');
+                 const nexusConfig = await nexusBridge.getNexusConfig();
+                 const workspaceId = nexusConfig.active_workspace || 'default';
+                 const wsPath = path.join(app.getPath('home'), '.getssh', 'workspaces', workspaceId, 'audit_recordings');
+                 if (!fs.existsSync(wsPath)) fs.mkdirSync(wsPath, { recursive: true });
+                 
+                 const outPath = path.join(wsPath, `${sessionId}_${Date.now()}.cast.gz`);
+                 const headerJson = JSON.stringify({ version: 2, width: 80, height: 24, timestamp: Math.floor(startTime), env: { TERM: 'xterm-256color' } });
+                 auditStream = new AuditStream(outPath, headerJson);
+              } catch (e) {
+                 console.error("[AuditStream] Failed to initialize native audit recording module:", e);
+              }
+            }
+
             setTimeout(() => {
                isAttached = true;
                const win = getWindow();
@@ -371,6 +393,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
             }, 800); // Wait 800ms for React to mount the Terminal Component
 
             stream.on('close', async () => {
+              if (auditStream) {
+                 try { auditStream.end(); } catch (e) { console.error("AuditStream flush error:", e); }
+              }
               sshClient.end();
               await recordDisconnect(app, sessionId);
               await connectionManager.removeSession(sessionId);
@@ -380,6 +405,10 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
               }
             }).on('data', (data: Buffer) => {
+              if (auditStream) {
+                 const elapsed = (Date.now() / 1000) - startTime;
+                 try { auditStream.writeFrame(elapsed, data); } catch(e) {}
+              }
               const str = data.toString('utf-8');
               const win = getWindow();
               if (!isAttached) dataBuffer += str;
@@ -390,6 +419,10 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 sshBridge.broadcastData(sessionId, str);
               }
             }).stderr.on('data', (data: Buffer) => {
+              if (auditStream) {
+                 const elapsed = (Date.now() / 1000) - startTime;
+                 try { auditStream.writeFrame(elapsed, data); } catch(e) {}
+              }
               const str = data.toString('utf-8');
               const win = getWindow();
               if (!isAttached) dataBuffer += str;

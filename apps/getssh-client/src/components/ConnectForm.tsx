@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
 import { MoovierTile } from '@moovier/core';
+import { motion } from 'framer-motion';
 
 interface ConnectFormProps {
   session: any;
@@ -119,9 +120,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     setDisplayProtocol('auto');
   };
 
-  const inputCls = `w-full border rounded-none px-4 py-2 text-sm outline-none transition-colors focus:ring-1 focus:ring-primary ${
-    isDark ? 'bg-black/30 border-white/10 placeholder:text-white/20' : 'bg-black/5 border-black/10 placeholder:text-black/30'
-  }`;
+  const inputCls = `w-full border-none rounded-xl px-4 py-3 text-sm outline-none transition-all duration-300 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ${
+    isDark ? 'bg-white/5 placeholder:text-white/30 text-white' : 'bg-black/5 placeholder:text-black/40 text-black'
+  } focus:ring-0 focus:shadow-[inset_0_-2px_0_rgb(var(--primary)),0_8px_20px_rgba(var(--primary),0.2)]`;
 
   const tabs: { value: 'ssh' | 'local' | 'telnet'; label: string }[] = [
     { value: 'ssh',    label: 'SSH' },
@@ -153,13 +154,13 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           >
             {t('connect.saveAndConnect')}
           </button>
-          <button
-            disabled={connecting}
-            type="submit"
-            className="px-8 py-3 bg-primary hover:bg-primary/80 disabled:opacity-50 text-white font-bold uppercase tracking-wider text-xs rounded-[24px] transition-all shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5"
+          <motion.button
+            whileTap={{ scale: 0.92, transition: { type: 'spring', stiffness: 400, damping: 30, mass: 1.0 } }}
+            type="submit" disabled={connecting}
+            className={`px-8 py-3 ${!connecting ? 'bg-primary shadow-[0_8px_20px_rgba(var(--primary),0.3)] hover:brightness-110' : 'bg-primary/50'} disabled:opacity-50 text-white font-bold uppercase tracking-wider text-xs rounded-[24px] transition-all`}
           >
             {connecting ? t('connect.connecting') : t('connect.connectBtn')}
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -169,9 +170,10 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 flex-1">
         
         {/* Card 1: Protocol & Identity */}
-        <MoovierTile exemptFromFocus dragLevel="fixed" className="p-8 flex flex-col gap-6 rounded-[32px]">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+        <div className={`relative p-8 flex flex-col gap-6 rounded-[32px] ${isDark ? 'bg-[#1a1a1a] border border-white/5' : 'bg-white border border-black/5 shadow-sm'}`}>
+          <div className="absolute inset-0 rounded-[32px] pointer-events-none shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
+          <div className="flex items-center gap-3 mb-2 relative z-10">
+            <div className="w-10 h-10 rounded-xl bg-primary/5 border border-primary/30 text-primary flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(var(--primary),0.2)] backdrop-blur-md">
               <span className="font-mono font-bold text-lg">1</span>
             </div>
             <h3 className="text-lg font-bold">Identity</h3>
@@ -187,6 +189,20 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               onKeyDown={preventImeSubmit}
               type="text"
               placeholder={t('connect.placeholder.alias') as string}
+              className={inputCls + ' rounded-xl'}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider opacity-60 mb-2">
+              {t('connect.group')} <span className="opacity-50 lowercase tracking-normal">({t('connect.optional')})</span>
+            </label>
+            <input
+              value={localSession.group || ''}
+              onChange={(e) => handleUpdate({ group: e.target.value })}
+              onKeyDown={preventImeSubmit}
+              type="text"
+              placeholder={t('connect.placeholder.group') as string || 'e.g. Servers/Web'}
               className={inputCls + ' rounded-xl'}
             />
           </div>
@@ -234,12 +250,13 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               {!isAutoLocked ? t('connect.protocol.autoDesc') : isLocal ? t('connect.protocol.localHint') : isTelnet ? t('connect.protocol.telnetHint') : null}
             </p>
           </div>
-        </MoovierTile>
+        </div>
 
-        {/* Card 2: Network / Host */}
-        <MoovierTile exemptFromFocus dragLevel="fixed" className={`p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+        {/* Card 2: Network */}
+        <div className={`relative p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''} ${isDark ? 'bg-[#1a1a1a] border border-white/5' : 'bg-white border border-black/5 shadow-sm'}`}>
+          <div className="absolute inset-0 rounded-[32px] pointer-events-none shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
+          <div className="flex items-center gap-3 mb-2 relative z-10">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/5 border border-blue-500/30 text-blue-500 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(59,130,246,0.2)] backdrop-blur-md">
               <span className="font-mono font-bold text-lg">2</span>
             </div>
             <h3 className="text-lg font-bold">Network</h3>
@@ -287,12 +304,13 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               </div>
             </div>
           </div>
-        </MoovierTile>
+        </div>
 
         {/* Card 3: Authentication & Advanced */}
-        <MoovierTile exemptFromFocus dragLevel="fixed" className={`p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0">
+        <div className={`relative p-8 flex flex-col gap-6 rounded-[32px] transition-all duration-500 ${isLocal ? 'opacity-30 pointer-events-none grayscale blur-[2px]' : ''} ${isDark ? 'bg-[#1a1a1a] border border-white/5' : 'bg-white border border-black/5 shadow-sm'}`}>
+          <div className="absolute inset-0 rounded-[32px] pointer-events-none shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
+          <div className="flex items-center gap-3 mb-2 relative z-10">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/5 border border-orange-500/30 text-orange-500 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(249,115,22,0.2)] backdrop-blur-md">
               <span className="font-mono font-bold text-lg">3</span>
             </div>
             <h3 className="text-lg font-bold">Security</h3>
@@ -368,9 +386,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     type="checkbox"
                     checked={localSession.useKeepAlive !== false}
                     onChange={(e) => handleUpdate({ useKeepAlive: e.target.checked })}
-                    className="w-5 h-5 appearance-none rounded-md border-2 border-white/20 checked:border-primary checked:bg-primary transition-all cursor-pointer"
+                    className="w-5 h-5 appearance-none rounded-md border-2 border-white/20 checked:border-transparent checked:bg-gradient-duo transition-all cursor-pointer relative"
                   />
-                  {localSession.useKeepAlive !== false && <span className="absolute text-white pointer-events-none text-xs font-bold">✓</span>}
+                  {localSession.useKeepAlive !== false && <span className="absolute text-white pointer-events-none text-xs font-bold z-10">✓</span>}
                 </div>
                 <div>
                   <div className="text-sm font-bold">{t('connect.keepAlive')}</div>
@@ -379,7 +397,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               </label>
             </div>
           </div>
-        </MoovierTile>
+        </div>
 
       </div>
 
@@ -395,7 +413,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           {/* Panel */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className={`relative z-10 w-[460px] max-w-[90vw] border rounded-none shadow-2xl flex flex-col ${
+            className={`relative z-10 w-[460px] max-w-[90vw] border rounded-xl shadow-2xl flex flex-col ${
               isDark ? 'bg-[#1a1a1a] border-white/20 text-white' : 'bg-white border-black/15 text-slate-900'
             }`}
           >
@@ -410,7 +428,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               <button
                 type="button"
                 onClick={() => setShowProtocolHelp(false)}
-                className={`p-1 transition-colors rounded-none ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'}`}
+                className={`p-1 transition-colors rounded-xl ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'}`}
               >
                 <X size={15} />
               </button>
@@ -440,12 +458,12 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                       <span className="text-base leading-none">{row.icon}</span>
                       <span className="font-mono font-bold text-sm text-primary">{row.label}</span>
                       {isActive && (
-                        <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded-none">
+                        <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded-xl">
                           {t('connect.protocol.badgeActive')}
                         </span>
                       )}
                       {row.badge && !isActive && (
-                        <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-none border ${
+                        <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-xl border ${
                           row.badge === t('connect.protocol.badgePlaintext')
                             ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
                             : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
@@ -467,7 +485,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               <button
                 type="button"
                 onClick={() => setShowProtocolHelp(false)}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-none border transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-xl border transition-colors ${
                   isDark
                     ? 'bg-white/10 border-white/20 hover:bg-white/20 text-white'
                     : 'bg-black/5 border-black/15 hover:bg-black/10 text-black'

@@ -171,7 +171,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // AI Center Gateway
   ai: {
-    invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string }) => ipcRenderer.invoke('ai-privileged-invoke', payload),
+    invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string, provider?: string, model?: string }) => ipcRenderer.invoke('ai-privileged-invoke', payload),
+    getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => ipcRenderer.invoke('ai-get-models', payload),
+    saveApiKey: (apiKey: string) => ipcRenderer.invoke('ai-save-api-key', apiKey),
+    deleteApiKey: () => ipcRenderer.invoke('ai-delete-api-key'),
     clearHistory: (workspaceId: string) => ipcRenderer.invoke('clear-ai-history', workspaceId),
     onStreamChunk: (requestId: string, callback: (payload: { chunk: string, isDone: boolean, error?: string }) => void) => {
       const listener = (_event: IpcRendererEvent, payload: { chunk: string, isDone: boolean, error?: string }) => callback(payload);
@@ -185,6 +188,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getWorkspaces: () => ipcRenderer.invoke('workspace:list'),
     createWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:create', workspaceId),
     switchWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:switch', workspaceId)
+  },
+  
+  // Agentic Execution Shell API
+  onAgentPropose: (callback: (payload: { id: string, intent: string, command: string, riskLevel: 'low' | 'medium' | 'high' }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: any) => callback(payload);
+    ipcRenderer.on('app:agent-propose', listener);
+    return () => ipcRenderer.removeListener('app:agent-propose', listener);
   }
 })
 

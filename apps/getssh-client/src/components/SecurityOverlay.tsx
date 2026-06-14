@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, RefreshCcw, Save, ShieldOff } from 'lucide-react';
+import { ShieldAlert, RefreshCcw, Save, ShieldOff, Terminal, Key, Unlock } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
 export const SecurityOverlay: React.FC = () => {
@@ -55,7 +55,7 @@ export const SecurityOverlay: React.FC = () => {
       if (!res.success) {
         if (res.reason === 'unsupported' || res.reason === 'no_key') {
            setPwdPrompt(true);
-           return; // Wait for user to submit via the inline form
+           return;
         } else {
            return;
         }
@@ -71,105 +71,159 @@ export const SecurityOverlay: React.FC = () => {
   if (!lockdownInfo) return null;
 
   const isRed = lockdownInfo.level !== 'yellow'; // default to red
-  const bgColor = isRed ? 'bg-red-950/90' : 'bg-yellow-950/90';
-  const titleColor = isRed ? 'text-red-500' : 'text-yellow-500';
-  const iconBg = isRed ? 'bg-red-500/20' : 'bg-yellow-500/20';
+
+  // Theme Variables
+  const ambientBg = isRed ? 'bg-[#0f0303]' : 'bg-[#121002]';
+  const glowCore = isRed ? 'bg-red-600/30' : 'bg-yellow-600/30';
+  const glowOuter = isRed ? 'bg-red-900/20' : 'bg-yellow-900/20';
+  const accentColor = isRed ? 'text-red-500' : 'text-yellow-500';
   const borderColor = isRed ? 'border-red-500/30' : 'border-yellow-500/30';
-  const textColor = isRed ? 'text-red-200/80' : 'text-yellow-200/80';
-  const subtitleColor = isRed ? 'text-red-400' : 'text-yellow-400';
+  const boxBg = isRed ? 'bg-red-950/20' : 'bg-yellow-950/20';
+  const btnPrimary = isRed ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_30px_rgba(220,38,38,0.4)]' : 'bg-yellow-500 hover:bg-yellow-400 text-yellow-950 shadow-[0_0_30px_rgba(234,179,8,0.4)]';
+  const statusTitle = isRed ? 'SYSTEM LOCKDOWN' : 'SECURITY WARNING';
+  const statusSubtitle = isRed ? '内存完整性破坏 - 极高危风险' : '异常插件拦截 - 运行环境警告';
 
   return (
     <div 
-      className={`fixed inset-0 z-[99999] flex flex-col items-center justify-center ${bgColor} backdrop-blur-3xl text-red-50 select-none animate-in fade-in duration-300 pointer-events-auto`}
+      className={`fixed inset-0 z-[99999] flex flex-col items-center justify-center ${ambientBg} overflow-hidden text-slate-50 select-none pointer-events-auto`}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
-      <div className="flex flex-col items-center max-w-2xl text-center space-y-6">
-        <div className={`w-24 h-24 rounded-full ${iconBg} flex items-center justify-center animate-pulse`}>
-          <ShieldAlert className={`w-12 h-12 ${titleColor}`} />
-        </div>
+      {/* Ambient Lighting */}
+      <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] ${glowCore} blur-[120px] rounded-full mix-blend-screen pointer-events-none animate-pulse`} />
+      <div className={`absolute inset-0 ${glowOuter} blur-[150px] mix-blend-overlay pointer-events-none`} />
+
+      {/* Grid Container */}
+      <div className="relative z-10 w-full max-w-5xl px-8 flex flex-col gap-6 animate-in zoom-in-95 duration-500">
         
-        <h1 className="text-4xl font-black tracking-tight text-white">GETSSH SECURE CENTER</h1>
-        
-        <div className={`px-6 py-4 bg-black/40 border ${borderColor} rounded-xl w-full`}>
-          <h2 className={`text-xl font-bold ${subtitleColor} mb-2`}>
-            {isRed ? '⚠️ 内存完整性已被破坏，您的安全底线正面临重大风险！' : '⚠️ 插件高危操作已阻断，系统运行在警告状态！'}
-          </h2>
-          <p className={`text-sm ${textColor} font-mono break-all whitespace-pre-wrap text-left`}>{lockdownInfo.reason}</p>
+        {/* Top Row: Icon/Title & Countdown */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          
+          {/* Card 1: Alert Header */}
+          <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} ${boxBg} backdrop-blur-2xl rounded-3xl shadow-2xl flex items-center gap-8 relative overflow-hidden group`}>
+            <div className={`absolute -left-10 top-1/2 -translate-y-1/2 w-40 h-40 ${glowCore} blur-3xl opacity-50`} />
+            
+            <div className={`relative shrink-0 w-24 h-24 rounded-2xl flex items-center justify-center border ${borderColor} bg-black/40 shadow-inner group-hover:scale-105 transition-transform duration-500`}>
+              <ShieldAlert className={`w-12 h-12 ${accentColor} drop-shadow-[0_0_15px_currentColor] animate-pulse`} />
+            </div>
+            
+            <div className="relative">
+              <h1 className="text-4xl md:text-5xl font-black tracking-tighter mb-2 text-white drop-shadow-md">
+                {statusTitle}
+              </h1>
+              <h2 className={`text-sm md:text-lg font-bold tracking-widest uppercase ${accentColor}`}>
+                {statusSubtitle}
+              </h2>
+            </div>
+          </div>
+
+          {/* Card 2: Countdown Timer */}
+          <div className={`p-8 border ${borderColor} ${boxBg} backdrop-blur-2xl rounded-3xl shadow-2xl flex flex-col items-center justify-center relative overflow-hidden`}>
+            <div className={`absolute -right-10 top-1/2 -translate-y-1/2 w-40 h-40 ${glowCore} blur-3xl opacity-50`} />
+            <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Time Remaining</div>
+            <div className={`text-6xl md:text-7xl font-black font-mono tracking-tighter ${accentColor} drop-shadow-[0_0_20px_currentColor]`}>
+              00:{lockdownInfo.countdown.toString().padStart(2, '0')}
+            </div>
+          </div>
+
         </div>
 
-        <div className={`text-8xl font-black font-mono tracking-tighter ${titleColor} my-8`}>
-          00:{lockdownInfo.countdown.toString().padStart(2, '0')}
+        {/* Middle Row: Terminal Output */}
+        <div className={`p-8 border ${borderColor} bg-black/80 backdrop-blur-3xl rounded-3xl shadow-2xl flex flex-col relative`}>
+          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
+            <Terminal className={`w-5 h-5 ${accentColor}`} />
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">Trace Log // Violation Details</span>
+          </div>
+          <div className={`font-mono text-sm leading-relaxed whitespace-pre-wrap break-all ${isRed ? 'text-red-300' : 'text-yellow-300'} h-40 overflow-y-auto pr-4 custom-scrollbar`}>
+            <span className={accentColor}>{'> '}</span>[VIOLATION DETECTED]<br />
+            {lockdownInfo.reason}
+          </div>
         </div>
 
-        <div className="flex flex-col gap-4 w-full max-w-md">
+        {/* Bottom Row: Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+          
           {pwdPrompt ? (
-            <div className="bg-black/60 p-6 rounded-xl border border-red-500/50 flex flex-col gap-4 animate-in slide-in-from-bottom-2">
-              <p className="text-sm text-red-200">Verify identity with Master Password to ignore (leave blank if not set):</p>
-              <input 
-                type="password" 
-                value={pwdInput} 
-                onChange={(e) => setPwdInput(e.target.value)} 
-                className="w-full bg-black/50 border border-white/20 rounded-md p-2 text-white outline-none focus:border-red-500" 
-                autoFocus 
-                onKeyDown={(e) => e.key === 'Enter' && submitIgnore()}
-              />
-              <div className="flex gap-2 mt-2">
-                <button onClick={() => setPwdPrompt(false)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-all">Cancel</button>
-                <button onClick={submitIgnore} className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-red-900/50 transition-all">Confirm</button>
+            <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} bg-black/90 backdrop-blur-3xl rounded-3xl shadow-2xl flex flex-col gap-6 animate-in slide-in-from-bottom-8`}>
+              <div className="flex items-center gap-3">
+                <Key className={`w-6 h-6 ${accentColor}`} />
+                <h3 className="text-lg font-bold text-white tracking-wide">Identity Verification Required</h3>
+              </div>
+              <p className="text-sm text-white/50 font-medium">Please enter your Master Password to override this security lockdown. Leave blank if no password is set.</p>
+              
+              <div className="flex gap-4">
+                <input 
+                  type="password" 
+                  value={pwdInput} 
+                  onChange={(e) => setPwdInput(e.target.value)} 
+                  placeholder="••••••••••••"
+                  className={`flex-1 bg-black/50 border border-white/10 rounded-xl p-4 text-white outline-none font-mono tracking-widest transition-all focus:border-${isRed ? 'red' : 'yellow'}-500/50 focus:bg-white/5`}
+                  autoFocus 
+                  onKeyDown={(e) => e.key === 'Enter' && submitIgnore()}
+                />
+                <button onClick={submitIgnore} className={`px-8 rounded-xl font-black uppercase tracking-widest transition-all ${btnPrimary}`}>
+                  <Unlock className="w-5 h-5 inline-block mr-2" /> Verify
+                </button>
+                <button onClick={() => setPwdPrompt(false)} className="px-8 rounded-xl font-bold border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/80">
+                  Cancel
+                </button>
               </div>
             </div>
           ) : isRed ? (
             <>
+              {/* Primary Danger Action */}
               <button 
                 onClick={handleRestartSafe}
-                className="w-full flex items-center justify-center gap-3 py-4 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold text-lg transition-all shadow-lg shadow-red-900/50"
+                className={`col-span-1 md:col-span-2 p-6 rounded-3xl border border-transparent flex items-center justify-center gap-4 text-xl font-black tracking-widest uppercase transition-all duration-300 hover:scale-[1.02] ${btnPrimary}`}
               >
-                <RefreshCcw className="w-5 h-5" /> 【立刻重启至安全模式】
+                <RefreshCcw className="w-6 h-6" /> Reboot into Safe Mode
               </button>
               
+              {/* Secondary Actions */}
               <button 
                 onClick={handleSave15s}
-                className="w-full flex items-center justify-center gap-3 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all"
+                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
-                <Save className="w-4 h-4" /> 【抢救性存盘 (解锁 15 秒)】
+                <Save className="w-5 h-5 opacity-70" /> Emergency Save (15s)
               </button>
 
               <button 
                 onClick={handleIgnore}
-                className="w-full flex items-center justify-center gap-2 py-2 mt-4 opacity-50 hover:opacity-100 text-red-400 hover:text-red-300 text-xs transition-all"
+                className="p-6 rounded-3xl border border-transparent bg-transparent hover:bg-red-950/30 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase text-red-500/40 hover:text-red-400 transition-all"
               >
-                <ShieldOff className="w-3 h-3" /> 【忽略风险并继续】(不推荐)
+                <ShieldOff className="w-5 h-5" /> Ignore & Continue (Not Recommended)
               </button>
             </>
           ) : (
             <>
+              {/* Primary Warning Action */}
               <button 
                 onClick={() => {
                   window.electronAPI.resolveSecurityLockdown('deactivate-plugin');
                   setIsPolluted(false);
                   setLockdownInfo(null);
                 }}
-                className="w-full flex items-center justify-center gap-3 py-4 bg-yellow-600 hover:bg-yellow-500 text-white rounded-xl font-bold text-lg transition-all shadow-lg shadow-yellow-900/50"
+                className={`col-span-1 md:col-span-2 p-6 rounded-3xl border border-transparent flex items-center justify-center gap-4 text-xl font-black tracking-widest uppercase transition-all duration-300 hover:scale-[1.02] ${btnPrimary}`}
               >
-                <ShieldAlert className="w-5 h-5" /> 【关闭异常插件】
+                <ShieldAlert className="w-6 h-6" /> Deactivate Malicious Plugin
               </button>
               
+              {/* Secondary Actions */}
               <button 
                 onClick={() => {
                   window.electronAPI.resolveSecurityLockdown('continue');
                   setIsPolluted(false);
                   setLockdownInfo(null);
                 }}
-                className="w-full flex items-center justify-center gap-3 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all"
+                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
-                <RefreshCcw className="w-4 h-4" /> 【继续执行】
+                <RefreshCcw className="w-5 h-5 opacity-70" /> Continue Execution
               </button>
 
               <button 
                 onClick={handleIgnore}
-                className="w-full flex items-center justify-center gap-2 py-2 mt-4 opacity-50 hover:opacity-100 text-yellow-400 hover:text-yellow-300 text-xs transition-all"
+                className="p-6 rounded-3xl border border-transparent bg-transparent hover:bg-yellow-950/30 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase text-yellow-500/40 hover:text-yellow-400 transition-all"
               >
-                <ShieldOff className="w-3 h-3" /> 【忽略警告】
+                <ShieldOff className="w-5 h-5" /> Ignore Warning
               </button>
             </>
           )}

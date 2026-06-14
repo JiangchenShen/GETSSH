@@ -463,7 +463,17 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 min-h-0 overflow-hidden relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
       {visualBell && <div className="absolute inset-0 bg-white/20 pointer-events-none z-50 transition-opacity duration-200" />}
-      <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white" ref={terminalRef} style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}></div>
+      <div 
+        className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white" 
+        ref={terminalRef} 
+        style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}
+        onDoubleClick={() => {
+          const selection = xtermRef.current?.getSelection() || '';
+          if (selection) {
+            useAppStore.getState().setIsAiCenterOpen(true);
+          }
+        }}
+      ></div>
       {isDisconnected && (
         <div
           ref={overlayRef}

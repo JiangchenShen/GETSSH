@@ -47,24 +47,16 @@
   --color-obsidian-surf: #18181b;    /* 悬浮/激活色 */
   --color-obsidian-border: #27272a;  /* 克制的边框色 */
 
-  /* Border-radius: all squarified to 0px to preserve our sharp "Obsidian" aesthetic,
-     keeping `full` for circular avatars/badges */
-  --radius-none: 0px;
-  --radius-sm:   0px;
-  --radius-DEFAULT: 0px;
-  --radius-md:   0px;
-  --radius-lg:   0px;
-  --radius-xl:   0px;
-  --radius-2xl:  0px;
-  --radius-3xl:  0px;
-  --radius-full: 9999px;
+  /* Border-radius restored to tailwind defaults */
 }
 
 /* ── Base design variables ───────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    --primary-color: 168 85 247; /* Default: purple-500 */
+    --primary-color: 0 212 255; /* Default: fallback to color-a */
+    --color-a: 0 212 255; /* Duo-Tone Track A Default (e.g. 电光蓝) */
+    --color-b: 44 44 52;  /* Duo-Tone Track B Default (e.g. 机甲灰) */
     
     /* MOOVIER SUPREME: Absolute Grid Tokens (Chapter 1.2) */
     --grid-unit: 4px;
@@ -102,9 +94,12 @@
       0 16px 32px rgba(0, 0, 0, 0.08);
   }
 
-  body {
+  html, body, #root {
     @apply h-screen w-screen overflow-hidden m-0 p-0 text-white font-sans;
     background-color: transparent !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
 
@@ -134,6 +129,7 @@
 }
 ::-webkit-scrollbar-thumb {
   background: transparent;
+  border-radius: 4px;
 }
 /* Only show scrollbar on hover to keep it minimalist */
 *:hover::-webkit-scrollbar-thumb {
@@ -161,4 +157,28 @@
   backdrop-filter: blur(24px) saturate(120%);
   background: linear-gradient(to bottom, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 16px 40px rgba(0,0,0,0.5);
+}
+
+/* ── Duo-Tone System (Dual-Track) utilities ──────────────────────────────── */
+
+@utility bg-gradient-duo {
+  background: linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
+}
+
+@utility text-gradient-duo {
+  background: linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@utility border-duo {
+  border: 1px solid transparent;
+  background-image: linear-gradient(var(--color-obsidian-bg), var(--color-obsidian-bg)), linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+
+@utility ring-duo {
+  --tw-ring-color: rgba(var(--color-a), 0.5);
 }

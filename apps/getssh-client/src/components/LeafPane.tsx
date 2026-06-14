@@ -4,6 +4,11 @@ import { PaneLeaf, PaneNode, useSessionStore, isSSHConfig } from '../store/sessi
 import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { PluginPane } from './PluginPane';
+import { RecBadge } from './RecBadge';
+import { WorkspaceCenter } from './WorkspaceCenter';
+import { AiSettingsModal as AiSettingsPane } from './AiSettingsModal';
+import { PluginCenterModal as PluginCenterPane } from './PluginCenterModal';
+import { SecureCenter } from './SecureCenter';
 
 function countLeaves(node: PaneNode | undefined): number {
   if (!node) return 0;
@@ -88,7 +93,7 @@ export const LeafPane: React.FC<{
         <div className="flex items-center gap-2 text-gray-400">
            <TerminalSquare className="w-4 h-4 opacity-70" />
            <span className="truncate font-medium text-sm">
-             {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : ''))}
+             {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (node.paneType === 'center' ? (tabTitle || 'Center') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : '')))}
            </span>
         </div>
         <div className={`flex items-center gap-1 transition-opacity ${isActive || isZoomed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
@@ -157,7 +162,7 @@ export const LeafPane: React.FC<{
         </div>
       </div>
 
-      {node.paneType === 'terminal' && node.sessionId && (
+      {node.paneType === 'terminal' && node.sessionId && (<>
         <TerminalComponent
           sessionId={node.sessionId}
           isDisconnected={node.isDisconnected ?? false}
@@ -167,7 +172,8 @@ export const LeafPane: React.FC<{
           onDisconnected={() => { window.electronAPI.nexusClosePane(node.paneId).catch(console.error); }}
           onReconnect={() => {
             if (!isSSHConfig(node.config)) return;
-            window.electronAPI.sshConnect(node.config).then(res => {
+            const payload = { ...node.config, enableAuditLogging: appConfig.enableAuditLogging };
+            window.electronAPI.sshConnect(payload).then(res => {
               if (res.success && res.sessionId) {
                 useSessionStore.getState().patchNexusLeaf(node.paneId, { sessionId: res.sessionId });
               }
@@ -177,7 +183,8 @@ export const LeafPane: React.FC<{
           isDark={isDark}
           isActive={isTabActive && isActive}
         />
-      )}
+        <RecBadge isRecording={appConfig.enableAuditLogging || false} />
+      </>)}
 
       {node.paneType === 'welcome' && (
         <div className="w-full h-full flex flex-col items-center justify-center bg-transparent min-h-0 overflow-y-auto">
@@ -199,6 +206,15 @@ export const LeafPane: React.FC<{
 
       {node.paneType === 'plugin' && (
         <PluginPane paneId={node.paneId} isDark={isDark} pluginUrl={node.config && 'pluginUrl' in node.config ? node.config.pluginUrl : undefined} />
+      )}
+
+      {node.paneType === 'center' && node.config && 'centerType' in node.config && (
+        <div className="w-full h-full relative overflow-hidden bg-transparent flex flex-col">
+          {node.config.centerType === 'workspace' && <WorkspaceCenter />}
+          {node.config.centerType === 'ai' && <AiSettingsPane />}
+          {node.config.centerType === 'plugin' && <PluginCenterPane />}
+          {node.config.centerType === 'secure' && <SecureCenter />}
+        </div>
       )}
     </div>
   );

@@ -74,7 +74,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
         {/* Left: Clock & Greeting Tile */}
-        <MoovierTile exemptFromFocus dragLevel="fixed" className="col-span-1 md:col-span-2 p-10 flex flex-col justify-center rounded-[32px] min-h-[240px]">
+        <MoovierTile exemptFromFocus dragLevel="fixed" className={`col-span-1 md:col-span-2 p-10 flex flex-col justify-center rounded-[32px] min-h-[240px] ${!isDark && '!bg-white !border-black/5 shadow-sm'}`}>
           <div className="flex flex-col items-start gap-4 cursor-default select-none">
             <h3 className={`text-2xl font-bold flex items-center gap-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
               <Sparkles className="w-6 h-6 text-primary" />
@@ -102,7 +102,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
         </MoovierTile>
 
         {/* Right: Hint Tile */}
-        <MoovierTile exemptFromFocus dragLevel="fixed" className="col-span-1 p-8 flex flex-col items-center justify-center text-center rounded-[32px] min-h-[240px] group">
+        <MoovierTile exemptFromFocus dragLevel="fixed" className={`col-span-1 p-8 flex flex-col items-center justify-center text-center rounded-[32px] min-h-[240px] group ${!isDark && '!bg-white !border-black/5 shadow-sm'}`}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -136,7 +136,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onConnect }) => {
                 exemptFromFocus
                 dragLevel="fixed"
                 onClick={() => handleSessionClick(session)}
-                className="group relative flex flex-col p-6 rounded-[32px] cursor-pointer h-[200px]"
+                className={`group relative flex flex-col p-6 rounded-[32px] cursor-pointer h-[200px] ${!isDark && '!bg-white !border-black/5 shadow-sm'}`}
               >
                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-auto transition-transform duration-300 group-hover:scale-110 ${
                   isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'

@@ -1,0 +1,18 @@
+[package]
+name = "audit-stream"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+crossbeam-channel = "0.5.15"
+flate2 = "1.1.9"
+napi = "3.9.1"
+napi-derive = "3.5.6"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+
+[build-dependencies]
+napi-build = "2.3.2"

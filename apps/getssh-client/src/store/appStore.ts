@@ -2,7 +2,8 @@ import { create } from 'zustand';
 
 export interface AppConfig {
   language: string;
-  themeColor: string;
+  themeColor?: string;
+  duoTone?: { colorA: string; colorB: string };
   theme: 'system' | 'light' | 'dark';
   fontFamily: string;
   fontSize: number;
@@ -23,6 +24,7 @@ export interface AppConfig {
   initScript: string;
   autoLockTimeout: number;
   pluginSecurityMode: 'safe' | 'strict' | 'normal' | 'developer';
+  enableAuditLogging?: boolean;
   antiGlare?: boolean;
   terminalPadding?: number;
   cursorBlink?: boolean;
@@ -32,7 +34,7 @@ export interface AppConfig {
   customThemes?: Record<string, any>;
   sftpDownloadPath?: string;
   aiEndpoint?: string;
-  aiApiKey?: string;
+  hasAiApiKey?: boolean;
   aiProvider?: 'openai' | 'gemini' | 'ollama' | 'custom';
   aiModel?: string;
   aiEnabled?: boolean;
@@ -43,6 +45,7 @@ const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' 
 export const DEFAULT_CONFIG: AppConfig = {
   language: 'en-US',
   themeColor: '168 85 247',
+  duoTone: { colorA: '0 212 255', colorB: '44 44 52' }, // Default Duo-Tone: 电光蓝 & 机甲灰
   theme: 'system',
   fontFamily: '"Fira Code", monospace, "Courier New", Courier',
   fontSize: 14,
@@ -64,6 +67,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoLockTimeout: 0,
   terminalTheme: 'default',
   pluginSecurityMode: 'normal',
+  enableAuditLogging: false,
   antiGlare: false,
   terminalPadding: 8,
   cursorBlink: true,
@@ -72,10 +76,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   customThemes: {},
   sftpDownloadPath: '',
   aiEndpoint: '',
-  aiApiKey: '',
+  hasAiApiKey: false,
   aiProvider: 'openai',
   aiModel: 'gpt-3.5-turbo',
-  aiEnabled: true,
+  aiEnabled: false,
 };
 
 export interface ToastMsg {
@@ -97,11 +101,7 @@ interface AppStore {
   isSidebarCollapsed: boolean;
   toasts: ToastMsg[];
   isAiCenterOpen: boolean;
-  isAiSettingsOpen: boolean;
   isHoveringAiCenter: boolean;
-  isWorkspaceCenterOpen: boolean;
-  isSecureCenterOpen: boolean;
-  isPluginCenterOpen: boolean;
   currentTerminalSelection: string;
   workspaces: string[];
   activeWorkspaceId: string;
@@ -116,11 +116,7 @@ interface AppStore {
   setIsCommandCenterOpen: (open: boolean) => void;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   setIsAiCenterOpen: (open: boolean) => void;
-  setIsAiSettingsOpen: (open: boolean) => void;
   setIsHoveringAiCenter: (hovering: boolean) => void;
-  setIsWorkspaceCenterOpen: (open: boolean) => void;
-  setIsSecureCenterOpen: (open: boolean) => void;
-  setIsPluginCenterOpen: (open: boolean) => void;
   setCurrentTerminalSelection: (text: string) => void;
   setWorkspaces: (ws: string[]) => void;
   setActiveWorkspaceId: (id: string) => void;
@@ -137,6 +133,8 @@ interface AppStore {
   syncConfigEffects: () => void;
 }
 
+let isInitialLoadDone = false;
+
 export const useAppStore = create<AppStore>((set, get) => ({
   appConfig: DEFAULT_CONFIG,
   isDark: true,
@@ -150,11 +148,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isSidebarCollapsed: false,
   toasts: [],
   isAiCenterOpen: false,
-  isAiSettingsOpen: false,
   isHoveringAiCenter: false,
-  isWorkspaceCenterOpen: false,
-  isSecureCenterOpen: false,
-  isPluginCenterOpen: false,
   currentTerminalSelection: '',
   workspaces: [],
   activeWorkspaceId: 'default',
@@ -173,11 +167,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setIsCommandCenterOpen: (open) => set({ isCommandCenterOpen: open }),
   setIsSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
   setIsAiCenterOpen: (open) => set({ isAiCenterOpen: open }),
-  setIsAiSettingsOpen: (open) => set({ isAiSettingsOpen: open }),
   setIsHoveringAiCenter: (hovering) => set({ isHoveringAiCenter: hovering }),
-  setIsWorkspaceCenterOpen: (open) => set({ isWorkspaceCenterOpen: open }),
-  setIsSecureCenterOpen: (open) => set({ isSecureCenterOpen: open }),
-  setIsPluginCenterOpen: (open) => set({ isPluginCenterOpen: open }),
   setCurrentTerminalSelection: (text) => set({ currentTerminalSelection: text }),
   setWorkspaces: (ws) => set({ workspaces: ws }),
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
@@ -261,10 +251,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     } catch (error) {
       console.error('Failed to load stored config:', error);
+    } finally {
+      isInitialLoadDone = true;
+      get().syncConfigEffects();
     }
   },
 
   syncConfigEffects: () => {
+    if (!isInitialLoadDone) return;
     const { appConfig, systemIsDark } = get();
     
     const { initScript, proxyHost, proxyPort, aiEndpoint, aiApiKey, aiProvider, aiModel, ...safeConfig } = appConfig;
@@ -276,6 +270,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.electronAPI.encryptConfig(sensitive).then(enc => {
         if (enc) localStorage.setItem('appConfig_secure', enc);
       });
+    }
+
+    if (appConfig.duoTone) {
+      document.documentElement.style.setProperty('--color-a', appConfig.duoTone.colorA);
+      document.documentElement.style.setProperty('--color-b', appConfig.duoTone.colorB);
+      document.documentElement.style.setProperty('--primary-color', appConfig.duoTone.colorA);
+    } else if (appConfig.themeColor) {
+      document.documentElement.style.setProperty('--color-a', appConfig.themeColor);
+      document.documentElement.style.setProperty('--color-b', appConfig.themeColor);
+      document.documentElement.style.setProperty('--primary-color', appConfig.themeColor);
     }
 
     const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';

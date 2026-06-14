@@ -17,8 +17,8 @@ export class SecureCenter {
   private lockdownMode: boolean = false;
   private pluginTeardownFn: (() => void) | null = null;
   private watchdogDisabled: boolean = false;
-  private lastLockdownReason: string = '【Rust Watchdog】物理级强杀程序已激活！您有 60 秒时间挽救进程或取消操作！';
-  private lastLockdownLevel: 'red' | 'yellow' = 'red';
+  private lastLockdownReason?: string;
+  private lastLockdownLevel?: 'red' | 'yellow';
 
   private constructor() {}
 

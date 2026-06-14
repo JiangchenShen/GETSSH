@@ -1,12 +1,17 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, SearchX } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import Fuse from 'fuse.js';
+
+import { PluginDetailsModal } from './command-center/PluginDetailsModal';
+import { CommandCenterList } from './command-center/CommandCenterList';
+import { ActionDrawer, ActionDrawerItem } from './command-center/ActionDrawer';
 
 interface CommandCenterProps {
   isOpen: boolean;
@@ -19,9 +24,9 @@ interface CommandCenterProps {
   sessions: any[];
 }
 
-type UnifiedItemType = 'action' | 'host' | 'plugin';
+export type UnifiedItemType = 'action' | 'host' | 'plugin' | 'runbook';
 
-interface UnifiedItem {
+export interface UnifiedItem {
   id: string;
   type: UnifiedItemType;
   title: string;
@@ -37,6 +42,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const masterPassword = useCryptoStore(state => state.masterPassword);
   const isPolluted = useAppStore(state => state.isPolluted);
+  const runbooks = useWorkspaceStore(state => state.runbooks);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -86,8 +92,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         icon: <Plus className="w-4 h-4 text-emerald-500" />,
         onSelect: () => {
           onClose();
-          const btn = document.querySelector('.sidebar-add-btn') as HTMLButtonElement | null;
-          if (btn) btn.click();
+          window.dispatchEvent(new CustomEvent('app:create-session', { detail: '' }));
         }
       },
       {
@@ -97,8 +102,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         icon: <Settings className="w-4 h-4 text-slate-500" />,
         onSelect: () => {
           onClose();
-          const settingsBtn = document.querySelector('button[title="Settings"], button[title="设置"]') as HTMLButtonElement | null;
-          if (settingsBtn) settingsBtn.click();
+          window.dispatchEvent(new CustomEvent('app:open-settings'));
         }
       },
       {
@@ -156,8 +160,23 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       }
     })));
 
+    // 4. Workspace Runbooks
+    items.push(...runbooks.map((r, idx) => ({
+      id: `runbook-${idx}-${r.id}`,
+      type: 'runbook' as UnifiedItemType,
+      title: r.name,
+      subtitle: r.description,
+      icon: <Command className={`w-4 h-4 ${r.dangerLevel === 'high' ? 'text-amber-500' : 'text-slate-400'}`} />,
+      data: r,
+      onSelect: () => {
+        onClose();
+        const event = new CustomEvent('app:runbook-execute', { detail: r });
+        window.dispatchEvent(event);
+      }
+    })));
+
     return items;
-  }, [sessions, installedPlugins, masterPassword, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
+  }, [sessions, installedPlugins, runbooks, masterPassword, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
 
   const fuse = useMemo(() => {
     return new Fuse(baseItems, {
@@ -176,8 +195,22 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   }, [baseItems]);
 
   const unifiedItems = useMemo<UnifiedItem[]>(() => {
+    const wrapSelect = (items: UnifiedItem[]) => items.map(item => ({
+      ...item,
+      onSelect: () => {
+        const counts = JSON.parse(localStorage.getItem('cc-usage-counts') || '{}');
+        counts[item.id] = (counts[item.id] || 0) + 1;
+        localStorage.setItem('cc-usage-counts', JSON.stringify(counts));
+        item.onSelect();
+      }
+    }));
+
     const q = searchQuery.trim();
-    if (!q) return baseItems;
+    if (!q) {
+      const counts = JSON.parse(localStorage.getItem('cc-usage-counts') || '{}');
+      const sortedBaseItems = [...baseItems].sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
+      return wrapSelect(sortedBaseItems);
+    }
 
     const results = fuse.search(q).map(result => result.item);
 
@@ -199,8 +232,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       });
     }
 
-    return results;
-  }, [searchQuery, baseItems, fuse, onClose, onConnect]);
+    return wrapSelect(results);
+  }, [searchQuery, baseItems, fuse, onClose, onConnect, t]);
 
   // Reset activeIndex when searchQuery changes
   useEffect(() => {
@@ -302,9 +335,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
   const activeItem = unifiedItems[activeIndex];
 
-  const drawerItems = useMemo(() => {
+  const drawerItems = useMemo<ActionDrawerItem[]>(() => {
     if (!activeItem) return [];
-    const items = [];
+    const items: ActionDrawerItem[] = [];
     
     // Execute
     items.push({
@@ -420,66 +453,18 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           </div>
 
           {/* List Area */}
-          <div 
+          <CommandCenterList
             ref={listRef}
-            className="max-h-[60vh] overflow-y-auto p-2 scrollbar-hide"
-          >
-            {unifiedItems.length === 0 ? (
-              <div className="py-16 flex flex-col items-center justify-center text-center">
-                <SearchX className="w-12 h-12 text-neutral-600 mb-4 opacity-50" />
-                <div className="text-base font-medium opacity-80 mb-1">
-                  No results found for '{searchQuery}'
-                </div>
-                <div className="text-xs text-neutral-500">
-                  Press <kbd className="font-mono bg-white/10 px-1 rounded mx-0.5">Enter</kbd> to create a new profile with this name.
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1 relative">
-                {unifiedItems.map((item, idx) => {
-                  const isActive = idx === activeIndex;
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => { setActiveIndex(idx); item.onSelect(); }}
-                      onMouseEnter={() => setActiveIndex(idx)}
-                      className={`relative flex items-center justify-between p-3 rounded-xl cursor-pointer group transition-colors`}
-                    >
-                      {isActive && (
-                        <motion.div
-                          layoutId="active-bg"
-                          transition={{ type: 'spring', stiffness: 350, damping: 30, mass: 1 }} // Preset C (Apple Fluid)
-                          className={`absolute inset-0 rounded-xl pointer-events-none ${isDark ? 'bg-white/10' : 'bg-black/5'}`}
-                        />
-                      )}
-                      
-                      <div className="relative z-10 flex items-center gap-3">
-                        <div className={`p-1.5 rounded-md ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
-                          {item.icon}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium leading-none">{item.title}</span>
-                          {item.subtitle && <span className="text-xs opacity-50 mt-1 leading-none">{item.subtitle}</span>}
-                        </div>
-                      </div>
-
-                      {isActive && (
-                        <div className="relative z-10 flex items-center gap-2">
-                          <kbd className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${isDark ? 'border-white/20' : 'border-black/20'}`}>
-                            {useAppStore.getState().isMac ? '⌘K' : 'Ctrl+K'}
-                          </kbd>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+            unifiedItems={unifiedItems}
+            activeIndex={activeIndex}
+            setActiveIndex={setActiveIndex}
+            searchQuery={searchQuery}
+            isDark={isDark}
+          />
           
           {/* Footer */}
           <div className={`px-4 py-2 text-[10px] flex items-center justify-between border-t ${isDark ? 'border-white/5 text-white/30' : 'border-black/5 text-slate-400'}`}>
-            <span>GETSSH Command Center V2.0</span>
+            <span>{t('commandCenter.version', 'GETSSH Command Center V2.0')}</span>
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↑</kbd> <kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↓</kbd> {t('commandCenter.navigate', 'Navigate')}</span>
               <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↵</kbd> {t('commandCenter.select', 'Select')}</span>
@@ -499,184 +484,15 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         </motion.div>
 
         {/* Action Drawer */}
-        <AnimatePresence>
-          {isActionMenuOpen && activeItem && (
-            <motion.div
-              initial={{ x: -20, opacity: 0, scale: 0.95 }}
-              animate={{ x: 16, opacity: 1, scale: 1 }}
-              exit={{ x: -10, opacity: 0, scale: 0.95 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              className={`relative pointer-events-auto shrink-0 w-[240px] shadow-2xl rounded-2xl border flex flex-col p-2 ${
-                isDark ? 'bg-[#151515]/90 border-white/10 water-glass text-white' : 'bg-white/95 border-black/10 text-slate-900 backdrop-blur-xl'
-              }`}
-            >
-              <div className="px-3 py-2 text-xs font-bold uppercase opacity-50 border-b mb-2 pb-2 border-current/10 flex justify-between items-center">
-                {t('commandCenter.actions', 'ACTIONS')}
-              </div>
-              <div className="flex flex-col gap-1">
-                {drawerItems.map((item, i) => {
-                  const isActive = activeDrawerIndex === i;
-                  return (
-                    <button 
-                      key={i}
-                      id={`drawer-btn-${i}`}
-                      onClick={() => item.action()}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between group transition-colors relative ${
-                        isActive 
-                          ? (item.isDestructive && deleteConfirmId === activeItem.id 
-                              ? 'bg-red-500/20 text-red-500' 
-                              : isDark ? 'bg-white/10' : 'bg-black/5')
-                          : (item.isDestructive && deleteConfirmId === activeItem.id 
-                              ? 'text-red-500'
-                              : isDark ? 'hover:bg-white/10' : 'hover:bg-black/5')
-                      }`}
-                    >
-                      <span className={`flex items-center gap-2 ${item.isDestructive ? 'text-red-500' : ''}`}>
-                        {item.icon} {item.label}
-                      </span>
-                      {item.shortcut && <kbd className="text-[10px] opacity-40">{item.shortcut}</kbd>}
-                    </button>
-                  );
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <ActionDrawer
+          isOpen={isActionMenuOpen}
+          isDark={isDark}
+          drawerItems={drawerItems}
+          activeDrawerIndex={activeDrawerIndex}
+          activeItemId={activeItem?.id || null}
+          deleteConfirmId={deleteConfirmId}
+        />
         
-      </div>
-    </motion.div>
-  );
-};
-
-const PluginDetailsModal = ({ plugin, isDark, onClose }: { plugin: any, isDark: boolean, onClose: () => void }) => {
-  const { t } = useTranslation();
-  const schema = usePluginStore(state => state.settingsSchemas[plugin.name]);
-  const [formData, setFormData] = useState<Record<string, any>>({});
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const loadData = async () => {
-      if (!schema) return;
-      const data: Record<string, any> = {};
-      await Promise.all(
-        schema.map(async (field: any) => {
-          const val = await window.electronAPI.pluginStorageGet(plugin.name, field.id);
-          data[field.id] = val !== null && val !== undefined ? val : field.default;
-        })
-      );
-      setFormData(data);
-    };
-    loadData();
-  }, [plugin.name, schema]);
-
-  const handleSavePluginSettings = async () => {
-    setSaving(true);
-    try {
-      await Promise.all(
-        Object.entries(formData).map(([key, value]) =>
-          window.electronAPI.pluginStorageSet(plugin.name, key, value)
-        )
-      );
-      await window.electronAPI.reloadPlugin(plugin.name);
-      onClose();
-    } catch (err: any) {
-      alert(`Failed to save settings: ${err.message}`);
-    }
-    setSaving(false);
-  };
-
-  const displayName = plugin.getssh?.name || plugin.displayName || plugin.name;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.98, y: 10 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.98, y: 10 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      className={`absolute inset-0 z-50 flex flex-col p-6 overflow-hidden ${isDark ? 'bg-[#121214]/95 backdrop-blur-3xl' : 'bg-white/95 backdrop-blur-3xl'}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center justify-between mb-6 shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
-             <Box className="w-6 h-6 text-purple-500" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              {displayName}
-              <span className="text-xs font-mono opacity-50 px-2 py-0.5 rounded border border-current/10">v{plugin.version}</span>
-            </h2>
-            <p className="text-sm opacity-60 mt-0.5">{plugin.description}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-        {!schema || schema.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center opacity-50 bg-white/5 px-6 py-4 rounded-xl border border-white/5">
-              {t('commandCenter.noParameters', 'This plugin does not expose any configurable parameters.')}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase opacity-50 tracking-widest border-b border-current/10 pb-2 mb-4">Parameters</h3>
-            {schema.map((field: any) => (
-              <div key={field.id} className="flex flex-col gap-1.5 mb-4">
-                <label className="text-sm font-semibold opacity-80">{field.label}</label>
-                {field.description && <span className="text-xs opacity-50">{field.description}</span>}
-                
-                {field.type === 'boolean' ? (
-                  <input 
-                    type="checkbox" 
-                    checked={!!formData[field.id]}
-                    onChange={e => setFormData({ ...formData, [field.id]: e.target.checked })}
-                    className="mt-1 w-4 h-4"
-                  />
-                ) : field.type === 'password' ? (
-                  <input 
-                    type="password"
-                    value={formData[field.id] || ''}
-                    onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}
-                    className={`px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
-                  />
-                ) : field.type === 'number' ? (
-                  <input 
-                    type="number"
-                    value={formData[field.id] || ''}
-                    onChange={e => setFormData({ ...formData, [field.id]: parseFloat(e.target.value) })}
-                    className={`px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
-                  />
-                ) : (
-                  <input 
-                    type="text"
-                    value={formData[field.id] || ''}
-                    onChange={e => setFormData({ ...formData, [field.id]: e.target.value })}
-                    className={`px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all ${isDark ? 'bg-black/20 border-white/10' : 'bg-white border-black/10'}`}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-current/10 shrink-0">
-        <button 
-          onClick={onClose}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
-        >
-          Close
-        </button>
-        {schema && schema.length > 0 && (
-          <button 
-            onClick={handleSavePluginSettings}
-            disabled={saving}
-            className="px-6 py-2 bg-purple-600 hover:bg-purple-500 active:scale-95 transition-all rounded-lg font-medium shadow-lg shadow-purple-500/20"
-          >
-            {t('commandCenter.saveReload', 'Save & Reload')}
-          </button>
-        )}
       </div>
     </motion.div>
   );

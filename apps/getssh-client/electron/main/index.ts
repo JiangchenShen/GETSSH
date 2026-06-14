@@ -19,6 +19,12 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
+// Force Global GPU Acceleration (Frontend Rendering)
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+
 // [M-11] Security Fix: Enforce senderFrame validation globally for all IPC channels
 const originalIpcOn = ipcMain.on.bind(ipcMain);
 ipcMain.on = (channel, listener) => {

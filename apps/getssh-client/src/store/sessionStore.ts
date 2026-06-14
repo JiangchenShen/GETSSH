@@ -19,16 +19,16 @@ export interface SSHConnectConfig {
     alias?: string;
 }
 
-export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { isSettings: true } | null;
+export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' } | null;
 
 export const isSSHConfig = (config: PaneConfig): config is SSHConnectConfig => {
-  return config !== null && typeof config === 'object' && !('isSettings' in config) && !('pluginUrl' in config);
+  return config !== null && typeof config === 'object' && !('isSettings' in config) && !('pluginUrl' in config) && !('pluginId' in config) && !('centerType' in config);
 };
 
 export interface PaneLeaf {
   type: 'leaf';
   paneId: string;
-  paneType: 'welcome' | 'terminal' | 'plugin';
+  paneType: 'welcome' | 'terminal' | 'plugin' | 'center';
   sessionId: string | null;
   config: PaneConfig;
   isDisconnected?: boolean;
@@ -57,6 +57,12 @@ export interface Tab {
 
 export type OsType = 'ubuntu' | 'debian' | 'centos' | 'rhel' | 'fedora' | 'alpine' | 'arch' | 'suse' | 'windows' | 'macos' | 'cisco' | 'huawei' | 'generic';
 
+export interface FloatingAiContext {
+  x: number;
+  y: number;
+  selection: string;
+}
+
 export interface SessionProfile {
   protocol?: 'ssh' | 'local' | 'telnet';
   host: string;
@@ -69,28 +75,33 @@ export interface SessionProfile {
   alias?: string;
   authType?: 'password' | 'key';
   osType?: OsType;
+  group?: string; // e.g. "Production/DB"
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────
 
 interface SessionStore {
   sessions: SessionProfile[];
+  expandedGroups: string[];
   tabs: Tab[];
   activeTabId: string | null;
   activePaneId: string | null;
   selectedSessionIndex: number | null;
   connecting: boolean;
   error: string | null;
+  floatingAiContext: FloatingAiContext | null;
   searchQuery: string;
   showSFTP: boolean;
   sftpWidth: number;
   registeredPanels: Record<string, { title: string, renderUrl: string, pluginId: string }>;
 
   setSessions: (sessions: SessionProfile[]) => void;
+  setExpandedGroups: (groups: string[]) => void;
   setTabs: (tabs: Tab[]) => void;
   setActiveTabId: (id: string | null) => void;
   setActivePaneId: (id: string | null) => void;
   setSelectedSessionIndex: (idx: number | null) => void;
+  setFloatingAiContext: (ctx: FloatingAiContext | null) => void;
   setConnecting: (val: boolean) => void;
   setError: (err: string | null) => void;
   setSearchQuery: (q: string) => void;
@@ -150,22 +161,26 @@ function mutateSizesInTree(node: PaneNode, targetPaneId: string, sizes: [number,
 export const useSessionStore = create<SessionStore>()(
   immer((set, get) => ({
     sessions: [],
+    expandedGroups: [],
     tabs: [],
     activeTabId: null,
     activePaneId: null,
     selectedSessionIndex: null,
     connecting: false,
     error: null,
+    floatingAiContext: null,
     searchQuery: '',
     showSFTP: false,
     sftpWidth: 320,
     registeredPanels: {},
 
-    setSessions: (sessions) => set(state => { state.sessions = sessions }),
-    setTabs: (tabs) => set(state => { state.tabs = tabs }),
+    setSessions: (sessions) => set(state => { state.sessions = sessions; }),
+    setExpandedGroups: (expandedGroups) => set(state => { state.expandedGroups = expandedGroups; }),
+    setTabs: (tabs) => set(state => { state.tabs = tabs; }),
     setActiveTabId: (id) => set(state => { state.activeTabId = id }),
     setActivePaneId: (id) => set(state => { state.activePaneId = id }),
     setSelectedSessionIndex: (idx) => set(state => { state.selectedSessionIndex = idx }),
+    setFloatingAiContext: (ctx) => set(state => { state.floatingAiContext = ctx }),
     setConnecting: (val) => set(state => { state.connecting = val }),
     setError: (err) => set(state => { state.error = err }),
     setSearchQuery: (q) => set(state => { state.searchQuery = q }),
@@ -198,6 +213,7 @@ export const useSessionStore = create<SessionStore>()(
           activeTabId: null,
           activePaneId: null,
           selectedSessionIndex: null,
+          floatingAiContext: null,
         });
 
         if ((mainSwitchResult as any).profiles) {

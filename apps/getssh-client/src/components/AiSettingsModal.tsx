@@ -1,34 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { AiBridge } from '../services/aiBridge';
-import { X, Database, Globe, Key, RefreshCw, Cpu } from 'lucide-react';
+import { Database, Globe, Key, RefreshCw, Cpu, BookOpen, Bot, Sparkles, TerminalSquare, Server, MessageSquare, Play } from 'lucide-react';
 
-const SPRING_SNAPPY = { type: 'spring', stiffness: 400, damping: 30, mass: 1.0 } as const;
+
 
 export const AiSettingsModal: React.FC = () => {
-  const isAiSettingsOpen = useAppStore(state => state.isAiSettingsOpen);
-  const setIsAiSettingsOpen = useAppStore(state => state.setIsAiSettingsOpen);
+  const isDark = useAppStore(state => state.isDark);
   const appConfig = useAppStore(state => state.appConfig);
   const updateConfig = useAppStore(state => state.updateConfig);
   const { t } = useTranslation();
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'models'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'agents' | 'providers' | 'models'>('overview');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchError, setFetchError] = useState('');
+  const [tempApiKey, setTempApiKey] = useState('');
+  const [isSavingKey, setIsSavingKey] = useState(false);
 
-  // Close with Esc
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isAiSettingsOpen) {
-        setIsAiSettingsOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAiSettingsOpen, setIsAiSettingsOpen]);
+
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);
@@ -36,8 +28,7 @@ export const AiSettingsModal: React.FC = () => {
     try {
       const models = await AiBridge.getModels({
         provider: appConfig.aiProvider,
-        endpoint: appConfig.aiEndpoint,
-        apiKey: appConfig.aiApiKey
+        endpoint: appConfig.aiEndpoint
       });
       setAvailableModels(models);
       
@@ -59,65 +50,84 @@ export const AiSettingsModal: React.FC = () => {
     }
   }, [activeTab]);
 
+  const handleSaveApiKey = async () => {
+    if (!tempApiKey.trim()) return;
+    setIsSavingKey(true);
+    try {
+      const res = await window.electronAPI.ai.saveApiKey(tempApiKey.trim());
+      if (res.success) {
+        updateConfig('hasAiApiKey', true);
+        setTempApiKey('');
+      } else {
+        alert('Failed to save API Key: ' + res.error);
+      }
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
+  const handleDeleteApiKey = async () => {
+    if (confirm('Are you sure you want to delete the bound API Key?')) {
+      const res = await window.electronAPI.ai.deleteApiKey();
+      if (res.success) {
+        updateConfig('hasAiApiKey', false);
+      }
+    }
+  };
+
   return (
-    <AnimatePresence>
-      {isAiSettingsOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-[99999] flex items-center justify-center p-8 bg-black/80 backdrop-blur-md animate-in fade-in duration-300"
-        >
-          {/* Main Glass Modal */}
-          <motion.div
-            initial={{ scale: 0.95, y: 20 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.95, y: 20 }}
-            transition={SPRING_SNAPPY}
-            className="relative w-[90vw] h-[90vh] max-w-[1200px] flex flex-col overflow-hidden border shadow-2xl rounded-none border-white/10 bg-[#0A0A0A]/95 backdrop-blur-3xl"
-          >
-                    {/* Standard Header */}
-        <div className="shrink-0 flex items-center justify-between p-8 border-b border-white/5 bg-white/5" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-          <h2 className="text-3xl font-black flex items-center gap-4 uppercase tracking-widest text-white">
-            <Cpu className="w-8 h-8 text-amber-500" />
-            {t('aiSettings.title')}
-          </h2>
-          <button 
-            onClick={() => setIsAiSettingsOpen(false)} 
-            className="p-3 transition-colors rounded-none hover:bg-white/10 text-white"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+    <div className={`relative w-full h-full flex flex-col overflow-hidden ${isDark ? 'bg-[#0A0A0A]/95 text-white' : 'bg-white/95 text-slate-900'} backdrop-blur-3xl`}>
+      {/* Ambient Gradient Background */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className={`absolute -top-[20%] -right-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[120px] opacity-20 ${isDark ? 'bg-amber-500' : 'bg-amber-300'}`} />
+        <div className={`absolute -bottom-[20%] -left-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[120px] opacity-20 ${isDark ? 'bg-orange-600' : 'bg-orange-400'}`} />
+      </div>
 
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar Navigation */}
             <div className="w-[240px] flex flex-col p-6 border-r border-white/5 bg-black/40">
 
 
-              <nav className="flex flex-col gap-2">
+              <nav className="flex flex-col gap-2 relative z-10">
                 <button
                   onClick={() => setActiveTab('overview')}
                   className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'overview' ? 'bg-amber-500/10 text-amber-500' : 'text-white/40 hover:text-white hover:bg-white/5'
+                    activeTab === 'overview' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'
                   }`}
                 >
-                  <Globe size={18} /> {t('aiSettings.tabOverview')}
+                  <Globe size={18} /> Dashboard
                 </button>
+                <button
+                  onClick={() => setActiveTab('prompts')}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
+                    activeTab === 'prompts' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  <BookOpen size={18} /> {t('aiSettings.tabPrompts', 'Prompt Library')}
+                </button>
+                <button
+                  onClick={() => setActiveTab('agents')}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
+                    activeTab === 'agents' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'
+                  }`}
+                >
+                  <Bot size={18} /> {t('aiSettings.tabAgents', 'Autonomous Agents')}
+                </button>
+                
+                <div className="h-px w-full bg-white/5 my-2" />
+                
                 <button
                   onClick={() => setActiveTab('providers')}
                   className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'providers' ? 'bg-amber-500/10 text-amber-500' : 'text-white/40 hover:text-white hover:bg-white/5'
+                    activeTab === 'providers' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'
                   }`}
                 >
-                  <Key size={18} /> {t('aiSettings.tabProviders')}
+                  <Server size={18} /> {t('aiSettings.tabProviders', 'Providers & Keys')}
                 </button>
                 <button
                   onClick={() => setActiveTab('models')}
                   className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'models' ? 'bg-amber-500/10 text-amber-500' : 'text-white/40 hover:text-white hover:bg-white/5'
+                    activeTab === 'models' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent'
                   }`}
                 >
                   <Database size={18} /> {t('aiSettings.tabModels')}
@@ -133,37 +143,140 @@ export const AiSettingsModal: React.FC = () => {
                 
                 {/* 1. OVERVIEW TAB */}
                 {activeTab === 'overview' && (
-                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
-                    <h3 className="mb-2 text-2xl font-black tracking-tight text-white">{t("aiSettings.overviewTitle")}</h3>
-                    <p className="mb-8 text-white/50">{t("aiSettings.overviewDesc")}</p>
-                    <div className="flex items-center justify-between p-6 mb-6 border rounded-2xl border-white/5 bg-white/5">
-                      <div>
-                        <div className="text-lg font-bold text-white uppercase tracking-widest">{t("aiSettings.enableAi", "Enable AI Center")}</div>
-                        <div className="text-sm text-white/50">{t("aiSettings.enableAiDesc", "Turn on AI features across the application")}</div>
+                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="h-full flex flex-col">
+                    <h3 className="mb-2 text-3xl font-black tracking-tight text-white uppercase flex items-center gap-3">
+                      <Sparkles className="text-amber-500 w-8 h-8" /> {t('aiSettings.tabOverview', 'Dashboard')}
+                    </h3>
+                    <p className="mb-8 text-white/50">{t('aiSettings.overviewDesc', 'Manage your global AI copilot, connection settings, and active models.')}</p>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 auto-rows-[140px]">
+                      {/* Big Status Card */}
+                      <div className="col-span-2 row-span-2 relative p-8 rounded-[32px] border flex flex-col overflow-hidden group shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 hover:border-amber-500/30 bg-white/5 border-white/5">
+                        <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-50" />
+                        
+                        <div className="relative z-10 flex items-center justify-between mb-auto">
+                          <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                              <Cpu className="w-7 h-7" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-bold text-white/50 uppercase tracking-widest mb-1">{t('aiSettings.systemStatus', 'System Status')}</div>
+                              <div className="flex items-center gap-2 text-2xl font-black">
+                                {appConfig.aiEnabled ? 'ONLINE' : 'OFFLINE'}
+                                {appConfig.aiEnabled && <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <button
+                            onClick={() => updateConfig('aiEnabled', !appConfig.aiEnabled)}
+                            className={`relative w-16 h-8 rounded-full border-2 transition-all duration-300 ${appConfig.aiEnabled ? 'bg-amber-500 border-amber-400' : 'bg-black/40 border-white/20'}`}
+                          >
+                            <div className={`absolute top-1/2 -translate-y-1/2 left-1 bg-white shadow-md w-5 h-5 rounded-full transition-all duration-300 ${appConfig.aiEnabled ? 'translate-x-8 scale-110' : 'translate-x-0'}`} />
+                          </button>
+                        </div>
+
+                        <div className="relative z-10 mt-6 grid grid-cols-2 gap-4">
+                          <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                            <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-1">{t('aiSettings.provider', 'Provider')}</div>
+                            <div className="text-lg font-bold text-white uppercase">{appConfig.aiProvider || t('aiSettings.notSet', 'Not Set')}</div>
+                          </div>
+                          <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                            <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-1">{t('aiSettings.activeModel', 'Active Model')}</div>
+                            <div className="text-lg font-bold text-amber-400 truncate">{appConfig.aiModel || t('aiSettings.notSet', 'Not Set')}</div>
+                          </div>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => updateConfig('aiEnabled', !appConfig.aiEnabled)}
-                        className={`relative w-12 h-6 rounded-none border transition-colors ${appConfig.aiEnabled ? 'bg-amber-500 border-amber-400' : 'bg-black/40 border-white/20'}`}
+
+                      {/* Launch Chat Card */}
+                      <div 
+                        onClick={() => {
+                          useAppStore.getState().setIsAiCenterOpen(true);
+                          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+                        }}
+                        className="relative p-6 rounded-[32px] border flex flex-col justify-center items-center gap-3 cursor-pointer overflow-hidden group shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 hover:border-amber-500/30 bg-amber-500/5 border-amber-500/20 text-amber-500"
                       >
-                        <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-none transition-transform ${appConfig.aiEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                      </button>
-                    </div>
-
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-6 border rounded-2xl border-white/5 bg-white/5">
-                        <div className="mb-1 text-sm font-bold text-white/40 uppercase tracking-widest">{t("aiSettings.activeProvider")}</div>
-                        <div className="text-xl font-bold text-amber-400 uppercase">{appConfig.aiProvider || 'OpenAI'}</div>
+                        <MessageSquare className="w-8 h-8 group-hover:scale-110 transition-transform duration-300" />
+                        <span className="font-bold tracking-wider">{t('aiSettings.summonAi', 'SUMMON AI')}</span>
                       </div>
-                      <div className="p-6 border rounded-2xl border-white/5 bg-white/5">
-                        <div className="mb-1 text-sm font-bold text-white/40 uppercase tracking-widest">{t("aiSettings.activeModel")}</div>
-                        <div className="text-xl font-bold text-amber-400">{appConfig.aiModel || 'gpt-3.5-turbo'}</div>
+
+                      {/* API Key Status Card */}
+                      <div className="relative p-6 rounded-[32px] border flex flex-col justify-center gap-2 overflow-hidden backdrop-blur-xl bg-white/5 border-white/5">
+                         <div className="text-xs font-bold text-white/40 uppercase tracking-widest">{t('aiSettings.authentication', 'Authentication')}</div>
+                         {appConfig.hasAiApiKey ? (
+                           <div className="flex items-center gap-2 text-green-400 font-bold">
+                             <Key className="w-5 h-5" /> {t('aiSettings.keyBound', 'Key Bound')}
+                           </div>
+                         ) : (
+                           <div className="flex items-center gap-2 text-rose-400 font-bold">
+                             <Key className="w-5 h-5" /> {t('aiSettings.noKey', 'No Key')}
+                           </div>
+                         )}
                       </div>
                     </div>
                   </motion.div>
                 )}
 
-                {/* 2. PROVIDERS TAB */}
+                {/* 2. PROMPTS TAB */}
+                {activeTab === 'prompts' && (
+                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="h-full flex flex-col">
+                    <h3 className="mb-2 text-3xl font-black tracking-tight text-white uppercase flex items-center gap-3">
+                      <BookOpen className="text-amber-500 w-8 h-8" /> {t('aiSettings.promptsTitle', 'Prompt Library')}
+                    </h3>
+                    <p className="mb-8 text-white/50">{t('aiSettings.promptsDesc', 'Load pre-configured system personas for your AI to assist with server operations.')}</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-10">
+                      {[
+                        { title: t('aiSettings.promptLinux', 'Linux Expert'), desc: t('aiSettings.promptLinuxDesc', 'A senior Sysadmin specialized in kernel tuning and troubleshooting.'), icon: TerminalSquare, color: 'text-emerald-400' },
+                        { title: t('aiSettings.promptLog', 'Log Analyzer'), desc: t('aiSettings.promptLogDesc', 'Find anomalies, trace errors, and extract patterns from raw logs.'), icon: Database, color: 'text-cyan-400' },
+                        { title: t('aiSettings.promptDocker', 'Docker Master'), desc: t('aiSettings.promptDockerDesc', 'Containerization expert. Writes robust Dockerfiles and compose configs.'), icon: Server, color: 'text-blue-400' },
+                        { title: t('aiSettings.promptSecurity', 'Security Auditor'), desc: t('aiSettings.promptSecurityDesc', 'Reviews configurations and scripts for vulnerabilities and bad practices.'), icon: Key, color: 'text-rose-400' }
+                      ].map((prompt, i) => (
+                        <div key={i} className="group relative p-6 rounded-[32px] border flex flex-col overflow-hidden shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 bg-white/5 border-white/5 hover:border-amber-500/30 cursor-pointer">
+                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="relative z-10 flex items-start gap-4 mb-4">
+                            <div className={`w-12 h-12 rounded-2xl bg-black/20 flex items-center justify-center shadow-inner border border-white/5 ${prompt.color}`}>
+                              <prompt.icon className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="text-xl font-bold text-white mb-1">{prompt.title}</h4>
+                              <p className="text-sm text-white/50 leading-relaxed">{prompt.desc}</p>
+                            </div>
+                          </div>
+                          <div className="relative z-10 mt-auto flex justify-end">
+                            <button disabled className="px-4 py-2 rounded-xl text-xs font-bold text-amber-500/50 bg-amber-500/5 border border-amber-500/10 cursor-not-allowed flex items-center gap-1.5">
+                              <Play className="w-3 h-3" /> {t('aiSettings.comingSoon', 'Coming Soon')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 3. AGENTS TAB */}
+                {activeTab === 'agents' && (
+                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="h-full flex flex-col">
+                    <h3 className="mb-2 text-3xl font-black tracking-tight text-white uppercase flex items-center gap-3">
+                      <Bot className="text-amber-500 w-8 h-8" /> {t('aiSettings.agentsTitle', 'Autonomous Agents')}
+                    </h3>
+                    <p className="mb-8 text-white/50">{t('aiSettings.agentsDesc', 'Deploy autonomous AI agents to your servers for continuous monitoring and management.')}</p>
+                    
+                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center rounded-[32px] border-2 border-dashed border-white/10 bg-black/20 backdrop-blur-sm relative overflow-hidden">
+                      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5" />
+                      <Bot className="w-20 h-20 text-white/10 mb-6" />
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-500 text-[10px] font-bold uppercase tracking-widest mb-4 border border-amber-500/20">
+                        <Play className="w-3 h-3" /> {t('aiSettings.comingSoon', 'Coming Soon')}
+                      </div>
+                      <h4 className="text-2xl font-black text-white mb-2 tracking-wide">{t('aiSettings.agentWorkflows', 'Agent Workflows')}</h4>
+                      <p className="text-white/40 max-w-md mx-auto leading-relaxed">
+                        {t('aiSettings.agentWorkflowsDesc', 'In a future update, you will be able to deploy long-running agents directly to your hosts from this command center.')}
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 4. PROVIDERS TAB */}
                 {activeTab === 'providers' && (
                   <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
                     <h3 className="mb-2 text-2xl font-black tracking-tight text-white">{t("aiSettings.providersTitle")}</h3>
@@ -201,16 +314,66 @@ export const AiSettingsModal: React.FC = () => {
 
                       {/* API Key */}
                       {appConfig.aiProvider !== 'ollama' && (
-                        <div>
-                          <label className="block mb-2 text-sm font-bold text-white/70">{t("aiSettings.apiKey")}</label>
-                          <input 
-                            type="password" 
-                            value={appConfig.aiApiKey || ''} 
-                            onChange={(e) => updateConfig('aiApiKey', e.target.value)}
-                            placeholder={appConfig.aiProvider === 'gemini' ? "AIza..." : "sk-..."}
-                            className="w-full px-4 py-3 text-white border outline-none bg-black/40 border-white/10 rounded-xl focus:border-amber-500/50 font-mono text-sm"
-                          />
-                          <p className="mt-2 text-xs text-white/40">{t("aiSettings.apiKeyDesc")}</p>
+                        <div className="relative p-6 border border-amber-500/20 bg-black/40 rounded-[32px] overflow-hidden shadow-lg backdrop-blur-xl">
+                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-50" />
+                          
+                          <div className="relative z-10 flex items-center justify-between mb-6">
+                            <label className="text-sm font-bold text-white/90 flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-500">
+                                <Key size={16} />
+                              </div>
+                              {t('aiSettings.secureApiKeyVault', 'Secure API Key Vault')}
+                            </label>
+                            {appConfig.hasAiApiKey && (
+                              <span className="px-3 py-1 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {t('aiSettings.keyBound', 'Key Bound')}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="relative z-10">
+                            {appConfig.hasAiApiKey ? (
+                              <div className="flex flex-col gap-4">
+                                <div className="px-5 py-4 bg-black/60 border border-white/5 rounded-2xl font-mono text-sm text-white/50 flex items-center justify-between shadow-inner">
+                                  <span className="tracking-[0.5em]">****************************************</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-white/40 flex items-center gap-2">
+                                    <Server className="w-3.5 h-3.5" /> {t('aiSettings.storedSecurely', 'Stored securely in OS Keychain')}
+                                  </span>
+                                  <button
+                                    onClick={handleDeleteApiKey}
+                                    className="px-5 py-2 text-xs font-bold text-rose-400 bg-rose-400/10 hover:bg-rose-400/20 rounded-xl transition-colors border border-rose-400/20 hover:border-rose-400/40"
+                                  >
+                                    {t('aiSettings.revokeAccess', 'Revoke Access')}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-4">
+                                <input 
+                                  type="password" 
+                                  value={tempApiKey} 
+                                  onChange={(e) => setTempApiKey(e.target.value)}
+                                  placeholder={appConfig.aiProvider === 'gemini' ? "AIza..." : "sk-..."}
+                                  className="w-full px-5 py-4 text-white border outline-none bg-black/60 border-white/10 rounded-2xl focus:border-amber-500/50 font-mono text-sm shadow-inner transition-colors"
+                                />
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs text-white/40 max-w-[70%] flex items-start gap-2">
+                                    <Server className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                    {t('aiSettings.vaultWarning', 'Your key is encrypted and stored securely in the native OS Keychain (SafeStorage).')}
+                                  </p>
+                                  <button
+                                    onClick={handleSaveApiKey}
+                                    disabled={!tempApiKey.trim() || isSavingKey}
+                                    className="px-6 py-2.5 text-xs font-bold text-amber-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 rounded-xl transition-colors shrink-0 shadow-lg shadow-amber-500/20"
+                                  >
+                                    {isSavingKey ? t('aiSettings.encrypting', 'Encrypting...') : t('aiSettings.bindKey', 'Bind Key')}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -276,10 +439,7 @@ export const AiSettingsModal: React.FC = () => {
 
               </div>
             </div>
-          </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      </div>
+    </div>
   );
 };

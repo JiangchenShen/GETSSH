@@ -102,7 +102,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
         {/* Context-aware workspace label */}
         {mode === 'locked' && workspaceName && (
           <div className="text-center mb-1">
-            <span className="text-[10px] font-mono uppercase tracking-[0.25em] px-3 py-1 rounded-none border"
+            <span className="text-[10px] font-mono uppercase tracking-[0.25em] px-3 py-1 rounded-xl border"
                   style={{ color: themeColor || '', borderColor: `${themeColor}40`, background: `${themeColor}10` }}>
               {workspaceName}
             </span>

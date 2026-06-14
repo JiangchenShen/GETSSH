@@ -8,6 +8,7 @@ import { registerThemeHandlers } from './themeHandler';
 import { registerWindowHandlers } from './windowHandler';
 import { registerAiHandlers } from './aiHandler';
 import { setupWorkspaceHandlers } from './workspaceHandler';
+import { registerAgentHandlers } from '../services/AgentExecutor';
 
 /**
  * Central Registry for all Main Process IPC handlers.
@@ -38,4 +39,7 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
 
   // Workspace 2.0 Engine
   setupWorkspaceHandlers();
+
+  // Agentic Execution Shell & TECTONIUM Integration
+  registerAgentHandlers(ipcMain);
 }

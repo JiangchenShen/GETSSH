@@ -84,7 +84,7 @@ export const CreateWorkspaceModal: React.FC = () => {
         <div className="fixed inset-0 z-[999999] flex items-center justify-center p-8 bg-black/60 backdrop-blur-2xl">
           <motion.div
             {...CINEMATIC_IN}
-            className="relative w-full max-w-[540px] flex flex-col shadow-[0_40px_80px_rgba(0,0,0,0.8)] border border-white/10 border-t-white/30 rounded-none bg-[#050505]/95 overflow-hidden"
+            className="relative w-full max-w-[540px] flex flex-col shadow-[0_40px_80px_rgba(0,0,0,0.8)] border border-white/10 border-t-white/30 rounded-xl bg-[#050505]/95 overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-8 pb-4">
