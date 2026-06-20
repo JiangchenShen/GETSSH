@@ -74,17 +74,34 @@ export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => 
  * Extracted BrowserWindow options for cleaner index.ts
  */
 export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWindowConstructorOptions {
+  let width = 1280;
+  let height = 800;
+  try {
+    const { screen } = require('electron');
+    const workArea = screen.getPrimaryDisplay().workAreaSize;
+    width = workArea.width;
+    height = workArea.height;
+  } catch (e) {}
+
   return {
     title: 'GETSSH',
-    width: 1024,
-    height: 768,
-    transparent: process.platform === 'darwin',
-    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#09090b',
+    width,
+    height,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: true,
+    transparent: true,
+    backgroundColor: '#00000000',
     vibrancy: process.platform === 'darwin' ? 'fullscreen-ui' : undefined,
-    backgroundMaterial: undefined,
-    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    backgroundMaterial: process.platform === 'win32' ? 'acrylic' : undefined,
+    titleBarStyle: 'hidden',
+    frame: process.platform === 'darwin',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
-    titleBarOverlay: false,
+    titleBarOverlay: process.platform !== 'darwin' ? {
+      color: '#00000000',
+      symbolColor: '#ffffff',
+      height: 32
+    } : false,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,

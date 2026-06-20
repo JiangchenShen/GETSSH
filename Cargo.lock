@@ -540,6 +540,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "getssh-sentinel"
+version = "1.0.0"
+dependencies = [
+ "lazy_static",
+ "napi 2.16.17",
+ "napi-build",
+ "napi-derive 2.16.13",
+ "regex",
+ "uuid",
+]
+
+[[package]]
 name = "getssh-sysprobe"
 version = "0.1.0"
 dependencies = [

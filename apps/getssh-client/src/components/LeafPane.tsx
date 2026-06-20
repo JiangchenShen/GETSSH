@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Terminal as TerminalComponent } from './Terminal';
+import { Terminal as TerminalComponent, getTerminalBuffer } from './Terminal';
 import { PaneLeaf, PaneNode, useSessionStore, isSSHConfig } from '../store/sessionStore';
-import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink } from 'lucide-react';
+import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink, ArrowDownToLine } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { PluginPane } from './PluginPane';
 import { RecBadge } from './RecBadge';
@@ -27,6 +27,7 @@ export const LeafPane: React.FC<{
 }> = ({ node, tabId, appConfig, isDark, isTabActive, onSplit, parentDirection
 }) => {
   const { t } = useTranslation();
+  const isHollow = new URLSearchParams(window.location.search).get('isHollow') === 'true';
   const activePaneId = useSessionStore(state => state.activePaneId);
   const setActivePaneId = useSessionStore(s => s.setActivePaneId);
   const isActive = activePaneId === node.paneId;
@@ -132,23 +133,52 @@ export const LeafPane: React.FC<{
           >
             {isZoomed ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </button>
-          <button
-            title="Tear Off (Native Window)"
-            onClick={(e) => { 
-              e.stopPropagation(); 
-              window.electronAPI.windowTearArm();
-              window.electronAPI.windowTearExecute({
-                 screenX: window.screenX + 50,
-                 screenY: window.screenY + 50,
-                 width: Math.max(800, window.outerWidth * 0.8),
-                 height: Math.max(600, window.outerHeight * 0.8),
-                 paneId: node.paneId
-              });
-            }}
-            className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
+          {!isHollow ? (
+            <button
+              title="Tear Off (Native Window)"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                window.electronAPI.windowTearArm();
+                const terminalBuffers: Record<string, string> = {};
+                if (node.sessionId) {
+                  const buf = getTerminalBuffer(node.sessionId);
+                  (window.electronAPI as any).hollowLog?.('Sending buf to IPC, len:', buf?.length);
+                  if (buf) terminalBuffers[node.sessionId] = buf;
+                }
+                window.electronAPI.windowTearExecute({
+                   screenX: window.screenX + 50,
+                   screenY: window.screenY + 50,
+                   width: Math.max(800, window.outerWidth * 0.8),
+                   height: Math.max(600, window.outerHeight * 0.8),
+                   paneId: node.paneId,
+                   terminalBuffers,
+                   tornTitle: tabTitle
+                });
+              }}
+              className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              title="Attach to Main Window"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                const terminalBuffers: Record<string, string> = {};
+                if (node.sessionId) {
+                  const buf = getTerminalBuffer(node.sessionId);
+                  if (buf) terminalBuffers[node.sessionId] = buf;
+                }
+                window.electronAPI.windowTearIn({
+                   paneId: node.paneId,
+                   terminalBuffers
+                });
+              }}
+              className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
+            >
+              <ArrowDownToLine className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             title="Close Pane"
             onClick={(e) => { 

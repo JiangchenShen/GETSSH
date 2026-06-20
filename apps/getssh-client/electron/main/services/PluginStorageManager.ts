@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import pLimit from 'p-limit';
 import { SecureCenter } from '../security/SecureCenter';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 export interface IStorageEngine {
   init(): Promise<void>;
@@ -148,7 +149,7 @@ class SqliteStorageEngine implements IStorageEngine {
   private rustKv: any;
 
   constructor() {
-    const addonPath = path.join(app.getAppPath(), '../../rust-core/getssh-kv');
+    const addonPath = getRustCorePath('getssh-kv');
     try {
       this.rustKv = require(addonPath);
     } catch (e) {

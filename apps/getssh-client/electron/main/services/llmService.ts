@@ -2,6 +2,7 @@
  * AI 流式请求服务 (Streaming LLM Service)
  * 支持多提供商 (OpenAI, Gemini, Ollama)
  */
+import { SentinelGateway } from './SentinelGateway';
 
 export async function streamLLM(
   endpoint: string,
@@ -20,9 +21,18 @@ export async function streamLLM(
 
     console.log(`[LLM Service] Initiating stream via provider: ${provider}, model: ${model}`);
 
+    // [Sentinel] Sanitize the incoming prompt and context
+    const sanitizedPrompt = SentinelGateway.sanitize(prompt);
+    const sanitizedContext = SentinelGateway.sanitize(context);
+
+    // Merge their mapping dicts
+    const mappingDict = { ...sanitizedPrompt.mappingDict, ...sanitizedContext.mappingDict };
+    const safePrompt = sanitizedPrompt.cleanText;
+    const safeContext = sanitizedContext.cleanText;
+
     if (provider === 'gemini') {
       apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-      const text = context ? `Context:\n${context}\n\nQuery:\n${prompt}` : prompt;
+      const text = safeContext ? `Context:\n${safeContext}\n\nQuery:\n${safePrompt}` : safePrompt;
       
       fetchOptions = {
         method: 'POST',
@@ -43,8 +53,8 @@ export async function streamLLM(
       }
 
       const messages = [];
-      if (context) messages.push({ role: 'system', content: `Context:\n${context}` });
-      messages.push({ role: 'user', content: prompt });
+      if (safeContext) messages.push({ role: 'system', content: `Context:\n${safeContext}` });
+      messages.push({ role: 'user', content: safePrompt });
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey && provider !== 'ollama') {
@@ -75,6 +85,9 @@ export async function streamLLM(
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
 
+    // [Sentinel] Create stream rehydrator
+    const rehydrator = SentinelGateway.createStreamRehydrator(mappingDict);
+
     for await (const chunk of response.body as any) {
       buffer += decoder.decode(chunk, { stream: true });
       const lines = buffer.split('\n');
@@ -96,13 +109,20 @@ export async function streamLLM(
               content = data.choices?.[0]?.delta?.content || '';
             }
 
-            if (content) onChunk(content);
+            if (content) {
+              const rehydratedContent = rehydrator.processChunk(content);
+              if (rehydratedContent) onChunk(rehydratedContent);
+            }
           } catch (e) {
             // ignore
           }
         }
       }
     }
+
+    // Flush any remaining buffered tokens
+    const finalRehydrated = rehydrator.flush();
+    if (finalRehydrated) onChunk(finalRehydrated);
 
     console.log('[LLM Service] Stream completion received.');
     onDone();

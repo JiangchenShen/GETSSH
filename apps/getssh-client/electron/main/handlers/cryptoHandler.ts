@@ -2,6 +2,7 @@ import { app, safeStorage, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { join } from 'node:path';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 let vault: any = null;
 
@@ -12,7 +13,7 @@ export function setVaultForTest(mockVault: any) {
 export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
   if (!vault) {
     try {
-      const addonPath = join(app.getAppPath(), '../../rust-core/getssh-vault');
+      const addonPath = getRustCorePath('getssh-vault');
       vault = require(addonPath);
     } catch (e) {
       console.error("Failed to load getssh-vault native module:", e);
@@ -66,89 +67,65 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
-    const { PROFILES_ENC_PATH, PROFILES_PLAIN_PATH } = getWorkspacePaths();
+    const { getActiveWorkspaceId } = require('./workspaceHandler');
+    const { DatabaseManager } = require('../services/DatabaseManager');
+    const workspaceId = getActiveWorkspaceId();
+    const profiles = DatabaseManager.getProfiles(workspaceId);
+
+    if (profiles.length === 0) return [];
+
     if (!masterPassword) {
-      try {
-        const data = await fs.promises.readFile(PROFILES_PLAIN_PATH);
-        try {
-          return JSON.parse(data.toString('utf8'));
-        } catch (e: unknown) {
-          // If parsing fails, it might be an old safeStorage encrypted file.
-          // We will attempt to decrypt it, but this WILL trigger a keychain prompt on unsigned macOS apps.
-          // To avoid prompting on launch, we ONLY fallback to safeStorage if absolutely necessary.
-          if (app.isPackaged && process.platform === 'darwin') {
-             // For macOS unsigned apps, avoid calling safeStorage automatically
-             // But if we must recover data, we'll try catching the prompt later or just return empty for now.
-          }
-          if (safeStorage.isEncryptionAvailable()) {
-            try {
-              return JSON.parse(safeStorage.decryptString(data));
-            } catch (err) {
-              // Decryption failed (e.g. Dev vs Packaged bundle ID mismatch).
-              // Backup the file before returning [] so we don't permanently lose user data if they save!
-              try {
-                fs.renameSync(PROFILES_PLAIN_PATH, PROFILES_PLAIN_PATH + '.bak');
-                console.warn('safeStorage decryption failed. Backed up old profiles to profiles.json.bak');
-              } catch (e) {}
-              return [];
-            }
-          }
-          try {
-            fs.renameSync(PROFILES_PLAIN_PATH, PROFILES_PLAIN_PATH + '.bak');
-          } catch (e) {}
-          return [];
-        }
-      } catch (e: unknown) {
-        return [];
-      }
+      return profiles;
     }
 
-    let buffer: Buffer;
-    try {
-      buffer = await fs.promises.readFile(PROFILES_ENC_PATH);
-    } catch (e: unknown) {
-      throw new Error('No profiles found');
-    }
-    
-    let decryptedBuffer: Buffer | null = null;
     let masterPasswordBuffer: Buffer | null = null;
     try {
       if (!vault) throw new Error('Vault native module not loaded');
-      
       masterPasswordBuffer = Buffer.from(masterPassword);
-      decryptedBuffer = vault.decryptVault(masterPasswordBuffer, buffer);
-      if (!decryptedBuffer) throw new Error('Decryption returned null');
-      return JSON.parse(decryptedBuffer.toString('utf8'));
+
+      for (const p of profiles) {
+        if (p.password) {
+          const decrypted = vault.decryptVault(masterPasswordBuffer, Buffer.from(p.password, 'base64'));
+          if (decrypted) p.password = decrypted.toString('utf8');
+        }
+        if (p.privateKeyPath) {
+          const decrypted = vault.decryptVault(masterPasswordBuffer, Buffer.from(p.privateKeyPath, 'base64'));
+          if (decrypted) p.privateKeyPath = decrypted.toString('utf8');
+        }
+      }
+      return profiles;
     } catch (e: unknown) {
       throw new Error('Invalid master password or corrupted file');
     } finally {
-      // 物理级擦除 (Zeroize) - 脱离 V8 GC 控制
-      if (decryptedBuffer) decryptedBuffer.fill(0);
       if (masterPasswordBuffer) masterPasswordBuffer.fill(0);
     }
   });
 
   ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
-    const { PROFILES_ENC_PATH, PROFILES_PLAIN_PATH, PROFILES_KEY_PATH } = getWorkspacePaths();
-    const tmpPath = join(app.getPath('userData'), `profiles_${crypto.randomUUID()}.tmp`);
+    // Phase 4: Save Profiles into SQLite Master Database
+    const { getActiveWorkspaceId } = require('./workspaceHandler');
+    const workspaceId = getActiveWorkspaceId();
     
+    // Convert frontend SessionProfile to ProfileRow
+    const profilesToSave = (payload as any[]).map((p: any) => {
+      return {
+        id: crypto.createHash('md5').update(`${p.host}:${p.username}`).digest('hex'),
+        workspace_id: workspaceId,
+        host: p.host,
+        username: p.username,
+        password: p.password, // We will encrypt this below if masterPassword is provided
+        privateKeyPath: p.privateKeyPath,
+        port: p.port || 22,
+        autoStart: p.autoStart ? 1 : 0,
+        alias: p.alias,
+        osType: p.osType
+      };
+    });
+
     if (!masterPassword) {
-       const payloadStr = JSON.stringify(payload, null, 2);
-       // REMOVED safeStorage for plain profiles. 
-       // If users want encryption, they must use the Master Password feature (Vault).
-       // This prevents aggressive keychain prompts on unsigned macOS apps.
-       await fs.promises.writeFile(tmpPath, payloadStr);
-       await fs.promises.rename(tmpPath, PROFILES_PLAIN_PATH); // Atomic write
-       try {
-         await fs.promises.unlink(PROFILES_ENC_PATH);
-       } catch (err: unknown) {
-         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-       }
-       try {
-         await fs.promises.unlink(PROFILES_KEY_PATH);
-       } catch (err: unknown) {
-         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-       }
+       // Plaintext SQLite save
+       const { DatabaseManager } = require('../services/DatabaseManager');
+       DatabaseManager.saveProfiles(workspaceId, profilesToSave);
        return true;
     }
     
@@ -157,33 +134,40 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
       if (!vault) throw new Error('Vault native module not loaded');
       
       masterPasswordBuffer = Buffer.from(masterPassword);
-      const payloadBuffer = Buffer.from(JSON.stringify(payload), 'utf8');
       
-      const output = vault.encryptVault(masterPasswordBuffer, payloadBuffer);
-      payloadBuffer.fill(0); // Erase payload
-      
-      await fs.promises.writeFile(tmpPath, output);
-      await fs.promises.rename(tmpPath, PROFILES_ENC_PATH); // Atomic write
-      try {
-        await fs.promises.unlink(PROFILES_PLAIN_PATH);
-      } catch (err: unknown) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      for (const p of profilesToSave) {
+        if (p.password) {
+          const enc = vault.encryptVault(masterPasswordBuffer, Buffer.from(p.password, 'utf8'));
+          p.password = enc.toString('base64');
+        }
+        if (p.privateKeyPath) {
+          const enc = vault.encryptVault(masterPasswordBuffer, Buffer.from(p.privateKeyPath, 'utf8'));
+          p.privateKeyPath = enc.toString('base64');
+        }
       }
+      
+      const { DatabaseManager } = require('../services/DatabaseManager');
+      DatabaseManager.saveProfiles(workspaceId, profilesToSave);
+      
+      // Update hasPassword flag in workspace table was handled below.
+      
     } catch (e: unknown) {
       throw new Error('Encryption failed');
     } finally {
       if (masterPasswordBuffer) masterPasswordBuffer.fill(0);
     }
     
-    // Update workspace_meta.json to reflect encryption state
+    // Update workspace in SQLite to reflect encryption state
     try {
-      const metaPath = join(getWorkspacePaths().wsPath, 'workspace_meta.json');
-      let meta = { themeColor: '#1e293b', hasPassword: !!masterPassword };
-      if (fs.existsSync(metaPath)) {
-        meta = { ...meta, ...JSON.parse(await fs.promises.readFile(metaPath, 'utf8')) };
-        meta.hasPassword = !!masterPassword;
+      const { DatabaseManager } = require('../services/DatabaseManager');
+      const workspaceId = getActiveWorkspaceId();
+      const workspaces = DatabaseManager.getWorkspaces();
+      const ws = workspaces.find((w: any) => w.id === workspaceId);
+      if (ws) {
+        ws.hasPassword = !!masterPassword ? 1 : 0;
+        ws.updated_at = Date.now();
+        DatabaseManager.createWorkspace(ws);
       }
-      await fs.promises.writeFile(metaPath, JSON.stringify(meta));
     } catch (err) {
       console.error('Failed to update workspace meta:', err);
     }

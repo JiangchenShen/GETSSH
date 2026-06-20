@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { Send, TerminalSquare, ClipboardPaste, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../services/aiBridge';
@@ -102,11 +103,21 @@ export const FloatingAiCenter: React.FC = () => {
     try {
       const requestId = Date.now().toString();
       const appConfig = useAppStore.getState().appConfig;
+      
+      const workspaces = useWorkspaceStore.getState().workspaces;
+      const activeWsId = useWorkspaceStore.getState().activeWorkspaceId;
+      const activeWs = workspaces.find(w => w.id === activeWsId);
+      const workspaceName = activeWs?.name || activeWsId;
+      
+      const runbooks = useWorkspaceStore.getState().runbooks || [];
+      const sessionAlias = useSessionStore.getState().activeSession?.alias || '';
+
       const finalPrompt = i18n.language === 'zh-CN' ? prompt + '\n\n(请尽量用中文回答我)' : prompt;
       
       await AiBridge.invokePrivileged({
         requestId,
         prompt: finalPrompt,
+        contextData: { workspaceName, sessionAlias, runbooks },
         provider: appConfig.aiProvider,
         model: appConfig.aiModel,
         endpoint: appConfig.aiEndpoint,

@@ -1,7 +1,7 @@
 import { dialog } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import type { SessionProfile } from '../../../src/store/sessionStore';
+
 
 export interface ExportedProfile {
   name: string;
@@ -13,9 +13,10 @@ export interface ExportedProfile {
   useKeepAlive: boolean;
   protocol?: string;
   alias?: string;
-  _encrypted: boolean;
+  _encrypted?: boolean;
   password?: string;
   privateKeyPath?: string;
+  workspaceId?: string;
 }
 
 export interface ExportPayload {
@@ -71,56 +72,52 @@ function pbkdf2(password: string, salt: Buffer): Promise<Buffer> {
 export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
   /**
-   * export-profiles
-   * Receives: { sessions: SessionProfile[], masterPassword: string }
-   * Produces a Hybrid JSON file:
-   *   - Metadata fields (name, host, port, username, groupId, …) → plaintext
-   *   - Sensitive fields (password, privateKey) → AES-256-GCM Base64 ciphertext
+   * export-profiles (V2 Modern SDK)
+   * Produces a clean JSON file (getssh-profiles-v2):
+   *   - Queries DatabaseManager for all workspaces and profiles.
+   *   - Scrubber Engine: Automatically removes username, password, privateKeyPath.
+   *   - Injects workspaceId.
    */
-  ipcMain.handle('export-profiles', async (_event, { sessions, masterPassword }) => {
+  ipcMain.handle('export-profiles', async () => {
     const { filePath, canceled } = await dialog.showSaveDialog({
-      title: 'Export Profiles',
-      defaultPath: `getssh-profiles-${new Date().toISOString().slice(0, 10)}.json`,
-      filters: [{ name: 'GETSSH Profile', extensions: ['json'] }],
+      title: 'Export Profiles as Template',
+      defaultPath: `getssh-topology-template-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'GETSSH V2 Topology', extensions: ['json'] }],
       properties: ['createDirectory'],
     });
 
     if (canceled || !filePath) return { success: false, reason: 'canceled' };
 
     try {
-      const exported: ExportedProfile[] = await Promise.all(sessions.map(async (s: any) => {
-        const entry: ExportedProfile = {
-          // ── Plaintext metadata ──
-          name:         (s as any).name         ?? '',
-          host:         s.host                  ?? '',
-          port:         s.port                  ?? 22,
-          username:     s.username              ?? '',
-          groupId:      (s as any).groupId      ?? null,
-          autoStart:    s.autoStart             ?? false,
-          useKeepAlive: s.useKeepAlive          ?? false,
-          protocol:     s.protocol              ?? 'ssh',
-          alias:        s.alias                 ?? '',
-          // ── Encrypted sentinel ──
-          _encrypted:   !!masterPassword,
-        };
-
-        if (masterPassword) {
-          // Encrypt sensitive fields
-          if (s.password)       entry.password       = await encryptField(s.password, masterPassword);
-          if (s.privateKeyPath) entry.privateKeyPath = await encryptField(s.privateKeyPath, masterPassword);
-        } else {
-          // No master password — store plaintext (user opted out of encryption)
-          if (s.password)       entry.password       = s.password;
-          if (s.privateKeyPath) entry.privateKeyPath = s.privateKeyPath;
+      // Lazy import to avoid circular dependencies if DatabaseManager requires this file
+      const { DatabaseManager } = require('../services/DatabaseManager');
+      const workspaces = DatabaseManager.getWorkspaces();
+      
+      const exported: ExportedProfile[] = [];
+      
+      for (const ws of workspaces) {
+        const profiles = DatabaseManager.getProfiles(ws.id);
+        for (const p of profiles) {
+          // Scrub sensitive data: username, password, privateKeyPath
+          exported.push({
+            name: p.name ?? '',
+            host: p.host ?? '',
+            port: p.port ?? 22,
+            username: '', // SCRUBBED
+            groupId: p.groupId ?? null,
+            autoStart: (p as any).autoStart ?? false,
+            useKeepAlive: (p as any).useKeepAlive ?? false,
+            protocol: p.protocol ?? 'ssh',
+            alias: p.alias ?? '',
+            workspaceId: ws.id
+          });
         }
-
-        return entry;
-      }));
+      }
 
       const payload: ExportPayload = {
-        _format:    'getssh-profiles-v1',
+        _format: 'getssh-profiles-v2',
         _exportedAt: new Date().toISOString(),
-        profiles:   exported,
+        profiles: exported,
       };
 
       await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
@@ -131,12 +128,11 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
   });
 
   /**
-   * import-profiles
+   * import-profiles (V1 Legacy & V2 Modern)
    * Receives: { masterPassword: string }
-   * Returns: { success: boolean, profiles?: SessionProfile[], reason?: string }
-   *
-   * Decrypts sensitive fields if _encrypted === true.
-   * If the master password is wrong the decrypt will throw — we surface the error.
+   * 
+   * V1 JSON: Maps to 'default' workspace. Decrypts credentials if necessary.
+   * V2 JSON: Maps to provided workspaceId. Creates workspace if missing.
    */
   ipcMain.handle('import-profiles', async (_event, { masterPassword }) => {
     const { filePaths, canceled } = await dialog.showOpenDialog({
@@ -148,47 +144,79 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
     if (canceled || !filePaths[0]) return { success: false, reason: 'canceled' };
 
     try {
+      const { DatabaseManager } = require('../services/DatabaseManager');
       const raw     = await fs.promises.readFile(filePaths[0], 'utf8');
       const data    = JSON.parse(raw) as ExportPayload;
 
-      if (data._format !== 'getssh-profiles-v1') {
+      if (data._format !== 'getssh-profiles-v1' && data._format !== 'getssh-profiles-v2') {
         return { success: false, reason: 'invalid_format' };
       }
 
-      let profiles: SessionProfile[];
+      let parsedCount = 0;
 
       try {
-        profiles = await Promise.all(data.profiles.map(async (entry: ExportedProfile) => {
-          const profile: SessionProfile = {
-            name:         entry.name         ?? '',
-            host:         entry.host         ?? '',
-            port:         entry.port         ?? 22,
-            username:     entry.username     ?? '',
-            groupId:      entry.groupId      ?? null,
-            autoStart:    entry.autoStart    ?? false,
-            useKeepAlive: entry.useKeepAlive ?? false,
-            protocol:     (entry as any).protocol ?? 'ssh',
-            alias:        (entry as any).alias ?? '',
-          } as SessionProfile;
+        for (const entry of data.profiles) {
+          // V1 to V2 compat bridge: default to 'default' workspace if missing
+          const targetWorkspaceId = entry.workspaceId || 'default';
 
-          if (entry._encrypted) {
-            // Decrypt using provided master password
+          // If workspace doesn't exist locally, create a placeholder
+          try {
+            const ws = DatabaseManager.getWorkspaces().find((w: any) => w.id === targetWorkspaceId);
+            if (!ws) {
+              DatabaseManager.createWorkspace({
+                id: targetWorkspaceId,
+                name: targetWorkspaceId === 'default' ? 'Default Workspace' : `Imported: ${targetWorkspaceId}`,
+                themeColor: '#1e293b',
+                hasPassword: 0,
+                created_at: Date.now(),
+                updated_at: Date.now()
+              });
+            }
+          } catch (e) {
+            console.error('[Import] Failed to ensure workspace exists', e);
+          }
+
+          let password = entry.password ?? '';
+          let privateKeyPath = entry.privateKeyPath ?? '';
+
+          // Only V1 has encrypted fields. V2 templates are scrubbed.
+          if (entry._encrypted && data._format === 'getssh-profiles-v1') {
             if (!masterPassword) {
               throw new Error('password_required');
             }
             try {
-              if (entry.password)       profile.password       = await decryptField(entry.password, masterPassword);
-              if (entry.privateKeyPath) profile.privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
+              if (entry.password)       password       = await decryptField(entry.password, masterPassword);
+              if (entry.privateKeyPath) privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
             } catch {
               throw new Error('wrong_password');
             }
-          } else {
-            if (entry.password)       profile.password       = entry.password;
-            if (entry.privateKeyPath) profile.privateKeyPath = entry.privateKeyPath;
+          } else if (data._format === 'getssh-profiles-v1' && !entry._encrypted) {
+            if (entry.password)       password       = entry.password;
+            if (entry.privateKeyPath) privateKeyPath = entry.privateKeyPath;
           }
 
-          return profile;
-        }));
+          const profileId = crypto.randomUUID();
+
+          DatabaseManager.saveProfile(targetWorkspaceId, {
+            id: profileId,
+            name: entry.name ?? '',
+            host: entry.host ?? '',
+            port: entry.port ?? 22,
+            username: entry.username ?? '',
+            password: password,
+            privateKeyPath: privateKeyPath,
+            groupId: entry.groupId ?? null,
+            autoStart: entry.autoStart ?? false,
+            useKeepAlive: entry.useKeepAlive ?? false,
+            protocol: entry.protocol ?? 'ssh',
+            alias: entry.alias ?? '',
+            workspace_id: targetWorkspaceId,
+            created_at: Date.now(),
+            updated_at: Date.now()
+          });
+
+          parsedCount++;
+        }
       } catch (mapErr: unknown) {
         const msg = mapErr instanceof Error ? mapErr.message : String(mapErr);
         if (msg === 'password_required' || msg === 'wrong_password') {
@@ -197,7 +225,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
         throw mapErr;
       }
 
-      return { success: true, profiles };
+      return { success: true, count: parsedCount };
     } catch (err: unknown) {
       if (err && typeof (err as any).success === 'boolean') {
         return err as { success: boolean; reason: string };

@@ -64,7 +64,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showContextMenu: (payload?: any) => ipcRenderer.send('show-context-menu', payload),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  exportProfiles: (payload: ExportPayload) => ipcRenderer.invoke('export-profiles', payload),
+  exportDatabase: () => ipcRenderer.invoke('export-database'),
+  importDatabase: () => ipcRenderer.invoke('import-database'),
+  confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => ipcRenderer.invoke('import-database-confirm', sourcePath, strategy),
+  deleteWorkspace: (id: string) => ipcRenderer.invoke('workspace:delete', id),
+  setMainWorkspace: (id: string) => ipcRenderer.invoke('workspace:setMain', id),
+  exportProfiles: () => ipcRenderer.invoke('export-profiles'),
   onSysmonData: (callback: (data: SysmonData) => void) => {
     const listener = (_event: IpcRendererEvent, data: SysmonData) => callback(data)
     ipcRenderer.on('sysmon:data', listener)
@@ -153,21 +158,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('nexus:patch-leaf', listener);
   },
   nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => ipcRenderer.invoke('nexus:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title }),
-  onNexusSyncTree: (callback: (tabId: string, tree: any) => void) => {
-    const listener = (_event: IpcRendererEvent, tabId: string, tree: any) => callback(tabId, tree);
-    ipcRenderer.on('nexus:sync-tree', listener);
-    return () => ipcRenderer.removeListener('nexus:sync-tree', listener);
+  onNexusSyncTree: (callback: (tabId: string, title: string, tree: any, isTornOff: boolean) => void) => {
+    const handler = (_event: any, tabId: string, title: string, tree: any, isTornOff: boolean) => callback(tabId, title, tree, isTornOff);
+    ipcRenderer.on('nexus:sync-tree', handler);
+    return () => ipcRenderer.removeListener('nexus:sync-tree', handler);
+  },
+  onReceiveTornBuffers: (callback: (buffers: Record<string, string>) => void) => {
+    const listener = (_event: IpcRendererEvent, buffers: Record<string, string>) => callback(buffers);
+    ipcRenderer.on('window:receive-torn-buffers', listener);
+    return () => ipcRenderer.removeListener('window:receive-torn-buffers', listener);
   },
   
   // Window Multi-Window Tear-off
   windowTearArm: () => ipcRenderer.sendSync('window:tear-arm'),
-  windowTearExecute: (payload: { screenX: number, screenY: number, width: number, height: number, paneId: string }) => 
+  windowTearExecute: (payload: { screenX: number, screenY: number, width: number, height: number, paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => 
     ipcRenderer.send('window:tear-execute', payload),
-  onWindowHijackIdentity: (callback: (payload: { paneId: string }) => void) => {
-    const listener = (_event: IpcRendererEvent, payload: { paneId: string }) => callback(payload);
+  windowTearIn: (payload: { paneId: string, terminalBuffers?: Record<string, string> }) => 
+    ipcRenderer.send('window:tear-in', payload),
+  onWindowHijackIdentity: (callback: (payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => callback(payload);
     ipcRenderer.on('window:hijack-identity', listener);
     return () => ipcRenderer.removeListener('window:hijack-identity', listener);
   },
+  onWindowReceiveTornBuffers: (callback: (payload: Record<string, string>) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: Record<string, string>) => callback(payload);
+    ipcRenderer.on('window:receive-torn-buffers', listener);
+    return () => ipcRenderer.removeListener('window:receive-torn-buffers', listener);
+  },
+  hollowLog: (...args: any[]) => ipcRenderer.send('hollow-log', ...args),
   
   // AI Center Gateway
   ai: {
@@ -180,7 +198,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_event: IpcRendererEvent, payload: { chunk: string, isDone: boolean, error?: string }) => callback(payload);
       ipcRenderer.on(`ai-stream-chunk-${requestId}`, listener);
       return () => ipcRenderer.removeListener(`ai-stream-chunk-${requestId}`, listener);
-    }
+    },
+    getSessions: () => ipcRenderer.invoke('ai-get-sessions'),
+    createSession: (id: string, title: string, timestamp: number) => ipcRenderer.invoke('ai-create-session', id, title, timestamp),
+    saveMessage: (msg: any) => ipcRenderer.invoke('ai-save-message', msg),
+    deleteSession: (id: string) => ipcRenderer.invoke('ai-delete-session', id),
+    updateSessionTitle: (id: string, title: string) => ipcRenderer.invoke('ai-update-session-title', id, title)
   },
   
   // Workspace 2.0 API

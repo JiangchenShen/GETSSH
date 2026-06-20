@@ -1,7 +1,15 @@
 export interface AiRequest {
   requestId: string;
   prompt: string;
-  context?: string;
+  contextData?: {
+    workspaceName: string;
+    sessionAlias: string;
+    runbooks: Array<{
+      name: string;
+      description: string;
+      dangerLevel: string;
+    }>;
+  };
   endpoint?: string;
   apiKey?: string;
   provider?: string;
@@ -122,5 +130,36 @@ export class AiBridge {
       console.error('[AiBridge] 🔴 Memory zero-out failed:', error);
       throw error;
     }
+  }
+
+  // ── SQLite Persistence ──────────────────────────────────────────────────
+  static async getSessions(): Promise<any[]> {
+    if (!window.electronAPI || !window.electronAPI.ai) return [];
+    const res = await window.electronAPI.ai.getSessions();
+    return res.success ? res.sessions : [];
+  }
+
+  static async createSession(id: string, title: string, timestamp: number): Promise<boolean> {
+    if (!window.electronAPI || !window.electronAPI.ai) return false;
+    const res = await window.electronAPI.ai.createSession(id, title, timestamp);
+    return res.success;
+  }
+
+  static async saveMessage(msg: any): Promise<boolean> {
+    if (!window.electronAPI || !window.electronAPI.ai) return false;
+    const res = await window.electronAPI.ai.saveMessage(msg);
+    return res.success;
+  }
+
+  static async deleteSession(id: string): Promise<boolean> {
+    if (!window.electronAPI || !window.electronAPI.ai) return false;
+    const res = await window.electronAPI.ai.deleteSession(id);
+    return res.success;
+  }
+
+  static async updateSessionTitle(id: string, title: string): Promise<boolean> {
+    if (!window.electronAPI || !window.electronAPI.ai) return false;
+    const res = await window.electronAPI.ai.updateSessionTitle(id, title);
+    return res.success;
   }
 }

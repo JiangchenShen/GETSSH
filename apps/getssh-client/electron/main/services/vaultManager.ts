@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { join } from 'node:path';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 class VaultManager {
   private static instance: VaultManager;
@@ -7,7 +8,7 @@ class VaultManager {
 
   private constructor() {
     try {
-      const addonPath = join(app.getAppPath(), '../../rust-core/getssh-vault');
+      const addonPath = getRustCorePath('getssh-vault');
       this.vaultCore = require(addonPath);
     } catch (e) {
       console.error("[VaultManager] Failed to load getssh-vault native module:", e);

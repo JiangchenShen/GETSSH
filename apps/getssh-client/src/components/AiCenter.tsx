@@ -4,6 +4,7 @@ import { MoovierTile } from '@moovier/core';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore, PaneNode } from '../store/sessionStore';
 import { useAiChatStore } from '../store/aiChatStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { AiBridge } from '../services/aiBridge';
 import {
   Send, X, ClipboardPaste, Settings,
@@ -243,6 +244,15 @@ export const AiCenter: React.FC = () => {
   const addMessage = useAiChatStore(s => s.addMessage);
   const updateMessage = useAiChatStore(s => s.updateMessage);
   const appendChunk = useAiChatStore(s => s.appendChunk);
+  const loadWorkspaceChats = useAiChatStore(s => s.loadWorkspaceChats);
+
+  // Load from SQLite when workspace changes
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      loadWorkspaceChats();
+    }
+  }, [activeWorkspaceId, loadWorkspaceChats]);
 
   // Track generating state locally (not persisted)
   const [isGenerating, setIsGenerating] = React.useState(false);
@@ -319,12 +329,23 @@ export const AiCenter: React.FC = () => {
     const aiMsgId = `ai-${Date.now() + 1}`;
     addMessage(convId, { id: aiMsgId, role: 'assistant', content: '', isThinking: true, isStreaming: false, timestamp: Date.now() });
 
+    const appConfig = useAppStore.getState().appConfig;
+      
+    const workspaces = useWorkspaceStore.getState().workspaces;
+    const activeWsId = useWorkspaceStore.getState().activeWorkspaceId;
+    const activeWs = workspaces.find((w: any) => w.id === activeWsId);
+    const workspaceName = activeWs?.name || activeWsId;
+    
+    const runbooks = useWorkspaceStore.getState().runbooks || [];
+    const sessionAlias = getActiveSessionId() || '';
+
     let firstChunk = false;
     try {
       await AiBridge.invokePrivileged(
         {
           requestId: aiMsgId,
           prompt: currentPrompt,
+          contextData: { workspaceName, sessionAlias, runbooks },
           provider: appConfig.aiProvider,
           model: appConfig.aiModel,
           endpoint: appConfig.aiEndpoint,

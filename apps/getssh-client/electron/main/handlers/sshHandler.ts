@@ -6,6 +6,7 @@ import { SocksClient } from 'socks';
 import { connectionManager } from '../services/ConnectionManager';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { getRustCorePath } from '../utils/rustCorePath';
 import {
   spawnLocalTerminal,
   spawnTelnetSession,
@@ -367,9 +368,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
             if (config.enableAuditLogging) {
               try {
                  // Load the N-API module
-                 const { AuditStream } = require('../../../../../rust-core/audit-stream/index.js');
-                 const nexusConfig = await nexusBridge.getNexusConfig();
-                 const workspaceId = nexusConfig.active_workspace || 'default';
+                 const { AuditStream } = require(getRustCorePath('audit-stream'));
+                 const { getActiveWorkspaceId } = require('./workspaceHandler');
+                 const workspaceId = getActiveWorkspaceId() || 'default';
                  const wsPath = path.join(app.getPath('home'), '.getssh', 'workspaces', workspaceId, 'audit_recordings');
                  if (!fs.existsSync(wsPath)) fs.mkdirSync(wsPath, { recursive: true });
                  
@@ -381,16 +382,18 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               }
             }
 
-            setTimeout(() => {
+             setTimeout(() => {
                isAttached = true;
-               const win = getWindow();
                if (dataBuffer) {
-                 if (win && !win.isDestroyed()) {
-                     try { win.webContents.send(`ssh-data-${sessionId}`, dataBuffer); } catch(e) {}
+                 const windows = BrowserWindow.getAllWindows();
+                 for (const w of windows) {
+                   if (!w.webContents.isDestroyed()) {
+                     try { w.webContents.send(`ssh-data-${sessionId}`, dataBuffer); } catch(e) {}
+                   }
                  }
                  sshBridge.broadcastData(sessionId, dataBuffer);
                }
-            }, 800); // Wait 800ms for React to mount the Terminal Component
+             }, 800);
 
             stream.on('close', async () => {
               if (auditStream) {
@@ -400,9 +403,11 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
               await recordDisconnect(app, sessionId);
               await connectionManager.removeSession(sessionId);
               sshBridge.cleanupSession(sessionId);
-              const win = getWindow();
-              if (win && !win.isDestroyed()) {
-                try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+              const windows = BrowserWindow.getAllWindows();
+              for (const w of windows) {
+                if (!w.webContents.isDestroyed()) {
+                  try { w.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+                }
               }
             }).on('data', (data: Buffer) => {
               if (auditStream) {
@@ -410,11 +415,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                  try { auditStream.writeFrame(elapsed, data); } catch(e) {}
               }
               const str = data.toString('utf-8');
-              const win = getWindow();
               if (!isAttached) dataBuffer += str;
               else {
-                if (win && !win.isDestroyed()) {
-                  try { win.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                const windows = BrowserWindow.getAllWindows();
+                for (const w of windows) {
+                  if (!w.webContents.isDestroyed()) {
+                    try { w.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                  }
                 }
                 sshBridge.broadcastData(sessionId, str);
               }
@@ -424,11 +431,13 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                  try { auditStream.writeFrame(elapsed, data); } catch(e) {}
               }
               const str = data.toString('utf-8');
-              const win = getWindow();
               if (!isAttached) dataBuffer += str;
               else {
-                if (win && !win.isDestroyed()) {
-                  try { win.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                const windows = BrowserWindow.getAllWindows();
+                for (const w of windows) {
+                  if (!w.webContents.isDestroyed()) {
+                    try { w.webContents.send(`ssh-data-${sessionId}`, str); } catch(e) {}
+                  }
                 }
                 sshBridge.broadcastData(sessionId, str);
               }
@@ -473,15 +482,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                     opensuse: 'suse', sles: 'suse',
                   };
                   const osType: OsType = osMap[rawId] || 'generic';
-                  const win = getWindow();
-                  if (win && !win.isDestroyed()) {
-                    try {
-                      win.webContents.send('os-fingerprint', {
-                        host: connectConfig.host,
-                        username: config.username,
-                        osType
-                      });
-                    } catch (e) {}
+                  const windows = BrowserWindow.getAllWindows();
+                  for (const w of windows) {
+                    if (!w.webContents.isDestroyed()) {
+                      try {
+                        w.webContents.send('os-fingerprint', {
+                          host: connectConfig.host,
+                          username: config.username,
+                          osType
+                        });
+                      } catch (e) {}
+                    }
                   }
                 });
               });
@@ -491,9 +502,11 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           await recordDisconnect(app, sessionId);
           await connectionManager.removeSession(sessionId);
           sshBridge.cleanupSession(sessionId);
-          const win = getWindow();
-          if (win && !win.isDestroyed()) {
-            try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+          const windows = BrowserWindow.getAllWindows();
+          for (const w of windows) {
+            if (!w.webContents.isDestroyed()) {
+              try { w.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+            }
           }
           resolve({ success: false, error: err.message });
         }).connect(connectConfig);

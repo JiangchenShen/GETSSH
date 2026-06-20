@@ -7,13 +7,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 // Stores
 import { useAppStore } from './store/appStore';
-import { PaneNode, useSessionStore } from './store/sessionStore';
+import { PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
 import { useWorkspaceStore, Runbook } from './store/workspaceStore';
 import { useCryptoStore } from './store/cryptoStore';
 
 // Hooks
 import { useAppBoot } from './hooks/useAppBoot';
-import { useAppIPC } from './hooks/useAppIPC';
 import { useAppEvents } from './hooks/useAppEvents';
 import { useCoreAppEvents } from './hooks/useCoreAppEvents';
 import { useCryptoBoot } from './hooks/useCryptoBoot';
@@ -33,6 +32,7 @@ import { HostKeyVerificationModal } from './components/HostKeyVerificationModal'
 import { TabBar } from './components/TabBar';
 import { CommandCenter } from './components/CommandCenter';
 import { ToastProvider } from './components/ToastProvider';
+import { IpcManager } from './components/IpcManager';
 
 // Overlays
 import { SettingsModalOverlay } from './components/app-overlays/SettingsModalOverlay';
@@ -46,7 +46,6 @@ function App() {
 
   // Boot Application & Bind IPC / Window Events
   useAppBoot();
-  useAppIPC();
   useAppEvents();
 
   // Workspace
@@ -77,6 +76,7 @@ function App() {
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
   const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
+  const tornPaneId = useAppStore(state => state.tornPaneId);
   
   // Crypto State
   const cryptoMode = useCryptoStore(state => state.cryptoMode);
@@ -90,6 +90,23 @@ function App() {
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
   const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'>('Appearance');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  let tornNode: PaneLeaf | null = null;
+  let tornTabId: string | null = null;
+  if (tornPaneId) {
+     const traverse = (node: PaneNode, tId: string) => {
+        if (node.type === 'leaf' && node.paneId === tornPaneId) {
+          tornNode = node as PaneLeaf;
+          tornTabId = tId;
+        } else if (node.type === 'hsplit' || node.type === 'vsplit') {
+          if (node.children[0]) traverse(node.children[0], tId);
+          if (node.children[1]) traverse(node.children[1], tId);
+        }
+     };
+     for (const t of tabs) {
+       if (t.isTornOff && t.paneTree) traverse(t.paneTree, t.id);
+     }
+  }
 
   const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'|string = 'Appearance', toggle: boolean = false) => {
      if (isSettingsOpen && toggle) {
@@ -134,6 +151,21 @@ function App() {
 
   useCoreAppEvents(setPendingHighRiskRunbook, setIsSettingsOpen, syncProfiles);
 
+  // Prevent pre-warmed Hollow Windows from rendering heavy UI components (WebGL, TabBar, etc) until they are hijacked.
+  // This saves massive amounts of CPU/RAM/GPU and prevents ghost terminals.
+  const isHollowPreWarm = new URLSearchParams(window.location.search).get('isHollow') === 'true';
+  useEffect(() => {
+    (window as any).electronAPI?.hollowLog?.('App.tsx mount! search:', window.location.search, 'isHollowPreWarm:', isHollowPreWarm, 'tornPaneId:', tornPaneId);
+  }, [isHollowPreWarm, tornPaneId]);
+  if (isHollowPreWarm && !tornPaneId) {
+    return (
+      <>
+        <IpcManager />
+        <div className="w-screen h-screen bg-transparent pointer-events-none" />
+      </>
+    );
+  }
+
   // Global Background & Glassmorphism Logic
   let appBgStyle = { '--titlebar-height': isMac ? '40px' : '32px' } as React.CSSProperties;
   let containerClasses = '';
@@ -153,6 +185,7 @@ function App() {
 
   return (
     <MoovierFocusProvider>
+      <IpcManager />
       <div 
         className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
         style={appBgStyle}
@@ -305,8 +338,8 @@ function App() {
           );
         })()}
         
-        {!isFullScreen && (
-          <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+        {!isFullScreen && !tornPaneId && (
+          <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
              {isPolluted && (
                <span title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center' } as React.CSSProperties}>
                  <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
@@ -316,15 +349,36 @@ function App() {
         )}
 
         {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
-        <div 
-          className="w-full h-full bg-transparent"
-          style={{
-             display: 'grid',
-             gridTemplateColumns: `64px ${isSidebarCollapsed ? '48px' : '240px'} 1fr`,
-             gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`,
-             zIndex: 'var(--z-app-chrome)'
-          }}
-        >
+        {tornPaneId ? (
+          <div className="w-full h-full bg-transparent flex flex-col" style={{ paddingTop: isMac && !isFullScreen ? '40px' : '0px' }}>
+            <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
+              {tornTabId ? tabs.find(t => t.id === tornTabId)?.title || 'Torn Terminal' : 'Torn Terminal'}
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden px-2 pb-2">
+              <div className="w-full h-full rounded-xl overflow-hidden border border-black/10 dark:border-white/10 shadow-2xl relative bg-black/40 backdrop-blur-md">
+                {tornNode && tornTabId ? (
+                  <TerminalPaneRenderer node={tornNode} tabId={tornTabId} appConfig={appConfig} isDark={isDark} isTabActive={true} onSplit={() => {}} />
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-white/50 h-full w-full">
+                    {(() => {
+                      (window as any).electronAPI?.hollowLog?.('Stuck on Loading Torn Pane! tornPaneId:', tornPaneId, 'tabs length:', tabs.length);
+                      return 'Loading Torn Pane...';
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="w-full h-full bg-transparent"
+            style={{
+               display: 'grid',
+               gridTemplateColumns: `64px ${isSidebarCollapsed ? '48px' : '240px'} 1fr`,
+               gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`,
+               zIndex: 'var(--z-app-chrome)'
+            }}
+          >
           {/* L3 Global Sidebar (Ultra-narrow) */}
           <div style={{ gridColumn: '1 / 2', gridRow: '1 / 4', zIndex: 'var(--z-region-material)' }}>
             <GlobalWorkspaceBar openSettingsTab={openSettingsTab} onHomeClick={handleHomeClick} />
@@ -352,13 +406,13 @@ function App() {
             </MoovierTile>
           </div>
 
-          {/* Main Content Area (L5 Content) */}
+            {/* Main Content Area (L5 Content) */}
           <div style={{ gridColumn: '3 / 4', gridRow: '2 / 3', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
             
             {/* Tab Bar ALWAYS visible if tabs.length > 0 */}
-            {(tabs.length > 0 && activeTabId !== 'settings') && (
+            {(tabs.filter(t => !t.isTornOff).length > 0 && activeTabId !== 'settings') && (
               <TabBar
-                tabs={tabs}
+                tabs={tabs.filter(t => !t.isTornOff)}
                 activeTabId={activeTabId}
                 isDark={isDark}
                 onSelectTab={(id) => {
@@ -372,7 +426,7 @@ function App() {
             <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
               
               {/* Active Terminal Panes */}
-              {tabs.map((tab) => (
+              {tabs.filter(t => !t.isTornOff).map((tab) => (
                 <div 
                   key={tab.id}
                   className="absolute inset-0 flex flex-col"
@@ -390,14 +444,14 @@ function App() {
 
               {/* Welcome Dashboard Overlay */}
               {(selectedSessionIndex === null && !activeTabId) && (
-                <div className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}>
+                <div className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.filter(t => !t.title.startsWith('Torn ')).length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}>
                   <NexusDashboard openSettingsTab={openSettingsTab} />
                 </div>
               )}
 
               {/* Connect Form Overlay */}
               <ConnectFormOverlay
-                tabsLength={tabs.length}
+                tabsLength={tabs.filter(t => !t.title.startsWith('Torn ')).length}
                 isDark={isDark}
                 selectedSessionIndex={selectedSessionIndex}
                 sessions={sessions}
@@ -409,9 +463,19 @@ function App() {
                 syncProfiles={syncProfiles}
               />
 
+              <SettingsModalOverlay 
+                isOpen={isSettingsOpen} 
+                isDark={isDark} 
+                settingsActiveTab={settingsActiveTab} 
+                encryptionDisabled={encryptionDisabled}
+                onClose={() => setIsSettingsOpen(false)} 
+                setSettingsActiveTab={setSettingsActiveTab}
+              />
+
             </div>
           </div>
         </div>
+        )}
 
         {/* Overlays / Modals */}
         <CreateWorkspaceModal />

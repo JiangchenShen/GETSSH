@@ -6,6 +6,7 @@
  */
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import { AiBridge } from '../services/aiBridge';
 
 export interface ChatMessage {
   id: string;
@@ -41,56 +42,72 @@ interface AiChatState {
   appendChunk: (conversationId: string, msgId: string, chunk: string) => void;
 
   setView: (view: 'chat' | 'history') => void;
-}
 
-// ── localStorage persistence helpers ─────────────────────────────────────────
-const STORAGE_KEY = 'getssh:ai-chat-history';
-const MAX_CONVERSATIONS = 50; // cap to avoid unbounded growth
-
-function load(): Pick<AiChatState, 'conversations' | 'activeConversationId'> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return { conversations: [], activeConversationId: null };
-}
-
-function save(state: AiChatState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      conversations: state.conversations,
-      activeConversationId: state.activeConversationId,
-    }));
-  } catch {}
+  // ── SQLite Async Actions ──────────────────────────────────────────────────
+  loadWorkspaceChats: () => Promise<void>;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
-const persisted = load();
 
 export const useAiChatStore = create<AiChatState>()(
-  immer((set, get) => ({
-    conversations: persisted.conversations,
-    activeConversationId: persisted.activeConversationId,
+  immer((set) => ({
+    conversations: [],
+    activeConversationId: null,
     view: 'chat',
+
+    loadWorkspaceChats: async () => {
+      try {
+        const dbSessions = await AiBridge.getSessions();
+        const conversations: Conversation[] = dbSessions.map(s => ({
+          id: s.id,
+          title: s.title,
+          createdAt: s.created_at,
+          updatedAt: s.updated_at,
+          messages: s.messages.map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            raw_content: m.raw_content,
+            timestamp: m.timestamp,
+            isStreaming: false,
+            isThinking: false
+          }))
+        }));
+        
+        set(state => {
+          state.conversations = conversations;
+          if (conversations.length > 0 && !state.activeConversationId) {
+            state.activeConversationId = conversations[0].id;
+          } else if (conversations.length === 0) {
+            state.activeConversationId = null;
+          }
+        });
+      } catch (e) {
+        console.error('Failed to load workspace chats', e);
+      }
+    },
 
     newConversation: () => {
       const id = `conv-${Date.now()}`;
+      const now = Date.now();
+      
       set(state => {
         state.conversations.unshift({
           id,
           title: '新对话',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
+          createdAt: now,
+          updatedAt: now,
           messages: [],
         });
-        // Trim to max
-        if (state.conversations.length > MAX_CONVERSATIONS) {
-          state.conversations = state.conversations.slice(0, MAX_CONVERSATIONS);
+        if (state.conversations.length > 50) {
+          state.conversations = state.conversations.slice(0, 50);
         }
         state.activeConversationId = id;
         state.view = 'chat';
       });
-      save(get());
+      
+      // Async save
+      AiBridge.createSession(id, '新对话', now).catch(console.error);
       return id;
     },
 
@@ -99,7 +116,6 @@ export const useAiChatStore = create<AiChatState>()(
         state.activeConversationId = id;
         state.view = 'chat';
       });
-      save(get());
     },
 
     deleteConversation: (id) => {
@@ -109,15 +125,19 @@ export const useAiChatStore = create<AiChatState>()(
           state.activeConversationId = state.conversations[0]?.id ?? null;
         }
       });
-      save(get());
+      AiBridge.deleteSession(id).catch(console.error);
     },
 
     clearAllConversations: () => {
+      // In SQLite we let the user manually delete or implement a bulk delete
+      // For now, clear state.
       set(state => {
+        state.conversations.forEach(c => {
+          AiBridge.deleteSession(c.id).catch(console.error);
+        });
         state.conversations = [];
         state.activeConversationId = null;
       });
-      save(get());
     },
 
     addMessage: (conversationId, msg) => {
@@ -126,25 +146,46 @@ export const useAiChatStore = create<AiChatState>()(
         if (!conv) return;
         conv.messages.push(msg);
         conv.updatedAt = Date.now();
-        // Auto-title from first user message
+        
         if (msg.role === 'user' && conv.title === '新对话') {
-          conv.title = msg.content.slice(0, 40) + (msg.content.length > 40 ? '…' : '');
+          const newTitle = msg.content.slice(0, 40) + (msg.content.length > 40 ? '…' : '');
+          conv.title = newTitle;
+          AiBridge.updateSessionTitle(conv.id, newTitle).catch(console.error);
         }
       });
-      save(get());
+      
+      // Save message to SQLite
+      AiBridge.saveMessage({
+        id: msg.id,
+        session_id: conversationId,
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp
+      }).catch(console.error);
     },
 
     updateMessage: (conversationId, msgId, patch) => {
+      let finalMsg: any = null;
       set(state => {
         const conv = state.conversations.find(c => c.id === conversationId);
         if (!conv) return;
         const msg = conv.messages.find(m => m.id === msgId);
-        if (msg) Object.assign(msg, patch);
+        if (msg) {
+          Object.assign(msg, patch);
+          finalMsg = { ...msg };
+        }
         conv.updatedAt = Date.now();
       });
-      // Don't persist on every stream tick — only on final update
-      if (!patch.isStreaming && !patch.isThinking) {
-        save(get());
+      
+      // Save final message state when streaming completes
+      if (finalMsg && !patch.isStreaming && !patch.isThinking) {
+        AiBridge.saveMessage({
+          id: finalMsg.id,
+          session_id: conversationId,
+          role: finalMsg.role,
+          content: finalMsg.content,
+          timestamp: finalMsg.timestamp
+        }).catch(console.error);
       }
     },
 
@@ -160,7 +201,6 @@ export const useAiChatStore = create<AiChatState>()(
         }
         conv.updatedAt = Date.now();
       });
-      // Don't write to localStorage on every chunk for performance
     },
 
     setView: (view) => set(state => { state.view = view; }),

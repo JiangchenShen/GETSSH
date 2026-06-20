@@ -265,6 +265,8 @@
       }
     },
     "sidebar": {
+      "defaultWorkspace": "Default Workspace",
+      "workspace": "Workspace",
       "savedSessions": "Saved Sessions",
       "extensions": "Extensions",
       "newConnection": "New Connection",
@@ -513,12 +515,23 @@
       "createTitle": "CREATE WORKSPACE",
       "workspaceIdLabel": "Workspace ID",
       "workspaceIdPlaceholder": "e.g. production-omega",
+      "setMainConfirm": "Set [{{name}}] as the Main Workspace? The application will automatically boot into this workspace.",
+      "deleteConfirm": "Are you sure you want to permanently delete workspace [{{name}}] and ALL its data? This action is irreversible!",
       "identityColorLabel": "Identity Color",
       "vaultEncryptionLabel": "Vault Encryption",
       "vaultEncryptedDesc": "Your assets will be physically locked using AES-256-GCM. If you lose the master key, the workspace is unrecoverable.",
-      "vaultPlaintextDesc": "Assets will be saved in plaintext or default OS keychain. Faster access, lower security.",
-      "masterKeyPlaceholder": "Enter Vault Master Key",
-      "initializeWorkspaceBtn": "INITIALIZE WORKSPACE"
+      "vaultPlaintextDesc": "Assets will be stored in plaintext or default keychain. Fast access but extreme low security.",
+      "masterKeyPlaceholder": "Enter Master Key",
+      "initializeWorkspaceBtn": "Initialize Workspace",
+      "newSandbox": "New Sandbox",
+      "current": "CURRENT",
+      "main": "MAIN",
+      "setMainTooltip": "Set as Main Workspace",
+      "deleteTooltip": "Delete Workspace",
+      "isolatedSandbox": "Isolated Sandbox",
+      "synchronizing": "Synchronizing...",
+      "switchingWorkspace": "Switching Workspace",
+      "pleaseWait": "Please wait..."
     }
   }
 }

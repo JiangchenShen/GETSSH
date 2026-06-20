@@ -263,6 +263,8 @@
       }
     },
     "sidebar": {
+      "defaultWorkspace": "默认工作区",
+      "workspace": "工作区",
       "savedSessions": "主机列表",
       "extensions": "扩展功能",
       "newConnection": "新建连接",
@@ -546,12 +548,23 @@
       "createTitle": "创建工作区",
       "workspaceIdLabel": "工作区 ID",
       "workspaceIdPlaceholder": "如: production-omega",
-      "identityColorLabel": "识别色",
+      "setMainConfirm": "是否将 [{{name}}] 设为主工作区？应用程序将在下次启动时自动进入该工作区。",
+      "deleteConfirm": "确定要永久删除工作区 [{{name}}] 及其所有数据吗？此操作不可逆转！",
+      "vaultLockedTitle": "安全沙箱已上锁",
       "vaultEncryptionLabel": "保管库加密",
       "vaultEncryptedDesc": "您的资产将被 AES-256-GCM 物理级强加密。若丢失母钥，工作区将永远崩塌。",
       "vaultPlaintextDesc": "资产将以明文或系统默认 keychain 存储。访问极快但安全性极低。",
       "masterKeyPlaceholder": "输入加密母钥",
-      "initializeWorkspaceBtn": "初始化工作区"
+      "initializeWorkspaceBtn": "初始化工作区",
+      "newSandbox": "新建沙箱",
+      "current": "当前",
+      "main": "主节点",
+      "setMainTooltip": "设为主工作区",
+      "deleteTooltip": "删除工作区",
+      "isolatedSandbox": "独立安全沙箱",
+      "synchronizing": "正在同步数据...",
+      "switchingWorkspace": "正在切换工作区",
+      "pleaseWait": "请稍候..."
     },
     "ai": {
       "inputPlaceholder": "询问 AI (按回车发送)",

@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export interface AppConfig {
   language: string;
   themeColor?: string;
-  duoTone?: { colorA: string; colorB: string };
+  duoTone?: { colorA: string; colorB: string } | null;
   theme: 'system' | 'light' | 'dark';
   fontFamily: string;
   fontSize: number;
@@ -34,6 +34,7 @@ export interface AppConfig {
   customThemes?: Record<string, any>;
   sftpDownloadPath?: string;
   aiEndpoint?: string;
+  aiApiKey?: string;
   hasAiApiKey?: boolean;
   aiProvider?: 'openai' | 'gemini' | 'ollama' | 'custom';
   aiModel?: string;
@@ -105,6 +106,7 @@ interface AppStore {
   currentTerminalSelection: string;
   workspaces: string[];
   activeWorkspaceId: string;
+  tornPaneId: string | null;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -120,6 +122,7 @@ interface AppStore {
   setCurrentTerminalSelection: (text: string) => void;
   setWorkspaces: (ws: string[]) => void;
   setActiveWorkspaceId: (id: string) => void;
+  setTornPaneId: (id: string | null) => void;
   addToast: (message: string, type?: ToastMsg['type']) => void;
   removeToast: (id: string) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
@@ -154,6 +157,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeWorkspaceId: 'default',
   isPolluted: false,
   watchdogStatus: null,
+  tornPaneId: null,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -171,6 +175,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setCurrentTerminalSelection: (text) => set({ currentTerminalSelection: text }),
   setWorkspaces: (ws) => set({ workspaces: ws }),
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
+  setTornPaneId: (id) => set({ tornPaneId: id }),
   
   addToast: (message, type = 'info') => {
     const id = crypto.randomUUID();

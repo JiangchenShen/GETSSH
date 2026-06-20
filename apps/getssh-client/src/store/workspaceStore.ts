@@ -6,6 +6,7 @@ export interface WorkspaceMeta {
   name: string;
   themeColor: string;
   hasPassword?: boolean;
+  isMain?: boolean;
 }
 
 export interface Runbook {
@@ -44,6 +45,8 @@ interface WorkspaceState {
   setIsUnlockModalOpen: (open: boolean) => void;
   unlockVault: (password: string) => Promise<boolean>;
   setPendingAgentProposal: (proposal: AgentProposal | null) => void;
+  deleteWorkspace: (id: string) => Promise<boolean>;
+  setMainWorkspace: (id: string) => Promise<boolean>;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -89,11 +92,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         // Assuming wsList returns { id, name, themeColor, etc }
         const mappedList: WorkspaceMeta[] = wsList.map((ws: any) => ({
           id: typeof ws === 'string' ? ws : ws.id,
-          name: typeof ws === 'string' ? ws : (ws.name || ws.id),
-          themeColor: typeof ws === 'string' ? '#0ea5e9' : (ws.themeColor || '#0ea5e9'),
-          hasPassword: typeof ws === 'string' ? false : !!ws.hasPassword
+          name: typeof ws === 'string' ? ws : (ws.visualMeta?.name || ws.name || ws.id),
+          themeColor: typeof ws === 'string' ? '#0ea5e9' : (ws.visualMeta?.themeColor || ws.themeColor || '#0ea5e9'),
+          hasPassword: typeof ws === 'string' ? false : !!(ws.visualMeta?.hasPassword || ws.hasPassword),
+          isMain: typeof ws === 'string' ? ws === 'default' : !!(ws.visualMeta?.isMain || ws.isMain)
         }));
         set({ workspaces: mappedList });
+        
+        // Auto switch to main workspace if not currently set or if default
+        const mainWs = mappedList.find(w => (w as any).isMain);
+        const { activeWorkspaceId } = get();
+        if (mainWs && activeWorkspaceId === 'default' && mainWs.id !== 'default') {
+          setTimeout(() => get().switchWorkspace(mainWs.id), 10);
+        }
       } catch (e) {
         console.error('Failed to init workspaces:', e);
       }
@@ -145,6 +156,45 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       setTimeout(() => {
         set({ isSwitching: false });
       }, 300);
+    }
+  },
+
+  deleteWorkspace: async (id: string) => {
+    if (id === 'default') return false;
+    try {
+      if (window.electronAPI?.deleteWorkspace) {
+        const res = await window.electronAPI.deleteWorkspace(id);
+        if (res && res.success) {
+          // Remove from list
+          const { workspaces } = get();
+          set({ workspaces: workspaces.filter(w => w.id !== id) });
+          // If active, switch to default
+          if (get().activeWorkspaceId === id) {
+            await get().switchWorkspace('default');
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to delete workspace:', e);
+      return false;
+    }
+  },
+
+  setMainWorkspace: async (id: string) => {
+    try {
+      if (window.electronAPI?.setMainWorkspace) {
+        const res = await window.electronAPI.setMainWorkspace(id);
+        if (res && res.success) {
+          await get().initWorkspaces();
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to set main workspace:', e);
+      return false;
     }
   }
 }));

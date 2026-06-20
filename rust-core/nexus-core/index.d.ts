@@ -10,11 +10,12 @@ export declare function requestClosePane(paneId: string): Promise<string>
 export declare function requestToggleZoom(paneId: string): Promise<string>
 export declare function requestUpdateSizes(paneId: string, sizes: Array<number>): Promise<string>
 export declare function requestPatchLeaf(paneId: string, disconnected: boolean): Promise<string>
-export declare function requestCloseTab(tabId: string): Promise<string>
 export declare function requestTearOff(paneId: string): Promise<string>
-export declare function subscribePtyStream(sessionId: string, paneId: string, callback: (err: Error | null, data: Buffer) => void): void
+export declare function requestTearIn(paneId: string): Promise<string>
+export declare function requestCloseTab(tabId: string): Promise<string>
+export declare function registerTab(tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string): Promise<string>
 export declare function initNexusCore(): Promise<string>
 export declare function bootstrapWorkspace(workspaceId: string): Promise<string>
 export declare function applyWorkspaceNetwork(workspaceId: string): Promise<string>
 export declare function clearNetworkTopology(): Promise<string>
-export declare function registerTab(tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string): Promise<string>
+export declare function subscribePtyStream(sessionId: string, paneId: string, callback: (err: Error | null, data: Buffer) => void): void

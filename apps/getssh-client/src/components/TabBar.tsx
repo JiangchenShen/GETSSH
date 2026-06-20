@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import type { Tab } from '../store/sessionStore';
+import { Tab, collectSessionIds } from '../store/sessionStore';
+import { getTerminalBuffer } from './Terminal';
 
 interface TabBarProps {
   tabs: Tab[];
@@ -11,7 +12,7 @@ interface TabBarProps {
 }
 
 export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSelectTab, onCloseTab }) => {
-  const sshTabs = tabs.filter(t => t.id !== 'settings');
+  const sshTabs = tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
 
   if (sshTabs.length === 0) return null;
 
@@ -36,12 +37,21 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
               if (e.clientY > 60 || e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth) {
                 const rootPaneId = tab.paneTree?.paneId;
                 if (rootPaneId) {
+                  const sessionIds = collectSessionIds(tab.paneTree!);
+                  const terminalBuffers: Record<string, string> = {};
+                  sessionIds.forEach(sid => {
+                    const buf = getTerminalBuffer(sid);
+                    if (buf) terminalBuffers[sid] = buf;
+                  });
+
                   window.electronAPI.windowTearExecute({
                     screenX: e.screenX,
                     screenY: e.screenY,
                     width: Math.max(800, window.outerWidth * 0.8),
                     height: Math.max(600, window.outerHeight * 0.8),
-                    paneId: rootPaneId
+                    paneId: rootPaneId,
+                    terminalBuffers,
+                    tornTitle: tab.title
                   });
                 }
               }

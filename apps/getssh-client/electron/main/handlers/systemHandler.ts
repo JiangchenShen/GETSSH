@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import https from 'node:https';
 import { join } from 'node:path';
 import type { BackendConfig } from '../../../src/types/ipc';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 let sysprobe: any = null;
 try {
-  const addonPath = join(app.getAppPath(), '../../rust-core/getssh-sysprobe');
+  const addonPath = getRustCorePath('getssh-sysprobe');
   if (fs.existsSync(addonPath)) {
      sysprobe = require(addonPath);
   } else {
@@ -226,6 +227,140 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       return { hasUpdate: false };
     } catch (e) {
       return { hasUpdate: false, error: String(e) };
+    }
+  });
+
+  // Export DB
+  ipcMain.handle('export-database', async () => {
+    const win = getWin();
+    if (!win) return { success: false, error: 'No active window' };
+    try {
+      const { dialog } = require('electron');
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const dbPath = path.join(app.getPath('home'), '.getssh', 'getssh.db');
+      
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Export Database Backup',
+        defaultPath: 'getssh_backup.db',
+        filters: [{ name: 'SQLite Database', extensions: ['db', 'sqlite'] }]
+      });
+
+      if (!canceled && filePath) {
+        await fs.promises.copyFile(dbPath, filePath);
+        return { success: true, path: filePath };
+      }
+      return { success: false, error: 'canceled' };
+    } catch (e) {
+      console.error('Failed to export DB', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  // Import DB
+  ipcMain.handle('import-database', async () => {
+    const win = getWin();
+    if (!win) return { success: false, error: 'No active window' };
+    try {
+      const { dialog, app } = require('electron');
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const dbPath = path.join(app.getPath('home'), '.getssh', 'getssh.db');
+      
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Import Database Backup',
+        filters: [{ name: 'SQLite Database', extensions: ['db', 'sqlite'] }],
+        properties: ['openFile']
+      });
+
+      if (!canceled && filePaths.length > 0) {
+        const sourcePath = filePaths[0];
+        if (sourcePath !== dbPath) {
+          try {
+            const Database = require('better-sqlite3');
+            const extDb = new Database(sourcePath, { readonly: true });
+            let hasMain = false;
+            try {
+              const row = extDb.prepare("SELECT COUNT(*) as count FROM workspaces WHERE id = 'default' OR is_main = 1").get();
+              hasMain = row && row.count > 0;
+            } catch (e) {
+              // old db structure maybe
+              const row = extDb.prepare("SELECT COUNT(*) as count FROM workspaces WHERE id = 'default'").get();
+              hasMain = row && row.count > 0;
+            }
+            extDb.close();
+
+            if (hasMain) {
+              return { success: true, requiresConfirmation: true, sourcePath };
+            }
+            
+            // Safe to just merge automatically if no main workspace
+            return await handleMergeDatabase(dbPath, sourcePath);
+          } catch (e) {
+            console.error('Failed to read external db', e);
+            return { success: false, error: String(e) };
+          }
+        }
+        return { success: true, requiresConfirmation: false };
+      }
+      return { success: false, error: 'canceled' };
+    } catch (e) {
+      console.error('Failed to import DB', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  async function handleMergeDatabase(dbPath: string, sourcePath: string) {
+    const Database = require('better-sqlite3');
+    const localDb = new Database(dbPath);
+    try {
+      localDb.exec(`ATTACH DATABASE '${sourcePath}' AS imported`);
+      
+      const transaction = localDb.transaction(() => {
+        // We only insert non-main workspaces
+        // Check if imported workspaces has is_main
+        let isMainColExists = false;
+        try {
+           localDb.prepare("SELECT is_main FROM imported.workspaces LIMIT 1").get();
+           isMainColExists = true;
+        } catch {}
+
+        const filter = isMainColExists ? "id != 'default' AND is_main = 0" : "id != 'default'";
+
+        localDb.exec(`INSERT OR REPLACE INTO main.workspaces SELECT * FROM imported.workspaces WHERE ${filter}`);
+        localDb.exec(`INSERT OR REPLACE INTO main.profiles SELECT p.* FROM imported.profiles p JOIN imported.workspaces w ON p.workspace_id = w.id WHERE w.${filter}`);
+        localDb.exec(`INSERT OR REPLACE INTO main.runbooks SELECT r.* FROM imported.runbooks r JOIN imported.workspaces w ON r.workspace_id = w.id WHERE w.${filter}`);
+        localDb.exec(`INSERT OR REPLACE INTO main.ai_sessions SELECT s.* FROM imported.ai_sessions s JOIN imported.workspaces w ON s.workspace_id = w.id WHERE w.${filter}`);
+        localDb.exec(`INSERT OR REPLACE INTO main.ai_messages SELECT m.* FROM imported.ai_messages m JOIN imported.ai_sessions s ON m.session_id = s.id JOIN imported.workspaces w ON s.workspace_id = w.id WHERE w.${filter}`);
+      });
+      transaction();
+      localDb.exec('DETACH DATABASE imported');
+      localDb.close();
+      return { success: true, requiresConfirmation: false, merged: true };
+    } catch (e) {
+      console.error('Failed to merge DB', e);
+      localDb.close();
+      return { success: false, error: String(e) };
+    }
+  }
+
+  ipcMain.handle('import-database-confirm', async (event, sourcePath: string, strategy: 'overwrite' | 'merge') => {
+    try {
+      const { app } = require('electron');
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const dbPath = path.join(app.getPath('home'), '.getssh', 'getssh.db');
+
+      if (strategy === 'overwrite') {
+        await fs.promises.copyFile(sourcePath, dbPath);
+        app.relaunch();
+        app.exit(0);
+        return { success: true };
+      } else {
+        return await handleMergeDatabase(dbPath, sourcePath);
+      }
+    } catch(e) {
+      return { success: false, error: String(e) };
     }
   });
 

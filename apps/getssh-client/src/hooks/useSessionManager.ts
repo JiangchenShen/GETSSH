@@ -77,7 +77,7 @@ export const useSessionManager = () => {
     const index = sessions.findIndex(s => s === targetSession);
     if (index === -1) return;
     const updated = [...sessions];
-    updated[index].autoStart = !updated[index].autoStart;
+    updated[index] = { ...updated[index], autoStart: !updated[index].autoStart };
     syncProfiles(updated);
   };
 
@@ -104,7 +104,7 @@ export const useSessionManager = () => {
     setConnecting(false);
 
     if (res.success && res.sessionId) {
-      const tabTitle = `${config.username}@${config.host}`;
+      const tabTitle = targetSession.alias || `${config.username}@${config.host}`;
       const rootPaneId = res.sessionId;
       const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };
 

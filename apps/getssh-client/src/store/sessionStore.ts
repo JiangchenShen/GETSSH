@@ -51,6 +51,7 @@ export interface Tab {
   title: string;
   config: PaneConfig;
   paneTree?: PaneNode;
+  isTornOff?: boolean;
 }
 
 // ── Session Profile ───────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ interface SessionStore {
   switchWorkspace: (targetWorkspaceId: string) => Promise<boolean>;
 
   // ⚡ NEXUS CORE SYNC RECEIVERS (Dumb terminal architecture)
-  syncNexusTree: (tabId: string, tree: PaneNode | null) => void;
+  syncNexusTree: (tabId: string, title: string, tree: PaneNode | null, isTornOff?: boolean) => void;
   patchNexusLeaf: (paneId: string, updates: Partial<PaneLeaf>) => void;
   patchNexusSizes: (tabId: string, splitPaneId: string, sizes: [number, number]) => void;
   
@@ -234,11 +235,14 @@ export const useSessionStore = create<SessionStore>()(
     },
 
     // ⚡ NEXUS RECEIVERS
-    syncNexusTree: (tabId, tree) => set(state => {
-      if (tree === null) {
-        state.tabs = state.tabs.filter(t => t.id !== tabId);
+    syncNexusTree: (tabId: string, title: string, tree: any, isTornOff: boolean) => set(state => {
+      const tabIndex = state.tabs.findIndex(t => t.id === tabId);
+      
+      // If tree is null, we are deleting the tab (pane closed)
+      if (!tree && tabIndex >= 0) {
+        state.tabs.splice(tabIndex, 1);
         if (state.activeTabId === tabId) {
-          const sshTabs = state.tabs.filter(t => t.id !== 'settings');
+          const sshTabs = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
           state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
           state.activePaneId = null;
         }
@@ -248,21 +252,44 @@ export const useSessionStore = create<SessionStore>()(
       const tab = state.tabs.find(t => t.id === tabId);
       if (tab) {
         tab.paneTree = tree;
-      } else {
-        // Rust spawned a new tab (e.g., via Tear-off)
-        let title = 'Torn Tab';
-        if (tree.type === 'leaf') {
-          if (tree.paneType === 'plugin') title = 'Torn Plugin';
-          if (tree.paneType === 'terminal') title = 'Torn Terminal';
+        if (tab.title !== title && title !== "") tab.title = title;
+        if (tab.isTornOff && !isTornOff) {
+            state.activeTabId = tabId;
+            let firstLeafId: string | null = null;
+            const traverse = (n: any) => {
+              if (n.type === 'leaf') {
+                if (!firstLeafId) firstLeafId = n.paneId;
+              } else if (n.children) {
+                if (n.children[0]) traverse(n.children[0]);
+                if (n.children[1] && !firstLeafId) traverse(n.children[1]);
+              }
+            };
+            if (tree) traverse(tree);
+            if (firstLeafId) state.activePaneId = firstLeafId;
         }
-        
-        state.tabs.push({
-          id: tabId,
-          title,
-          config: null,
-          paneTree: tree,
-        });
-        state.activeTabId = tabId;
+        tab.isTornOff = isTornOff || false;
+      } else {
+        let finalTitle = title;
+        try {
+          finalTitle = finalTitle || (window as any).__tornTitle || 'Torn Tab';
+          if (finalTitle === 'Torn Tab' && tree.type === 'leaf') {
+            if (tree.paneType === 'plugin') finalTitle = 'Torn Plugin';
+            if (tree.paneType === 'terminal') finalTitle = 'Torn Terminal';
+          }
+          delete (window as any).__tornTitle;
+          
+          state.tabs.push({
+            id: tabId,
+            title: finalTitle,
+            config: null as any,
+            paneTree: tree,
+            isTornOff: isTornOff || false,
+          });
+        } catch (err: any) {
+          console.error('[SessionStore] syncNexusTree PUSH CRASHED!', err?.message);
+        }
+        // We DO NOT auto-switch activeTabId here. 
+        // The Hollow window explicit renders it via tornPaneId, and the main window shouldn't focus it.
       }
     }),
 
@@ -297,7 +324,7 @@ export const useSessionStore = create<SessionStore>()(
         }
         state.tabs = state.tabs.filter(t => t.id !== tabId);
         if (activeTabId === tabId) {
-          const sshTabs = state.tabs.filter(t => t.id !== 'settings');
+          const sshTabs = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
           state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
           state.activePaneId = null;
         }

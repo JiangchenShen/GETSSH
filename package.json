@@ -5,5 +5,14 @@
     "dev": "pnpm --filter getssh dev",
     "build": "pnpm --filter getssh build",
     "build:plugin": "node scripts/package-plugin.js"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder",
+      "node-pty",
+      "esbuild",
+      "better-sqlite3"
+    ]
   }
 }

@@ -20,10 +20,10 @@ interface TerminalPaneProps {
 const Divider: React.FC<{
   direction: 'hsplit' | 'vsplit';
   isDark: boolean;
-  onDragStart: (e: React.MouseEvent) => void;
+  onDragStart: (e: React.PointerEvent<HTMLDivElement>) => void;
 }> = ({ direction, isDark, onDragStart }) => (
   <div
-    onMouseDown={onDragStart}
+    onPointerDown={onDragStart}
     className={`group shrink-0 relative z-10 flex items-center justify-center ${
       direction === 'hsplit' ? 'w-4 cursor-col-resize h-full' : 'h-4 cursor-row-resize w-full'
     }`}
@@ -49,10 +49,13 @@ const SplitPaneNode: React.FC<{
   const patchNexusSizes = useSessionStore(s => s.patchNexusSizes);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
+  const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
+
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
 
     const rect = container.getBoundingClientRect();
     const isHorizontal = node.type === 'hsplit';
@@ -60,7 +63,7 @@ const SplitPaneNode: React.FC<{
     const startPos = isHorizontal ? e.clientX : e.clientY;
     const startSizes: [number, number] = [...node.sizes] as [number, number];
 
-    const onMove = (mv: MouseEvent) => {
+    const onMove = (mv: PointerEvent) => {
       const delta = (isHorizontal ? mv.clientX : mv.clientY) - startPos;
       const deltaPercent = (delta / totalSize) * 100;
       const newFirst = Math.max(10, Math.min(90, startSizes[0] + deltaPercent));
@@ -68,13 +71,16 @@ const SplitPaneNode: React.FC<{
       patchNexusSizes(tabId, node.paneId, [newFirst, newSecond]);
     };
 
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+    const onUp = (ev: PointerEvent) => {
+      target.releasePointerCapture(ev.pointerId);
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onUp);
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onUp);
   }, [node, tabId, patchNexusSizes]);
 
   const isHorizontal = node.type === 'hsplit';

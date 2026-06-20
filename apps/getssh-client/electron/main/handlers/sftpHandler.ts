@@ -4,6 +4,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 interface ISftpDownloader {
   append(chunk: Buffer): void;
@@ -26,7 +27,7 @@ interface ISftpUploaderConstructor {
 let SftpDownloader: ISftpDownloaderConstructor;
 let SftpUploader: ISftpUploaderConstructor;
 try {
-  const addonPath = join(app.getAppPath(), '../../rust-core/sftp-stream');
+  const addonPath = getRustCorePath('sftp-stream');
   const native = require(addonPath);
   SftpDownloader = native.SftpDownloader;
   SftpUploader = native.SftpUploader;

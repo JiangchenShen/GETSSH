@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
-import { MoovierTile } from '@moovier/core';
 import { motion } from 'framer-motion';
 
 interface ConnectFormProps {

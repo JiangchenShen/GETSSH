@@ -1,20 +1,17 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileJson, Download, Upload, Shield } from 'lucide-react';
+import { FileJson, Upload, Shield, Database } from 'lucide-react';
 import { useAppStore } from '../../../store/appStore';
-import { useCryptoStore } from '../../../store/cryptoStore';
-import { useSessionStore } from '../../../store/sessionStore';
 
 export const ExportTab: React.FC = () => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
-  const sessions = useSessionStore(state => state.sessions);
-  const setSessions = useSessionStore(state => state.setSessions);
 
-  const [profilesStatus, setProfilesStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [profilesStatus, setProfilesStatus] = useState<{ type: 'success' | 'error' | 'loading'; msg: string } | null>(null);
   const [importPwdModal, setImportPwdModal] = useState(false);
   const [importPwd, setImportPwd] = useState('');
+  const [dbImportConfirmModal, setDbImportConfirmModal] = useState(false);
+  const [pendingDbImportPath, setPendingDbImportPath] = useState<string | null>(null);
 
   return (
     <>
@@ -39,36 +36,74 @@ export const ExportTab: React.FC = () => {
               </div>
             )}
             
-            <div className="flex gap-6">
-              <button 
-                onClick={() => {
-                  const data = JSON.stringify(sessions, null, 2);
-                  const blob = new Blob([data], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `getssh-profiles-${new Date().toISOString().slice(0,10)}.json`;
-                  a.click();
-                  setProfilesStatus({ type: 'success', msg: t('settings.exportSuccess') });
-                  setTimeout(() => setProfilesStatus(null), 3000);
-                }}
-                disabled={!masterPassword || sessions.length === 0}
-                title={!masterPassword ? (t('settings.exportTooltipDisabled') as string) : (t('settings.exportTooltipEnabled') as string)}
-                className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
-              >
-                <Download className="w-5 h-5" /> {t('settings.exportBtn')}
-              </button>
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4">
+                <button 
+                  onClick={async () => {
+                    if (window.electronAPI && window.electronAPI.exportDatabase) {
+                      const res = await window.electronAPI.exportDatabase();
+                      if (res.success) {
+                        setProfilesStatus({ type: 'success', msg: `Database backup saved: ${res.path}` });
+                      } else if (res.error !== 'canceled') {
+                        setProfilesStatus({ type: 'error', msg: `Backup failed: ${res.error}` });
+                      }
+                      setTimeout(() => setProfilesStatus(null), 3000);
+                    }
+                  }}
+                  className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-purple-500/30 text-purple-400 bg-purple-500/10 hover:bg-purple-500 hover:text-purple-950' : 'border-purple-500/30 text-purple-600 bg-purple-50 hover:bg-purple-500 hover:text-white'}`}
+                >
+                  <Database className="w-5 h-5" /> Export DB Backup
+                </button>
+                <button 
+                  onClick={async () => {
+                    if (window.electronAPI?.exportProfiles) {
+                      const res = await window.electronAPI.exportProfiles();
+                      if (res.success) {
+                        setProfilesStatus({ type: 'success', msg: `Sanitized JSON Template exported (${res.count} profiles).` });
+                      } else if (res.reason !== 'canceled') {
+                        setProfilesStatus({ type: 'error', msg: `Export failed: ${res.reason}` });
+                      }
+                      setTimeout(() => setProfilesStatus(null), 3000);
+                    }
+                  }}
+                  className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
+                >
+                  <FileJson className="w-5 h-5" /> Export JSON Template
+                </button>
+              </div>
 
-              <button
-                onClick={() => {
-                  setProfilesStatus(null);
-                  setImportPwd('');
-                  setImportPwdModal(true);
-                }}
-                className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
-              >
-                <Upload className="w-5 h-5" /> {t('settings.importBtn')}
-              </button>
+              <div className="flex gap-4">
+                <button
+                  onClick={async () => {
+                    if (window.electronAPI?.importDatabase) {
+                      const res = await window.electronAPI.importDatabase();
+                      if (res.requiresConfirmation && res.sourcePath) {
+                        setPendingDbImportPath(res.sourcePath);
+                        setDbImportConfirmModal(true);
+                      } else if (!res.success && res.error !== 'canceled') {
+                        setProfilesStatus({ type: 'error', msg: `Import failed: ${res.error}` });
+                        setTimeout(() => setProfilesStatus(null), 3000);
+                      } else if (res.success && res.merged) {
+                        setProfilesStatus({ type: 'success', msg: 'Database merged successfully.' });
+                        setTimeout(() => setProfilesStatus(null), 3000);
+                      }
+                    }
+                  }}
+                  className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-red-500/30 text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-red-950' : 'border-red-500/30 text-red-600 bg-red-50 hover:bg-red-500 hover:text-white'}`}
+                >
+                  <Database className="w-5 h-5" /> Restore DB Backup
+                </button>
+                <button
+                  onClick={() => {
+                    setProfilesStatus(null);
+                    setImportPwd('');
+                    setImportPwdModal(true);
+                  }}
+                  className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
+                >
+                  <Upload className="w-5 h-5" /> Import JSON
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -118,23 +153,15 @@ export const ExportTab: React.FC = () => {
                       return;
                     }
   
-                    if (res.profiles && res.profiles.length > 0) {
-                      // Merge: avoid exact duplicates (same host + username)
-                      const existing = new Set<string>();
-                      for (const s of sessions) {
-                        existing.add(`${s.host}::${s.username}`);
-                      }
-                      const newOnes  = res.profiles.filter((p: any) => !existing.has(`${p.host}::${p.username}`));
-                      const merged   = [...sessions, ...newOnes];
-                      setSessions(merged);
-                      // Persist to disk
-                      if (window.electronAPI.saveProfiles) {
-                        await window.electronAPI.saveProfiles({ masterPassword, payload: merged });
-                      }
+                    if (res.count && res.count > 0) {
                       setProfilesStatus({
                         type: 'success',
-                        msg: t('settings.importSuccessNew', { count: newOnes.length, skipped: res.profiles.length - newOnes.length }) as string,
+                        msg: t('settings.importSuccessNew', { count: res.count, skipped: 0 }) as string,
                       });
+                      // Tell user to reload or switch workspace
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 2000);
                     } else {
                       setProfilesStatus({ type: 'success', msg: t('settings.importSuccessEmpty') as string });
                     }
@@ -144,6 +171,60 @@ export const ExportTab: React.FC = () => {
                 className="flex-1 py-2 text-sm font-bold rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white transition-all shadow-md"
               >
                 {t('settings.importConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dbImportConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className={`w-[26rem] p-6 rounded-2xl shadow-2xl border space-y-4 ${isDark ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-yellow-500" />
+              <h3 className="text-sm font-bold">Import Strategy Required</h3>
+            </div>
+            <p className="text-xs opacity-80 leading-relaxed font-medium">
+              The database backup you selected contains a Default/Main workspace. You can either completely OVERWRITE your existing data, or MERGE only the external workspaces into your current setup.
+            </p>
+            <div className="flex gap-3 pt-2 mt-2 border-t border-white/5">
+              <button
+                onClick={() => {
+                  setDbImportConfirmModal(false);
+                  setPendingDbImportPath(null);
+                }}
+                className="flex-1 py-2 rounded-xl text-xs font-bold border transition-colors opacity-70 hover:opacity-100 uppercase tracking-wider"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (pendingDbImportPath && window.electronAPI?.confirmImportDatabase) {
+                    setDbImportConfirmModal(false);
+                    const res = await window.electronAPI.confirmImportDatabase(pendingDbImportPath, 'merge');
+                    if (res.success) {
+                      setProfilesStatus({ type: 'success', msg: 'Merge completed successfully.' });
+                      setTimeout(() => setProfilesStatus(null), 3000);
+                    } else {
+                      setProfilesStatus({ type: 'error', msg: `Merge failed: ${res.error}` });
+                      setTimeout(() => setProfilesStatus(null), 3000);
+                    }
+                  }
+                }}
+                className="flex-1 py-2 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider border border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white"
+              >
+                Merge Only
+              </button>
+              <button
+                onClick={async () => {
+                  if (pendingDbImportPath && window.electronAPI?.confirmImportDatabase) {
+                    setDbImportConfirmModal(false);
+                    await window.electronAPI.confirmImportDatabase(pendingDbImportPath, 'overwrite');
+                  }
+                }}
+                className="flex-1 py-2 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider border border-red-500/30 text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white"
+              >
+                Overwrite All
               </button>
             </div>
           </div>

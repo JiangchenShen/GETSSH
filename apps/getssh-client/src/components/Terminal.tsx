@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import { AppConfig, useAppStore } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
 import { usePluginStore } from '../store/pluginStore';
@@ -23,7 +24,13 @@ interface TerminalProps {
 }
 
 // Global cache to preserve xterm instances and DOM nodes across React unmounts
-const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; webglAddon?: WebglAddon; canvasAddon?: CanvasAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
+const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; serializeAddon: SerializeAddon; webglAddon?: WebglAddon; canvasAddon?: CanvasAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
+
+export function getTerminalBuffer(sessionId: string): string | undefined {
+  const cache = xtermCache.get(sessionId);
+  if (!cache) return undefined;
+  return cache.serializeAddon.serialize();
+}
 
 export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnectedChange, isDisconnected = false, config, isDark = true, isActive = true }: TerminalProps) {
   const { t } = useTranslation();
@@ -131,7 +138,38 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
+
+      // Hollow window tear-in recovery
+      const tornBuf = (window as any).__tornTerminalBuffers?.[sessionId];
+      if (tornBuf) {
+        console.log('[Terminal] Recovered torn buffer for', sessionId);
+        term.write(tornBuf);
+        delete (window as any).__tornTerminalBuffers[sessionId];
+      }
+      const serializeAddon = new SerializeAddon();
+      term.loadAddon(serializeAddon);
       term.open(element);
+
+      // Check for torn buffer (useful for Tear In / Tear Off)
+      // Use an interval to handle IPC race conditions (buffer might arrive slightly after tree sync)
+      let checkCount = 0;
+      const checkInterval = setInterval(() => {
+        if ((window as any).__tornBuffers) {
+          const tornBuf = (window as any).__tornBuffers?.[sessionId];
+          if (tornBuf) {
+            (window as any).electronAPI?.hollowLog?.('Terminal Mount! Reading tornBuf from window:', 'FOUND, len=' + tornBuf.length);
+            term.write(tornBuf);
+            delete (window as any).__tornBuffers[sessionId];
+            (window as any).electronAPI?.hollowLog?.('Terminal Wrote Buffer & Removed from window');
+            clearInterval(checkInterval);
+            return;
+          }
+        }
+        checkCount++;
+        if (checkCount >= 20) {
+          clearInterval(checkInterval); // Give up after 1 second
+        }
+      }, 50);
 
       let ligaturesAddon: LigaturesAddon | undefined;
       // Load Ligatures Addon (Geek visual enhancement)
@@ -173,7 +211,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         loadCanvasAddon();
       }
       
-      cache = { term, fitAddon, webglAddon, canvasAddon, ligaturesAddon, element };
+      cache = { term, fitAddon, serializeAddon, webglAddon, canvasAddon, ligaturesAddon, element };
       xtermCache.set(sessionId, cache);
     }
 
@@ -288,6 +326,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           cacheToKill.webglAddon?.dispose();
           cacheToKill.canvasAddon?.dispose();
           cacheToKill.fitAddon.dispose();
+          cacheToKill.serializeAddon.dispose();
           cacheToKill.term.dispose();
           xtermCache.delete(sessionId);
           console.debug(`[Terminal] Active destruction detected. Session ${sessionId} GC complete.`);
@@ -433,6 +472,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
         if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
         if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+        cacheEntry.serializeAddon.dispose();
         cacheEntry.fitAddon.dispose();
         xtermCache.delete(sessionId);
         cacheEntry.term.dispose();
@@ -448,6 +488,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
         if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
         if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
+        cacheEntry.serializeAddon.dispose();
         cacheEntry.fitAddon.dispose();
         xtermCache.delete(sessionId);
         cacheEntry.term.dispose();

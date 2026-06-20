@@ -7,6 +7,7 @@ export class HollowWindowPool {
   private static instance: HollowWindowPool;
   private pool: BrowserWindow[] = [];
   private readonly POOL_SIZE = 2;
+  private tearingPanes = new Set<string>();
 
   private preload: string;
   private devServerUrl?: string;
@@ -30,6 +31,11 @@ export class HollowWindowPool {
    */
   public init() {
     this.setupIpc();
+    ipcMain.on('hollow-log', (e, ...args) => {
+      const msg = '[HollowWindow Debug] ' + args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+      console.log(msg);
+      require('fs').appendFileSync('/tmp/hollow-log.txt', msg + '\n');
+    });
     // Pre-warm the pool asynchronously to avoid blocking the main app boot
     setTimeout(() => this.fillPool(), 2000);
   }
@@ -62,11 +68,11 @@ export class HollowWindowPool {
 
     // Load the app URL
     if (app.isPackaged) {
-      win.loadFile(join(__dirname, '../../dist/index.html'));
+      win.loadURL(`file://${join(__dirname, '../../dist/index.html')}?isHollow=true`);
     } else if (this.devServerUrl) {
-      win.loadURL(this.devServerUrl);
+      win.loadURL(`${this.devServerUrl}?isHollow=true`);
     } else {
-      win.loadFile(this.indexHtml);
+      win.loadURL(`file://${this.indexHtml}?isHollow=true`);
     }
 
     this.pool.push(win);
@@ -88,7 +94,14 @@ export class HollowWindowPool {
     });
 
     // Phase 2: Execute "Hijack". Triggered when the user drops the pane outside the bounds.
-    ipcMain.on('window:tear-execute', (event, payload: { screenX: number, screenY: number, width: number, height: number, paneId: string }) => {
+    ipcMain.on('window:tear-execute', (event, payload: { screenX: number, screenY: number, width: number, height: number, paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => {
+      if (this.tearingPanes.has(payload.paneId)) {
+        console.warn(`[HollowWindowPool] Tear-off ignored: ${payload.paneId} is already tearing.`);
+        return;
+      }
+      this.tearingPanes.add(payload.paneId);
+      setTimeout(() => this.tearingPanes.delete(payload.paneId), 1500);
+
       console.log(`[HollowWindowPool] Tear-off EXECUTED for pane ${payload.paneId} at (${payload.screenX}, ${payload.screenY})`);
       
       let win = this.pool.pop();
@@ -107,7 +120,7 @@ export class HollowWindowPool {
       });
 
       // 2. Transmit the hijacking metadata to the window's React app
-      win.webContents.send('window:hijack-identity', { paneId: payload.paneId });
+      win.webContents.send('window:hijack-identity', { paneId: payload.paneId, terminalBuffers: payload.terminalBuffers, tornTitle: payload.tornTitle });
 
       // 3. Inform Rust state engine to detach pane
       nexusBridge.requestTearOff(payload.paneId).catch(err => {
@@ -121,6 +134,32 @@ export class HollowWindowPool {
 
       // 4. Dispatch refill asynchronously
       setTimeout(() => this.fillPool(), 500);
+    });
+
+    // Phase 3: Tear-in. Triggered when the user clicks Attach in the hollow window.
+    ipcMain.on('window:tear-in', (event, payload: { paneId: string, terminalBuffers?: Record<string, string> }) => {
+      console.log(`[HollowWindowPool] Tear-in EXECUTED for pane ${payload.paneId}`);
+      
+      // 1. Broadcast the torn buffers back to the main window
+      if (payload.terminalBuffers) {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.webContents.isDestroyed()) {
+             win.webContents.send('window:receive-torn-buffers', payload.terminalBuffers);
+          }
+        }
+      }
+
+      // 2. Inform Rust state engine to attach pane
+      nexusBridge.requestTearIn(payload.paneId).catch(err => {
+        console.error('[HollowWindowPool] Failed to request tear-in in rust:', err);
+      });
+
+      // 3. Close the hollow window that initiated the tear-in
+      const senderWin = BrowserWindow.fromWebContents(event.sender);
+      if (senderWin) {
+        (senderWin as any).isTearingIn = true;
+        senderWin.close();
+      }
     });
   }
 }

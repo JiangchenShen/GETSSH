@@ -58,8 +58,8 @@ declare global {
       onUpdateAvailable: (cb: (info: { version: string; url: string }) => void) => (() => void);
       showContextMenu: (payload?: any) => void;
       checkForUpdates: () => Promise<{ hasUpdate: boolean; version?: string; url?: string; error?: string }>;
-      exportProfiles: (payload: { sessions: import('./store/sessionStore').SessionProfile[]; masterPassword: string }) => Promise<{ success: boolean; count?: number; reason?: string }>;
-      importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; profiles?: import('./store/sessionStore').SessionProfile[]; reason?: string }>;
+      exportProfiles: () => Promise<{ success: boolean; count?: number; reason?: string }>;
+      importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; count?: number; reason?: string }>;
       promptBiometricUnlock: () => Promise<{ success: boolean; masterPassword?: string; reason?: string }>;
       onSysmonData: (cb: (data: any) => void) => (() => void);
       onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string, isChanged?: boolean, oldFingerprint?: string }) => void) => (() => void);
@@ -83,6 +83,11 @@ declare global {
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);
       onSyncPluginSettingsSchemas: (cb: (payload: any) => void) => (() => void);
+      exportDatabase: () => Promise<{ success: boolean; path?: string; error?: string }>;
+      importDatabase: () => Promise<{ success: boolean; requiresConfirmation?: boolean; sourcePath?: string; merged?: boolean; error?: string }>;
+      confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => Promise<{ success: boolean; merged?: boolean; error?: string }>;
+      deleteWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>;
+      setMainWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>;
       encryptConfig: (data: any) => Promise<string>;
       decryptConfig: (base64: string) => Promise<any>;
       nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<any>;
@@ -94,12 +99,14 @@ declare global {
       nexusCloseTab: (tabId: string) => Promise<any>;
       nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<any>;
       onNexusPtyData: (paneId: string, cb: (data: Uint8Array) => void) => (() => void);
-      onNexusPatchLeaf: (cb: (paneId: string, updates: any) => void) => (() => void);
-      onNexusSyncTree: (cb: (tabId: string, tree: any) => void) => (() => void);
+      onNexusPatchLeaf: (callback: (paneId: string, updates: any) => void) => () => void;
       nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => Promise<any>;
-      onWindowHijackIdentity: (cb: (payload: { paneId: string }) => void) => (() => void);
-      windowTearArm: () => void;
-      windowTearExecute: (payload: { screenX: number; screenY: number; width: number; height: number; paneId: string }) => void;
+      onNexusSyncTree: (callback: (tabId: string, title: string, tree: any, isTornOff: boolean) => void) => () => void;
+      onWindowHijackIdentity: (callback: (payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => void) => () => void;
+      windowTearArm: () => number | null;
+      windowTearExecute: (payload: { screenX: number; screenY: number; width: number; height: number; paneId: string; terminalBuffers?: Record<string, string>; tornTitle?: string }) => void;
+      windowTearIn: (payload: { paneId: string; terminalBuffers?: Record<string, string> }) => void;
+      onWindowReceiveTornBuffers: (cb: (payload: Record<string, string>) => void) => (() => void);
       
       workspace: {
         getWorkspaces: () => Promise<any[]>;
@@ -112,7 +119,12 @@ declare global {
         getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => Promise<{ success: boolean; models?: string[]; error?: string }>;
         saveApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>;
         deleteApiKey: () => Promise<{ success: boolean; error?: string }>;
-        onStreamChunk: (requestId: string, cb: (payload: { chunk: string, isDone: boolean, error?: string }) => void) => (() => void);
+        onStreamChunk: (requestId: string, cb: (payload: { chunk: string; isDone: boolean; error?: string }) => void) => () => void;
+        getSessions: () => Promise<{ success: boolean; sessions: any[] }>;
+        createSession: (id: string, title: string, timestamp: number) => Promise<{ success: boolean }>;
+        saveMessage: (msg: any) => Promise<{ success: boolean }>;
+        deleteSession: (id: string) => Promise<{ success: boolean }>;
+        updateSessionTitle: (id: string, title: string) => Promise<{ success: boolean }>;
       };
     };
   }

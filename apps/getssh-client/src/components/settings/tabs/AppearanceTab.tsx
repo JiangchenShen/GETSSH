@@ -151,7 +151,7 @@ export const AppearanceTab: React.FC = () => {
                         key={swatch.color}
                         onClick={() => {
                           updateConfig('themeColor', swatch.color);
-                          updateConfig('duoTone', undefined as any);
+                          updateConfig('duoTone', null);
                         }}
                         className={`w-8 h-8 rounded-xl transition-all ${swatch.bg} ${
                           appConfig.themeColor === swatch.color && !appConfig.duoTone
@@ -225,7 +225,7 @@ export const AppearanceTab: React.FC = () => {
                         const g = parseInt(hex.slice(3,5),16);
                         const b = parseInt(hex.slice(5,7),16);
                         updateConfig('themeColor', `${r} ${g} ${b}`);
-                        updateConfig('duoTone', undefined as any);
+                        updateConfig('duoTone', null);
                       }}
                     />
 

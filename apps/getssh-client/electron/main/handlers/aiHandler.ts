@@ -1,6 +1,7 @@
 import { IpcMainInvokeEvent, BrowserWindow, app, safeStorage } from 'electron';
 import { streamLLM, fetchAvailableModels } from '../services/llmService';
-import { RagManager } from '../services/ragManager';
+import { MicroContextAssembler } from '../services/MicroContextAssembler';
+import { ChatStorageManager } from '../services/chatStorageManager';
 import fs from 'node:fs';
 import { join } from 'node:path';
 
@@ -91,7 +92,10 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     }
 
     const rawPrompt = payload?.prompt || '';
-    const rawContext = payload?.context || '';
+    const contextData = payload?.contextData;
+    
+    // Assemble the micro-RAG context dynamically
+    const rawContext = contextData ? MicroContextAssembler.assemble(contextData) : '';
     
     // 将传入的 Prompt 和终端 Context 送入洗涤中间件
     const sanitizedPrompt = sanitizeAiContext(rawPrompt);
@@ -170,14 +174,62 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
 
     console.log(`[AI Gateway] 🟡 接收到工作区切换指令，执行原子级销毁，目标: ${targetWorkspaceId}`);
     
-    // ---------------------------------------------------------
-    // 1. 断开并销毁该工作区专属的 LanceDB 实例句柄
-    // 2. 将 V8 内存中的相关 Chat Context Window 对象以 null 覆写
-    // 3. 强制触发 GC（如有必要）
-    // ---------------------------------------------------------
-    await RagManager.disconnectCurrentDB();
+    // The new LanceDB-free architecture does not require vector DB destruction.
+    // The Zero-Out command here only signals the frontend to clear the ephemeral chat window.
     
     return { success: true };
+  });
+  // =====================================================================
+  // 【4】 SQLite 聊天持久化接口 (Persistent Chat Storage)
+  // =====================================================================
+  ipcMain.handle('ai-get-sessions', async (event: IpcMainInvokeEvent) => {
+    try {
+      const sessions = ChatStorageManager.getSessions();
+      return { success: true, sessions };
+    } catch (e: any) {
+      console.error('[AI Storage] Error getting sessions:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-create-session', async (event: IpcMainInvokeEvent, id: string, title: string, timestamp: number) => {
+    try {
+      ChatStorageManager.createSession(id, title, timestamp);
+      return { success: true };
+    } catch (e: any) {
+      console.error('[AI Storage] Error creating session:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-save-message', async (event: IpcMainInvokeEvent, msg: any) => {
+    try {
+      ChatStorageManager.saveMessage(msg);
+      return { success: true };
+    } catch (e: any) {
+      console.error('[AI Storage] Error saving message:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-delete-session', async (event: IpcMainInvokeEvent, id: string) => {
+    try {
+      ChatStorageManager.deleteSession(id);
+      return { success: true };
+    } catch (e: any) {
+      console.error('[AI Storage] Error deleting session:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-update-session-title', async (event: IpcMainInvokeEvent, id: string, title: string) => {
+    try {
+      ChatStorageManager.updateSessionTitle(id, title);
+      return { success: true };
+    } catch (e: any) {
+      console.error('[AI Storage] Error updating session title:', e);
+      return { success: false, error: e.message };
+    }
   });
 }
 

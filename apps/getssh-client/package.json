@@ -14,8 +14,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@lancedb/lancedb": "^0.30.0",
     "@moovier/core": "workspace:*",
+    "@xterm/addon-serialize": "^0.14.0",
+    "better-sqlite3": "^12.11.1",
     "electron-updater": "^6.8.3",
     "framer-motion": "^12.40.0",
     "fuse.js": "^7.4.0",
@@ -30,6 +31,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.19",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -87,11 +89,12 @@
       ]
     },
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "../../dist"
     },
     "asar": true,
     "asarUnpack": [
-      "../../rust-core/**/*"
+      "**/*.node"
     ],
     "extraResources": [
       {
@@ -99,8 +102,100 @@
         "to": "watchdog"
       },
       {
-        "from": "../../target/release/watchdog.exe",
-        "to": "watchdog.exe"
+        "from": "../../rust-core/getssh-kv",
+        "to": "rust-core/getssh-kv",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/getssh-sysprobe",
+        "to": "rust-core/getssh-sysprobe",
+        "filter": [
+          "*.node",
+          "index.node",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/getssh-vault",
+        "to": "rust-core/getssh-vault",
+        "filter": [
+          "*.node",
+          "index.node",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/getssh-unarchive",
+        "to": "rust-core/getssh-unarchive",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/sftp-stream",
+        "to": "rust-core/sftp-stream",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/nexus-core",
+        "to": "rust-core/nexus-core",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/audit-stream",
+        "to": "rust-core/audit-stream",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/getssh-sentinel",
+        "to": "rust-core/getssh-sentinel",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
       }
     ],
     "files": [
@@ -109,9 +204,6 @@
       "dist/plugins/**/*",
       "!dist/plugins/test-plugin/**/*",
       "dist-electron/**/*",
-      "../../rust-core/**/*.node",
-      "../../rust-core/**/*.js",
-      "../../rust-core/**/package.json",
       "!**/*.map",
       "!**/*.ts",
       "!**/*.tsx",
@@ -140,7 +232,6 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
             "arm64"
           ]
         }

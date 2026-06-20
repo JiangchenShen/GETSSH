@@ -55,7 +55,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
   const setIsSidebarCollapsed = useAppStore(state => state.setIsSidebarCollapsed);
-  const activeWorkspaceId = useAppStore(state => state.activeWorkspaceId);
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const workspaces = useWorkspaceStore(state => state.workspaces);
   
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const setIsUnlockModalOpen = useWorkspaceStore(state => state.setIsUnlockModalOpen);
@@ -144,12 +145,15 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     );
   }
 
+  const activeWs = workspaces.find((w: any) => typeof w === 'object' ? w.id === activeWorkspaceId : w === activeWorkspaceId);
+  const displayName = activeWs && typeof activeWs === 'object' ? activeWs.name || activeWorkspaceId : activeWorkspaceId;
+
   return (
     <div className={`h-full w-full flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-all duration-300 bg-transparent border-r ${isDark ? 'border-white/5' : 'border-black/5'}`}>
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <h1 className="font-bold text-sm tracking-widest uppercase text-slate-800 dark:text-slate-100">
-            {activeWorkspaceId} / {activeWorkspaceId === 'default' ? '工作区' : 'Workspace'}
+        <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
+          <h1 className="font-bold text-sm tracking-widest uppercase text-slate-800 dark:text-slate-100 truncate" title={displayName}>
+            {displayName} / {activeWorkspaceId === 'default' ? t('sidebar.defaultWorkspace') : t('sidebar.workspace')}
           </h1>
         </div>
         <button onClick={() => setIsSidebarCollapsed(true)} className={`p-1.5 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-black/10 text-black/50'}`} title="Collapse Sidebar">

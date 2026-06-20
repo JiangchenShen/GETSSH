@@ -3,29 +3,23 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { nexusBridge } from '../nexus/nexusBridge';
-import { RagManager } from '../services/ragManager';
 import { vaultManager } from '../services/vaultManager';
+import { ChatStorageManager } from '../services/chatStorageManager';
+import { DatabaseManager } from '../services/DatabaseManager';
 
 export function setupWorkspaceHandlers() {
   ipcMain.handle('workspace:list', async () => {
     try {
-      const getsshRoot = path.join(os.homedir(), '.getssh', 'workspaces');
-      
-      // Read directories in ~/.getssh/workspaces
-      const entries = await fs.promises.readdir(getsshRoot, { withFileTypes: true }).catch(() => []);
-      const workspaceIds = entries.filter(e => e.isDirectory()).map(e => e.name);
-      
-      const workspaces = await Promise.all(workspaceIds.map(async (id) => {
-        const metaPath = path.join(getsshRoot, id, 'workspace_meta.json');
-        let visualMeta = { themeColor: '#0ea5e9', hasPassword: false };
-        try {
-           const raw = await fs.promises.readFile(metaPath, 'utf-8');
-           visualMeta = { ...visualMeta, ...JSON.parse(raw) };
-        } catch { }
-        return { id, visualMeta };
+      const workspaces = DatabaseManager.getWorkspaces();
+      return workspaces.map(ws => ({
+        id: ws.id,
+        visualMeta: {
+          name: ws.name,
+          themeColor: ws.themeColor,
+          hasPassword: ws.hasPassword === 1,
+          isMain: ws.is_main === 1
+        }
       }));
-      
-      return workspaces;
     } catch (e) {
       console.error('[Workspace IPC] Failed to get workspaces', e);
       return [];
@@ -34,16 +28,56 @@ export function setupWorkspaceHandlers() {
 
   ipcMain.handle('workspace:create', async (event, workspaceId: string, visualMeta?: any) => {
     console.log(`[Workspace IPC] Creating new workspace: ${workspaceId}`);
-    const res = await nexusBridge.bootstrapWorkspace(workspaceId);
-    if (res && res.success && visualMeta) {
-      try {
-        const metaPath = path.join(os.homedir(), '.getssh', 'workspaces', workspaceId, 'workspace_meta.json');
-        await fs.promises.writeFile(metaPath, JSON.stringify(visualMeta));
-      } catch (e) {
-        console.error('Failed to write visual meta', e);
+    try {
+      const res = await nexusBridge.bootstrapWorkspace(workspaceId);
+      if (res && res !== 'skip') {
+        const now = Date.now();
+        DatabaseManager.createWorkspace({
+          id: workspaceId,
+          name: visualMeta?.name || workspaceId,
+          themeColor: visualMeta?.themeColor || '#1e293b',
+          hasPassword: visualMeta?.hasPassword ? 1 : 0,
+          created_at: now,
+          updated_at: now
+        });
+        return { success: true, res };
       }
+      return { success: false, error: 'bootstrap skipped or failed' };
+    } catch(e) {
+      console.error('[Workspace IPC] create error', e);
+      return { success: false, error: String(e) };
     }
-    return res;
+  });
+
+  ipcMain.handle('workspace:setMain', async (event, workspaceId: string) => {
+    try {
+      DatabaseManager.setMainWorkspace(workspaceId);
+      return { success: true };
+    } catch (e) {
+      console.error(`[Workspace IPC] Failed to set main workspace ${workspaceId}`, e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:delete', async (event, workspaceId: string) => {
+    if (workspaceId === 'default') {
+      return { success: false, error: 'Cannot delete default workspace' };
+    }
+    try {
+      DatabaseManager.deleteWorkspace(workspaceId);
+      // We could also delete the vault file in ~/.getssh/workspaces/<workspaceId> if it still exists
+      const getsshRoot = path.join(os.homedir(), '.getssh');
+      const wsPath = path.join(getsshRoot, 'workspaces', workspaceId);
+      try {
+        await fs.promises.rm(wsPath, { recursive: true, force: true });
+      } catch (e) {
+        console.warn(`[Workspace IPC] Failed to delete workspace folder ${wsPath}`, e);
+      }
+      return { success: true };
+    } catch (e) {
+      console.error(`[Workspace IPC] Failed to delete workspace ${workspaceId}`, e);
+      return { success: false, error: String(e) };
+    }
   });
 
   ipcMain.handle('workspace:switch', async (event, targetWorkspaceId: string) => {
@@ -65,8 +99,8 @@ export function setupWorkspaceHandlers() {
       // ==========================================
       // Phase 1: 记忆脑叶切除与重连 (RAG Memory Swap)
       // ==========================================
-      await RagManager.disconnectCurrentDB();
-      await RagManager.connectWorkspaceDB(targetWorkspaceId);
+      // Note: In GETSSH 3.0, we no longer use LanceDB. Micro Context Assembler is used on-the-fly.
+      ChatStorageManager.init(targetWorkspaceId);
 
       // ==========================================
       // Phase 1.5: 内存金库物理切除 (Vault Zero-out)
@@ -80,40 +114,49 @@ export function setupWorkspaceHandlers() {
       await nexusBridge.applyWorkspaceNetwork(targetWorkspaceId);
 
       // ==========================================
-      // Phase 3: 剧本与资产盘装载 (Load Storage Assets)
+      // Phase 3: 剧本与资产盘装载 (Load Storage Assets from DB)
       // ==========================================
-      const runbooksPath = path.join(wsPath, 'runbooks.json');
-      const profilesPath = path.join(wsPath, 'profiles.json');
-      const metaPath = path.join(wsPath, 'workspace_meta.json');
+      const workspaces = DatabaseManager.getWorkspaces();
+      const wsRow = workspaces.find(w => w.id === targetWorkspaceId);
       
-      const runbooksRaw = await fs.promises.readFile(runbooksPath, 'utf-8').catch(() => '[]');
-      const profilesRaw = await fs.promises.readFile(profilesPath, 'utf-8').catch(() => '[]');
-      
-      let visualMeta = { themeColor: '#1e293b', hasPassword: false };
-      try {
-        const raw = await fs.promises.readFile(metaPath, 'utf-8');
-        visualMeta = { ...visualMeta, ...JSON.parse(raw) };
-      } catch {
-        // Initialize default meta
-        await fs.promises.writeFile(metaPath, JSON.stringify(visualMeta));
+      let visualMeta = { themeColor: '#1e293b', hasPassword: false, name: targetWorkspaceId };
+      if (wsRow) {
+        visualMeta = {
+          name: wsRow.name,
+          themeColor: wsRow.themeColor,
+          hasPassword: wsRow.hasPassword === 1
+        };
+      } else {
+        // If workspace doesn't exist in DB but folder exists, insert it
+        const now = Date.now();
+        DatabaseManager.createWorkspace({
+          id: targetWorkspaceId,
+          name: targetWorkspaceId,
+          themeColor: '#1e293b',
+          hasPassword: 0,
+          created_at: now,
+          updated_at: now
+        });
       }
       
-      let profilesToReturn = [];
+      let profilesToReturn: any[] = [];
       let isLocked = false;
       
       if (visualMeta.hasPassword) {
          isLocked = true;
          // Frontend must suspend rendering and prompt for password via unlock-profiles
       } else {
-         profilesToReturn = JSON.parse(profilesRaw);
+         profilesToReturn = DatabaseManager.getProfiles(targetWorkspaceId);
       }
+
+      const runbooks = DatabaseManager.getRunbooks(targetWorkspaceId);
 
       const payload = {
         success: true,
         workspaceId: targetWorkspaceId,
         visualMeta,
         isLocked,
-        runbooks: JSON.parse(runbooksRaw),
+        runbooks: runbooks,
         profiles: profilesToReturn
       };
 
@@ -170,8 +213,9 @@ export async function bootstrapAppWorkspace() {
       console.log(`[Workspace] Active workspace confirmed: ${config.active_workspace}`);
     }
 
-    // Connect the RAG memory engine to the active workspace sandbox
-    await RagManager.connectWorkspaceDB(config.active_workspace);
+    // Note: In GETSSH 3.0, LanceDB is removed.
+    // We rely on Micro Context Assembler to dynamically inject state context.
+    ChatStorageManager.init(config.active_workspace);
 
   } catch (e) {
     console.error('[Workspace] Critical error during app bootstrap:', e);

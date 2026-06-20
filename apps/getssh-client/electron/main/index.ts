@@ -152,12 +152,16 @@ import { SecureCenter } from './security/SecureCenter'
 import { nexusBridge } from './nexus/nexusBridge'
 import { HollowWindowPool } from './windowManager'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
+import { DatabaseManager } from './services/DatabaseManager'
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   
   // Init GETSSH Secure Center (RASP)
   SecureCenter.getInstance().start(() => win);
+  
+  // Initialize Master SQLite Database
+  DatabaseManager.init();
   
   // Ignite Workspace 2.0 Engine (Generate sandbox if empty)
   await bootstrapAppWorkspace();

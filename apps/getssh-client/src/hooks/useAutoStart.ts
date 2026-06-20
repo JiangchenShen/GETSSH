@@ -33,7 +33,7 @@ export const useAutoStart = () => {
             const payload = { ...config, enableAuditLogging: appConfig.enableAuditLogging };
             window.electronAPI.sshConnect(payload).then(res => {
                if (res.success && res.sessionId) {
-                 const tabTitle = `${config.username}@${config.host}`;
+                 const tabTitle = autoSession.alias || `${config.username}@${config.host}`;
                  setTabs([...useSessionStore.getState().tabs, { id: res.sessionId as string, title: tabTitle, config }]);
                  setActiveTabId(res.sessionId);
                  window.electronAPI.nexusRegisterTab(res.sessionId, res.sessionId, res.sessionId, 'terminal', JSON.stringify(config), tabTitle).catch(e => console.error('[Stateless UI] Failed to register auto-start tab:', e));

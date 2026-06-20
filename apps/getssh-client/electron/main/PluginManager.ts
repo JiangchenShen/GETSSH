@@ -9,6 +9,7 @@ import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../..
 import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
+import { getRustCorePath } from './utils/rustCorePath';
 
 function isPrivateIP(ip: string): boolean {
   // Check against common private/loopback IP ranges
@@ -702,7 +703,7 @@ export class PluginManager {
         const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'plugin_'));
         const resolvedTempDir = path.resolve(tempDir);
 
-        const addonPath = path.join(app.getAppPath(), '../../rust-core/getssh-unarchive');
+        const addonPath = getRustCorePath('getssh-unarchive');
         const unarchive = require(addonPath);
         
         await unarchive.extractPlugin(zipPath, resolvedTempDir);

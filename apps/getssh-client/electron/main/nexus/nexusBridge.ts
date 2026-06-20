@@ -1,13 +1,14 @@
 import { app, ipcMain, WebContents, BrowserWindow } from 'electron';
 import { EventEmitter } from 'events';
 import { join } from 'path';
+import { getRustCorePath } from '../utils/rustCorePath';
 
 // N-API bindings for Rust nexus-core
 let nexusCore: any = null;
 
 try {
   // Safely attempt to load the N-API module
-  nexusCore = require(join(app.getAppPath(), '../../rust-core/nexus-core'));
+  nexusCore = require(getRustCorePath('nexus-core'));
   console.log('[Nexus Bridge] Successfully linked Rust nexus-core binary');
 } catch (e: any) {
   console.warn('[Nexus Bridge] Nexus Core native module not found. Building is required via Cargo.', e.message);
@@ -24,18 +25,17 @@ class NexusBridge extends EventEmitter {
   public setupStateBroadcaster() {
     if (nexusCore && typeof nexusCore.registerSyncTreeCallback === 'function') {
       nexusCore.registerSyncTreeCallback((...args: any[]) => {
-        console.log('[Nexus Bridge] registerSyncTreeCallback invoked with args:', args);
         try {
           // If first arg is null (err), the second arg is the treeJson
           const treeJson = args.length > 1 ? args[1] : args[0];
           const payload = JSON.parse(treeJson);
+          console.log(`[Nexus Bridge] SyncTree Broadcast: tabId=${payload.tabId}, isTornOff=${payload.is_torn_off}`);
           
           // Broadcast to all active windows
-          const windows = BrowserWindow.getAllWindows();
-          for (const win of windows) {
-             if (!win.webContents.isDestroyed()) {
-               win.webContents.send('nexus:sync-tree', payload.tabId, payload.tree);
-             }
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.webContents.isDestroyed()) {
+              win.webContents.send('nexus:sync-tree', payload.tabId, payload.title || '', payload.tree, payload.is_torn_off);
+            }
           }
         } catch(e) {
           console.error('[Nexus Bridge] Failed to parse sync-tree JSON:', e);
@@ -47,6 +47,11 @@ class NexusBridge extends EventEmitter {
   public async requestTearOff(paneId: string): Promise<any> {
     if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
     return await nexusCore.requestTearOff(paneId);
+  }
+
+  public async requestTearIn(paneId: string): Promise<any> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    return await nexusCore.requestTearIn(paneId);
   }
 
   public async bootstrapWorkspace(workspaceId: string): Promise<string> {
