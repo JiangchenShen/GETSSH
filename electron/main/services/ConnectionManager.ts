@@ -11,7 +11,6 @@ export interface SessionData {
 
 export class ConnectionManager {
   sessions = new Map<string, SessionData>();
-  sessionCounter = 0;
   powerSaveBlockerId: number | null = null;
   activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
 
