@@ -3,16 +3,20 @@ import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
 import { motion } from 'framer-motion';
+import type { SessionProfile } from '../store/sessionStore';
+import type { AppConfig } from '../store/appStore';
+
+export type ConnectFormSession = Partial<SessionProfile> & { id?: string; name?: string };
 
 interface ConnectFormProps {
-  session: any;
+  session: ConnectFormSession;
   index: number;
-  appConfig: any;
+  appConfig: AppConfig;
   isDark: boolean;
   connecting: boolean;
   error: string | null;
-  onConnect: (session: any) => void;
-  onUpdateSession: (index: number, updatedSession: any) => void;
+  onConnect: (session: ConnectFormSession) => void;
+  onUpdateSession: (index: number, updatedSession: ConnectFormSession) => void;
 }
 
 export const ConnectForm: React.FC<ConnectFormProps> = ({
@@ -44,7 +48,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     setLocalSession(session);
   }, [session?.id, index]); // Reset local state when switching to a different session
 
-  const handleUpdate = (updates: Partial<any>) => {
+  const handleUpdate = (updates: Partial<ConnectFormSession>) => {
     const updated = { ...localSession, ...updates };
     setLocalSession(updated);
 
@@ -98,7 +102,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
       setTimeout(() => setAutoFlash(false), 1500);
 
       // Smart backfill parsed fields
-      const updates: any = { host: result.parsedHost ?? raw };
+      const updates: Partial<ConnectFormSession> = { host: result.parsedHost ?? raw };
       if (result.parsedUser) updates.username = result.parsedUser;
       if (result.parsedPort) updates.port = result.parsedPort;
       updates.protocol = result.protocol;

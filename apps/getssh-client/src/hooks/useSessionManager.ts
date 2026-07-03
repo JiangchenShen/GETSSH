@@ -27,7 +27,7 @@ export const useSessionManager = () => {
   const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
 
-  const syncProfiles = async (updatedSessions: any[]) => {
+  const syncProfiles = async (updatedSessions: SessionProfile[]) => {
     setSessions(updatedSessions);
     if (masterPassword || encryptionDisabled) {
       await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: updatedSessions });
