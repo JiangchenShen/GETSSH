@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { usePluginStore } from '../store/pluginStore';
 import { Trash, ShieldAlert, CheckCircle2, AlertTriangle, Box, Settings2, PackagePlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import DOMPurify from 'dompurify';
 
 export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
   const { t } = useTranslation();
@@ -102,7 +103,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
               <h2 className="text-2xl font-black tracking-wide">{t('plugins.permissionReview', 'Permission Review')}</h2>
             </div>
             
-            <p className="text-sm opacity-80 mb-6 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('plugins.permissionDesc', { name: pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name, defaultValue: `You are about to install <strong>${pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name}</strong>. Please review the requested capabilities before proceeding.` }) }}>
+            <p className="text-sm opacity-80 mb-6 leading-relaxed" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(t('plugins.permissionDesc', { name: pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name, defaultValue: `You are about to install <strong>${pendingInstall.manifest.getssh?.name || pendingInstall.manifest.name}</strong>. Please review the requested capabilities before proceeding.` })) }}>
             </p>
 
             <div className="space-y-3 mb-8">

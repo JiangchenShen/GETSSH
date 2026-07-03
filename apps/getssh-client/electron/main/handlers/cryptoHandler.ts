@@ -128,6 +128,10 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
        DatabaseManager.saveProfiles(workspaceId, profilesToSave);
        return true;
     }
+
+    if (!masterPassword || masterPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters long');
+    }
     
     let masterPasswordBuffer: Buffer | null = null;
     try {

@@ -227,7 +227,7 @@ export const useSessionManager = () => {
             setTabs(tabs.map(t => t.id === activeTabId ? { ...t, paneTree: updatedTree } : t));
             setActivePaneId(newPaneId);
 
-            await window.electronAPI.nexusSplit(paneId, direction === 'hsplit' ? 'horizontal' : 'vertical').catch(e => console.error(e));
+            await window.electronAPI.nexusSplit(paneId, direction === 'hsplit' ? 'horizontal' : 'vertical').catch(() => {});
         } else {
             setError(res.error || 'Split connection failed');
         }

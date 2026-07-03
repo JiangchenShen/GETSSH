@@ -199,6 +199,7 @@ function processTelnetData(raw: Buffer, socket: net.Socket): string {
   let i = 0;
   while (i < raw.length) {
     if (raw[i] === TELNET_IAC) {
+      if (i + 2 >= raw.length) break;
       const cmd = raw[i + 1];
       const opt = raw[i + 2];
       if (cmd === TELNET_DO) {
