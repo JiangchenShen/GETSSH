@@ -23,14 +23,18 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
     const realPath = window.electronAPI.getPathForFile ? window.electronAPI.getPathForFile(file) : (file as any).path;
 
     if (realPath && realPath.endsWith('.zip')) {
+      // #9 FIX: If a previous preview is pending, clean it up first to avoid tempDir leaks
+      if (pendingInstall) {
+        await window.electronAPI.abortPluginInstall(pendingInstall.tempDir);
+        // Note: we don't strictly need to setPendingInstall(null) because we will overwrite it on success,
+        // but if preview fails we want it cleared. It's safer to clear it here.
+        setPendingInstall(null);
+      }
+
       setLoading(true);
       try {
         const res = await window.electronAPI.previewPlugin(realPath);
         if (res.success && res.manifest) {
-          // #9 FIX: If a previous preview is pending, clean it up first to avoid tempDir leaks
-          if (pendingInstall) {
-            await window.electronAPI.abortPluginInstall(pendingInstall.tempDir);
-          }
           setPendingInstall({
             manifest: res.manifest,
             tempDir: res.tempDir!,
