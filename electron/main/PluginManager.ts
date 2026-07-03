@@ -699,7 +699,7 @@ export class PluginManager {
     
     ipcMain.handle('preview-plugin', async (event, zipPath: string) => {
       try {
-        const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'plugin_'));
+        const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'getssh-plugin-preview-'));
         const resolvedTempDir = path.resolve(tempDir);
 
         const addonPath = path.join(__dirname, '../../rust-core/getssh-unarchive');
@@ -774,7 +774,7 @@ export class PluginManager {
         const osTempDir = app.getPath('temp');
         const resolvedTemp = path.resolve(tempDir);
         const resolvedBase = path.resolve(osTempDir);
-        if (!resolvedTemp.startsWith(resolvedBase + path.sep) || !path.basename(resolvedTemp).startsWith('plugin_')) {
+        if (!resolvedTemp.startsWith(resolvedBase + path.sep) || !path.basename(resolvedTemp).startsWith('getssh-plugin-preview-')) {
           console.warn(`[Security] commit-plugin-install rejected suspicious temp path: ${resolvedTemp}`);
           return { success: false, error: 'Invalid temp directory: not a plugin temp directory.' };
         }
@@ -834,7 +834,7 @@ export class PluginManager {
         const osTempDir = app.getPath('temp');
         const resolved = path.resolve(tempDir);
         const resolvedBase = path.resolve(osTempDir);
-        if (!resolved.startsWith(resolvedBase + path.sep) || !path.basename(resolved).startsWith('plugin_')) {
+        if (!resolved.startsWith(resolvedBase + path.sep) || !path.basename(resolved).startsWith('getssh-plugin-preview-')) {
           console.warn(`[Security] abort-plugin-install rejected suspicious path: ${resolved}`);
           return { success: false, error: 'Invalid path: not a plugin temp directory.' };
         }
