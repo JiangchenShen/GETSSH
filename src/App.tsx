@@ -541,8 +541,8 @@ function App() {
       const dirStr = direction === 'hsplit' ? 'horizontal' : 'vertical';
       await window.electronAPI.nexusSplit(paneId, dirStr);
       console.log(`[Stateless UI] Successfully dispatched ${dirStr} split for ${paneId} to Nexus Core.`);
-    } catch (e) {
-      console.error("[Stateless UI] Nexus Core error:", e);
+    } catch {
+      // Ignore Nexus Core split errors in UI
     }
   };
 
