@@ -7,7 +7,7 @@ declare module '*.png' {
 
 declare global {
   interface SSHConnectConfig { pluginUrl?: string;
-    protocol?: 'ssh' | 'local' | 'telnet';
+    protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
     host: string;
     port: number;
     username: string;

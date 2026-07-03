@@ -331,7 +331,7 @@ function App() {
     };
   }, [appConfig.autoLockTimeout, setCryptoMode, cryptoMode]);
 
-  const syncProfiles = async (updatedSessions: any[]) => {
+  const syncProfiles = async (updatedSessions: SessionProfile[]) => {
     setSessions(updatedSessions);
     if (masterPassword || encryptionDisabled) {
       await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: updatedSessions });
@@ -344,7 +344,7 @@ function App() {
   useEffect(() => {
     const handleCreateSession = (e: CustomEvent) => {
       const newSession = { host: e.detail, username: '', password: '', privateKeyPath: '', autoStart: false, protocol: 'auto' };
-      const updated = [...sessions, newSession as any];
+      const updated = [...sessions, newSession as SessionProfile];
       syncProfiles(updated);
       setSelectedSessionIndex(updated.length - 1);
       setActiveTabId(null);
