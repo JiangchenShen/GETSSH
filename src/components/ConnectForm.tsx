@@ -66,7 +66,6 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     } else {
       handleUpdate({ protocol: 'ssh' }); // default when auto = ssh
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayProtocol]);
 
   // 状态回填：当选择已有会话时，绑定协议并关闭智能识别
