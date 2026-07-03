@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useSessionStore } from '../store/sessionStore';
+import { useSessionStore, PaneNode } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
 
@@ -33,7 +33,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     if (!tab) return true;
     if (!tab.paneTree) return false; 
     let connected = false;
-    const checkTree = (node: any) => {
+    const checkTree = (node: PaneNode) => {
       if (node.type === 'leaf') {
         if (node.sessionId === sessionId && !node.isDisconnected) connected = true;
       } else {
@@ -51,18 +51,20 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
     setError(null);
     try {
       const res = await window.electronAPI.sftpList(sessionId, path);
-      if (res.success && res.list) {
-        setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
-           if (a.type === 'd' && b.type !== 'd') return -1;
-           if (a.type !== 'd' && b.type === 'd') return 1;
-           return a.name.localeCompare(b.name);
-        }));
-        setCurrentPath(path);
-      } else {
+      if (!res.success || !res.list) {
         setError(res.error || 'Failed to list files');
+        setLoading(false);
+        return;
       }
-    } catch (err: any) {
-      setError(err.message);
+
+      setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
+         if (a.type === 'd' && b.type !== 'd') return -1;
+         if (a.type !== 'd' && b.type === 'd') return 1;
+         return a.name.localeCompare(b.name);
+      }));
+      setCurrentPath(path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
