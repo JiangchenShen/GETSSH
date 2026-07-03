@@ -22,29 +22,31 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
   const panels = usePanelStore(s => s.panels);
   const panelSizes = usePanelStore(s => s.panelSizes);
   const setPanelSize = usePanelStore(s => s.setPanelSize);
-  
-  const tabs = useSessionStore(s => s.tabs);
-  const activePaneId = useSessionStore(s => s.activePaneId);
 
-  const activeSessionId = React.useMemo(() => {
-    if (!activeTabId || activeTabId === 'settings') return activeTabId;
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (!tab || !tab.paneTree) return activeTabId;
-    
-    let foundSessionId = activeTabId;
-    const findPane = (node: PaneNode) => {
-      if (node.type === 'leaf') {
-        if (node.paneId === activePaneId) {
-          foundSessionId = node.sessionId || activeTabId;
-        }
-      } else {
-        findPane(node.children[0]);
-        findPane(node.children[1]);
-      }
-    };
-    findPane(tab.paneTree);
-    return foundSessionId;
-  }, [tabs, activeTabId, activePaneId]);
+  const activeSessionId = useSessionStore(
+    React.useCallback(
+      (s) => {
+        if (!activeTabId || activeTabId === 'settings') return activeTabId;
+        const tab = s.tabs.find(t => t.id === activeTabId);
+        if (!tab || !tab.paneTree) return activeTabId;
+
+        let foundSessionId = activeTabId;
+        const findPane = (node: PaneNode) => {
+          if (node.type === 'leaf') {
+            if (node.paneId === s.activePaneId) {
+              foundSessionId = node.sessionId || activeTabId;
+            }
+          } else {
+            findPane(node.children[0]);
+            findPane(node.children[1]);
+          }
+        };
+        findPane(tab.paneTree);
+        return foundSessionId;
+      },
+      [activeTabId]
+    )
+  );
 
   const activePanel = panels.find(p => p.id === activePanelId) ?? null;
   const currentSize = activePanelId ? (panelSizes[activePanelId] ?? 320) : 0;
