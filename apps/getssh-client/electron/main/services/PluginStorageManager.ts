@@ -30,7 +30,14 @@ class JsonStorageEngine implements IStorageEngine {
     const wsId = getActiveWorkspaceId();
     this.basePath = path.join(app.getPath('home'), '.getssh', 'workspaces', wsId, 'plugins');
 
-    if (!fs.existsSync(this.basePath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(this.basePath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }
   }
@@ -47,7 +54,14 @@ class JsonStorageEngine implements IStorageEngine {
     }
 
     try {
-      if (fs.existsSync(filePath)) {
+      let fileExists = false;
+      try {
+        await fs.promises.access(filePath, fs.constants.F_OK);
+        fileExists = true;
+      } catch {
+        fileExists = false;
+      }
+      if (fileExists) {
         const data = await fs.promises.readFile(filePath, 'utf8');
         const parsed = JSON.parse(data);
         this.storeCache.set(pluginId, parsed);
@@ -106,7 +120,7 @@ class JsonStorageEngine implements IStorageEngine {
   public async get(pluginId: string, key: string): Promise<any> {
     const data = await this.loadPluginData(pluginId);
     const value = data[key];
-    return value !== undefined ? JSON.parse(JSON.stringify(value)) : undefined;
+    return value !== undefined ? structuredClone(value) : undefined;
   }
 
   public async set(pluginId: string, key: string, value: any, quotaBytes: number): Promise<void> {
@@ -125,7 +139,7 @@ class JsonStorageEngine implements IStorageEngine {
       throw new Error(`QuotaExceededError: Plugin storage exceeded allocated limit.`);
     }
 
-    data[key] = value !== undefined ? JSON.parse(JSON.stringify(value)) : undefined;
+    data[key] = value !== undefined ? structuredClone(value) : undefined;
     this.scheduleFlush(pluginId, quotaBytes);
   }
 
@@ -174,7 +188,14 @@ class SqliteStorageEngine implements IStorageEngine {
     const wsId = getActiveWorkspaceId();
     this.basePath = path.join(app.getPath('home'), '.getssh', 'workspaces', wsId, 'plugins');
 
-    if (!fs.existsSync(this.basePath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(this.basePath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }
   }
@@ -190,7 +211,14 @@ class SqliteStorageEngine implements IStorageEngine {
   public async get(pluginId: string, key: string): Promise<any> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       return undefined;
     }
     const val = this.rustKv.getVal(dbPath, key);
@@ -201,7 +229,14 @@ class SqliteStorageEngine implements IStorageEngine {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
     
-    if (!fs.existsSync(dbPath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       this.rustKv.initDb(dbPath);
     }
 
@@ -220,14 +255,28 @@ class SqliteStorageEngine implements IStorageEngine {
   public async delete(pluginId: string, key: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) return;
     this.rustKv.deleteVal(dbPath, key);
   }
 
   public async clear(pluginId: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) return;
     this.rustKv.clearVal(dbPath);
   }
 }
