@@ -52,6 +52,9 @@ export const SecureCenter: React.FC = () => {
     if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
       return setSafeError(t('security.errEmptyPwd'));
     }
+    if ((safeAction === 'change' || safeAction === 'enable') && safeNewPwd.length < 8) {
+      return setSafeError(t('crypto.passwordTooShort', 'Password too short (min 8 chars)'));
+    }
 
     if (safeAction === 'change') {
       setMasterPassword(safeNewPwd);

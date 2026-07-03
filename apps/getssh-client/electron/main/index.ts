@@ -49,6 +49,39 @@ ipcMain.handle = (channel, listener) => {
   });
 };
 
+const originalIpcOnce = ipcMain.once.bind(ipcMain);
+ipcMain.once = (channel, listener) => {
+  return originalIpcOnce(channel, (event, ...args) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      console.warn(`[Security] Blocked unauthorized IPC 'once' message from subframe to channel: ${channel}`);
+      return;
+    }
+    listener(event, ...args);
+  });
+};
+
+const originalIpcHandleOnce = ipcMain.handleOnce.bind(ipcMain);
+ipcMain.handleOnce = (channel, listener) => {
+  originalIpcHandleOnce(channel, async (event, ...args) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      console.warn(`[Security] Blocked unauthorized IPC 'handleOnce' message from subframe to channel: ${channel}`);
+      throw new Error('Unauthorized IPC channel access from subframe');
+    }
+    return listener(event, ...args);
+  });
+};
+
+const originalIpcAddListener = ipcMain.addListener.bind(ipcMain);
+ipcMain.addListener = (channel, listener) => {
+  return originalIpcAddListener(channel, (event, ...args) => {
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      console.warn(`[Security] Blocked unauthorized IPC 'addListener' message from subframe to channel: ${channel}`);
+      return;
+    }
+    listener(event, ...args);
+  });
+};
+
 // Chromium's os_crypt tries to store a key in the macOS keychain.
 // Because the app signature is absent (identity: null for small builds), macOS prompts the user. 
 // We use a mock keychain to prevent this annoying popup that blocks the main thread.
@@ -213,7 +246,7 @@ app.whenReady().then(() => {
               // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
               var PLUGIN_ID = ${JSON.stringify(pluginId).replace(/</g, '\\u003c')};
               // #2 FIX: Capture and verify parent origin once at load time
-              var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
+              var PARENT_ORIGIN = (typeof location !== 'undefined' && location.ancestorOrigins && location.ancestorOrigins.length > 0) ? location.ancestorOrigins[0] : (document.referrer ? new URL(document.referrer).origin : '*');
               
               window.__GETSSH_LOCALE = navigator.language;
               window.__themeListeners = [];

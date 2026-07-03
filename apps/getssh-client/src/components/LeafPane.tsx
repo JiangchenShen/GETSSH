@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Terminal as TerminalComponent, getTerminalBuffer } from './Terminal';
 import { PaneLeaf, PaneNode, useSessionStore, isSSHConfig } from '../store/sessionStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink, ArrowDownToLine } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { PluginPane } from './PluginPane';
@@ -69,8 +70,10 @@ export const LeafPane: React.FC<{
     }
   }, [node.paneType]);
 
-  const tabTitle = useSessionStore(state => state.tabs.find(t => t.id === tabId)?.title);
-  const paneTree = useSessionStore(state => state.tabs.find(t => t.id === tabId)?.paneTree);
+  const { tabTitle, paneTree } = useSessionStore(useShallow(state => {
+    const tab = state.tabs.find(t => t.id === tabId);
+    return { tabTitle: tab?.title, paneTree: tab?.paneTree };
+  }));
   
   const totalPanes = countLeaves(paneTree as PaneNode);
   const isMaxPanes = totalPanes >= 4;

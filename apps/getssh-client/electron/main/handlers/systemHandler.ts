@@ -151,10 +151,25 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     }, 1000);
   };
 
+  const stopSysmon = () => {
+    if (sysmonInterval) {
+      clearInterval(sysmonInterval);
+      sysmonInterval = null;
+    }
+  };
+
   startSysmon();
   
   app.on('browser-window-created', () => {
     startSysmon();
+  });
+
+  app.on('window-all-closed', () => {
+    stopSysmon();
+  });
+
+  app.on('before-quit', () => {
+    stopSysmon();
   });
 
   // Background config and hotkeys

@@ -27,16 +27,25 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resolvedUrl = resolvePluginUrl(pluginUrl);
 
-  const resolvedPluginId = pluginUrl?.startsWith('getssh-plugin://') 
-    ? pluginUrl.split('/')[2] 
-    : paneId;
+  const resolvedPluginId = (() => {
+    if (!pluginUrl) return paneId;
+    if (pluginUrl.startsWith('getssh-plugin://')) {
+      return pluginUrl.split('/')[2];
+    }
+    try {
+      const url = new URL(pluginUrl, 'http://dummy.local');
+      return url.searchParams.get('pluginId') || paneId;
+    } catch {
+      return paneId;
+    }
+  })();
 
   useEffect(() => {
     // 1. Set up the event listener for messages coming from the iframe
     const handleMessage = async (event: MessageEvent) => {
       // Security Check: Ensure the message is strictly from our sandbox iframe
       // #7 FIX: Use short-circuit negation — if iframeRef is null OR source doesn't match, reject
-      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) {
+      if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
 
@@ -52,18 +61,12 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
       if (type === 'rpc-invoke') {
         try {
           // #8 FIX: Ignore untrusted pluginId. Extract real pluginId from the pluginUrl.
-          const realPluginId = pluginUrl?.startsWith('getssh-plugin://') 
-            ? pluginUrl.split('/')[2] 
-            : (event.data.pluginId || paneId);
+          const realPluginId = resolvedPluginId;
             
           const res = await window.electronAPI.pluginRpcInvoke(realPluginId, method, payload);
-          if (iframeRef.current && iframeRef.current.contentWindow) {
-            iframeRef.current.contentWindow.postMessage({ type: 'rpc-response', reqId, ...res }, '*');
-          }
+          iframeRef.current?.contentWindow?.postMessage({ type: 'rpc-response', reqId, ...res }, '*');
         } catch (err: any) {
-          if (iframeRef.current && iframeRef.current.contentWindow) {
-            iframeRef.current.contentWindow.postMessage({ type: 'rpc-response', reqId, error: err.message }, '*');
-          }
+          iframeRef.current?.contentWindow?.postMessage({ type: 'rpc-response', reqId, error: err.message }, '*');
         }
       }
     };
@@ -72,15 +75,11 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
 
     // Forward sysmon data from main process to iframe if this is the sysmon plugin
     const unsubscribeSysmon = window.electronAPI.onSysmonData((data) => {
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({ type: 'sysmon:data', payload: data }, '*');
-      }
+      iframeRef.current?.contentWindow?.postMessage({ type: 'sysmon:data', payload: data }, '*');
     });
 
     const unsubscribeRpc = window.electronAPI.onPluginRpcMessage(resolvedPluginId, (payload: any) => {
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({ type: 'backend-message', payload }, '*');
-      }
+      iframeRef.current?.contentWindow?.postMessage({ type: 'backend-message', payload }, '*');
     });
 
     return () => {
@@ -92,14 +91,12 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
 
   // 2. Push theme state to plugin whenever it changes
   useEffect(() => {
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      const currentTheme = isDark ? 'dark' : 'light';
-      // Send theme state to plugin
-      iframeRef.current.contentWindow.postMessage(
-        { type: 'host:theme-change', payload: currentTheme },
-        '*'
-      );
-    }
+    const currentTheme = isDark ? 'dark' : 'light';
+    // Send theme state to plugin
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'host:theme-change', payload: currentTheme },
+      '*'
+    );
   }, [isDark]);
 
   return (

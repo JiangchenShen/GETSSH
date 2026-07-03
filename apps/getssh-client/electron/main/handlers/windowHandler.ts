@@ -1,4 +1,4 @@
-import { dialog, Menu, BrowserWindow, shell } from 'electron';
+import { dialog, Menu, BrowserWindow, shell, app } from 'electron';
 import os from 'os';
 
 export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
@@ -136,6 +136,28 @@ export function setupSecurityPolicies(webContents: Electron.WebContents, devServ
   webContents.setWindowOpenHandler(() => {
     return { action: 'deny' };
   });
+
+  // [L-04] Security Fix: Disable DevTools and Reload in production environment globally
+  if (app.isPackaged) {
+    webContents.on('devtools-opened', () => {
+      webContents.closeDevTools();
+    });
+
+    webContents.on('before-input-event', (event, input) => {
+      const isDevTools =
+        (input.control && input.shift && input.key.toLowerCase() === 'i') ||
+        (input.meta && input.alt && input.key.toLowerCase() === 'i') ||
+        input.key === 'F12';
+      const isReload =
+        (input.control && input.key.toLowerCase() === 'r') ||
+        (input.meta && input.key.toLowerCase() === 'r') ||
+        input.key === 'F5';
+
+      if (isDevTools || isReload) {
+        event.preventDefault();
+      }
+    });
+  }
 
   // Prevent arbitrary navigation within the main window
   webContents.on('will-navigate', (event, url) => {
