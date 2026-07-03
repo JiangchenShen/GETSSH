@@ -25,7 +25,14 @@ class JsonStorageEngine implements IStorageEngine {
   }
 
   public async init() {
-    if (!fs.existsSync(this.basePath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(this.basePath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }
   }
@@ -42,7 +49,14 @@ class JsonStorageEngine implements IStorageEngine {
     }
 
     try {
-      if (fs.existsSync(filePath)) {
+      let fileExists = false;
+      try {
+        await fs.promises.access(filePath, fs.constants.F_OK);
+        fileExists = true;
+      } catch {
+        fileExists = false;
+      }
+      if (fileExists) {
         const data = await fs.promises.readFile(filePath, 'utf8');
         const parsed = JSON.parse(data);
         this.storeCache.set(pluginId, parsed);
@@ -166,7 +180,14 @@ class SqliteStorageEngine implements IStorageEngine {
 
 
   public async init() {
-    if (!fs.existsSync(this.basePath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(this.basePath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       await fs.promises.mkdir(this.basePath, { recursive: true });
     }
   }
@@ -182,7 +203,14 @@ class SqliteStorageEngine implements IStorageEngine {
   public async get(pluginId: string, key: string): Promise<any> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       return undefined;
     }
     const val = this.rustKv.getVal(dbPath, key);
@@ -193,7 +221,14 @@ class SqliteStorageEngine implements IStorageEngine {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
     
-    if (!fs.existsSync(dbPath)) {
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
       this.rustKv.initDb(dbPath);
     }
 
@@ -212,14 +247,28 @@ class SqliteStorageEngine implements IStorageEngine {
   public async delete(pluginId: string, key: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) return;
     this.rustKv.deleteVal(dbPath, key);
   }
 
   public async clear(pluginId: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    let exists = false;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    if (!exists) return;
     this.rustKv.clearVal(dbPath);
   }
 }
