@@ -5,7 +5,7 @@ import { immer } from 'zustand/middleware/immer';
 
 export interface SSHConnectConfig {
     pluginUrl?: string;
-    protocol?: 'ssh' | 'local' | 'telnet';
+    protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
     host: string;
     port: number;
     username: string;
@@ -58,7 +58,7 @@ export interface Tab {
 export type OsType = 'ubuntu' | 'debian' | 'centos' | 'rhel' | 'fedora' | 'alpine' | 'arch' | 'suse' | 'windows' | 'macos' | 'cisco' | 'huawei' | 'generic';
 
 export interface SessionProfile {
-  protocol?: 'ssh' | 'local' | 'telnet';
+  protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   username: string;
   password?: string;
