@@ -213,7 +213,7 @@ app.whenReady().then(async () => {
               // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
               var PLUGIN_ID = ${JSON.stringify(pluginId).replace(/</g, '\\u003c')};
               // #2 FIX: Capture and verify parent origin once at load time
-              var PARENT_ORIGIN = document.referrer ? new URL(document.referrer).origin : '*';
+              var PARENT_ORIGIN = (typeof location !== 'undefined' && location.ancestorOrigins && location.ancestorOrigins.length > 0) ? location.ancestorOrigins[0] : (document.referrer ? new URL(document.referrer).origin : '*');
               
               window.__GETSSH_LOCALE = navigator.language;
               window.__themeListeners = [];
