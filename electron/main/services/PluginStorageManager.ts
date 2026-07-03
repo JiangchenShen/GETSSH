@@ -142,6 +142,7 @@ class JsonStorageEngine implements IStorageEngine {
 class SqliteStorageEngine implements IStorageEngine {
   private basePath: string;
   private rustKv: any;
+  private dbExistsCache: Set<string> = new Set();
 
   constructor() {
     this.basePath = path.join(app.getPath('userData'), 'plugin_data');
@@ -179,10 +180,21 @@ class SqliteStorageEngine implements IStorageEngine {
     return dbPath;
   }
 
+  private async ensureDbExists(dbPath: string): Promise<boolean> {
+    if (this.dbExistsCache.has(dbPath)) return true;
+    try {
+      await fs.promises.access(dbPath, fs.constants.F_OK);
+      this.dbExistsCache.add(dbPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public async get(pluginId: string, key: string): Promise<any> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) {
+    if (!(await this.ensureDbExists(dbPath))) {
       return undefined;
     }
     const val = this.rustKv.getVal(dbPath, key);
@@ -193,8 +205,9 @@ class SqliteStorageEngine implements IStorageEngine {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
     
-    if (!fs.existsSync(dbPath)) {
+    if (!(await this.ensureDbExists(dbPath))) {
       this.rustKv.initDb(dbPath);
+      this.dbExistsCache.add(dbPath);
     }
 
     const valueStr = value !== undefined ? JSON.stringify(value) : "";
@@ -212,14 +225,14 @@ class SqliteStorageEngine implements IStorageEngine {
   public async delete(pluginId: string, key: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    if (!(await this.ensureDbExists(dbPath))) return;
     this.rustKv.deleteVal(dbPath, key);
   }
 
   public async clear(pluginId: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    if (!(await this.ensureDbExists(dbPath))) return;
     this.rustKv.clearVal(dbPath);
   }
 }
