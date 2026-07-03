@@ -39,9 +39,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const activeTabId = useSessionStore(state => state.activeTabId);
-  const tabs = useSessionStore(state => state.tabs);
   
-  const activeTab = tabs.find(t => t.id === activeTabId);
+  const activeTab = useSessionStore(state => state.tabs.find(t => t.id === state.activeTabId));
   const isConnected = !!(activeTabId && activeTabId !== 'settings' && !activeTabId.startsWith('cmd-') && activeTab && (activeTab.paneTree?.type === 'leaf' ? activeTab.paneTree.paneType !== 'welcome' : true));
   
   const activePanelId = usePanelStore(state => state.activePanelId);
