@@ -40,7 +40,7 @@ pub struct SystemStats {
 
 #[napi]
 pub fn get_system_stats() -> Result<SystemStats> {
-    // Bug Fix #7: If a previous call panicked while the Mutex was locked, Rust marks it as
+    // If a previous call panicked while the Mutex was locked, Rust marks it as
     // "poisoned" and all subsequent .lock() calls return Err. Using into_inner() recovers the
     // guard from a poisoned state so the system monitor does not permanently break.
     let mut sys = SYS.lock().unwrap_or_else(|poisoned| {
