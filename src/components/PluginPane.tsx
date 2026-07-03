@@ -27,9 +27,18 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resolvedUrl = resolvePluginUrl(pluginUrl);
 
-  const resolvedPluginId = pluginUrl?.startsWith('getssh-plugin://') 
-    ? pluginUrl.split('/')[2] 
-    : paneId;
+  const resolvedPluginId = (() => {
+    if (!pluginUrl) return paneId;
+    if (pluginUrl.startsWith('getssh-plugin://')) {
+      return pluginUrl.split('/')[2];
+    }
+    try {
+      const url = new URL(pluginUrl, 'http://dummy.local');
+      return url.searchParams.get('pluginId') || paneId;
+    } catch {
+      return paneId;
+    }
+  })();
 
   useEffect(() => {
     // 1. Set up the event listener for messages coming from the iframe
@@ -52,9 +61,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({ paneId, pluginUrl, isDar
       if (type === 'rpc-invoke') {
         try {
           // #8 FIX: Ignore untrusted pluginId. Extract real pluginId from the pluginUrl.
-          const realPluginId = pluginUrl?.startsWith('getssh-plugin://') 
-            ? pluginUrl.split('/')[2] 
-            : (event.data.pluginId || paneId);
+          const realPluginId = resolvedPluginId;
             
           const res = await window.electronAPI.pluginRpcInvoke(realPluginId, method, payload);
           iframeRef.current?.contentWindow?.postMessage({ type: 'rpc-response', reqId, ...res }, '*');
