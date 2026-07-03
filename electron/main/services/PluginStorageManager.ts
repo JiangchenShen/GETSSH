@@ -14,6 +14,7 @@ export interface IStorageEngine {
 
 class JsonStorageEngine implements IStorageEngine {
   private basePath: string;
+  private initialized: boolean = false;
   private storeCache: Map<string, Record<string, any>> = new Map();
   private writeQueue: Set<string> = new Set();
   private writeTimeout: NodeJS.Timeout | null = null;
@@ -25,8 +26,13 @@ class JsonStorageEngine implements IStorageEngine {
   }
 
   public async init() {
-    if (!fs.existsSync(this.basePath)) {
-      await fs.promises.mkdir(this.basePath, { recursive: true });
+    if (!this.initialized) {
+      try {
+        await fs.promises.access(this.basePath);
+      } catch {
+        await fs.promises.mkdir(this.basePath, { recursive: true });
+      }
+      this.initialized = true;
     }
   }
 
@@ -42,14 +48,14 @@ class JsonStorageEngine implements IStorageEngine {
     }
 
     try {
-      if (fs.existsSync(filePath)) {
-        const data = await fs.promises.readFile(filePath, 'utf8');
-        const parsed = JSON.parse(data);
-        this.storeCache.set(pluginId, parsed);
-        return parsed;
+      const data = await fs.promises.readFile(filePath, 'utf8');
+      const parsed = JSON.parse(data);
+      this.storeCache.set(pluginId, parsed);
+      return parsed;
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') {
+        console.warn(`[PluginStorageManager] Failed to read or parse storage for plugin ${pluginId}. Starting fresh.`, e);
       }
-    } catch (e) {
-      console.warn(`[PluginStorageManager] Failed to read or parse storage for plugin ${pluginId}. Starting fresh.`, e);
     }
     const fresh: Record<string, any> = {};
     this.storeCache.set(pluginId, fresh);
@@ -141,6 +147,7 @@ class JsonStorageEngine implements IStorageEngine {
 
 class SqliteStorageEngine implements IStorageEngine {
   private basePath: string;
+  private initialized: boolean = false;
   private rustKv: any;
 
   constructor() {
@@ -166,8 +173,13 @@ class SqliteStorageEngine implements IStorageEngine {
 
 
   public async init() {
-    if (!fs.existsSync(this.basePath)) {
-      await fs.promises.mkdir(this.basePath, { recursive: true });
+    if (!this.initialized) {
+      try {
+        await fs.promises.access(this.basePath);
+      } catch {
+        await fs.promises.mkdir(this.basePath, { recursive: true });
+      }
+      this.initialized = true;
     }
   }
 
@@ -182,7 +194,9 @@ class SqliteStorageEngine implements IStorageEngine {
   public async get(pluginId: string, key: string): Promise<any> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) {
+    try {
+      await fs.promises.access(dbPath);
+    } catch {
       return undefined;
     }
     const val = this.rustKv.getVal(dbPath, key);
@@ -193,7 +207,9 @@ class SqliteStorageEngine implements IStorageEngine {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
     
-    if (!fs.existsSync(dbPath)) {
+    try {
+      await fs.promises.access(dbPath);
+    } catch {
       this.rustKv.initDb(dbPath);
     }
 
@@ -212,14 +228,22 @@ class SqliteStorageEngine implements IStorageEngine {
   public async delete(pluginId: string, key: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    try {
+      await fs.promises.access(dbPath);
+    } catch {
+      return;
+    }
     this.rustKv.deleteVal(dbPath, key);
   }
 
   public async clear(pluginId: string): Promise<void> {
     await this.init();
     const dbPath = this.getDbPath(pluginId);
-    if (!fs.existsSync(dbPath)) return;
+    try {
+      await fs.promises.access(dbPath);
+    } catch {
+      return;
+    }
     this.rustKv.clearVal(dbPath);
   }
 }
