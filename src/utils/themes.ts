@@ -168,8 +168,8 @@ export const parseCustomTheme = (jsonString: string): ITheme | null => {
     if (typeof raw !== 'object' || raw === null) return null;
 
     // Flatten object
-    const flatten = (obj: any, prefix = ''): Record<string, string> => {
-      return Object.keys(obj).reduce((acc: any, k) => {
+    const flatten = (obj: Record<string, any>, prefix = ''): Record<string, string> => {
+      return Object.keys(obj).reduce((acc: Record<string, string>, k: string) => {
         if (k === '__proto__' || k === 'constructor' || k === 'prototype') return acc;
         const pre = prefix.length ? prefix + '.' : '';
         if (typeof obj[k] === 'object' && obj[k] !== null && !Array.isArray(obj[k])) {
@@ -182,7 +182,7 @@ export const parseCustomTheme = (jsonString: string): ITheme | null => {
     };
 
     const flat = flatten(raw);
-    const theme: any = {};
+    const theme: Record<string, string | undefined> = {};
     const keys = Object.keys(flat);
     const lowerKeys = keys.map(k => k.toLowerCase());
 
