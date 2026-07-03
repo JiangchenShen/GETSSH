@@ -224,7 +224,7 @@ fn main() {
     let mut sleep_mode = false;
     let mut ui_alive = false;
     let mut is_yellow = false;
-    // Bug Fix #5: Limit how many times the user can extend the countdown via SAVE-15S.
+    // Limit how many times the user can extend the countdown via SAVE-15S.
     // Without this, a compromised Electron process could send SAVE-15S in a loop
     // to prevent Watchdog from ever executing the kill.
     let mut save_extensions_used = 0u32;
@@ -322,7 +322,7 @@ fn main() {
                         lockdown_mode = false;
                         let _ = write_stream.write_all(b"RESOLVED\n");
                     } else if msg == "ACTION:SAVE-15S" {
-                        // Bug Fix #5: Cap SAVE-15S extensions to prevent infinite countdown reset.
+                        // Cap SAVE-15S extensions to prevent infinite countdown reset.
                         if save_extensions_used < MAX_SAVE_EXTENSIONS {
                             lockdown_timer = 15;
                             save_extensions_used += 1;
