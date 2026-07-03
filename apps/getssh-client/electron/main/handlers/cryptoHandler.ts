@@ -180,6 +180,7 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     if (safeStorage.isEncryptionAvailable()) {
       try {
         const encryptedKey = safeStorage.encryptString(masterPassword);
+        const { PROFILES_KEY_PATH } = getWorkspacePaths();
         await fs.promises.writeFile(PROFILES_KEY_PATH, encryptedKey);
       } catch (err: unknown) {
         console.error('Failed to securely store master password:', err);
