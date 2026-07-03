@@ -5,7 +5,7 @@ import { immer } from 'zustand/middleware/immer';
 
 export interface SSHConnectConfig {
     pluginUrl?: string;
-    protocol?: 'ssh' | 'local' | 'telnet';
+    protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
     host: string;
     port: number;
     username: string;
@@ -65,7 +65,7 @@ export interface FloatingAiContext {
 }
 
 export interface SessionProfile {
-  protocol?: 'ssh' | 'local' | 'telnet';
+  protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   username: string;
   password?: string;

@@ -11,7 +11,7 @@ import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
 import { getRustCorePath } from './utils/rustCorePath';
 
-function isPrivateIP(ip: string): boolean {
+export function isPrivateIP(ip: string): boolean {
   // Check against common private/loopback IP ranges
   if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' || ip === '::') return true;
   
