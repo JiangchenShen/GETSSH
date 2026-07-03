@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
+import type { AppConfig } from '../store/appStore';
 
 interface ConnectFormProps {
   session: any;
   index: number;
-  appConfig: any;
+  appConfig: AppConfig;
   isDark: boolean;
   connecting: boolean;
   error: string | null;
