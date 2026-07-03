@@ -101,7 +101,7 @@ class JsonStorageEngine implements IStorageEngine {
   public async get(pluginId: string, key: string): Promise<any> {
     const data = await this.loadPluginData(pluginId);
     const value = data[key];
-    return value !== undefined ? JSON.parse(JSON.stringify(value)) : undefined;
+    return value !== undefined ? structuredClone(value) : undefined;
   }
 
   public async set(pluginId: string, key: string, value: any, quotaBytes: number): Promise<void> {
@@ -120,7 +120,7 @@ class JsonStorageEngine implements IStorageEngine {
       throw new Error(`QuotaExceededError: Plugin storage exceeded allocated limit.`);
     }
 
-    data[key] = value !== undefined ? JSON.parse(JSON.stringify(value)) : undefined;
+    data[key] = value !== undefined ? structuredClone(value) : undefined;
     this.scheduleFlush(pluginId, quotaBytes);
   }
 
