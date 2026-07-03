@@ -372,7 +372,7 @@ function App() {
      }
   };
 
-  const handleConnect = async (targetSession: any) => {
+  const handleConnect = async (targetSession: SessionProfile) => {
     setError(null);
     setConnecting(true);
 
