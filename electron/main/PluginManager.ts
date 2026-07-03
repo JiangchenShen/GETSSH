@@ -45,6 +45,7 @@ export class PluginManager {
   } = { terminal: [], sftp: [] };
   
   private settingsSchemas: Map<string, PluginSettingsSchema[]> = new Map();
+  private _previewSourceDirCache: Record<string, string> = {};
 
   constructor() {
     this.pluginsPath = path.join(app.getPath('userData'), 'plugins');
@@ -762,13 +763,15 @@ export class PluginManager {
           }
         }
 
+        this._previewSourceDirCache[resolvedTempDir] = sourceDir;
+
         return { success: true, manifest, sourceDir, tempDir };
       } catch (err: unknown) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
 
-    ipcMain.handle('commit-plugin-install', async (event, { sourceDir, tempDir, manifest: _ignoredManifest }: { sourceDir: string; tempDir: string; manifest?: any }) => {
+    ipcMain.handle('commit-plugin-install', async (event, { tempDir, manifest: _ignoredManifest }: { tempDir: string; manifest?: any }) => {
       try {
         // #5 FIX: Validate that the path is actually a plugin temp directory before manipulating it
         const osTempDir = app.getPath('temp');
@@ -779,13 +782,13 @@ export class PluginManager {
           return { success: false, error: 'Invalid temp directory: not a plugin temp directory.' };
         }
 
-        const resolvedSource = path.resolve(sourceDir);
-        if (resolvedSource !== resolvedTemp && !resolvedSource.startsWith(resolvedTemp + path.sep)) {
-          console.warn(`[Security] commit-plugin-install rejected suspicious source path: ${resolvedSource}`);
-          return { success: false, error: 'Invalid source directory: path traversal detected.' };
-        }
-
         // #4 FIX: Do NOT trust the manifest from the renderer — re-read from the server-side sourceDir
+        const sourceDir = this._previewSourceDirCache[resolvedTemp];
+        if (!sourceDir) {
+          return { success: false, error: 'Preview cache expired or missing. Please re-select the file.' };
+        }
+        delete this._previewSourceDirCache[resolvedTemp];
+
         const serverManifest = JSON.parse(
           await fs.promises.readFile(path.join(sourceDir, 'package.json'), 'utf8')
         );
@@ -838,6 +841,7 @@ export class PluginManager {
           console.warn(`[Security] abort-plugin-install rejected suspicious path: ${resolved}`);
           return { success: false, error: 'Invalid path: not a plugin temp directory.' };
         }
+        delete this._previewSourceDirCache[resolved];
         await fs.promises.rm(resolved, { recursive: true, force: true });
         return { success: true };
       } catch (e) {
