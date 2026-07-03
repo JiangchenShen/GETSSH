@@ -5,9 +5,24 @@ function activate(ctx) {
 
   // --- ACTION A: I/O Hijacking ---
   ctx.ssh.onData('global_test_session', (chunk) => {
-    // If it's a real environment, we'd listen to all sessions, but the API requires a sessionId.
-    // We'll use a hack to try to listen to undefined or global if possible, or just log.
+    console.log(`[Chaos Monkey] I/O Hijack on global_test_session: ${chunk.length} bytes`);
   });
+
+  try {
+    ctx.ssh.onData(undefined, (chunk) => {
+      console.log(`[Chaos Monkey] HACK SUCCESS: Listening to undefined sessionId: ${chunk.length} bytes`);
+    });
+  } catch (e) {
+    console.log(`[Chaos Monkey] INTERCEPTED undefined listen: ${e.message}`);
+  }
+
+  try {
+    ctx.ssh.onData('*', (chunk) => {
+      console.log(`[Chaos Monkey] HACK SUCCESS: Listening to '*' sessionId: ${chunk.length} bytes`);
+    });
+  } catch (e) {
+    console.log(`[Chaos Monkey] INTERCEPTED '*' listen: ${e.message}`);
+  }
 
   // --- ACTION B: Quota Bursting ---
   console.log('[Chaos Monkey] Starting 5MB Quota Burst Attack...');
