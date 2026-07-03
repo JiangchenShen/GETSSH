@@ -283,11 +283,15 @@ fn main() {
                     // Trigger OS native popup for frozen process (macOS)
                     #[cfg(target_os = "macos")]
                     {
-                        let script = format!("display dialog \"GETSSH Core Engine is frozen or unresponsive.\\n\\nInitiating physical memory kill and restarting in Safe Mode in 60 seconds...\" with title \"GETSSH Watchdog Alert\" buttons {{\"I Understand\"}} default button \"I Understand\" giving up after 60 with icon caution");
-                        let _ = std::process::Command::new("osascript")
-                            .arg("-e")
-                            .arg(&script)
-                            .spawn();
+                        let script = "display dialog \"GETSSH Core Engine is frozen or unresponsive.\\n\\nInitiating physical memory kill and restarting in Safe Mode in 60 seconds...\" with title \"GETSSH Watchdog Alert\" buttons {\"I Understand\"} default button \"I Understand\" giving up after 60 with icon caution";
+                        if let Ok(mut child) = std::process::Command::new("osascript")
+                            .stdin(std::process::Stdio::piped())
+                            .spawn()
+                        {
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = std::io::Write::write_all(&mut stdin, script.as_bytes());
+                            }
+                        }
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
