@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Info, X } from 'lucide-react';
 import { detectProtocol } from '../utils/protocolParser';
+import type { AppConfig } from '../store/appStore';
 
 import type { SessionProfile } from '../store/sessionStore';
 import type { AppConfig } from '../store/appStore';
