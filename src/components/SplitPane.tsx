@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { usePanelStore } from '../store/panelStore';
-import { useSessionStore } from '../store/sessionStore';
+import { useSessionStore, PaneNode } from '../store/sessionStore';
 
 /**
  * SplitPane - A dynamic, resizable split panel engine.
@@ -32,7 +32,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
     if (!tab || !tab.paneTree) return activeTabId;
     
     let foundSessionId = activeTabId;
-    const findPane = (node: any) => {
+    const findPane = (node: PaneNode) => {
       if (node.type === 'leaf') {
         if (node.paneId === activePaneId) {
           foundSessionId = node.sessionId || activeTabId;
