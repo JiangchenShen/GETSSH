@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2 } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
@@ -43,6 +43,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const masterPassword = useCryptoStore(state => state.masterPassword);
   const isPolluted = useAppStore(state => state.isPolluted);
+  const watchdogStatus = useAppStore(state => state.watchdogStatus);
   const runbooks = useWorkspaceStore(state => state.runbooks);
   
   const { setActiveTileId } = useMoovierFocus();
@@ -443,6 +444,16 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           }`}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Alert Banner */}
+          {isPolluted && (
+            <div className={`w-full px-4 py-3 flex items-center justify-center gap-2 border-b text-sm font-bold tracking-widest ${
+              watchdogStatus?.level === 'red' ? 'bg-red-500/20 text-red-500 border-red-500/30' : 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30'
+            }`}>
+              <ShieldAlert className="w-4 h-4 animate-pulse" />
+              {watchdogStatus?.level === 'red' ? '⚠️ 当前系统已被污染 (高危)' : '⚠️ 插件高危操作已阻断 (警告)'}
+            </div>
+          )}
+
           {/* Header Input */}
           <div className="flex items-center px-4 py-4 border-b border-white/10 shrink-0">
             <Command className="w-5 h-5 opacity-50 mr-3" />

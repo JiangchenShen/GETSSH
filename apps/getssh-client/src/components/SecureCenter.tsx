@@ -17,7 +17,6 @@ export const SecureCenter: React.FC = () => {
   const isDark = useAppStore(state => state.isDark);
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
   const pollWatchdogStatus = useAppStore(state => state.pollWatchdogStatus);
-  const isPolluted = useAppStore(state => state.isPolluted);
 
   const masterPassword = useCryptoStore(state => state.masterPassword);
   const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
@@ -128,21 +127,43 @@ export const SecureCenter: React.FC = () => {
 
           {/* Right Payload Area */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-            {isPolluted && (
-              <div className={`w-full p-4 flex items-center gap-3 border-b ${
-                watchdogStatus?.level === 'red' ? 'bg-red-500/20 border-red-500/30' : 'bg-yellow-500/20 border-yellow-500/30'
-              }`}>
-                <ShieldAlert className={`w-6 h-6 animate-pulse shrink-0 ${watchdogStatus?.level === 'red' ? 'text-red-500' : 'text-yellow-500'}`} />
-                <div className="flex flex-col">
-                  <span className={`text-sm font-bold tracking-wide uppercase ${watchdogStatus?.level === 'red' ? 'text-red-500' : 'text-yellow-500'}`}>
-                    {watchdogStatus?.level === 'red' ? t('security.pollutedTitle', 'System Polluted') : 'Operation Blocked'}
-                  </span>
-                  <span className={`text-xs font-medium ${watchdogStatus?.level === 'red' ? 'text-red-500/80' : 'text-yellow-500/80'}`}>
-                    {watchdogStatus?.level === 'red' ? t('security.pollutedDesc', '系统已被污染，部分安全措施已经失效。请立即检查并清理异常进程。') : '系统拦截了部分插件的高危操作请求，但核心运行状态正常。'}
-                  </span>
-                </div>
+            <div className={`w-full p-4 flex items-center gap-3 border-b ${
+              isDanger ? 'bg-red-500/20 border-red-500/30' : 
+              isWarning ? 'bg-yellow-500/20 border-yellow-500/30' : 
+              isWatchdogDisabled ? 'bg-slate-500/20 border-slate-500/30' :
+              'bg-green-500/20 border-green-500/30'
+            }`}>
+              <ShieldAlert className={`w-6 h-6 shrink-0 ${
+                isDanger ? 'text-red-500 animate-bounce' : 
+                isWarning ? 'text-yellow-500 animate-pulse' : 
+                isWatchdogDisabled ? 'text-slate-500' :
+                'text-green-500 animate-[pulse_3s_ease-in-out_infinite]'
+              }`} />
+              <div className="flex flex-col">
+                <span className={`text-sm font-bold tracking-wide uppercase ${
+                  isDanger ? 'text-red-500' : 
+                  isWarning ? 'text-yellow-500' : 
+                  isWatchdogDisabled ? 'text-slate-500' :
+                  'text-green-500'
+                }`}>
+                  {isDanger ? t('security.pollutedTitle', '⚠️ 当前系统已被污染 (高危)') : 
+                   isWarning ? '⚠️ 插件高危操作已阻断 (警告)' :
+                   isWatchdogDisabled ? 'WATCHDOG DISABLED' :
+                   '系统安全'}
+                </span>
+                <span className={`text-xs font-medium ${
+                  isDanger ? 'text-red-500/80' : 
+                  isWarning ? 'text-yellow-500/80' : 
+                  isWatchdogDisabled ? 'text-slate-500/80' :
+                  'text-green-500/80'
+                }`}>
+                  {isDanger ? t('security.pollutedDesc', '系统已被污染，部分安全措施失效。请立即检查并清理异常进程。') : 
+                   isWarning ? '系统拦截了部分插件的高危操作请求，但核心运行状态正常。' :
+                   isWatchdogDisabled ? '安全守护进程已禁用。' :
+                   '系统安全，所有防御模块正常运行'}
+                </span>
               </div>
-            )}
+            </div>
 
             <div className="max-w-3xl mx-auto p-12 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {securePage === 'rasp' && <RaspTab />}

@@ -80,8 +80,8 @@ export const SecurityOverlay: React.FC = () => {
   const borderColor = isRed ? 'border-red-500/30' : 'border-yellow-500/30';
   const boxBg = isRed ? 'bg-red-950/20' : 'bg-yellow-950/20';
   const btnPrimary = isRed ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_30px_rgba(220,38,38,0.4)]' : 'bg-yellow-500 hover:bg-yellow-400 text-yellow-950 shadow-[0_0_30px_rgba(234,179,8,0.4)]';
-  const statusTitle = isRed ? 'SYSTEM LOCKDOWN' : 'SECURITY WARNING';
-  const statusSubtitle = isRed ? '内存完整性破坏 - 极高危风险' : '异常插件拦截 - 运行环境警告';
+  const statusTitle = 'GETSSH SECURE CENTER';
+  const statusSubtitle = isRed ? '⚠️ 内存完整性已被破坏，您的安全底线正面临重大风险！' : '⚠️ 插件高危操作已阻断，系统运行在警告状态！';
 
   return (
     <div 
@@ -120,9 +120,18 @@ export const SecurityOverlay: React.FC = () => {
           <div className={`p-8 border ${borderColor} ${boxBg} backdrop-blur-2xl rounded-3xl shadow-2xl flex flex-col items-center justify-center relative overflow-hidden`}>
             <div className={`absolute -right-10 top-1/2 -translate-y-1/2 w-40 h-40 ${glowCore} blur-3xl opacity-50`} />
             <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Time Remaining</div>
-            <div className={`text-6xl md:text-7xl font-black font-mono tracking-tighter ${accentColor} drop-shadow-[0_0_20px_currentColor]`}>
-              00:{lockdownInfo.countdown.toString().padStart(2, '0')}
-            </div>
+            {isRed ? (
+              <div className={`text-6xl md:text-7xl font-black font-mono tracking-tighter ${accentColor} drop-shadow-[0_0_20px_currentColor]`}>
+                00:{lockdownInfo.countdown.toString().padStart(2, '0')}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <div className={`text-4xl md:text-5xl font-black font-mono tracking-tighter ${accentColor}`}>
+                  00:{lockdownInfo.countdown.toString().padStart(2, '0')}
+                </div>
+                <div className="text-[10px] text-yellow-500/50 font-bold mt-2 tracking-widest uppercase">本提示仅作记录，不执行强杀</div>
+              </div>
+            )}
           </div>
 
         </div>
@@ -175,7 +184,7 @@ export const SecurityOverlay: React.FC = () => {
                 onClick={handleRestartSafe}
                 className={`col-span-1 md:col-span-2 p-6 rounded-3xl border border-transparent flex items-center justify-center gap-4 text-xl font-black tracking-widest uppercase transition-all duration-300 hover:scale-[1.02] ${btnPrimary}`}
               >
-                <RefreshCcw className="w-6 h-6" /> Reboot into Safe Mode
+                <RefreshCcw className="w-6 h-6" /> 【立刻重启至安全模式】
               </button>
               
               {/* Secondary Actions */}
@@ -183,14 +192,14 @@ export const SecurityOverlay: React.FC = () => {
                 onClick={handleSave15s}
                 className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
-                <Save className="w-5 h-5 opacity-70" /> Emergency Save (15s)
+                <Save className="w-5 h-5 opacity-70" /> 【抢救性存盘 (解锁 15 秒)】
               </button>
 
               <button 
                 onClick={handleIgnore}
                 className="p-6 rounded-3xl border border-transparent bg-transparent hover:bg-red-950/30 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase text-red-500/40 hover:text-red-400 transition-all"
               >
-                <ShieldOff className="w-5 h-5" /> Ignore & Continue (Not Recommended)
+                <ShieldOff className="w-5 h-5" /> 【忽略风险并继续】
               </button>
             </>
           ) : (
@@ -204,7 +213,7 @@ export const SecurityOverlay: React.FC = () => {
                 }}
                 className={`col-span-1 md:col-span-2 p-6 rounded-3xl border border-transparent flex items-center justify-center gap-4 text-xl font-black tracking-widest uppercase transition-all duration-300 hover:scale-[1.02] ${btnPrimary}`}
               >
-                <ShieldAlert className="w-6 h-6" /> Deactivate Malicious Plugin
+                <ShieldAlert className="w-6 h-6" /> 【关闭异常插件】
               </button>
               
               {/* Secondary Actions */}
@@ -216,14 +225,14 @@ export const SecurityOverlay: React.FC = () => {
                 }}
                 className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
-                <RefreshCcw className="w-5 h-5 opacity-70" /> Continue Execution
+                <RefreshCcw className="w-5 h-5 opacity-70" /> 【继续执行】
               </button>
 
               <button 
                 onClick={handleIgnore}
                 className="p-6 rounded-3xl border border-transparent bg-transparent hover:bg-yellow-950/30 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase text-yellow-500/40 hover:text-yellow-400 transition-all"
               >
-                <ShieldOff className="w-5 h-5" /> Ignore Warning
+                <ShieldOff className="w-5 h-5" /> 【忽略警告】
               </button>
             </>
           )}
