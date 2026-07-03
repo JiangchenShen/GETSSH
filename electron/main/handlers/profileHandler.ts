@@ -78,6 +78,10 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
    *   - Sensitive fields (password, privateKey) → AES-256-GCM Base64 ciphertext
    */
   ipcMain.handle('export-profiles', async (_event, { sessions, masterPassword }) => {
+    if (masterPassword && masterPassword.length < 8) {
+      return { success: false, reason: 'Password must be at least 8 characters long' };
+    }
+
     const { filePath, canceled } = await dialog.showSaveDialog({
       title: 'Export Profiles',
       defaultPath: `getssh-profiles-${new Date().toISOString().slice(0, 10)}.json`,
