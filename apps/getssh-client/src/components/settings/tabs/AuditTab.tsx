@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Shield, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Activity, Shield, Download, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
 
@@ -88,17 +88,30 @@ export const AuditTab: React.FC = () => {
             </div>
           </label>
 
-          {/* Export Button */}
-          <button 
-            onClick={async () => {
-              const ok = await window.electronAPI.exportConnectionLogs();
-              if (ok) alert(t('settings.auditExportSuccess'));
-            }}
-            className={`flex items-center justify-center h-[72px] px-6 gap-3 rounded-2xl border transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-black/5 hover:bg-black/10 border-black/10 text-black'}`}
-          >
-            <Download className="w-5 h-5 opacity-70" />
-            <span className="text-sm font-bold uppercase tracking-wider">{t('settings.auditExport')}</span>
-          </button>
+          <div className="flex gap-2">
+            {/* Open Folder Button */}
+            <button 
+              onClick={async () => {
+                await window.electronAPI.openAuditFolder();
+              }}
+              className={`flex items-center justify-center h-[72px] px-6 gap-3 rounded-2xl border transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-black/5 hover:bg-black/10 border-black/10 text-black'}`}
+            >
+              <FolderOpen className="w-5 h-5 opacity-70" />
+              <span className="text-sm font-bold uppercase tracking-wider">{t('settings.auditOpenFolder', '打开录屏目录')}</span>
+            </button>
+
+            {/* Export Button */}
+            <button 
+              onClick={async () => {
+                const ok = await window.electronAPI.exportConnectionLogs();
+                if (ok) alert(t('settings.auditExportSuccess'));
+              }}
+              className={`flex items-center justify-center h-[72px] px-6 gap-3 rounded-2xl border transition-all ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-black/5 hover:bg-black/10 border-black/10 text-black'}`}
+            >
+              <Download className="w-5 h-5 opacity-70" />
+              <span className="text-sm font-bold uppercase tracking-wider">{t('settings.auditExport')}</span>
+            </button>
+          </div>
         </div>
 
         {/* Audit Table */}

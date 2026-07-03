@@ -52,7 +52,7 @@ export const ExportTab: React.FC = () => {
                   }}
                   className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-purple-500/30 text-purple-400 bg-purple-500/10 hover:bg-purple-500 hover:text-purple-950' : 'border-purple-500/30 text-purple-600 bg-purple-50 hover:bg-purple-500 hover:text-white'}`}
                 >
-                  <Database className="w-5 h-5" /> Export DB Backup
+                  <Database className="w-5 h-5" /> {t('settings.exportDb')}
                 </button>
                 <button 
                   onClick={async () => {
@@ -68,7 +68,7 @@ export const ExportTab: React.FC = () => {
                   }}
                   className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
                 >
-                  <FileJson className="w-5 h-5" /> Export JSON Template
+                  <FileJson className="w-5 h-5" /> {t('settings.exportJson')}
                 </button>
               </div>
 
@@ -91,7 +91,7 @@ export const ExportTab: React.FC = () => {
                   }}
                   className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-red-500/30 text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-red-950' : 'border-red-500/30 text-red-600 bg-red-50 hover:bg-red-500 hover:text-white'}`}
                 >
-                  <Database className="w-5 h-5" /> Restore DB Backup
+                  <Database className="w-5 h-5" /> {t('settings.importDb')}
                 </button>
                 <button
                   onClick={() => {
@@ -101,7 +101,7 @@ export const ExportTab: React.FC = () => {
                   }}
                   className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500 hover:text-emerald-950' : 'border-emerald-500/30 text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white'}`}
                 >
-                  <Upload className="w-5 h-5" /> Import JSON
+                  <Upload className="w-5 h-5" /> {t('settings.importJson')}
                 </button>
               </div>
             </div>
@@ -182,10 +182,10 @@ export const ExportTab: React.FC = () => {
           <div className={`w-[26rem] p-6 rounded-2xl shadow-2xl border space-y-4 ${isDark ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-white border-black/10 text-black'}`}>
             <div className="flex items-center gap-2">
               <Database className="w-5 h-5 text-yellow-500" />
-              <h3 className="text-sm font-bold">Import Strategy Required</h3>
+              <h3 className="text-sm font-bold">{t('settings.importStrategyTitle')}</h3>
             </div>
             <p className="text-xs opacity-80 leading-relaxed font-medium">
-              The database backup you selected contains a Default/Main workspace. You can either completely OVERWRITE your existing data, or MERGE only the external workspaces into your current setup.
+              {t('settings.importStrategyDesc')}
             </p>
             <div className="flex gap-3 pt-2 mt-2 border-t border-white/5">
               <button
@@ -195,7 +195,7 @@ export const ExportTab: React.FC = () => {
                 }}
                 className="flex-1 py-2 rounded-xl text-xs font-bold border transition-colors opacity-70 hover:opacity-100 uppercase tracking-wider"
               >
-                Cancel
+                {t('settings.importStrategyCancel')}
               </button>
               <button
                 onClick={async () => {
@@ -213,7 +213,7 @@ export const ExportTab: React.FC = () => {
                 }}
                 className="flex-1 py-2 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider border border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white"
               >
-                Merge Only
+                {t('settings.importStrategyMergeOnly')}
               </button>
               <button
                 onClick={async () => {
@@ -224,7 +224,7 @@ export const ExportTab: React.FC = () => {
                 }}
                 className="flex-1 py-2 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider border border-red-500/30 text-red-500 bg-red-500/10 hover:bg-red-500 hover:text-white"
               >
-                Overwrite All
+                {t('settings.importStrategyOverwriteAll')}
               </button>
             </div>
           </div>

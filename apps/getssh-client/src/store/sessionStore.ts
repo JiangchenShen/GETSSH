@@ -19,7 +19,7 @@ export interface SSHConnectConfig {
     alias?: string;
 }
 
-export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' } | null;
+export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings' } | null;
 
 export const isSSHConfig = (config: PaneConfig): config is SSHConnectConfig => {
   return config !== null && typeof config === 'object' && !('isSettings' in config) && !('pluginUrl' in config) && !('pluginId' in config) && !('centerType' in config);
@@ -235,7 +235,7 @@ export const useSessionStore = create<SessionStore>()(
     },
 
     // ⚡ NEXUS RECEIVERS
-    syncNexusTree: (tabId: string, title: string, tree: any, isTornOff: boolean) => set(state => {
+    syncNexusTree: (tabId: string, title: string, tree: any, isTornOff?: boolean) => set(state => {
       const tabIndex = state.tabs.findIndex(t => t.id === tabId);
       
       // If tree is null, we are deleting the tab (pane closed)
@@ -245,6 +245,11 @@ export const useSessionStore = create<SessionStore>()(
           const sshTabs = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
           state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
           state.activePaneId = null;
+        }
+        if (new URLSearchParams(window.location.search).get('isHollow') === 'true') {
+          setTimeout(() => {
+            window.electronAPI?.windowSelfClose();
+          }, 50);
         }
         return;
       }

@@ -81,6 +81,11 @@ class NexusBridge extends EventEmitter {
     return await nexusCore.clearNetworkTopology();
   }
 
+  public async requestClosePane(paneId: string): Promise<any> {
+    if (!nexusCore) throw new Error("Nexus Core engine is currently offline");
+    return await nexusCore.requestClosePane(paneId);
+  }
+
   /**
    * Setup standard low-frequency IPC handlers (User Actions)
    */

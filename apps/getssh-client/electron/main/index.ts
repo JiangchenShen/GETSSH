@@ -73,7 +73,13 @@ const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
 
 function createWindow() {
-  win = new BrowserWindow(getBrowserWindowOptions(preload));
+  const options = getBrowserWindowOptions(preload);
+  options.show = false;
+  win = new BrowserWindow(options);
+  
+  win.once('ready-to-show', () => {
+    win?.show();
+  });
   
   setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL, indexHtml);
   bindWindowEvents(win, () => getBackendConfig().confirmQuit ?? false);
@@ -150,31 +156,40 @@ function createWindow() {
 
 import { SecureCenter } from './security/SecureCenter'
 import { nexusBridge } from './nexus/nexusBridge'
-import { HollowWindowPool } from './windowManager'
+import { TornWindowManager } from './windowManager'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { DatabaseManager } from './services/DatabaseManager'
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+
+  // Setup IPC Handlers before window creation to ensure early IPC works
+  registerAllIpcHandlers(ipcMain, app, () => win);
+  nexusBridge.setupIpcHandlers();
+  
+  // Show UI instantly without waiting for heavy async operations
+  createWindow();
+  if (win) {
+    nexusBridge.setupStateBroadcaster();
+  }
   
   // Init GETSSH Secure Center (RASP)
   SecureCenter.getInstance().start(() => win);
   
-  // Initialize Master SQLite Database
+  // Initialize Master SQLite Database synchronously
   DatabaseManager.init();
   
-  // Ignite Workspace 2.0 Engine (Generate sandbox if empty)
-  await bootstrapAppWorkspace();
-  
-  // Init Hollow Window Pool for multi-window tear-off
-  HollowWindowPool.getInstance().init();
-  
-  const pluginManager = new PluginManager();
-  pluginManager.setupIPC();
-  await pluginManager.loadPlugins();
-  
-  // Wire plugin teardown into RASP: on SIGKILL threat, deactivate all plugins first
-  SecureCenter.getInstance().setPluginTeardown(() => pluginManager.deactivateAll());
+  // Background asynchronous heavy initialization (workspaces, plugins, hollow windows)
+  bootstrapAppWorkspace().then(async () => {
+    TornWindowManager.getInstance().init();
+    
+    const pluginManager = new PluginManager();
+    pluginManager.setupIPC();
+    await pluginManager.loadPlugins();
+    
+    // Wire plugin teardown into RASP: on SIGKILL threat, deactivate all plugins first
+    SecureCenter.getInstance().setPluginTeardown(() => pluginManager.deactivateAll());
+  }).catch(console.error);
   
   protocol.handle('getssh-plugin', (request) => {
     try {
@@ -312,14 +327,17 @@ app.whenReady().then(async () => {
       return new Response('Bad Request: ' + e.message, { status: 400 });
     }
   });
-  
-  registerAllIpcHandlers(ipcMain, app, () => win);
-  nexusBridge.setupIpcHandlers();
-  createWindow();
-  if (win) {
-    nexusBridge.setupStateBroadcaster();
-  }
 })
+
+app.on('browser-window-created', (e, window) => {
+  window.on('close', () => {
+    // Trigger quit if this is the last visible window (ignoring background hollow windows)
+    const visibleWindows = BrowserWindow.getAllWindows().filter(w => w.isVisible() && w !== window);
+    if (visibleWindows.length === 0) {
+      app.quit();
+    }
+  });
+});
 
 app.on('window-all-closed', () => {
   win = null
@@ -327,7 +345,7 @@ app.on('window-all-closed', () => {
   import('./handlers/sshHandler').then(({ killAllSessions }) => {
     killAllSessions(app).catch(console.error);
   });
-  if (process.platform !== 'darwin') app.quit()
+  app.quit()
 })
 
 app.on('before-quit', () => {

@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import { MoovierTile } from '@moovier/core';
 import { Rocket, ShieldCheck, Globe, Sparkles, Blocks, Settings } from 'lucide-react';
 
-export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void }> = ({ openSettingsTab }) => {
+export const NexusDashboard: React.FC = () => {
   
   const isDark = useAppStore(state => state.isDark);
   const appConfig = useAppStore(state => state.appConfig);
@@ -37,14 +37,14 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
   const greetingIndex = useMemo(() => Math.floor(Math.random() * 10), []);
 
   // CSS variables for SPRING_FLUID hover effect
-  const tileHoverClass = "group relative overflow-hidden transition-all duration-500 hover:-translate-y-2 cursor-pointer rounded-xl shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4),0_20px_40px_rgba(0,0,0,0.3)]";
+  const tileHoverClass = "group relative overflow-hidden cursor-pointer rounded-xl shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4),0_20px_40px_rgba(0,0,0,0.3)]";
   const glowOverlayClass = "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br pointer-events-none";
 
   return (
-    <div className="w-full h-full max-w-6xl mx-auto flex flex-col justify-center gap-8 p-8 animate-in fade-in zoom-in-95 duration-700">
+    <div className="drag-region w-full h-full max-w-6xl mx-auto flex flex-col justify-center gap-8 p-8 animate-in fade-in zoom-in-95 duration-700">
       
       {/* Top Greeting */}
-      <div className="flex flex-col items-center text-center mb-6">
+      <div className="no-drag-region flex flex-col items-center text-center mb-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -80,14 +80,16 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
       </div>
 
       {/* The Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
+      <div className="no-drag-region grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
         
-        {/* Pillar 1: COMMAND CENTER */}
+        {/* COMMAND CENTER */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-command"
           dragLevel="fixed" 
+          whileHover={{ y: -4 }}
           onClick={() => setIsCommandCenterOpen(true)}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)] bg-white/[0.02]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-blue-500/10 to-transparent`} />
           <div className="relative z-10 flex items-center justify-between">
@@ -106,10 +108,12 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
 
         {/* Pillar 2: SECURE CENTER */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-secure"
           dragLevel="fixed" 
+          whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'secure', title: 'SECURE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)] bg-white/[0.02]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-emerald-500/10 to-transparent`} />
           <div className="relative z-10 flex items-center justify-between">
@@ -129,10 +133,12 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
 
         {/* Pillar 3: WORKSPACE CENTER */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-workspace"
           dragLevel="fixed" 
+          whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'workspace', title: 'WORKSPACE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)] bg-white/[0.02]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-purple-500/10 to-transparent`} />
           <div className="relative z-10">
@@ -148,10 +154,12 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
 
         {/* Pillar 4: AI CENTER */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-ai"
           dragLevel="fixed" 
+          whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)] bg-white/[0.02]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'} ${appConfig.aiEnabled === false ? 'grayscale opacity-50 cursor-not-allowed hover:-translate-y-0' : ''}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'} ${appConfig.aiEnabled === false ? 'grayscale opacity-50 cursor-not-allowed hover:-translate-y-0' : ''}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-amber-500/10 to-transparent`} />
           <div className="relative z-10">
@@ -168,10 +176,12 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
 
         {/* Pillar 5: PLUGIN CENTER */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-plugin"
           dragLevel="fixed" 
+          whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'plugin', title: 'PLUGIN CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-rose-500/10 to-transparent`} />
           <div className="relative z-10">
@@ -187,10 +197,12 @@ export const NexusDashboard: React.FC<{ openSettingsTab?: (tab?: string) => void
 
         {/* Pillar 6: SETTINGS */}
         <MoovierTile 
-          exemptFromFocus 
+          tileId="dashboard-settings"
           dragLevel="fixed" 
-          onClick={() => openSettingsTab && openSettingsTab('Appearance')}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between border ${isDark ? 'border-black shadow-[inset_1px_1px_0px_rgba(255,255,255,0.1)]' : '!border-black/5 !bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          whileHover={{ y: -4 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: 'Settings' } }))}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-slate-500/10 to-transparent`} />
           <div className="relative z-10">

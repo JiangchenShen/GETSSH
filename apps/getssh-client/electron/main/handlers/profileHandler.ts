@@ -153,6 +153,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
       }
 
       let parsedCount = 0;
+      const profilesByWorkspace: Record<string, any[]> = {};
 
       try {
         for (const entry of data.profiles) {
@@ -197,7 +198,11 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
           const profileId = crypto.randomUUID();
 
-          DatabaseManager.saveProfile(targetWorkspaceId, {
+          if (!profilesByWorkspace[targetWorkspaceId]) {
+             profilesByWorkspace[targetWorkspaceId] = DatabaseManager.getProfiles(targetWorkspaceId) || [];
+          }
+
+          profilesByWorkspace[targetWorkspaceId].push({
             id: profileId,
             name: entry.name ?? '',
             host: entry.host ?? '',
@@ -216,6 +221,10 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
           });
 
           parsedCount++;
+        }
+
+        for (const [wsId, profiles] of Object.entries(profilesByWorkspace)) {
+          DatabaseManager.saveProfiles(wsId, profiles);
         }
       } catch (mapErr: unknown) {
         const msg = mapErr instanceof Error ? mapErr.message : String(mapErr);

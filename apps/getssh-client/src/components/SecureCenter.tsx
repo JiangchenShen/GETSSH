@@ -169,7 +169,7 @@ export const SecureCenter: React.FC = () => {
                   handleRevokeHost={handleRevokeHost}
                 />
               )}
-              {securePage === 'shield_details' && <ShieldDetailsTab />}
+              {securePage === 'shield_details' && <ShieldDetailsTab setSecurePage={setSecurePage as any} />}
             </div>
           </div>
         </div>

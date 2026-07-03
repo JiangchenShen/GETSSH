@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MoovierTile, MoovierFocusProvider } from '@moovier/core';
+import { MoovierTile, MoovierFocusProvider, CINEMATIC_OUT } from '@moovier/core';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -35,7 +35,6 @@ import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
 
 // Overlays
-import { SettingsModalOverlay } from './components/app-overlays/SettingsModalOverlay';
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
 import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
 
@@ -70,7 +69,6 @@ function App() {
   const isDark = useAppStore(state => state.isDark);
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
-  const isPolluted = useAppStore(state => state.isPolluted);
   const isAppBlurred = useAppStore(state => state.isAppBlurred);
   const isCommandCenterOpen = useAppStore(state => state.isCommandCenterOpen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
@@ -88,8 +86,6 @@ function App() {
 
   // Local State
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
-  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'>('Appearance');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   let tornNode: PaneLeaf | null = null;
   let tornTabId: string | null = null;
@@ -108,14 +104,7 @@ function App() {
      }
   }
 
-  const openSettingsTab = (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'|string = 'Appearance', toggle: boolean = false) => {
-     if (isSettingsOpen && toggle) {
-         setIsSettingsOpen(false);
-         return;
-     }
-     setSettingsActiveTab(tab as any);
-     setIsSettingsOpen(true);
-  };
+
 
   const handleHomeClick = () => {
     setSelectedSessionIndex(null);
@@ -149,7 +138,7 @@ function App() {
 
   syncProfilesRef.current = syncProfiles;
 
-  useCoreAppEvents(setPendingHighRiskRunbook, setIsSettingsOpen, syncProfiles);
+  useCoreAppEvents(setPendingHighRiskRunbook, syncProfiles);
 
   // Prevent pre-warmed Hollow Windows from rendering heavy UI components (WebGL, TabBar, etc) until they are hijacked.
   // This saves massive amounts of CPU/RAM/GPU and prevents ghost terminals.
@@ -167,20 +156,25 @@ function App() {
   }
 
   // Global Background & Glassmorphism Logic
-  let appBgStyle = { '--titlebar-height': isMac ? '40px' : '32px' } as React.CSSProperties;
+  let appBgStyle = { 
+    '--titlebar-height': isMac ? '40px' : '32px'
+  } as React.CSSProperties;
   let containerClasses = '';
 
   if (!isDark) {
-    // Light Mode (Glass on): Pure white base with very high opacity, using primary color as extremely subtle tint
-    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(255, 255, 255, ${appConfig.bgOpacity ?? 0.85})` };
-    containerClasses = 'bg-primary/[0.02] text-slate-900 border-none';
+    // Light Mode (Glass on)
+    appBgStyle = { ...appBgStyle, backgroundColor: 'transparent' };
+    containerClasses = 'text-slate-900 border-none';
   } else if (!appConfig.enableGlassmorphism) {
-    // Dark Mode (Glass off): Solid, no blur
-    containerClasses = 'bg-[#0A0A0A] text-neutral-200 border-none';
+    // Dark Mode (Glass off): Solid
+    appBgStyle = { ...appBgStyle, backgroundColor: '#09090b' }; // obsidian-bg
+    containerClasses = 'text-neutral-200 border-none';
   } else {
-    // Dark Mode (Glass on): Semi-transparent, blur
-    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${appConfig.bgOpacity ?? 0.8})` };
-    containerClasses = 'glass-effect text-neutral-200 border-none';
+    // Dark Mode (Glass on): Liquid Glass
+    const uiOpacity = appConfig.bgOpacity ?? 1;
+    // We blend our obsidian background (#09090b) with the OS Vibrancy using the requested opacity
+    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${uiOpacity})` };
+    containerClasses = 'text-neutral-200 border-none'; 
   }
 
   return (
@@ -190,8 +184,7 @@ function App() {
         className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
         style={appBgStyle}
       >
-        {/* Subtle Duo-Tone Ambient Glow - Enabled in both modes! */}
-        <div className={`absolute inset-0 pointer-events-none z-[0] transition-all duration-1000 bg-gradient-duo ${isDark ? 'opacity-[0.12] mix-blend-screen' : 'opacity-[0.04] mix-blend-normal'}`} />
+        {/* Removed Duo-Tone Ambient Glow to let pure Liquid Glass shine through */}
 
         <AnimatePresence>
           {pendingHighRiskRunbook && (
@@ -338,35 +331,22 @@ function App() {
           );
         })()}
         
-        {!isFullScreen && !tornPaneId && (
-          <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none pr-[120px] select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag' } as React.CSSProperties & { WebkitAppRegion?: string }}>
-             {isPolluted && (
-               <span title="☢️ 污染警告" style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center' } as React.CSSProperties}>
-                 <ShieldAlert className="w-3 h-3 text-red-500 mr-2 animate-pulse" />
-               </span>
-             )}
-          </div>
-        )}
-
         {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
         {tornPaneId ? (
-          <div className="w-full h-full bg-transparent flex flex-col" style={{ paddingTop: isMac && !isFullScreen ? '40px' : '0px' }}>
-            <div className={`absolute top-0 left-0 right-0 z-[100] flex items-center justify-center text-xs opacity-50 font-medium pointer-events-none select-none ${isMac ? 'h-10' : 'h-8'}`} style={{ WebkitAppRegion: 'drag', pointerEvents: 'auto' } as React.CSSProperties & { WebkitAppRegion?: string }}>
-              {tornTabId ? tabs.find(t => t.id === tornTabId)?.title || 'Torn Terminal' : 'Torn Terminal'}
+          <div className="w-full h-full bg-transparent flex flex-col no-drag-region">
+            {/* Cinematic Torn Title Bar */}
+            <div className={`drag-region flex items-center justify-center text-xs opacity-50 font-medium select-none w-full shrink-0 ${isMac ? 'h-10' : 'h-8'}`}>
+              <span className="font-bold opacity-30 tracking-widest">{tornTabId ? tabs.find(t => t.id === tornTabId)?.title || 'Torn Terminal' : 'Torn Terminal'}</span>
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden px-2 pb-2">
-              <div className="w-full h-full rounded-xl overflow-hidden border border-black/10 dark:border-white/10 shadow-2xl relative bg-black/40 backdrop-blur-md">
-                {tornNode && tornTabId ? (
-                  <TerminalPaneRenderer node={tornNode} tabId={tornTabId} appConfig={appConfig} isDark={isDark} isTabActive={true} onSplit={() => {}} />
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-white/50 h-full w-full">
-                    {(() => {
-                      (window as any).electronAPI?.hollowLog?.('Stuck on Loading Torn Pane! tornPaneId:', tornPaneId, 'tabs length:', tabs.length);
-                      return 'Loading Torn Pane...';
-                    })()}
-                  </div>
-                )}
-              </div>
+            {/* Edge-to-Edge Terminal Canvas */}
+            <div className="flex-1 min-h-0 w-full relative">
+              {tornNode && tornTabId ? (
+                <TerminalPaneRenderer node={tornNode} tabId={tornTabId} appConfig={appConfig} isDark={isDark} isTabActive={true} onSplit={() => {}} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-white/50 h-full w-full">
+                  Loading Torn Pane...
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -374,14 +354,14 @@ function App() {
             className="w-full h-full bg-transparent"
             style={{
                display: 'grid',
-               gridTemplateColumns: `64px ${isSidebarCollapsed ? '48px' : '240px'} 1fr`,
+               gridTemplateColumns: `var(--sidebar-width-collapsed) ${isSidebarCollapsed ? '48px' : 'var(--sidebar-width)'} 1fr`,
                gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`,
                zIndex: 'var(--z-app-chrome)'
             }}
           >
           {/* L3 Global Sidebar (Ultra-narrow) */}
           <div style={{ gridColumn: '1 / 2', gridRow: '1 / 4', zIndex: 'var(--z-region-material)' }}>
-            <GlobalWorkspaceBar openSettingsTab={openSettingsTab} onHomeClick={handleHomeClick} />
+            <GlobalWorkspaceBar onHomeClick={handleHomeClick} />
           </div>
 
           {/* Left Sidebar (L4 Region Material, Edge-Flush) */}
@@ -389,8 +369,8 @@ function App() {
             <MoovierTile 
               exemptFromFocus 
               dragLevel="fixed" 
-              className={`w-full h-full shrink-0 flex flex-col rounded-xl ${!isDark && '!bg-black/[0.02] border-r !border-black/5 !shadow-none'}`}
-              style={{ borderRadius: 0 }}
+              className="w-full h-full shrink-0 flex flex-col"
+              style={{ borderRadius: 0, '--moovier-bg': isDark ? 'rgba(0, 0, 0, 0.1)' : undefined } as React.CSSProperties}
             >
               <ContextSidebar 
                 onAddSession={() => {
@@ -407,7 +387,7 @@ function App() {
           </div>
 
             {/* Main Content Area (L5 Content) */}
-          <div style={{ gridColumn: '3 / 4', gridRow: '2 / 3', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
+          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 4', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
             
             {/* Tab Bar ALWAYS visible if tabs.length > 0 */}
             {(tabs.filter(t => !t.isTornOff).length > 0 && activeTabId !== 'settings') && (
@@ -443,11 +423,20 @@ function App() {
               ))}
 
               {/* Welcome Dashboard Overlay */}
-              {(selectedSessionIndex === null && !activeTabId) && (
-                <div className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.filter(t => !t.title.startsWith('Torn ')).length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}>
-                  <NexusDashboard openSettingsTab={openSettingsTab} />
-                </div>
-              )}
+              <AnimatePresence mode="wait">
+                {(selectedSessionIndex === null && !activeTabId) && (
+                  <motion.div 
+                    key="dashboard"
+                    initial={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
+                    transition={{ duration: 0.4, ease: CINEMATIC_OUT }}
+                    className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.filter(t => !t.title.startsWith('Torn ')).length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}
+                  >
+                    <NexusDashboard />
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Connect Form Overlay */}
               <ConnectFormOverlay
@@ -463,15 +452,6 @@ function App() {
                 syncProfiles={syncProfiles}
               />
 
-              <SettingsModalOverlay 
-                isOpen={isSettingsOpen} 
-                isDark={isDark} 
-                settingsActiveTab={settingsActiveTab} 
-                encryptionDisabled={encryptionDisabled}
-                onClose={() => setIsSettingsOpen(false)} 
-                setSettingsActiveTab={setSettingsActiveTab}
-              />
-
             </div>
           </div>
         </div>
@@ -481,14 +461,6 @@ function App() {
         <CreateWorkspaceModal />
         {isAiCenterOpen && <AiCenter />}
         <UnlockVaultModal />
-        <SettingsModalOverlay 
-          isOpen={isSettingsOpen} 
-          isDark={isDark} 
-          settingsActiveTab={settingsActiveTab} 
-          encryptionDisabled={encryptionDisabled}
-          onClose={() => setIsSettingsOpen(false)} 
-          setSettingsActiveTab={setSettingsActiveTab}
-        />
         <UpdateToastOverlay />
         <HostKeyVerificationModal />
         

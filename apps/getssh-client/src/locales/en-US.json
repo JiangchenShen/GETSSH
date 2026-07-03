@@ -81,7 +81,21 @@
       "importPwdRequired": "This file is encrypted. Please enter the master password.",
       "importWrongPwd": "Incorrect master password, decryption failed.",
       "importSuccessNew": "✅ Successfully imported {{count}} new profiles (skipped {{skipped}} duplicates)!",
-      "importSuccessEmpty": "✅ File read successfully, but no new profiles to import."
+      "importSuccessEmpty": "✅ File read successfully, but no new profiles to import.",
+      "importStrategyTitle": "Import Strategy Required",
+      "importStrategyDesc": "The database backup you selected contains a Default/Main workspace. You can either completely OVERWRITE your existing data, or MERGE only the external workspaces into your current setup.",
+      "importStrategyCancel": "Cancel",
+      "importStrategyMergeOnly": "Merge Only",
+      "importStrategyOverwriteAll": "Overwrite All",
+      "exportDb": "Export DB Backup",
+      "exportJson": "Export JSON Template",
+      "importDb": "Restore DB Backup",
+      "importJson": "Import JSON",
+      "category": {
+        "personalization": "Personalization",
+        "core": "Core & Connections",
+        "information": "Information"
+      }
     },
     "security": {
       "watchdogConnecting": "Probe connecting...",
@@ -273,45 +287,6 @@
       "search": "Search Hosts...",
       "emptyState": "Select or create a session to connect"
     },
-    "connect": {
-      "alias": "Alias",
-      "host": "Host / IP",
-      "username": "Username",
-      "password": "Password",
-      "port": "Port",
-      "privateKey": "Private Key",
-      "authMethod": "Auth Method",
-      "group": "Group / Folder",
-      "optional": "Optional",
-      "keepAlive": "Enable Keep-Alive",
-      "keepAliveDesc": "Prevents session timeout drop",
-      "saveAndConnect": "Save & Connect",
-      "disconnecting": "Disconnecting...",
-      "connecting": "Connecting...",
-      "connectBtn": "Connect",
-      "protocol": {
-        "label": "Protocol",
-        "auto": "Auto",
-        "autoDesc": "Auto-detects protocol from input. Supports ssh:// telnet:// user@host formats.",
-        "local": "Local Terminal",
-        "telnet": "Telnet",
-        "localHint": "Launches the host system's default shell. No network configuration required.",
-        "telnetHint": "Plaintext Telnet, suitable for managing Cisco/Huawei network devices. Terminal type is auto-locked to vt100.",
-        "tooltipAuto": "Recommended. Automatically detects and matches the correct protocol based on your input or URL prefix (ssh://, telnet://).",
-        "tooltipSsh": "Used for remote Linux/Unix servers and cloud instances (AWS, Alibaba Cloud, Tencent Cloud). Encrypted and highly secure. Most common.",
-        "tooltipLocal": "Launches your machine's native shell within a tab. macOS opens Zsh/Bash; Windows opens PowerShell/CMD. No network required.",
-        "tooltipTelnet": "Used for legacy network hardware (Cisco, Huawei switches/routers/firewalls). Transmits in cleartext — recommended for trusted intranets or hardware debugging only.",
-        "badgeActive": "Active",
-        "badgeRecommended": "Recommended",
-        "badgePlaintext": "Plaintext"
-      },
-      "placeholder": {
-        "alias": "e.g. Production/Web Server",
-        "group": "e.g. Project Alpha / Database",
-        "host": "IP address or domain name, e.g. 192.168.1.100"
-      },
-      "hostDenied": "Host denied (Verification failed)"
-    },
     "common": {
       "connect": "Connect",
       "save": "Save",
@@ -483,7 +458,7 @@
       "saveReload": "Save & Reload"
     },
     "aiSettings": {
-      "title": "AI CENTER",
+      "title": "AI Center",
       "tabOverview": "OVERVIEW",
       "tabProviders": "PROVIDERS",
       "tabModels": "MODELS",
@@ -507,7 +482,17 @@
       "fetchError": "Failed to fetch models from the provider endpoint.",
       "availableModels": "Available Models",
       "manualOverride": "Manual Override",
-      "manualOverrideDesc": "If auto-fetching fails, manually specify the model string here."
+      "manualOverrideDesc": "If auto-fetching fails, manually specify the model string here.",
+      "sidebar": {
+        "core": "Core",
+        "dashboard": "Dashboard",
+        "providers": "Providers",
+        "models": "Models",
+        "customization": "Customization",
+        "prompts": "Prompts",
+        "agents": "Agents"
+      },
+      "subtitle": "Intelligence engine"
     },
     "workspaceCenter": {
       "activeWorkspaces": "Active Workspaces",
@@ -531,7 +516,75 @@
       "isolatedSandbox": "Isolated Sandbox",
       "synchronizing": "Synchronizing...",
       "switchingWorkspace": "Switching Workspace",
-      "pleaseWait": "Please wait..."
+      "pleaseWait": "Please wait...",
+      "title": "Workspace Center",
+      "subtitle": "Manage isolated sandboxes",
+      "sidebar": {
+        "overview": "Overview",
+        "allWorkspaces": "All Workspaces",
+        "security": "Security & Policies",
+        "vault": "Vault Encryption",
+        "isolation": "Isolation Rules",
+        "dataEnv": "Data & Environment",
+        "assetBridge": "Asset Bridge",
+        "envHooks": "Environment Hooks",
+        "storageAudit": "Storage & Audit"
+      },
+      "comingSoon": "Coming Soon",
+      "underDevelopment": "This module is under development."
+    },
+    "pluginCenter": {
+      "title": "Plugin Center",
+      "subtitle": "Extend capabilities",
+      "sidebar": {
+        "dashboard": "Dashboard",
+        "installed": "Installed Plugins",
+        "marketplace": "Marketplace",
+        "developer": "Developer",
+        "debugLogs": "Debug Logs",
+        "localPlugins": "Local Plugins"
+      },
+      "comingSoon": "Coming Soon",
+      "underDevelopment": "This module is under development."
+    },
+    "connection": {
+      "alias": "Alias",
+      "host": "Host / IP",
+      "username": "Username",
+      "password": "Password",
+      "port": "Port",
+      "privateKey": "Private Key",
+      "authMethod": "Auth Method",
+      "group": "Group / Folder",
+      "optional": "Optional",
+      "keepAlive": "Enable Keep-Alive",
+      "keepAliveDesc": "Prevents session timeout drop",
+      "saveAndConnect": "Save & Connect",
+      "disconnecting": "Disconnecting...",
+      "connecting": "Connecting...",
+      "connectBtn": "Connect",
+      "protocol": {
+        "label": "Protocol",
+        "auto": "Auto",
+        "autoDesc": "Auto-detects protocol from input. Supports ssh:// telnet:// user@host formats.",
+        "local": "Local Terminal",
+        "telnet": "Telnet",
+        "localHint": "Launches the host system's default shell. No network configuration required.",
+        "telnetHint": "Plaintext Telnet, suitable for managing Cisco/Huawei network devices. Terminal type is auto-locked to vt100.",
+        "tooltipAuto": "Recommended. Automatically detects and matches the correct protocol based on your input or URL prefix (ssh://, telnet://).",
+        "tooltipSsh": "Used for remote Linux/Unix servers and cloud instances (AWS, Alibaba Cloud, Tencent Cloud). Encrypted and highly secure. Most common.",
+        "tooltipLocal": "Launches your machine's native shell within a tab. macOS opens Zsh/Bash; Windows opens PowerShell/CMD. No network required.",
+        "tooltipTelnet": "Used for legacy network hardware (Cisco, Huawei switches/routers/firewalls). Transmits in cleartext — recommended for trusted intranets or hardware debugging only.",
+        "badgeActive": "Active",
+        "badgeRecommended": "Recommended",
+        "badgePlaintext": "Plaintext"
+      },
+      "placeholder": {
+        "alias": "e.g. Production/Web Server",
+        "group": "e.g. Project Alpha / Database",
+        "host": "IP address or domain name, e.g. 192.168.1.100"
+      },
+      "hostDenied": "Host denied (Verification failed)"
     }
   }
 }

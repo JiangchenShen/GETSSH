@@ -1,9 +1,9 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
-import { Shield, ShieldAlert, Cpu, Lock, EyeOff, Server, Activity } from 'lucide-react';
+import { Shield, ShieldAlert, Cpu, Lock, EyeOff, Server, Activity, ChevronRight } from 'lucide-react';
 
-export const ShieldDetailsTab: React.FC = () => {
+export const ShieldDetailsTab: React.FC<{ setSecurePage: (page: any) => void }> = ({ setSecurePage }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
@@ -40,27 +40,35 @@ export const ShieldDetailsTab: React.FC = () => {
         </div>
 
         {/* Crypto */}
-        <div className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border ${isDark ? 'bg-white/5 border-white/10 hover:border-green-500/30' : 'bg-black/5 border-black/10 hover:border-green-500/30'} backdrop-blur-xl group overflow-hidden`}>
+        <div 
+          onClick={() => setSecurePage('safestorage')}
+          className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 hover:border-green-500/50 hover:bg-green-500/5' : 'bg-black/5 border-black/10 hover:border-green-500/50 hover:bg-green-500/5'} backdrop-blur-xl group overflow-hidden`}
+        >
           <div className="absolute -top-12 -right-12 w-40 h-40 bg-green-500/10 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
           <div className="shrink-0 w-14 h-14 flex items-center justify-center rounded-xl bg-green-500/10 text-green-500 group-hover:scale-110 transition-transform duration-300">
             <Lock className="w-7 h-7 drop-shadow-md"/>
           </div>
-          <div>
-            <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsCrypto", "AES-256-GCM 物理加密")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "由 N-API 驱动的 AES-256-GCM 物理加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。")}</p>
+          <div className="flex items-center justify-between">
+            <h5 className="font-bold text-xl">{t("security.shieldDetailsCrypto", "AES-256-GCM 物理加密")}</h5>
+            <ChevronRight className="w-5 h-5 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-green-500" />
           </div>
+          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "由 N-API 驱动的 AES-256-GCM 物理加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。")}</p>
         </div>
 
         {/* Zeroize */}
-        <div className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border ${isDark ? 'bg-white/5 border-white/10 hover:border-blue-500/30' : 'bg-black/5 border-black/10 hover:border-blue-500/30'} backdrop-blur-xl group overflow-hidden`}>
+        <div 
+          onClick={() => setSecurePage('privacy')}
+          className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5' : 'bg-black/5 border-black/10 hover:border-blue-500/50 hover:bg-blue-500/5'} backdrop-blur-xl group overflow-hidden`}
+        >
           <div className="absolute -top-12 -right-12 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
           <div className="shrink-0 w-14 h-14 flex items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 group-hover:scale-110 transition-transform duration-300">
             <EyeOff className="w-7 h-7 drop-shadow-md"/>
           </div>
-          <div>
-            <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsZeroize", "内存即焚 (Zeroize)")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "核心凭证运算后，立刻通过 Rust Zeroize 机制在物理内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。")}</p>
+          <div className="flex items-center justify-between">
+            <h5 className="font-bold text-xl">{t("security.shieldDetailsZeroize", "内存即焚 (Zeroize)")}</h5>
+            <ChevronRight className="w-5 h-5 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-blue-500" />
           </div>
+          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "核心凭证运算后，立刻通过 Rust Zeroize 机制在物理内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。")}</p>
         </div>
 
         {/* Zero-copy */}
@@ -76,15 +84,19 @@ export const ShieldDetailsTab: React.FC = () => {
         </div>
 
         {/* RASP */}
-        <div className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border ${isDark ? 'bg-white/5 border-white/10 hover:border-orange-500/30' : 'bg-black/5 border-black/10 hover:border-orange-500/30'} backdrop-blur-xl group overflow-hidden`}>
+        <div 
+          onClick={() => setSecurePage('rasp')}
+          className={`relative p-8 flex flex-col gap-5 rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 border cursor-pointer ${isDark ? 'bg-white/5 border-white/10 hover:border-orange-500/50 hover:bg-orange-500/5' : 'bg-black/5 border-black/10 hover:border-orange-500/50 hover:bg-orange-500/5'} backdrop-blur-xl group overflow-hidden`}
+        >
           <div className="absolute -top-12 -right-12 w-40 h-40 bg-orange-500/10 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
           <div className="shrink-0 w-14 h-14 flex items-center justify-center rounded-xl bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-transform duration-300">
             <ShieldAlert className="w-7 h-7 drop-shadow-md"/>
           </div>
-          <div>
-            <h5 className="font-bold text-xl mb-2">{t("security.shieldDetailsRasp", "RASP 运行态主动防御")}</h5>
-            <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsRaspDesc", "内置应用自我保护机制。实时拦截并警报由恶意代码引发的敏感越权行为或高危命令（如 rm -rf 等）。")}</p>
+          <div className="flex items-center justify-between">
+            <h5 className="font-bold text-xl">{t("security.shieldDetailsRasp", "RASP 运行态主动防御")}</h5>
+            <ChevronRight className="w-5 h-5 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-orange-500" />
           </div>
+          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsRaspDesc", "内置应用自我保护机制。实时拦截并警报由恶意代码引发的敏感越权行为或高危命令（如 rm -rf 等）。")}</p>
         </div>
 
         {/* Memory Scan */}

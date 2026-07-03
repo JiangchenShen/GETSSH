@@ -81,7 +81,21 @@
       "importPwdRequired": "该文件已加密，请输入主密码。",
       "importWrongPwd": "主密码错误，解密失败。",
       "importSuccessNew": "✅ 成功导入 {{count}} 个新配置（跳过 {{skipped}} 个重复）！",
-      "importSuccessEmpty": "✅ 文件读取成功，但没有新配置需要导入。"
+      "importSuccessEmpty": "✅ 文件读取成功，但没有新配置需要导入。",
+      "importStrategyTitle": "需要选择导入策略",
+      "importStrategyDesc": "您选择的数据库备份中包含默认/主工作区。您可以选择完全覆盖现有数据，或者仅合并外部工作区到当前环境。",
+      "importStrategyCancel": "取消",
+      "importStrategyMergeOnly": "仅合并",
+      "importStrategyOverwriteAll": "全部覆盖",
+      "exportDb": "导出数据库备份",
+      "exportJson": "导出 JSON 模板",
+      "importDb": "恢复数据库备份",
+      "importJson": "导入 JSON",
+      "category": {
+        "personalization": "个性化",
+        "core": "核心配置",
+        "information": "信息与系统"
+      }
     },
     "security": {
       "watchdogConnecting": "探针连接中...",
@@ -275,45 +289,6 @@
       "search": "搜索主机...",
       "emptyState": "选择或创建会话以连接"
     },
-    "connect": {
-      "alias": "别名",
-      "group": "所属文件夹",
-      "host": "主机",
-      "username": "用户名",
-      "password": "密码",
-      "port": "端口",
-      "privateKey": "私钥",
-      "authMethod": "认证方式",
-      "optional": "可选",
-      "keepAlive": "开启心跳保活",
-      "keepAliveDesc": "防止会话超时掉线",
-      "saveAndConnect": "保存并连接",
-      "disconnecting": "正在断开连接...",
-      "connecting": "正在连接...",
-      "connectBtn": "连接",
-      "protocol": {
-        "label": "连接协议",
-        "auto": "智能识别",
-        "autoDesc": "根据输入内容自动匹配协议，也支持 ssh:// telnet:// user@host 格式",
-        "local": "本地终端",
-        "telnet": "Telnet 协议",
-        "localHint": "直接启动宿主机系统默认 Shell，无需网络配置。",
-        "telnetHint": "Telnet 明文传输，适用于思科、华为等网络设备管理。终端类型已自动限制为 vt100。",
-        "tooltipAuto": "默认推荐。系统将根据您输入的内容或协议头（如 ssh://, telnet://）动态帮您匹配最合适的连接管道。",
-        "tooltipSsh": "用于连接远程 Linux 服务器、云主机（如阴阳云、腾讯云、AWS 等）。提供最高级别的加密安全保障，最为常用。",
-        "tooltipLocal": "直接在软件内打开您当前电脑的本地命令行。Mac 环境下拉起 Zsh/Bash，Windows 环境下拉起 PowerShell/CMD，无需网络。",
-        "tooltipTelnet": "用于连接老旧的内网核心交换机、路由器、防火墙等路网设备。由于该协议明文传输不加密，仅建议在安全的局域网或硬件调试时使用。",
-        "badgeActive": "当前选中",
-        "badgeRecommended": "推荐",
-        "badgePlaintext": "明文传输"
-      },
-      "placeholder": {
-        "alias": "例如: 我的服务器",
-        "group": "例如：项目A/数据库",
-        "host": "请输入主机 IP"
-      },
-      "hostDenied": "主机已被拒绝连接（指纹校验失败或被撤销）"
-    },
     "common": {
       "connect": "连接",
       "save": "保存",
@@ -485,7 +460,7 @@
       "saveReload": "保存并热重载"
     },
     "aiSettings": {
-      "title": "AI 配置中心",
+      "title": "AI 中心",
       "tabOverview": "系统总览",
       "tabPrompts": "提示词金库",
       "tabAgents": "自治智能体",
@@ -540,7 +515,17 @@
       "fetchError": "从该接口拉取模型列表失败，请检查网络或密钥配置是否正确。",
       "availableModels": "节点可用模型",
       "manualOverride": "强制指定标识",
-      "manualOverrideDesc": "如果自动侦测失败或您的节点不支持模型列表查询，请在此处强制指定。"
+      "manualOverrideDesc": "如果自动侦测失败或您的节点不支持模型列表查询，请在此处强制指定。",
+      "sidebar": {
+        "core": "核心配置",
+        "dashboard": "仪表盘",
+        "providers": "模型供应商",
+        "models": "模型选择",
+        "customization": "个性化",
+        "prompts": "提示词库",
+        "agents": "智能体"
+      },
+      "subtitle": "智能引擎"
     },
     "workspaceCenter": {
       "activeWorkspaces": "运行中的工作区",
@@ -564,12 +549,80 @@
       "isolatedSandbox": "独立安全沙箱",
       "synchronizing": "正在同步数据...",
       "switchingWorkspace": "正在切换工作区",
-      "pleaseWait": "请稍候..."
+      "pleaseWait": "请稍候...",
+      "title": "工作区中心",
+      "subtitle": "管理相互隔离的沙箱环境",
+      "sidebar": {
+        "overview": "总览",
+        "allWorkspaces": "所有工作区",
+        "security": "安全与策略",
+        "vault": "加密金库",
+        "isolation": "隔离规则",
+        "dataEnv": "数据与环境",
+        "assetBridge": "跨界资产桥",
+        "envHooks": "环境与初始化",
+        "storageAudit": "存储与审计"
+      },
+      "comingSoon": "敬请期待",
+      "underDevelopment": "该模块正在开发中。"
     },
     "ai": {
       "inputPlaceholder": "询问 AI (按回车发送)",
       "pasteSelection": "粘贴所选文本",
       "codeInjected": "代码已安全填入终端缓冲，请核对后按回车执行"
+    },
+    "pluginCenter": {
+      "title": "插件中心",
+      "subtitle": "扩展核心能力",
+      "sidebar": {
+        "dashboard": "仪表盘",
+        "installed": "已安装插件",
+        "marketplace": "插件市场",
+        "developer": "开发者选项",
+        "debugLogs": "调试日志",
+        "localPlugins": "本地插件"
+      },
+      "comingSoon": "敬请期待",
+      "underDevelopment": "该模块正在开发中。"
+    },
+    "connection": {
+      "alias": "别名",
+      "group": "所属文件夹",
+      "host": "主机",
+      "username": "用户名",
+      "password": "密码",
+      "port": "端口",
+      "privateKey": "私钥",
+      "authMethod": "认证方式",
+      "optional": "可选",
+      "keepAlive": "开启心跳保活",
+      "keepAliveDesc": "防止会话超时掉线",
+      "saveAndConnect": "保存并连接",
+      "disconnecting": "正在断开连接...",
+      "connecting": "正在连接...",
+      "connectBtn": "连接",
+      "protocol": {
+        "label": "连接协议",
+        "auto": "智能识别",
+        "autoDesc": "根据输入内容自动匹配协议，也支持 ssh:// telnet:// user@host 格式",
+        "local": "本地终端",
+        "telnet": "Telnet 协议",
+        "localHint": "直接启动宿主机系统默认 Shell，无需网络配置。",
+        "telnetHint": "Telnet 明文传输，适用于思科、华为等网络设备管理。终端类型已自动限制为 vt100。",
+        "tooltipAuto": "默认推荐。系统将根据您输入的内容或协议头（如 ssh://, telnet://）动态帮您匹配最合适的连接管道。",
+        "tooltipSsh": "用于连接远程 Linux 服务器、云主机（如阴阳云、腾讯云、AWS 等）。提供最高级别的加密安全保障，最为常用。",
+        "tooltipLocal": "直接在软件内打开您当前电脑的本地命令行。Mac 环境下拉起 Zsh/Bash，Windows 环境下拉起 PowerShell/CMD，无需网络。",
+        "tooltipTelnet": "用于连接老旧的内网核心交换机、路由器、防火墙等路网设备。由于该协议明文传输不加密，仅建议在安全的局域网或硬件调试时使用。",
+        "badgeActive": "当前选中",
+        "badgeRecommended": "推荐",
+        "badgePlaintext": "明文传输"
+      },
+      "placeholder": {
+        "alias": "例如: 我的服务器",
+        "group": "例如：项目A/数据库",
+        "host": "请输入主机 IP"
+      },
+      "hostDenied": "主机已被拒绝连接（指纹校验失败或被撤销）"
     }
   }
 }

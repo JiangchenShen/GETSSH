@@ -281,7 +281,7 @@ export class DatabaseManager {
       for (const p of profiles) {
         insertStmt.run(
           p.id, p.workspace_id, p.host, p.username, p.password || null, 
-          p.privateKeyPath || null, p.port, p.autoStart, p.alias || null, p.osType || null
+          p.privateKeyPath || null, p.port, p.autoStart ? 1 : 0, p.alias || null, p.osType || null
         );
       }
     });

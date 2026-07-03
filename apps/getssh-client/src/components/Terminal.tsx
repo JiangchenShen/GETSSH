@@ -221,13 +221,22 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Handle Resize via ResizeObserver
+    // Handle Resize via ResizeObserver (Debounced for Stability)
+    let resizeRaf: number | null = null;
     const handleResize = () => {
-      fitAddon.fit();
-      const dims = fitAddon.proposeDimensions();
-      if (dims) {
-        window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
-      }
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        if (!fitAddonRef.current || !xtermRef.current) return;
+        try {
+          fitAddonRef.current.fit();
+          const dims = fitAddonRef.current.proposeDimensions();
+          if (dims) {
+            window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
+          }
+        } catch (e) {
+          console.warn('[Terminal] Resize error:', e);
+        }
+      });
     };
     
     // Initial fit
@@ -305,6 +314,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     element.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeObserver.disconnect();
       dataDisp.dispose(); // Unbind data listener
       if (unsubData) unsubData();
@@ -501,11 +511,30 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   const currentTheme = buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme, config.customThemes);
   const containerBgColor = currentTheme.background;
 
+  const getUnderlayOpacity = () => {
+    if (!isDark || config.antiGlare) return 0;
+    const uiOpacity = config.bgOpacity ?? 1;
+    if (uiOpacity === 1) return 0.3; // 30% base protection
+    if (uiOpacity === 0.75) return 0.45; // 45% protection
+    if (uiOpacity === 0.5) return 0.6; // 60% protection
+    if (uiOpacity === 0.25) return 0.75; // 75% protection
+    return 0.5; // Fallback
+  };
+
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 min-h-0 overflow-hidden relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
       {visualBell && <div className="absolute inset-0 bg-white/20 pointer-events-none z-50 transition-opacity duration-200" />}
+      
+      {/* 5.1 & 5.2: Readability Defense Underlay */}
+      {isDark && !config.antiGlare && (
+        <div 
+           className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+           style={{ backgroundColor: `rgba(0, 0, 0, ${getUnderlayOpacity()})` }} 
+        />
+      )}
+
       <div 
-        className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white" 
+        className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white z-10" 
         ref={terminalRef} 
         style={{ color: 'white', padding: `${config.terminalPadding ?? 2}px` }}
         onDoubleClick={() => {

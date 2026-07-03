@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useAppStore } from '../store/appStore';
+import { useMoovierFocus } from '@moovier/core';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -43,6 +44,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const masterPassword = useCryptoStore(state => state.masterPassword);
   const isPolluted = useAppStore(state => state.isPolluted);
   const runbooks = useWorkspaceStore(state => state.runbooks);
+  
+  const { setActiveTileId } = useMoovierFocus();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -71,8 +74,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       setActiveDrawerIndex(0);
       setDeleteConfirmId(null);
       setInspectingPlugin(null);
+      
+      // Phase 3: Trigger Cinematic Focus Pulling globally
+      setActiveTileId('overlay-cmd-center');
+    } else {
+      // Release focus when closed
+      setActiveTileId(null);
     }
-  }, [isOpen]);
+  }, [isOpen, setActiveTileId]);
 
   useEffect(() => {
     setDeleteConfirmId(null);

@@ -20,17 +20,21 @@ export const IpcManager: React.FC = () => {
   // Hollow Window / Tear-out IPC
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (!window.electronAPI?.onWindowHijackIdentity) return;
-    const cleanup = window.electronAPI.onWindowHijackIdentity((payload) => {
-      setTornPaneId(payload.paneId);
-      if (payload.terminalBuffers) {
-         (window as any).__tornBuffers = payload.terminalBuffers;
-      }
-      if (payload.tornTitle) {
-         (window as any).__tornTitle = payload.tornTitle;
+    if (!window.electronAPI?.windowGetHijackIdentity) return;
+    
+    // Actively request hijack identity once React has mounted.
+    // This avoids race conditions where the main process sends the identity before the renderer is listening.
+    window.electronAPI.windowGetHijackIdentity().then((payload) => {
+      if (payload) {
+        setTornPaneId(payload.paneId);
+        if (payload.terminalBuffers) {
+           (window as any).__tornBuffers = payload.terminalBuffers;
+        }
+        if (payload.tornTitle) {
+           (window as any).__tornTitle = payload.tornTitle;
+        }
       }
     });
-    return cleanup;
   }, [setTornPaneId]);
 
   useEffect(() => {

@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { Plus, Layers, Loader2, Trash2, Star } from 'lucide-react';
+import { Plus, Layers, Loader2, Trash2, Shield, LayoutGrid, Star, ShieldAlert, Link, TerminalSquare, Database } from 'lucide-react';
 import { MoovierTile } from '@moovier/core';
 
 export const WorkspaceCenter: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'all' | 'vault' | 'isolation' | 'assetBridge' | 'envHooks' | 'storageAudit'>('all');
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -36,41 +37,81 @@ export const WorkspaceCenter: React.FC = () => {
 
 
   return (
-    <div className={`w-full h-full flex flex-col overflow-hidden relative ${isDark ? 'bg-[#050510]/95 text-white' : 'bg-slate-50/95 text-slate-900'} backdrop-blur-3xl`}>
+    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-[#050510]/95 text-white border-white/5' : 'bg-slate-50/95 text-slate-900 border-black/5'} backdrop-blur-3xl transition-colors duration-1000`}>
 
         {/* Ambient Lighting (The Void) */}
         {isDark && (
           <>
-            <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-purple-600/15 rounded-full blur-[150px] pointer-events-none mix-blend-screen" />
-            <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-600/15 rounded-full blur-[150px] pointer-events-none mix-blend-screen" />
+            <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-purple-600/15 rounded-full blur-[150px] pointer-events-none mix-blend-screen transition-colors duration-1000" />
+            <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-600/15 rounded-full blur-[150px] pointer-events-none mix-blend-screen transition-colors duration-1000" />
           </>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-10 flex flex-col gap-10 relative z-10 no-scrollbar">
-
-          {error && (
-             <div className="p-4 bg-red-500/10 border border-red-500/50 text-red-500 font-bold rounded-xl shadow-sm">
-                {error}
-             </div>
-          )}
+        {/* Content Area - Split Pane */}
+        <div className={`flex-1 flex overflow-hidden bg-transparent z-10 relative`}>
           
-          <div className="flex items-center justify-between">
-             <h3 className="text-3xl font-black tracking-tight flex items-center gap-4 uppercase">
-               <Layers className="w-8 h-8 text-purple-500" /> {t('workspaceCenter.activeWorkspaces')}
-             </h3>
-             <button 
-               onClick={() => setIsCreateModalOpen(true)}
-               className="flex items-center gap-2 px-5 py-2.5 bg-purple-500/10 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 font-bold tracking-widest text-sm uppercase transition-all rounded-2xl hover:shadow-[0_0_20px_rgba(168,85,247,0.4)]"
-             >
-               <Plus className="w-5 h-5" /> {t('workspaceCenter.newSandbox')}
-             </button>
+          {/* Left Sidebar */}
+          <div className={`w-80 p-8 flex flex-col gap-6 border-r ${isDark ? 'border-white/5 bg-black/20' : 'border-black/5 bg-white/30'} backdrop-blur-md`}>
+            {/* Header Widget */}
+            <div className={`w-full p-8 flex flex-col items-center justify-center gap-5 border rounded-[32px] relative overflow-hidden shadow-lg ${isDark ? 'bg-purple-500/10 border-purple-500/30' : 'bg-purple-500/5 border-purple-500/20'}`}>
+              <div className="absolute inset-0 bg-gradient-to-b from-purple-500/10 to-transparent opacity-50 pointer-events-none" />
+              <Layers className="w-20 h-20 text-purple-500 drop-shadow-[0_0_30px_rgba(168,85,247,0.6)] animate-pulse relative z-10" />
+              <div className="text-center relative z-10">
+                <h3 className={`text-[17px] font-black tracking-tight mb-1 ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('workspaceCenter.title', 'Workspace Center')}</h3>
+                <p className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('workspaceCenter.subtitle', 'Manage isolated sandboxes')}</p>
+              </div>
+            </div>
+
+            {/* Navigation Menu */}
+            <nav className="flex flex-col gap-1 overflow-y-auto pb-4">
+              {(() => {
+                const activeItemClass = isDark ? 'bg-purple-500/10 text-purple-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_10px_rgba(168,85,247,0.1)]' : 'bg-purple-500/10 text-purple-700 shadow-sm';
+                const inactiveItemClass = isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5';
+                const baseItemClass = 'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all text-left font-bold border border-transparent';
+                
+                return (
+                  <>
+                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.overview', 'Overview')}</div>
+                    <button onClick={() => setActiveTab('all')} className={`${baseItemClass} ${activeTab === 'all' ? activeItemClass : inactiveItemClass}`}><LayoutGrid className="w-4 h-4"/>{t('workspaceCenter.sidebar.allWorkspaces', 'All Workspaces')}</button>
+                    
+                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.security', 'Security & Policies')}</div>
+                    <button onClick={() => setActiveTab('vault')} className={`${baseItemClass} ${activeTab === 'vault' ? activeItemClass : inactiveItemClass}`}><Shield className="w-4 h-4"/>{t('workspaceCenter.sidebar.vault', 'Vault Encryption')}</button>
+                    <button onClick={() => setActiveTab('isolation')} className={`${baseItemClass} ${activeTab === 'isolation' ? activeItemClass : inactiveItemClass}`}><ShieldAlert className="w-4 h-4"/>{t('workspaceCenter.sidebar.isolation', 'Isolation Rules')}</button>
+                    
+                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.dataEnv', 'Data & Environment')}</div>
+                    <button onClick={() => setActiveTab('assetBridge')} className={`${baseItemClass} ${activeTab === 'assetBridge' ? activeItemClass : inactiveItemClass}`}><Link className="w-4 h-4"/>{t('workspaceCenter.sidebar.assetBridge', 'Asset Bridge')}</button>
+                    <button onClick={() => setActiveTab('envHooks')} className={`${baseItemClass} ${activeTab === 'envHooks' ? activeItemClass : inactiveItemClass}`}><TerminalSquare className="w-4 h-4"/>{t('workspaceCenter.sidebar.envHooks', 'Environment Hooks')}</button>
+                    <button onClick={() => setActiveTab('storageAudit')} className={`${baseItemClass} ${activeTab === 'storageAudit' ? activeItemClass : inactiveItemClass}`}><Database className="w-4 h-4"/>{t('workspaceCenter.sidebar.storageAudit', 'Storage & Audit')}</button>
+                  </>
+                );
+              })()}
+            </nav>
           </div>
 
+          {/* Right Payload Area */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+            <div className="max-w-4xl mx-auto p-12 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {error && (
+                <div className="p-4 bg-red-500/10 border border-red-500/50 text-red-500 font-bold rounded-xl shadow-sm mb-10">
+                  {error}
+                </div>
+              )}
+              
+              {activeTab === 'all' && (
+                <>
+                  <div className="flex items-center justify-between mb-10">
+                    <h3 className="text-3xl font-black tracking-tight flex items-center gap-4 uppercase">
+                      <Layers className="w-8 h-8 text-purple-500" /> {t('workspaceCenter.activeWorkspaces')}
+                    </h3>
+                    <button 
+                      onClick={() => setIsCreateModalOpen(true)}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white text-xs font-black uppercase tracking-widest transition-all rounded-xl shadow-[0_0_20px_rgba(147,51,234,0.4)] flex items-center gap-2 hover:scale-105"
+                    >
+                      <Plus className="w-4 h-4" /> {t('workspaceCenter.create')}
+                    </button>
+                  </div>
 
-
-          {/* Workspaces Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-8">
             {workspaces.map((wObj: any) => {
                const id = typeof wObj === 'string' ? wObj : wObj.id;
                const meta = typeof wObj === 'string' ? null : wObj.visualMeta;
@@ -148,8 +189,18 @@ export const WorkspaceCenter: React.FC = () => {
                  </MoovierTile>
                )
             })}
+                  </div>
+                </>
+              )}
+              {activeTab !== 'all' && (
+                <div className="flex flex-col items-center justify-center pt-24 text-center opacity-50">
+                  <Shield className="w-16 h-16 mb-6 text-purple-500" />
+                  <h4 className="text-xl font-black uppercase tracking-widest mb-2">{t('workspaceCenter.comingSoon', 'Coming Soon')}</h4>
+                  <p className="text-sm font-medium">{t('workspaceCenter.underDevelopment', 'This module is under development.')}</p>
+                </div>
+              )}
+            </div>
           </div>
-
         </div>
 
         {/* Loading Overlay */}

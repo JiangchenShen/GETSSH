@@ -4,12 +4,13 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { Settings, Plus, Sparkles, Home } from 'lucide-react';
 
 interface GlobalWorkspaceBarProps {
-  openSettingsTab: (tab: string, toggle?: boolean) => void;
   onHomeClick: () => void;
 }
 
-export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ openSettingsTab, onHomeClick }) => {
+export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeClick }) => {
   const isDark = useAppStore(state => state.isDark);
+  const isFullScreen = useAppStore(state => state.isFullScreen);
+  const isMac = useAppStore(state => state.isMac);
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const setWorkspaces = useAppStore(state => state.setWorkspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
@@ -42,9 +43,9 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ openSett
   };
 
   return (
-    <div className={`w-[64px] h-full flex flex-col items-center py-4 border-r ${isDark ? 'bg-black/40 border-white/5' : 'bg-white/40 border-black/5'} backdrop-blur-xl z-[999] pt-12 rounded-xl [-webkit-app-region:drag]`}>
+    <div className={`drag-region h-full w-[64px] flex flex-col items-center py-4 border-r ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} transition-all duration-300 ${isDark ? 'bg-black/10 border-white/5' : 'bg-white/30 border-black/5'} z-50 shadow-2xl`}>
       {/* Top: Workspaces List */}
-      <div className="flex flex-col items-center gap-3 flex-1 overflow-y-auto no-scrollbar w-full [-webkit-app-region:no-drag]">
+      <div className="no-drag-region flex-1 flex flex-col items-center gap-3 w-full overflow-y-auto no-scrollbar">
         {workspaces.map((wObj: any) => {
           const wsId = typeof wObj === 'string' ? wObj : wObj.id;
           const meta = typeof wObj === 'string' ? null : wObj.visualMeta;
@@ -92,7 +93,7 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ openSett
       </div>
 
       {/* Bottom: Settings & AI */}
-      <div className="flex flex-col items-center gap-2 mt-auto mb-2 w-full px-2 [-webkit-app-region:no-drag]">
+      <div className="no-drag-region flex flex-col items-center gap-2 w-full px-2 mt-auto">
         <div 
           onClick={onHomeClick}
           className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer rounded-xl ${
@@ -111,7 +112,7 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ openSett
           <Sparkles className="w-6 h-6" />
         </div>
         <div 
-          onClick={() => openSettingsTab('Appearance', true)}
+          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: 'Settings' } }))}
           className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer rounded-xl ${
             isDark ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-black/40 hover:text-black hover:bg-black/10'
           }`}

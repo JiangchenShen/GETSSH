@@ -138,8 +138,8 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
         ${className}
       `}
       style={{
-        // 挂载默认静态光影与零延迟透明度变量
-        backgroundColor: `rgba(0, 0, 0, var(--glass-transparency, 0.2))`,
+        // 挂载默认静态光影与零延迟透明度变量。允许外部通过 --moovier-bg 覆盖。
+        backgroundColor: `var(--moovier-bg, rgba(0, 0, 0, var(--glass-transparency, 0.2)))`,
         ...style,
       }}
       
@@ -166,10 +166,12 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
 
       // --- 物理级交互动效 (Hover & Tap) ---
       whileHover={{
+        ...(props.whileHover ? (props.whileHover as object) : {}),
         transition: SPRING_FLUID
       }}
       whileTap={{
         scale: 0.98,
+        ...(props.whileTap ? (props.whileTap as object) : {}),
         transition: SPRING_SNAPPY
       }}
 

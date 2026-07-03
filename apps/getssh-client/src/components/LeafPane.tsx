@@ -9,6 +9,7 @@ import { WorkspaceCenter } from './WorkspaceCenter';
 import { AiSettingsModal as AiSettingsPane } from './AiSettingsModal';
 import { PluginCenterModal as PluginCenterPane } from './PluginCenterModal';
 import { SecureCenter } from './SecureCenter';
+import { SettingsPane } from './SettingsPane';
 
 function countLeaves(node: PaneNode | undefined): number {
   if (!node) return 0;
@@ -244,6 +245,7 @@ export const LeafPane: React.FC<{
           {node.config.centerType === 'ai' && <AiSettingsPane />}
           {node.config.centerType === 'plugin' && <PluginCenterPane />}
           {node.config.centerType === 'secure' && <SecureCenter />}
+          {node.config.centerType === 'settings' && <SettingsPane />}
         </div>
       )}
     </div>

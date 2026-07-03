@@ -37,10 +37,10 @@ export const AboutTab: React.FC = () => {
       </div>
 
       {/* Bento Grid Layout */}
-      <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="w-full grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4 mb-8">
         
         {/* Column 1: Core Engine (Span 2) */}
-        <div className={`md:col-span-2 rounded-3xl p-8 flex flex-col justify-between relative overflow-hidden group ${isDark ? 'bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-gradient-to-br from-black/[0.02] to-transparent border border-black/5 shadow-sm'}`}>
+        <div className={`col-span-full md:col-span-2 rounded-3xl p-8 flex flex-col justify-between relative overflow-hidden group ${isDark ? 'bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-gradient-to-br from-black/[0.02] to-transparent border border-black/5 shadow-sm'}`}>
           {/* Decorative background element */}
           <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-emerald-500/10 rounded-full blur-[60px] opacity-50 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
           
@@ -93,7 +93,7 @@ export const AboutTab: React.FC = () => {
       </div>
 
       {/* Compliance & Updates Row */}
-      <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="w-full grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         {/* Legal Block */}
         <div className={`rounded-3xl p-6 border flex flex-col ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
           <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] mb-4 ml-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>

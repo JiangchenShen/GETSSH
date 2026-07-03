@@ -641,6 +641,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     }
   });
 
+  ipcMain.handle('open-audit-folder', async () => {
+    const { getActiveWorkspaceId } = require('./workspaceHandler');
+    const workspaceId = getActiveWorkspaceId() || 'default';
+    const wsPath = path.join(app.getPath('home'), '.getssh', 'workspaces', workspaceId, 'audit_recordings');
+    if (!fs.existsSync(wsPath)) {
+       fs.mkdirSync(wsPath, { recursive: true });
+    }
+    const { shell } = require('electron');
+    await shell.openPath(wsPath);
+  });
+
   ipcMain.handle('delete-known-host', async (event, host: string, port: number) => {
     const hosts = await getKnownHosts(app);
     const hostKey = `${host}:${port}`;

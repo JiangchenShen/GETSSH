@@ -71,20 +71,24 @@ export const SecureSidebar: React.FC<SecureSidebarProps> = ({ securePage, setSec
       </button>
 
       {/* Navigation Menu */}
-      <nav className="flex flex-col gap-2 overflow-y-auto">
+      <nav className="flex flex-col gap-1 overflow-y-auto pb-4">
          {(() => {
-           const activeItemClass = isDark ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm';
-           const inactiveItemClass = isDark ? 'border-transparent text-white/40 hover:text-white hover:bg-white/5' : 'border-transparent text-slate-500 hover:text-slate-900 hover:bg-black/5';
+           const activeItemClass = isDark ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_10px_rgba(16,185,129,0.1)]' : 'bg-emerald-500/10 text-emerald-700 shadow-sm';
+           const inactiveItemClass = isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5';
+           const baseItemClass = 'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all text-left font-bold border border-transparent';
+           
            return (
              <>
-               <button onClick={() => setSecurePage('rasp')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'rasp' ? activeItemClass : inactiveItemClass}`}><Cpu className="w-5 h-5"/>{t("security.raspTitle")}</button>
-               <button onClick={() => setSecurePage('privacy')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'privacy' ? activeItemClass : inactiveItemClass}`}><EyeOff className="w-5 h-5"/>{t("security.privacyTitle")}</button>
-               <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'safestorage' ? activeItemClass : inactiveItemClass}`}><Lock className="w-5 h-5"/>{t("security.safeStorageTitle")}</button>
+               <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('security.categoryEngine', 'Core Protection Engine')}</div>
+               <button onClick={() => setSecurePage('rasp')} className={`${baseItemClass} ${securePage === 'rasp' ? activeItemClass : inactiveItemClass}`}><Cpu className="w-4 h-4"/>{t("security.raspTitle")}</button>
+               <button onClick={() => setSecurePage('privacy')} className={`${baseItemClass} ${securePage === 'privacy' ? activeItemClass : inactiveItemClass}`}><EyeOff className="w-4 h-4"/>{t("security.privacyTitle")}</button>
                
-               <div className={`my-2 h-px w-full ${isDark ? 'bg-white/5' : 'bg-black/5'}`}></div>
-
-               <button onClick={() => setSecurePage('export')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'export' ? activeItemClass : inactiveItemClass}`}><FileJson className="w-5 h-5"/>{t("security.exportTitle")}</button>
-               <button onClick={() => setSecurePage('known_hosts')} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl text-sm transition-all text-left font-bold border ${securePage === 'known_hosts' ? activeItemClass : inactiveItemClass}`}><Server className="w-5 h-5"/>{t("security.knownHostsTitle")}</button>
+               <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('security.categoryData', 'Data & Privacy')}</div>
+               <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`${baseItemClass} ${securePage === 'safestorage' ? activeItemClass : inactiveItemClass}`}><Lock className="w-4 h-4"/>{t("security.safeStorageTitle")}</button>
+               <button onClick={() => setSecurePage('export')} className={`${baseItemClass} ${securePage === 'export' ? activeItemClass : inactiveItemClass}`}><FileJson className="w-4 h-4"/>{t("security.exportTitle")}</button>
+               
+               <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('security.categoryNetwork', 'Network Management')}</div>
+               <button onClick={() => setSecurePage('known_hosts')} className={`${baseItemClass} ${securePage === 'known_hosts' ? activeItemClass : inactiveItemClass}`}><Server className="w-4 h-4"/>{t("security.knownHostsTitle")}</button>
              </>
            );
          })()}

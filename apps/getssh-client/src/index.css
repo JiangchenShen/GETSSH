@@ -60,7 +60,7 @@
     
     /* MOOVIER SUPREME: Absolute Grid Tokens (Chapter 1.2) */
     --grid-unit: 4px;
-    --sidebar-width: 260px;
+    --sidebar-width: 280px;
     --sidebar-width-collapsed: 64px;
     --titlebar-height: 40px; /* Mac traffic lights usually 28px, but our original header was h-10 (40px) */
     --statusbar-height: 24px;
@@ -182,3 +182,13 @@
 @utility ring-duo {
   --tw-ring-color: rgba(var(--color-a), 0.5);
 }
+
+/* ── Window Dragging System (IPC Native) ─────────────────────────────────── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag-region, button, input, select, textarea, a {
+  -webkit-app-region: no-drag;
+}
+

@@ -137,6 +137,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             set({ isVaultLocked: true, isUnlockModalOpen: true });
           } else {
             set({ isVaultLocked: false });
+            // Fetch sessions immediately if the workspace is plain (unencrypted)
+            try {
+              const plainSessions = await window.electronAPI.unlockProfiles('');
+              useSessionStore.getState().setSessions(plainSessions || []);
+            } catch (err) {
+              console.error('Failed to load sessions for plain workspace:', err);
+              useSessionStore.getState().setSessions([]);
+            }
           }
           return true;
 

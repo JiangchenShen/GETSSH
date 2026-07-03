@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConnectionLogs: () => ipcRenderer.invoke('get-connection-logs'),
   getWatchdogStatus: () => ipcRenderer.invoke('get-watchdog-status'),
   exportConnectionLogs: () => ipcRenderer.invoke('export-connection-logs'),
+  openAuditFolder: () => ipcRenderer.invoke('open-audit-folder'),
   getEnvInfo: () => ({
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -137,6 +138,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   encryptConfig: (data: any) => ipcRenderer.invoke('encrypt-config', data),
   decryptConfig: (base64: string) => ipcRenderer.invoke('decrypt-config', base64),
+  windowSelfClose: () => ipcRenderer.send('window:self-close'),
   
   // Nexus Core API
   nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => ipcRenderer.invoke('nexus:split', { targetPaneId, direction }),
@@ -180,6 +182,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:hijack-identity', listener);
     return () => ipcRenderer.removeListener('window:hijack-identity', listener);
   },
+  windowGetHijackIdentity: () => ipcRenderer.invoke('window:get-hijack-identity'),
   onWindowReceiveTornBuffers: (callback: (payload: Record<string, string>) => void) => {
     const listener = (_event: IpcRendererEvent, payload: Record<string, string>) => callback(payload);
     ipcRenderer.on('window:receive-torn-buffers', listener);

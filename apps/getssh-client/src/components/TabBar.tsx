@@ -18,8 +18,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
 
   return (
     <div
-      className={`flex items-center pt-2 px-0 gap-0 border-b shrink-0 ${isDark ? 'border-neutral-900 bg-obsidian-bg' : 'border-black/5 bg-slate-100'}`}
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
+      className={`drag-region flex items-center pt-2 px-0 gap-0 border-b shrink-0 ${isDark ? 'border-white/5 bg-transparent' : 'border-black/5 bg-slate-100/50'}`}
     >
       {sshTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
@@ -56,10 +55,9 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
                 }
               }
             }}
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string }}
-            className={`group flex items-center justify-between gap-3 px-4 py-1.5 border-r cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
-              ? (isDark ? 'bg-obsidian-panel border-neutral-900 text-neutral-100' : 'bg-white border-black/10 text-black relative z-10')
-              : (isDark ? 'bg-obsidian-bg border-neutral-900 text-neutral-500 hover:text-neutral-300' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
+            className={`no-drag-region group flex items-center justify-between gap-3 px-4 py-1.5 border-r cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
+              ? (isDark ? 'bg-black/20 border-white/5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] relative z-10' : 'bg-white border-black/10 text-black relative z-10')
+              : (isDark ? 'bg-transparent border-white/5 text-white/50 hover:text-white hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
             }`}
           >
             <div className="flex flex-col h-full max-w-full relative">

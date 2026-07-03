@@ -28,10 +28,10 @@ export const TerminalTab: React.FC = () => {
       </div>
 
       {/* Bento Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         
         {/* Font & Typography (Span 2) */}
-        <div className={`col-span-1 md:col-span-2 rounded-3xl p-6 border flex flex-col gap-6 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
+        <div className={`col-span-full rounded-3xl p-6 border flex flex-col gap-6 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
           <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] ml-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>Typography</h3>
           
           <div className="flex flex-col md:flex-row gap-4">
@@ -127,7 +127,7 @@ export const TerminalTab: React.FC = () => {
         </div>
 
         {/* Scrollback & Padding & Bell (Span 2) */}
-        <div className={`col-span-1 md:col-span-2 rounded-3xl p-6 border flex flex-col md:flex-row gap-8 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
+        <div className={`col-span-full rounded-3xl p-6 border flex flex-col md:flex-row gap-8 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
           {/* Padding */}
           <div className="flex-1">
             <div className="flex justify-between items-center mb-4">

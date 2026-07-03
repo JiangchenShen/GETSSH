@@ -113,8 +113,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         selectedSessionIndex === idx 
           ? isDark ? 'text-neutral-100 border-primary bg-black/40' : 'text-slate-900 border-primary bg-primary/10 shadow-sm font-bold'
           : isDark 
-            ? 'text-neutral-500 hover:text-neutral-100 hover:bg-black/20 border-transparent' 
-            : 'bg-white/40 hover:bg-white/80 border-transparent text-slate-700 shadow-sm'
+            ? 'text-neutral-500 hover:text-neutral-100 hover:font-bold hover:bg-black/20 border-transparent' 
+            : 'bg-white/40 hover:bg-white/80 hover:font-bold border-transparent text-slate-700 shadow-sm'
       } ${isNested ? 'ml-2 w-[calc(100%-0.5rem)]' : ''}`}>
         <button type="button" onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }} className="w-full flex items-center justify-start gap-2.5 truncate text-left pr-2 group-hover:pr-24 transition-all duration-200">
            <OsBadge osType={session.osType} protocol={session.protocol} isActive={selectedSessionIndex === idx} />
@@ -137,8 +137,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
 
   if (isSidebarCollapsed) {
     return (
-      <div className={`h-full flex flex-col items-center py-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} border-r ${isDark ? 'border-white/5 bg-transparent' : 'border-black/5 bg-transparent'} transition-all duration-300 w-full`}>
-        <button onClick={() => setIsSidebarCollapsed(false)} className={`p-2 mt-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-black/10 text-black/50'}`} title="Expand Sidebar">
+      <div className={`drag-region h-full flex flex-col items-center py-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} bg-transparent transition-all duration-300 w-full`}>
+        <button onClick={() => setIsSidebarCollapsed(false)} className={`no-drag-region p-2 mt-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10 text-white/50' : 'hover:bg-black/10 text-black/50'}`} title="Expand Sidebar">
           <PanelLeftOpen className="w-5 h-5" />
         </button>
       </div>
@@ -149,8 +149,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
   const displayName = activeWs && typeof activeWs === 'object' ? activeWs.name || activeWorkspaceId : activeWorkspaceId;
 
   return (
-    <div className={`h-full w-full flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-all duration-300 bg-transparent border-r ${isDark ? 'border-white/5' : 'border-black/5'}`}>
-      <div className="flex items-center justify-between mb-6">
+    <div className={`drag-region h-full w-full flex flex-col p-4 ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} shrink-0 transition-all duration-300 bg-transparent`}>
+      <div className="no-drag-region flex items-center justify-between mb-6">
         <div className="flex items-center gap-2 flex-1 min-w-0 mr-2">
           <h1 className="font-bold text-sm tracking-widest uppercase text-slate-800 dark:text-slate-100 truncate" title={displayName}>
             {displayName} / {activeWorkspaceId === 'default' ? t('sidebar.defaultWorkspace') : t('sidebar.workspace')}
@@ -161,7 +161,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         </button>
       </div>
 
-      <div className="relative mb-4">
+      <div className="no-drag-region relative mb-4">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
         <input 
           value={searchQuery} 
@@ -176,7 +176,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         />
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
+      <div className="no-drag-region flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
         <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 px-2">{t('sidebar.savedSessions')}</div>
         
         {/* Zero-Trust Vault Lock Interceptor */}

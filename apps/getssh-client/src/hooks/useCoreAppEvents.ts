@@ -7,7 +7,6 @@ import { findLeaf, findWelcomePane, updateLeafInTree } from '../utils/paneHelper
 
 export const useCoreAppEvents = (
   setPendingHighRiskRunbook: (runbook: Runbook | null) => void,
-  setIsSettingsOpen: (open: boolean) => void,
   syncProfiles: (updatedSessions: any[]) => void
 ) => {
   const { t } = useTranslation();
@@ -62,7 +61,7 @@ export const useCoreAppEvents = (
       }
     };
 
-    const handleOpenCenter = (e: CustomEvent<{ type: 'ai' | 'plugin' | 'secure' | 'workspace', title: string }>) => {
+    const handleOpenCenter = (e: CustomEvent<{ type: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings', title: string }>) => {
       const centerType = e.detail.type;
       const tabTitle = e.detail.title;
       const { tabs, activeTabId, setTabs, setActiveTabId, setSelectedSessionIndex } = useSessionStore.getState();
@@ -114,7 +113,11 @@ export const useCoreAppEvents = (
       }
     };
 
-    const handleOpenSettings = () => setIsSettingsOpen(true);
+    const handleOpenSettings = () => {
+      window.dispatchEvent(new CustomEvent('app:open-center', { 
+        detail: { type: 'settings', title: 'Settings' } 
+      }));
+    };
 
     window.addEventListener('app:create-session', handleCreateSession as EventListener);
     window.addEventListener('app:runbook-execute', handleRunbookExecute as EventListener);
@@ -127,5 +130,5 @@ export const useCoreAppEvents = (
       window.removeEventListener('app:open-center', handleOpenCenter as EventListener);
       window.removeEventListener('app:open-settings', handleOpenSettings as EventListener);
     };
-  }, [syncProfiles, setPendingHighRiskRunbook, setIsSettingsOpen, t]);
+  }, [syncProfiles, setPendingHighRiskRunbook, t]);
 };

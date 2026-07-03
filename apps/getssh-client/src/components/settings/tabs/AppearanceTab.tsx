@@ -94,10 +94,10 @@ export const AppearanceTab: React.FC = () => {
       </div>
 
       {/* Bento Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         
         {/* Global Theme & Color Group (Span 2) */}
-        <div className={`col-span-1 md:col-span-2 rounded-3xl p-6 border flex flex-col md:flex-row gap-8 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
+        <div className={`col-span-full rounded-3xl p-6 border flex flex-col lg:flex-row gap-8 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
           {/* Left: UI Theme Mode */}
           <div className="flex-1 flex flex-col justify-between">
             <div>
@@ -291,16 +291,20 @@ export const AppearanceTab: React.FC = () => {
           
           {isDark && appConfig.enableGlassmorphism && (
             <div className={`p-4 rounded-2xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
-              <div className="flex justify-between items-center mb-3">
-                <label className="text-[10px] font-bold uppercase tracking-wider opacity-50">{t('appearance.glassmorphismOpacity')}</label>
-                <span className="text-xs font-mono font-bold">{Math.round((appConfig.bgOpacity || 1) * 100)}%</span>
+              <div className={`flex p-1.5 rounded-[1.25rem] ${isDark ? 'bg-black/30 shadow-inner border border-white/5' : 'bg-black/5'}`}>
+                {[0.25, 0.5, 0.75, 1].map(op => {
+                  const active = (appConfig.bgOpacity === undefined ? 1 : appConfig.bgOpacity) === op;
+                  return (
+                    <button 
+                      key={op}
+                      onClick={() => updateConfig('bgOpacity', op)}
+                      className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-300 ${active ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/5'}`}
+                    >
+                      {Math.round(op * 100)}%
+                    </button>
+                  );
+                })}
               </div>
-              <input 
-                type="range" min="0.3" max="1" step="0.05" 
-                value={appConfig.bgOpacity || 1}
-                onChange={(e) => updateConfig('bgOpacity', parseFloat(e.target.value) || 0.8)}
-                className="w-full h-1.5 bg-white/10 rounded-xl appearance-none cursor-pointer accent-fuchsia-500"
-              />
             </div>
           )}
         </div>
@@ -339,7 +343,7 @@ export const AppearanceTab: React.FC = () => {
         </div>
         
         {/* Terminal Theme (Span 2) */}
-        <div className={`col-span-1 md:col-span-2 rounded-3xl p-6 border flex flex-col gap-4 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
+        <div className={`col-span-full rounded-3xl p-6 border flex flex-col gap-4 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-white border-black/5'}`}>
           <h3 className={`text-[11px] font-bold uppercase tracking-[0.2em] ml-1 ${isDark ? 'text-white/40' : 'text-black/40'}`}>{t('appearance.terminalTheme')}</h3>
           <div className="flex gap-3">
             <select 

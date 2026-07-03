@@ -93,7 +93,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col gap-10">
+    <div className="w-full flex flex-col gap-10">
       {pendingInstall && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-xl p-4 transition-all">
           <div className={`w-full max-w-lg rounded-3xl p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)] border ${isDark ? 'bg-[#151515]/90 border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] text-white' : 'bg-white/90 border-black/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] text-slate-900'}`}>
@@ -232,7 +232,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
         </div>
       </div>
       
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex flex-col">
         <h3 className="font-black opacity-80 uppercase tracking-widest text-lg mb-6 flex items-center gap-3">
           <Box className="w-5 h-5 text-rose-500" />
           {t('plugins.installed')}
@@ -242,7 +242,7 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
             {t('plugins.noPlugins')}
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-10 no-scrollbar pr-2">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6 pb-10 pr-2">
           {installedPlugins.map(p => {
             const displayName = (p as any).getssh?.name || p.displayName || p.name;
             const hasSchema = !!usePluginStore.getState().settingsSchemas[p.name];
@@ -253,16 +253,16 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
                 <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-rose-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
                 
                 <div className="relative z-10 flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 flex items-center justify-center rounded-xl font-black text-lg shadow-inner ${isDark ? 'bg-white/10 text-rose-400' : 'bg-rose-100 text-rose-600'}`}>
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-xl font-black text-lg shadow-inner ${isDark ? 'bg-white/10 text-rose-400' : 'bg-rose-100 text-rose-600'}`}>
                       {displayName.charAt(0).toUpperCase()}
                     </div>
-                    <div>
-                      <h4 className="font-bold text-lg leading-tight tracking-tight">{displayName}</h4>
-                      <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider ${isDark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-slate-500'}`}>v{p.version}</span>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-bold text-lg leading-tight tracking-tight break-words">{displayName}</h4>
+                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider ${isDark ? 'bg-white/10 text-white/70' : 'bg-black/5 text-slate-500'}`}>v{p.version}</span>
                     </div>
                   </div>
-                  <button onClick={() => handleUninstall(p.name, displayName)} className={`p-2 rounded-xl transition-all active:scale-95 ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'}`} title={t('plugins.uninstall')}>
+                  <button onClick={() => handleUninstall(p.name, displayName)} className={`p-2 shrink-0 rounded-xl transition-all active:scale-95 ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'}`} title={t('plugins.uninstall')}>
                     <Trash className="w-4 h-4" />
                   </button>
                 </div>

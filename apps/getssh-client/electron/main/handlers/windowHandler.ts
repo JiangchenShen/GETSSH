@@ -1,4 +1,5 @@
 import { dialog, Menu, BrowserWindow, shell } from 'electron';
+import os from 'os';
 
 export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
   // File Selection Handler
@@ -71,6 +72,19 @@ export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => 
 }
 
 /**
+ * Helper to determine native material support
+ */
+function getNativeGlassSupport(): 'vibrancy' | 'mica' | 'acrylic' | 'none' {
+  if (process.platform === 'darwin') return 'vibrancy';
+  if (process.platform === 'win32') {
+    const buildNumber = parseInt(os.release().split('.')[2] || '0', 10);
+    if (buildNumber >= 22000) return 'mica';
+    if (buildNumber >= 17763) return 'acrylic'; // Windows 10 1809
+  }
+  return 'none';
+}
+
+/**
  * Extracted BrowserWindow options for cleaner index.ts
  */
 export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWindowConstructorOptions {
@@ -83,6 +97,9 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     height = workArea.height;
   } catch (e) {}
 
+  const glassSupport = getNativeGlassSupport();
+  const isGlassSupported = glassSupport !== 'none';
+
   return {
     title: 'GETSSH',
     width,
@@ -90,10 +107,10 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     resizable: false,
     maximizable: false,
     fullscreenable: true,
-    transparent: true,
-    backgroundColor: '#00000000',
-    vibrancy: process.platform === 'darwin' ? 'fullscreen-ui' : undefined,
-    backgroundMaterial: process.platform === 'win32' ? 'acrylic' : undefined,
+    transparent: isGlassSupported,
+    backgroundColor: isGlassSupported ? '#00000000' : '#09090b',
+    vibrancy: glassSupport === 'vibrancy' ? 'fullscreen-ui' : undefined,
+    backgroundMaterial: glassSupport === 'mica' || glassSupport === 'acrylic' ? glassSupport : undefined,
     titleBarStyle: 'hidden',
     frame: process.platform === 'darwin',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,

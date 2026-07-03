@@ -68,6 +68,7 @@ declare global {
       deleteKnownHost: (host: string, port: number) => Promise<boolean>;
       getConnectionLogs: () => Promise<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>;
       exportConnectionLogs: () => Promise<boolean>;
+      openAuditFolder: () => Promise<void>;
       getWatchdogStatus: () => Promise<{ status: 'secure' | 'warning'; level?: 'red' | 'yellow'; reason?: string; lastPing: number; watchdogDisabled?: boolean }>;
       getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
@@ -103,10 +104,13 @@ declare global {
       nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => Promise<any>;
       onNexusSyncTree: (callback: (tabId: string, title: string, tree: any, isTornOff: boolean) => void) => () => void;
       onWindowHijackIdentity: (callback: (payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => void) => () => void;
+      windowGetHijackIdentity: () => Promise<{ paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string } | null>;
       windowTearArm: () => number | null;
       windowTearExecute: (payload: { screenX: number; screenY: number; width: number; height: number; paneId: string; terminalBuffers?: Record<string, string>; tornTitle?: string }) => void;
       windowTearIn: (payload: { paneId: string; terminalBuffers?: Record<string, string> }) => void;
       onWindowReceiveTornBuffers: (cb: (payload: Record<string, string>) => void) => (() => void);
+      windowSelfClose: () => void;
+      hollowLog: (...args: any[]) => void;
       
       workspace: {
         getWorkspaces: () => Promise<any[]>;

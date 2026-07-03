@@ -76,70 +76,58 @@ export const AiSettingsModal: React.FC = () => {
   };
 
   return (
-    <div className={`relative w-full h-full flex flex-col overflow-hidden ${isDark ? 'bg-[#0A0A0A]/95 text-white' : 'bg-white/95 text-slate-900'} backdrop-blur-3xl`}>
+    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-[#0A0A0A]/95 text-white border-white/5' : 'bg-slate-50/95 text-slate-900 border-black/5'} backdrop-blur-3xl transition-colors duration-1000`}>
       {/* Ambient Gradient Background */}
-      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className={`absolute -top-[20%] -right-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[120px] opacity-20 ${isDark ? 'bg-amber-500' : 'bg-amber-300'}`} />
-        <div className={`absolute -bottom-[20%] -left-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[120px] opacity-20 ${isDark ? 'bg-orange-600' : 'bg-orange-400'}`} />
-      </div>
+      {isDark && (
+        <>
+          <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+            <div className={`absolute -top-[20%] -right-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[150px] opacity-30 bg-amber-500 transition-colors duration-1000`} />
+            <div className={`absolute -bottom-[20%] -left-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[150px] opacity-30 bg-orange-600 transition-colors duration-1000`} />
+          </div>
+        </>
+      )}
 
-        <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar Navigation */}
-            <div className={`w-[240px] flex flex-col p-6 border-r ${isDark ? 'border-white/5 bg-black/40' : 'border-black/5 bg-slate-50/50'}`}>
-
-
-              <nav className="flex flex-col gap-2 relative z-10">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'overview' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : (isDark ? 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 border border-transparent')
-                  }`}
-                >
-                  <Globe size={18} /> Dashboard
-                </button>
-                <button
-                  onClick={() => setActiveTab('prompts')}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'prompts' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : (isDark ? 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 border border-transparent')
-                  }`}
-                >
-                  <BookOpen size={18} /> {t('aiSettings.tabPrompts', 'Prompt Library')}
-                </button>
-                <button
-                  onClick={() => setActiveTab('agents')}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'agents' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : (isDark ? 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 border border-transparent')
-                  }`}
-                >
-                  <Bot size={18} /> {t('aiSettings.tabAgents', 'Autonomous Agents')}
-                </button>
-                
-                <div className={`h-px w-full my-2 ${isDark ? 'bg-white/5' : 'bg-black/5'}`} />
-                
-                <button
-                  onClick={() => setActiveTab('providers')}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'providers' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : (isDark ? 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 border border-transparent')
-                  }`}
-                >
-                  <Server size={18} /> {t('aiSettings.tabProviders', 'Providers & Keys')}
-                </button>
-                <button
-                  onClick={() => setActiveTab('models')}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-bold text-sm ${
-                    activeTab === 'models' ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] border border-amber-500/20' : (isDark ? 'text-white/40 hover:text-white hover:bg-white/5 border border-transparent' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5 border border-transparent')
-                  }`}
-                >
-                  <Database size={18} /> {t('aiSettings.tabModels')}
-                </button>
-              </nav>
+      {/* Content Area - Split Pane */}
+      <div className={`relative z-10 flex-1 flex overflow-hidden bg-transparent`}>
+          
+          {/* Left Sidebar */}
+          <div className={`w-80 p-8 flex flex-col gap-6 border-r ${isDark ? 'border-white/5 bg-black/20' : 'border-black/5 bg-white/30'} backdrop-blur-md`}>
+            {/* Header Widget */}
+            <div className={`w-full p-8 flex flex-col items-center justify-center gap-5 border rounded-[32px] relative overflow-hidden shadow-lg ${isDark ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-500/5 border-amber-500/20'}`}>
+              <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 to-transparent opacity-50 pointer-events-none" />
+              <Sparkles className="w-20 h-20 text-amber-500 drop-shadow-[0_0_30px_rgba(245,158,11,0.6)] animate-pulse relative z-10" />
+              <div className="text-center relative z-10">
+                <h3 className={`text-[17px] font-black tracking-tight mb-1 ${isDark ? 'text-white' : 'text-slate-800'}`}>{t('aiSettings.title', 'AI Center')}</h3>
+                <p className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.subtitle', 'Intelligence engine')}</p>
+              </div>
             </div>
 
-            {/* Content Area */}
-            <div className={`relative flex-1 flex flex-col ${isDark ? 'bg-neutral-900/50' : 'bg-slate-100/50'}`}>
+            {/* Navigation Menu */}
+            <nav className="flex flex-col gap-1 overflow-y-auto pb-4">
+              {(() => {
+                const activeItemClass = isDark ? 'bg-amber-500/10 text-amber-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_10px_rgba(245,158,11,0.1)]' : 'bg-amber-500/10 text-amber-700 shadow-sm';
+                const inactiveItemClass = isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5';
+                const baseItemClass = 'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all text-left font-bold border border-transparent';
+                
+                return (
+                  <>
+                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('aiSettings.sidebar.core', 'Core')}</div>
+                    <button onClick={() => setActiveTab('overview')} className={`${baseItemClass} ${activeTab === 'overview' ? activeItemClass : inactiveItemClass}`}><Globe className="w-4 h-4"/>{t('aiSettings.sidebar.dashboard', 'Dashboard')}</button>
+                    <button onClick={() => setActiveTab('providers')} className={`${baseItemClass} ${activeTab === 'providers' ? activeItemClass : inactiveItemClass}`}><Server className="w-4 h-4"/>{t('aiSettings.sidebar.providers', 'Providers')}</button>
+                    <button onClick={() => setActiveTab('models')} className={`${baseItemClass} ${activeTab === 'models' ? activeItemClass : inactiveItemClass}`}><Database className="w-4 h-4"/>{t('aiSettings.sidebar.models', 'Models')}</button>
+                    
+                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('aiSettings.sidebar.customization', 'Customization')}</div>
+                    <button onClick={() => setActiveTab('prompts')} className={`${baseItemClass} ${activeTab === 'prompts' ? activeItemClass : inactiveItemClass}`}><BookOpen className="w-4 h-4"/>{t('aiSettings.sidebar.prompts', 'Prompts')}</button>
+                    <button onClick={() => setActiveTab('agents')} className={`${baseItemClass} ${activeTab === 'agents' ? activeItemClass : inactiveItemClass}`}><Bot className="w-4 h-4"/>{t('aiSettings.sidebar.agents', 'Agents')}</button>
+                  </>
+                );
+              })()}
+            </nav>
+          </div>
 
-
-              <div className="flex-1 p-10 overflow-y-auto no-scrollbar">
+          {/* Right Payload Area */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+            <div className="max-w-4xl mx-auto p-12 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
                 {/* 1. OVERVIEW TAB */}
                 {activeTab === 'overview' && (
@@ -149,7 +137,7 @@ export const AiSettingsModal: React.FC = () => {
                     </h3>
                     <p className={`mb-8 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.overviewDesc', 'Manage your global AI copilot, connection settings, and active models.')}</p>
                     
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 auto-rows-[140px]">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 auto-rows-[140px]">
                       {/* Big Status Card */}
                       <div className={`col-span-2 row-span-2 relative p-8 rounded-[32px] border flex flex-col overflow-hidden group shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 hover:border-amber-500/30 ${isDark ? 'bg-white/5 border-white/5' : 'bg-white border-black/5'}`}>
                         <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-50" />
@@ -225,7 +213,7 @@ export const AiSettingsModal: React.FC = () => {
                     </h3>
                     <p className={`mb-8 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.promptsDesc', 'Load pre-configured system personas for your AI to assist with server operations.')}</p>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-10">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6 pb-10">
                       {[
                         { title: t('aiSettings.promptLinux', 'Linux Expert'), desc: t('aiSettings.promptLinuxDesc', 'A senior Sysadmin specialized in kernel tuning and troubleshooting.'), icon: TerminalSquare, color: 'text-emerald-400' },
                         { title: t('aiSettings.promptLog', 'Log Analyzer'), desc: t('aiSettings.promptLogDesc', 'Find anomalies, trace errors, and extract patterns from raw logs.'), icon: Database, color: 'text-cyan-400' },

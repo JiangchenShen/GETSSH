@@ -98,7 +98,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
 
         {/* Bottom panel */}
         <div
-          className={`shrink-0 relative flex flex-col ${isDark ? 'border-t border-neutral-900' : 'border-t border-black/10'}`}
+          className={`shrink-0 relative flex flex-col ${isDark ? 'shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'shadow-[inset_0_1px_0_rgba(0,0,0,0.05)]'}`}
           style={{ height: currentSize }}
         >
           {/* Resizer handle — top edge */}
@@ -123,7 +123,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
       {/* Right Dynamic Panel */}
       {showPanel && (
         <div
-          className={`shrink-0 relative flex flex-col ${isDark ? 'border-l border-neutral-900' : 'border-l border-black/10'}`}
+          className={`shrink-0 relative flex flex-col ${isDark ? 'shadow-[inset_1px_0_0_rgba(255,255,255,0.05)]' : 'shadow-[inset_1px_0_0_rgba(0,0,0,0.05)]'}`}
           style={{ width: currentSize }}
         >
           {/* Resizer Handle */}
