@@ -659,7 +659,7 @@ function App() {
               onConnect={handleConnect}
               onUpdateSession={(index, updatedSession) => {
                 const u = [...sessions];
-                u[index] = updatedSession;
+                u[index] = updatedSession as any;
                 syncProfiles(u);
               }}
             />
