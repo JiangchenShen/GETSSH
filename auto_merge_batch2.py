@@ -1,16 +1,13 @@
-
 import subprocess
 import sys
 import os
+import json
 
-prs = {
-  "180": "jules-10834888526321717247-76353824",
-  "181": "test/chaos-monkey-undefined-listen-4282848139241782657",
-  "182": "testing/getssh-kv-unit-tests-10341120081842927931",
-  "183": "security-fix/os-probe-injection-8390321989614721711",
-  "184": "refactor/sftp-manager-error-handling-7280811096439610421",
-  "185": "performance/pty-env-sanitization-13552472372960722049",
-}
+with open('/tmp/prs_new.json') as f:
+    prs_data = json.load(f)
+
+to_merge = [pr for pr in prs_data if 180 <= pr['number'] <= 185]
+to_merge.sort(key=lambda x: x['number'])
 
 def run_cmd(cmd):
     print(f"Running: {cmd}")
@@ -20,14 +17,17 @@ def run_cmd(cmd):
         return False, result.stdout, result.stderr
     return True, result.stdout, result.stderr
 
-for pr_num, branch in prs.items():
+for pr in to_merge:
+    pr_num = pr['number']
+    branch = pr['head']['ref']
     print(f"--- Merging PR {pr_num} (branch: {branch}) ---")
+    
     success, stdout, stderr = run_cmd(f"git fetch origin {branch}")
     if not success:
         print(f"Failed to fetch {branch}!")
         sys.exit(1)
         
-    success, stdout, stderr = run_cmd(f"git merge origin/{branch} --no-edit -m "Merge PR {pr_num}"")
+    success, stdout, stderr = run_cmd(f"git merge origin/{branch} --no-edit -m \"Merge PR {pr_num}\"")
     if not success:
         print(f"Conflict in {branch}!")
         print(stdout)

@@ -467,7 +467,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
             // ── Silent OS Fingerprint Probe ─────────────────────────────
             // Uses a separate exec channel so the PTY stream stays clean.
             setTimeout(() => {
-              sshClient.exec('cat /etc/os-release 2>/dev/null | grep -E "^ID="', (execErr, execStream) => {
+              sshClient.exec('cat /etc/os-release', (execErr, execStream) => {
                 if (execErr) return;
                 let output = '';
                 execStream.on('data', (d: Buffer) => { output += d.toString('utf-8'); });

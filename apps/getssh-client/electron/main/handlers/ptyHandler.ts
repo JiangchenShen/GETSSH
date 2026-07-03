@@ -92,17 +92,14 @@ export async function spawnLocalTerminal(
       env: ((): Record<string, string> => {
         // [M-14] Security Fix: Filter out sensitive tokens from the PTY environment using a blocklist
         // An allowlist is too brittle and breaks shell initialization on different OSes.
-        const safeEnv: Record<string, string> = { ...process.env } as Record<string, string>;
-        const sensitivePrefixes = ['AWS_', 'AZURE_', 'GCP_', 'GOOGLE_', 'npm_', 'NPM_', 'STRIPE_', 'GITHUB_', 'GITLAB_'];
-        for (const key of Object.keys(safeEnv)) {
-          const lowerKey = key.toLowerCase();
-          if (
-            sensitivePrefixes.some(prefix => key.startsWith(prefix)) || 
-            lowerKey.includes('token') || 
-            lowerKey.includes('secret') || 
-            lowerKey.includes('password')
-          ) {
-            delete safeEnv[key];
+        const safeEnv: Record<string, string> = {};
+        for (const key of Object.keys(process.env)) {
+          if (!/^(?:AWS|AZURE|GCP|GOOGLE|npm|NPM|STRIPE|GITHUB|GITLAB)_/.test(key) &&
+              !/token|secret|password/i.test(key)) {
+            const val = process.env[key];
+            if (val !== undefined) {
+              safeEnv[key] = val;
+            }
           }
         }
         return safeEnv;
