@@ -146,10 +146,10 @@ export const MoovierTile: React.FC<MoovierTileProps> = ({
       // --- 镜头级景深调度与物理光影 ---
       initial={false}
       animate={{
-        // 非焦点状态降压：亮度 0.6，饱和度 0.5，增加 0.6px 散焦模糊
+        // 非焦点状态降压：透明度 0.6
         filter: isBlurTarget 
-          ? "brightness(0.6) saturate(0.5) blur(0.6px)" 
-          : "brightness(1) saturate(1) blur(0px)",
+          ? "brightness(0.7) saturate(0.8)" 
+          : "brightness(1) saturate(1)",
         // 透明度退隐
         opacity: isBlurTarget ? 0.8 : 1,
         // Z轴微缩，产生后退感

@@ -34,7 +34,9 @@ declare global {
       updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => void;
       selectFile: () => Promise<string | null>;
       getPathForFile: (file: File) => string;
-      checkProfiles: () => Promise<'encrypted' | 'plain' | 'none'>;
+      checkProfiles: () => Promise<{ status: 'encrypted' | 'plain' | 'none'; biometricEnabled: boolean }>;
+      bridgeFetchProfiles: (sourceWorkspaceId: string) => Promise<{ success: boolean; profiles?: any[]; runbooks?: any[]; error?: string }>;
+      bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => Promise<{ success: boolean; error?: string }>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
       saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[] }) => Promise<boolean>;
       onAppBlur: (cb: () => void) => (() => void);
@@ -84,11 +86,19 @@ declare global {
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);
       onSyncPluginSettingsSchemas: (cb: (payload: any) => void) => (() => void);
-      exportDatabase: () => Promise<{ success: boolean; path?: string; error?: string }>;
+      exportDatabaseAll: () => Promise<{ success: boolean; path?: string; error?: string }>;
+      exportDatabaseWorkspace: () => Promise<{ success: boolean; path?: string; error?: string }>;
       importDatabase: () => Promise<{ success: boolean; requiresConfirmation?: boolean; sourcePath?: string; merged?: boolean; error?: string }>;
       confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => Promise<{ success: boolean; merged?: boolean; error?: string }>;
+      getGlobalSetting: (key: string) => Promise<string | null>;
+      setGlobalSetting: (key: string, value: string) => Promise<{ success: boolean; error?: string }>;
       deleteWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>;
+      getWorkspaceStats: (id: string) => Promise<{ success: boolean; error?: string; stats?: any }>;
+      getWorkspaceAuditLogs: (id: string) => Promise<{ success: boolean; error?: string; logs?: any[] }>;
       setMainWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>;
+      toggleWorkspaceBiometric: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+      promptTouchID: (reason: string) => Promise<{ success: boolean; error?: string }>;
+      updateWorkspacePreferences: (id: string, preferencesStr: string) => Promise<{ success: boolean; error?: string }>;
       encryptConfig: (data: any) => Promise<string>;
       decryptConfig: (base64: string) => Promise<any>;
       nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<any>;
@@ -129,6 +139,9 @@ declare global {
         saveMessage: (msg: any) => Promise<{ success: boolean }>;
         deleteSession: (id: string) => Promise<{ success: boolean }>;
         updateSessionTitle: (id: string, title: string) => Promise<{ success: boolean }>;
+        approveAgentAction: (requestId: string, approved: boolean) => void;
+        onAgentApprovalRequest: (cb: (payload: { requestId: string, command: string }) => void) => () => void;
+        onAgentGlobalAction: (cb: (payload: { action: string, target: string, execute: string }) => void) => () => void;
       };
     };
   }

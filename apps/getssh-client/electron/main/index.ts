@@ -30,7 +30,8 @@ const originalIpcOn = ipcMain.on.bind(ipcMain);
 ipcMain.on = (channel, listener) => {
   return originalIpcOn(channel, (event, ...args) => {
     // Only allow IPC messages from the top-level frame (the main GETSSH UI)
-    if (event.senderFrame && event.senderFrame.parent !== null) {
+    // If event is null/undefined (e.g., emitted internally by main process), skip this check
+    if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'on' message from subframe to channel: ${channel}`);
       return;
     }
@@ -41,7 +42,7 @@ ipcMain.on = (channel, listener) => {
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => {
   originalIpcHandle(channel, async (event, ...args) => {
-    if (event.senderFrame && event.senderFrame.parent !== null) {
+    if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'handle' message from subframe to channel: ${channel}`);
       throw new Error('Unauthorized IPC channel access from subframe');
     }
@@ -52,7 +53,7 @@ ipcMain.handle = (channel, listener) => {
 const originalIpcOnce = ipcMain.once.bind(ipcMain);
 ipcMain.once = (channel, listener) => {
   return originalIpcOnce(channel, (event, ...args) => {
-    if (event.senderFrame && event.senderFrame.parent !== null) {
+    if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'once' message from subframe to channel: ${channel}`);
       return;
     }
@@ -63,7 +64,7 @@ ipcMain.once = (channel, listener) => {
 const originalIpcHandleOnce = ipcMain.handleOnce.bind(ipcMain);
 ipcMain.handleOnce = (channel, listener) => {
   originalIpcHandleOnce(channel, async (event, ...args) => {
-    if (event.senderFrame && event.senderFrame.parent !== null) {
+    if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'handleOnce' message from subframe to channel: ${channel}`);
       throw new Error('Unauthorized IPC channel access from subframe');
     }
@@ -74,7 +75,7 @@ ipcMain.handleOnce = (channel, listener) => {
 const originalIpcAddListener = ipcMain.addListener.bind(ipcMain);
 ipcMain.addListener = (channel, listener) => {
   return originalIpcAddListener(channel, (event, ...args) => {
-    if (event.senderFrame && event.senderFrame.parent !== null) {
+    if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'addListener' message from subframe to channel: ${channel}`);
       return;
     }
@@ -209,8 +210,38 @@ app.whenReady().then(() => {
   // Init GETSSH Secure Center (RASP)
   SecureCenter.getInstance().start(() => win);
   
-  // Initialize Master SQLite Database synchronously
-  DatabaseManager.init();
+  let appKeyBuffer: Buffer | null = null;
+  try {
+    const appKeyPathEnc = join(app.getPath('home'), '.getssh', 'app_key.enc');
+    const appKeyPathPlain = join(app.getPath('home'), '.getssh', 'app_key.txt');
+    const fs = require('fs');
+    const crypto = require('crypto');
+    const { safeStorage } = require('electron');
+
+    if (fs.existsSync(appKeyPathEnc) && safeStorage.isEncryptionAvailable()) {
+      const encryptedKey = fs.readFileSync(appKeyPathEnc);
+      const appKeyStr = safeStorage.decryptString(encryptedKey);
+      appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
+    } else if (fs.existsSync(appKeyPathPlain)) {
+      const appKeyStr = fs.readFileSync(appKeyPathPlain, 'utf8');
+      appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
+    } else {
+      // First boot: generate key
+      const newKey = crypto.randomBytes(32).toString('hex');
+      if (safeStorage.isEncryptionAvailable()) {
+        const encryptedKey = safeStorage.encryptString(newKey);
+        fs.writeFileSync(appKeyPathEnc, encryptedKey);
+      } else {
+        fs.writeFileSync(appKeyPathPlain, newKey, { mode: 0o600 });
+      }
+      appKeyBuffer = Buffer.from(newKey, 'utf8');
+    }
+  } catch (e) {
+    console.error('Failed to initialize or retrieve global app key', e);
+  }
+
+  // Initialize Master SQLite Database synchronously with the Global App Key
+  DatabaseManager.init(appKeyBuffer);
   
   // Background asynchronous heavy initialization (workspaces, plugins, hollow windows)
   bootstrapAppWorkspace().then(async () => {

@@ -310,6 +310,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
         if (privateKeyData) {
           connectConfig.privateKey = privateKeyData;
+          if (config.passphrase) {
+            connectConfig.passphrase = config.passphrase;
+          }
         } else {
           connectConfig.password = config.password;
         }

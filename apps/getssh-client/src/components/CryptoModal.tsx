@@ -53,7 +53,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
   };
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center bg-black/70 transition-all`} style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
+    <div className={`absolute inset-0 z-50 flex items-center justify-center bg-black/70 transition-all`} style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
       {/* Context-aware ambient glow from workspace themeColor */}
       {mode === 'locked' && themeColor && (
         <div

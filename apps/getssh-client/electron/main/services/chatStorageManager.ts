@@ -39,17 +39,20 @@ export class ChatStorageManager {
   }
 
   public static saveMessage(msg: ChatMessage) {
+    if (!this.currentWorkspaceId) return;
     const { DatabaseManager } = require('./DatabaseManager');
-    DatabaseManager.saveAiMessage(msg);
+    DatabaseManager.saveAiMessage(this.currentWorkspaceId, msg);
   }
 
   public static deleteSession(id: string) {
+    if (!this.currentWorkspaceId) return;
     const { DatabaseManager } = require('./DatabaseManager');
-    DatabaseManager.deleteAiSession(id);
+    DatabaseManager.deleteAiSession(this.currentWorkspaceId, id);
   }
 
   public static updateSessionTitle(id: string, title: string) {
+    if (!this.currentWorkspaceId) return;
     const { DatabaseManager } = require('./DatabaseManager');
-    DatabaseManager.updateAiSessionTitle(id, title);
+    DatabaseManager.updateAiSessionTitle(this.currentWorkspaceId, id, title);
   }
 }

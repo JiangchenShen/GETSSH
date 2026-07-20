@@ -2,17 +2,54 @@ import React, { useState, useEffect, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useCryptoStore } from '../store/cryptoStore';
+import { useSessionStore } from '../store/sessionStore';
 import { motion } from 'framer-motion';
 import { MoovierTile } from '@moovier/core';
 import { Rocket, ShieldCheck, Globe, Sparkles, Blocks, Settings } from 'lucide-react';
+import { CryptoModal } from './CryptoModal';
+import { promptWebAuthn } from '../utils/webauthn';
 
 export const NexusDashboard: React.FC = () => {
-  
+  const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const appConfig = useAppStore(state => state.appConfig);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   
-  const { t } = useTranslation();
+  // Crypto logic for Zero-Trust Local Unlock
+  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
+  
+  const cryptoMode = useCryptoStore(state => state.cryptoMode);
+  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
+  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
+  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
+  const masterPassword = useCryptoStore(state => state.masterPassword);
+  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
+  
+  const sessions = useSessionStore(state => state.sessions);
+  const setSessions = useSessionStore(state => state.setSessions);
+
+  const handleUnlock = async (pwd: string) => {
+    const profiles = await window.electronAPI.unlockProfiles(pwd);
+    if (!profiles) return false;
+    setMasterPassword(pwd);
+    setSessions(profiles);
+    setCryptoMode('idle');
+    useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
+    return true;
+  };
+
+  const handleSetup = async (pwd: string) => {
+    setEncryptionDisabled(false);
+    setMasterPassword(pwd);
+    const updatedSessions = sessions.map(s => ({ ...s, password: s.password || '' }));
+    await window.electronAPI.saveProfiles({ masterPassword: pwd, payload: updatedSessions });
+    setCryptoMode('idle');
+  };
+
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -39,6 +76,55 @@ export const NexusDashboard: React.FC = () => {
   // CSS variables for SPRING_FLUID hover effect
   const tileHoverClass = "group relative overflow-hidden cursor-pointer rounded-xl shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4),0_20px_40px_rgba(0,0,0,0.3)]";
   const glowOverlayClass = "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br pointer-events-none";
+
+  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
+
+  if (isVaultLocked) {
+    const _activeWs = workspaces.find(w => w.id === activeWorkspaceId);
+    const _wsName = _activeWs?.name || activeWorkspaceId;
+    const _wsColor = _activeWs?.themeColor;
+    return (
+      <div className="absolute inset-0 w-full h-full z-[100] rounded-[32px] overflow-hidden">
+        <CryptoModal 
+          mode="locked" 
+          isDark={isDark} 
+          encryptionDisabled={encryptionDisabled}
+          onUnlock={handleUnlock} 
+          onSetup={async (pwd) => { await handleSetup(pwd); }}
+          onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
+          onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
+              if (cryptoMode === 'setup') {
+                 setEncryptionDisabled(true);
+                 window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+              }
+              setCryptoMode('idle');
+          }}
+          onRetryBiometric={workspaces.find(w => w.id === activeWorkspaceId)?.biometricEnabled ? async () => {
+             const webAuthnSuccess = await promptWebAuthn();
+             if (!webAuthnSuccess) return;
+
+             const bioRes = await window.electronAPI.promptBiometricUnlock();
+             if (bioRes.success && bioRes.masterPassword) {
+               try {
+                  const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                  setMasterPassword(bioRes.masterPassword);
+                  setSessions(decrypted);
+                  setCryptoMode('idle');
+                  useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
+               } catch (e) {
+                  console.warn('Biometric unlock failed:', e);
+               }
+             }
+          } : undefined}
+          workspaceName={isVaultLocked ? _wsName : undefined}
+          themeColor={isVaultLocked ? _wsColor : undefined}
+          onSwitchWorkspace={isVaultLocked && activeWorkspaceId !== 'default' ? async () => {
+            await switchWorkspace('default');
+          } : undefined}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="drag-region w-full h-full max-w-6xl mx-auto flex flex-col justify-center gap-8 p-8 animate-in fade-in zoom-in-95 duration-700">
@@ -88,7 +174,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => setIsCommandCenterOpen(true)}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-blue-500/10 to-transparent`} />
@@ -112,7 +198,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'secure', title: 'SECURE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-emerald-500/10 to-transparent`} />
@@ -137,7 +223,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'workspace', title: 'WORKSPACE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-purple-500/10 to-transparent`} />
@@ -158,7 +244,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'} ${appConfig.aiEnabled === false ? 'grayscale opacity-50 cursor-not-allowed hover:-translate-y-0' : ''}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'} ${appConfig.aiEnabled === false ? 'grayscale opacity-50 cursor-not-allowed hover:-translate-y-0' : ''}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-amber-500/10 to-transparent`} />
@@ -180,7 +266,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'plugin', title: 'PLUGIN CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-rose-500/10 to-transparent`} />
@@ -201,7 +287,7 @@ export const NexusDashboard: React.FC = () => {
           dragLevel="fixed" 
           whileHover={{ y: -4 }}
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: 'Settings' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
+          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
           style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
         >
           <div className={`${glowOverlayClass} from-slate-500/10 to-transparent`} />

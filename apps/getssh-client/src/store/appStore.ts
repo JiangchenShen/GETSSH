@@ -1,5 +1,12 @@
 import { create } from 'zustand';
 
+export interface AiPrompt {
+  id: string;
+  title: string;
+  desc: string;
+  content: string;
+}
+
 export interface AppConfig {
   language: string;
   themeColor?: string;
@@ -39,6 +46,9 @@ export interface AppConfig {
   aiProvider?: 'openai' | 'gemini' | 'ollama' | 'custom';
   aiModel?: string;
   aiEnabled?: boolean;
+  aiMode?: 'readonly' | 'assistant' | 'agent_semi' | 'agent_full';
+  activePromptId?: string;
+  customPrompts?: AiPrompt[];
 }
 
 const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
@@ -81,6 +91,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   aiProvider: 'openai',
   aiModel: 'gpt-3.5-turbo',
   aiEnabled: false,
+  aiMode: 'readonly',
 };
 
 export interface ToastMsg {
@@ -107,6 +118,8 @@ interface AppStore {
   workspaces: string[];
   activeWorkspaceId: string;
   tornPaneId: string | null;
+  isAppBootLocked: boolean;
+  isAppBootLoading: boolean;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -123,6 +136,8 @@ interface AppStore {
   setWorkspaces: (ws: string[]) => void;
   setActiveWorkspaceId: (id: string) => void;
   setTornPaneId: (id: string | null) => void;
+  setIsAppBootLocked: (locked: boolean) => void;
+  setIsAppBootLoading: (loading: boolean) => void;
   addToast: (message: string, type?: ToastMsg['type']) => void;
   removeToast: (id: string) => void;
   setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
@@ -158,6 +173,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isPolluted: false,
   watchdogStatus: null,
   tornPaneId: null,
+  isAppBootLocked: false,
+  isAppBootLoading: true,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => set((state) => ({
@@ -176,6 +193,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setWorkspaces: (ws) => set({ workspaces: ws }),
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
   setTornPaneId: (id) => set({ tornPaneId: id }),
+  setIsAppBootLocked: (locked) => set({ isAppBootLocked: locked }),
+  setIsAppBootLoading: (loading) => set({ isAppBootLoading: loading }),
   
   addToast: (message, type = 'info') => {
     const id = crypto.randomUUID();

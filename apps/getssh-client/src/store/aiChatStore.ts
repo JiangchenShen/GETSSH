@@ -15,6 +15,13 @@ export interface ChatMessage {
   isStreaming?: boolean;
   isThinking?: boolean;
   timestamp: number;
+  approvalRequest?: { command: string, requestId: string, status?: 'pending' | 'approved' | 'rejected' };
+  serverSelectionRequest?: {
+    availableServers: { id: string, name: string }[];
+    pendingPrompt: string;
+    status?: 'pending' | 'resolved';
+    selectedServerId?: string;
+  };
 }
 
 export interface Conversation {
@@ -75,11 +82,15 @@ export const useAiChatStore = create<AiChatState>()(
         }));
         
         set(state => {
-          state.conversations = conversations;
-          if (conversations.length > 0 && !state.activeConversationId) {
-            state.activeConversationId = conversations[0].id;
-          } else if (conversations.length === 0) {
-            state.activeConversationId = null;
+          // Merge dbSessions with any locally created sessions that haven't been fetched yet
+          const existingIds = new Set(conversations.map(c => c.id));
+          const locallyCreated = state.conversations.filter(c => !existingIds.has(c.id));
+          
+          state.conversations = [...locallyCreated, ...conversations];
+          
+          // Verify if activeConversationId is still valid, else pick first or null
+          if (!state.activeConversationId || !state.conversations.find(c => c.id === state.activeConversationId)) {
+            state.activeConversationId = state.conversations.length > 0 ? state.conversations[0].id : null;
           }
         });
       } catch (e) {

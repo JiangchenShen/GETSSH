@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, safeStorage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -17,7 +17,9 @@ export function setupWorkspaceHandlers() {
           name: ws.name,
           themeColor: ws.themeColor,
           hasPassword: ws.hasPassword === 1,
-          isMain: ws.is_main === 1
+          biometricEnabled: ws.biometric_enabled === 1,
+          isMain: ws.is_main === 1,
+          preferences: ws.preferences ? JSON.parse(ws.preferences) : {}
         }
       }));
     } catch (e) {
@@ -55,6 +57,127 @@ export function setupWorkspaceHandlers() {
       return { success: true };
     } catch (e) {
       console.error(`[Workspace IPC] Failed to set main workspace ${workspaceId}`, e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:toggleBiometric', async (event, workspaceId: string, enabled: boolean) => {
+    try {
+      const db = DatabaseManager.getDb();
+      if (db) {
+        db.prepare('UPDATE workspaces SET biometric_enabled = ? WHERE id = ?').run(enabled ? 1 : 0, workspaceId);
+      }
+      return { success: true };
+    } catch (e) {
+      console.error('Failed to toggle biometric:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:updatePreferences', async (event, workspaceId: string, preferencesStr: string) => {
+    try {
+      const db = DatabaseManager.getDb();
+      if (db) {
+        db.prepare('UPDATE workspaces SET preferences = ? WHERE id = ?').run(preferencesStr, workspaceId);
+      }
+      return { success: true };
+    } catch (e) {
+      console.error('Failed to update workspace preferences:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:getStats', async (event, workspaceId: string) => {
+    try {
+      return { success: true, stats: DatabaseManager.getWorkspaceStats(workspaceId) };
+    } catch (e) {
+      console.error('Failed to get workspace stats:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:getAuditLogs', async (event, workspaceId: string) => {
+    try {
+      return { success: true, logs: DatabaseManager.getAuditLogs(workspaceId) };
+    } catch (e) {
+      console.error('Failed to get audit logs:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  async function getWorkspacePassword(wsId: string): Promise<string | undefined> {
+    const vaultPath = path.join(os.homedir(), '.getssh', 'workspaces', wsId, 'vault.key');
+    if (fs.existsSync(vaultPath) && safeStorage.isEncryptionAvailable()) {
+      try {
+        const encryptedKey = await fs.promises.readFile(vaultPath);
+        return safeStorage.decryptString(encryptedKey);
+      } catch (e) {
+        console.error(`Failed to decrypt vault for ${wsId}`, e);
+      }
+    }
+    return undefined;
+  }
+
+  ipcMain.handle('workspace:bridge:fetchProfiles', async (event, sourceWorkspaceId: string) => {
+    try {
+      const pwd = await getWorkspacePassword(sourceWorkspaceId);
+      let db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
+      if (!db) {
+        const isMounted = DatabaseManager.mountWorkspace(sourceWorkspaceId, pwd);
+        if (!isMounted) throw new Error(`Failed to mount source workspace: ${sourceWorkspaceId}`);
+        db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
+      }
+      
+      if (!db) throw new Error('Source workspace DB not found');
+      
+      const profiles = db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(sourceWorkspaceId);
+      const runbooks = db.prepare('SELECT * FROM runbooks WHERE workspace_id = ?').all(sourceWorkspaceId);
+      
+      return { success: true, profiles, runbooks };
+    } catch (e) {
+      console.error('Bridge fetch failed', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workspace:bridge:importProfiles', async (event, targetWorkspaceId: string, profilesToImport: any[], runbooksToImport: any[]) => {
+    try {
+      const pwd = await getWorkspacePassword(targetWorkspaceId);
+      let db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
+      if (!db) {
+        const isMounted = DatabaseManager.mountWorkspace(targetWorkspaceId, pwd);
+        if (!isMounted) throw new Error('Failed to mount target workspace');
+        db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
+      }
+
+      if (!db) throw new Error('Target workspace DB not found');
+
+      const importProfile = db.prepare(`
+        INSERT OR REPLACE INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      const importRunbook = db.prepare(`
+        INSERT OR REPLACE INTO runbooks (id, workspace_id, title, script, riskLevel, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      db.transaction(() => {
+        for (const p of profilesToImport) {
+          importProfile.run(p.id, targetWorkspaceId, p.host, p.username, p.password, p.privateKeyPath, p.passphrase, p.port, p.autoStart, p.alias, p.osType);
+        }
+        for (const r of runbooksToImport) {
+          importRunbook.run(r.id, targetWorkspaceId, r.title, r.script, r.riskLevel, r.created_at);
+        }
+      })();
+
+      try {
+        DatabaseManager.logAudit(targetWorkspaceId, 'Data Import', 'Cross-Workspace Bridge', `Imported ${profilesToImport.length} profiles and ${runbooksToImport.length} runbooks`);
+      } catch(e) {}
+
+      return { success: true };
+    } catch (e) {
+      console.error('Bridge import failed', e);
       return { success: false, error: String(e) };
     }
   });
@@ -119,12 +242,13 @@ export function setupWorkspaceHandlers() {
       const workspaces = DatabaseManager.getWorkspaces();
       const wsRow = workspaces.find(w => w.id === targetWorkspaceId);
       
-      let visualMeta = { themeColor: '#1e293b', hasPassword: false, name: targetWorkspaceId };
+      let visualMeta = { themeColor: '#1e293b', hasPassword: false, biometricEnabled: false, name: targetWorkspaceId };
       if (wsRow) {
         visualMeta = {
           name: wsRow.name,
-          themeColor: wsRow.themeColor,
-          hasPassword: wsRow.hasPassword === 1
+          themeColor: wsRow.themeColor || '#1e293b',
+          hasPassword: wsRow.hasPassword === 1,
+          biometricEnabled: wsRow.biometric_enabled === 1
         };
       } else {
         // If workspace doesn't exist in DB but folder exists, insert it
@@ -197,16 +321,26 @@ export async function bootstrapAppWorkspace() {
       // Configuration file does not exist or is invalid JSON
     }
 
-    // Determine if we need to auto-bootstrap a default workspace
+    // Check main.db for the designated Main Workspace
+    const { DatabaseManager } = require('../services/DatabaseManager');
+    const mainDb = DatabaseManager.getDb();
+    if (mainDb) {
+      try {
+        const row = mainDb.prepare('SELECT id FROM workspaces WHERE is_main = 1').get() as { id: string } | undefined;
+        if (row && row.id) {
+          config.active_workspace = row.id;
+          await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+          console.log(`[Workspace] Bootstrapped Main Workspace: ${config.active_workspace}`);
+        }
+      } catch (err) {
+        console.error('[Workspace] Failed to read main workspace from DB:', err);
+      }
+    }
+
     if (!config.active_workspace) {
       console.log('[Workspace] No active workspace found. Auto-bootstrapping default sandbox...');
-      
-      // Call Rust NAPI to generate the securely locked down directory tree
       await nexusBridge.bootstrapWorkspace('default');
-      
       config.active_workspace = 'default';
-      
-      // Rust has created the file with 0o600, so we can overwrite it safely
       await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
       console.log('[Workspace] Global configuration updated to use default');
     } else {

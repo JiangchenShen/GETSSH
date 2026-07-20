@@ -16,6 +16,7 @@ export interface ExportedProfile {
   _encrypted?: boolean;
   password?: string;
   privateKeyPath?: string;
+  passphrase?: string;
   workspaceId?: string;
 }
 
@@ -98,7 +99,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
       for (const ws of workspaces) {
         const profiles = DatabaseManager.getProfiles(ws.id);
         for (const p of profiles) {
-          // Scrub sensitive data: username, password, privateKeyPath
+          // Scrub sensitive data: username, password, privateKeyPath, passphrase
           exported.push({
             name: p.name ?? '',
             host: p.host ?? '',
@@ -179,6 +180,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
           let password = entry.password ?? '';
           let privateKeyPath = entry.privateKeyPath ?? '';
+          let passphrase = entry.passphrase ?? '';
 
           // Only V1 has encrypted fields. V2 templates are scrubbed.
           if (entry._encrypted && data._format === 'getssh-profiles-v1') {
@@ -188,12 +190,14 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
             try {
               if (entry.password)       password       = await decryptField(entry.password, masterPassword);
               if (entry.privateKeyPath) privateKeyPath = await decryptField(entry.privateKeyPath, masterPassword);
+              if (entry.passphrase)     passphrase     = await decryptField(entry.passphrase, masterPassword);
             } catch {
               throw new Error('wrong_password');
             }
           } else if (data._format === 'getssh-profiles-v1' && !entry._encrypted) {
             if (entry.password)       password       = entry.password;
             if (entry.privateKeyPath) privateKeyPath = entry.privateKeyPath;
+            if (entry.passphrase)     passphrase     = entry.passphrase;
           }
 
           const profileId = crypto.randomUUID();
@@ -210,6 +214,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
             username: entry.username ?? '',
             password: password,
             privateKeyPath: privateKeyPath,
+            passphrase: passphrase,
             groupId: entry.groupId ?? null,
             autoStart: entry.autoStart ?? false,
             useKeepAlive: entry.useKeepAlive ?? false,

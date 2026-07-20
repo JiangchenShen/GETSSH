@@ -8,8 +8,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 // Stores
 import { useAppStore } from './store/appStore';
 import { PaneNode, PaneLeaf, useSessionStore } from './store/sessionStore';
-import { useWorkspaceStore, Runbook } from './store/workspaceStore';
-import { useCryptoStore } from './store/cryptoStore';
+import { Runbook } from './store/workspaceStore';
 
 // Hooks
 import { useAppBoot } from './hooks/useAppBoot';
@@ -37,6 +36,7 @@ import { IpcManager } from './components/IpcManager';
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
 import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
+import { GlobalBootLockOverlay } from './components/app-overlays/GlobalBootLockOverlay';
 
 export type { AppConfig } from './store/appStore';
 
@@ -47,14 +47,8 @@ function App() {
   useAppBoot();
   useAppEvents();
 
-  // Workspace
-  const workspaces = useWorkspaceStore(state => state.workspaces);
-  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
-
   // Session
   const sessions = useSessionStore(state => state.sessions);
-  const setSessions = useSessionStore(state => state.setSessions);
   const tabs = useSessionStore(state => state.tabs);
   const closeTab = useSessionStore(state => state.closeTab);
   const activeTabId = useSessionStore(state => state.activeTabId);
@@ -76,14 +70,6 @@ function App() {
   const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
   const tornPaneId = useAppStore(state => state.tornPaneId);
   
-  // Crypto State
-  const cryptoMode = useCryptoStore(state => state.cryptoMode);
-  const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
-  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
-  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
-
   // Local State
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
 
@@ -127,8 +113,6 @@ function App() {
   // Core App Events & Session Management
   const {
     syncProfiles,
-    handleSetup,
-    handleUnlock,
     deleteSession,
     toggleAutoStart,
     handleConnect,
@@ -162,8 +146,9 @@ function App() {
   let containerClasses = '';
 
   if (!isDark) {
-    // Light Mode (Glass on)
-    appBgStyle = { ...appBgStyle, backgroundColor: 'transparent' };
+    // Light Mode (Glass on or off)
+    const uiOpacity = appConfig.enableGlassmorphism ? (appConfig.bgOpacity ?? 0.8) : 1;
+    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(248, 250, 252, ${uiOpacity})` }; // slate-50
     containerClasses = 'text-slate-900 border-none';
   } else if (!appConfig.enableGlassmorphism) {
     // Dark Mode (Glass off): Solid
@@ -187,6 +172,7 @@ function App() {
         {/* Removed Duo-Tone Ambient Glow to let pure Liquid Glass shine through */}
 
         <AnimatePresence>
+          <GlobalBootLockOverlay />
           {pendingHighRiskRunbook && (
             <motion.div 
                initial={{ opacity: 0, scale: 0.95 }}
@@ -244,6 +230,8 @@ function App() {
                      }
                   }}
                   onRetryBiometric={async () => {
+                     // Fetch decrypted master password (automatically prompts OS TouchID if enabled)
+
                      const bioRes = await window.electronAPI.promptBiometricUnlock();
                      if (bioRes.success && bioRes.masterPassword) {
                        try {
@@ -287,50 +275,7 @@ function App() {
           )}
         </AnimatePresence>
 
-        {/* ── STANDARD LOCK SCREEN ── */}
-        {(cryptoMode === 'locked' || cryptoMode === 'setup') && !pendingHighRiskRunbook && (() => {
-          const _activeWs = workspaces.find(w => w.id === activeWorkspaceId);
-          const _wsName = _activeWs?.name || activeWorkspaceId;
-          const _wsColor = _activeWs?.themeColor;
-          return (
-          <CryptoModal 
-            mode={cryptoMode} 
-            isDark={isDark} 
-            encryptionDisabled={encryptionDisabled}
-            onUnlock={handleUnlock} 
-            onSetup={async (pwd) => { await handleSetup(pwd); }}
-            onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
-            onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
-                if (cryptoMode === 'setup') {
-                   setEncryptionDisabled(true);
-                   window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-                }
-                setCryptoMode('idle');
-            }}
-            onRetryBiometric={async () => {
-               const bioRes = await window.electronAPI.promptBiometricUnlock();
-               if (bioRes.success && bioRes.masterPassword) {
-                 try {
-                    const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                    setMasterPassword(bioRes.masterPassword);
-                    setSessions(decrypted);
-                    setCryptoMode('idle');
-                    useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-                 } catch (e) {
-                    console.warn('Biometric unlock failed on manual retry:', e);
-                 }
-               }
-            }}
-            workspaceName={cryptoMode === 'locked' ? _wsName : undefined}
-            themeColor={cryptoMode === 'locked' ? _wsColor : undefined}
-            onSwitchWorkspace={cryptoMode === 'locked' && activeWorkspaceId !== 'default' ? async () => {
-              setCryptoMode('idle');
-              await switchWorkspace('default');
-            } : undefined}
-          />
-          );
-        })()}
-        
+        {/* ── STANDARD LOCK SCREEN MOVED TO NEXUS DASHBOARD ── */}
         {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
         {tornPaneId ? (
           <div className="w-full h-full bg-transparent flex flex-col no-drag-region">
@@ -369,7 +314,7 @@ function App() {
             <MoovierTile 
               exemptFromFocus 
               dragLevel="fixed" 
-              className="w-full h-full shrink-0 flex flex-col"
+              className={`w-full h-full shrink-0 flex flex-col ${!isDark ? '!bg-white/90 border-r !border-black/5 shadow-sm' : ''}`}
               style={{ borderRadius: 0, '--moovier-bg': isDark ? 'rgba(0, 0, 0, 0.1)' : undefined } as React.CSSProperties}
             >
               <ContextSidebar 

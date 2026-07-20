@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { AiBridge } from '../services/aiBridge';
-import { Database, Globe, Key, RefreshCw, Cpu, BookOpen, Bot, Sparkles, TerminalSquare, Server, MessageSquare, Play } from 'lucide-react';
+import { Database, Globe, Key, RefreshCw, Cpu, BookOpen, Bot, Sparkles, TerminalSquare, Server, MessageSquare, Play, Check, Edit2, Trash2, Eye, Plus, X } from 'lucide-react';
+import { PERSONAS } from '../utils/persona';
 
 
 
@@ -19,6 +20,10 @@ export const AiSettingsModal: React.FC = () => {
   const [fetchError, setFetchError] = useState('');
   const [tempApiKey, setTempApiKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
+
+  // Prompt Vault States
+  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
+  const [editingPromptData, setEditingPromptData] = useState<{id: string, title: string, desc: string, content: string, isBuiltin?: boolean} | null>(null);
 
 
 
@@ -76,7 +81,7 @@ export const AiSettingsModal: React.FC = () => {
   };
 
   return (
-    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-[#0A0A0A]/95 text-white border-white/5' : 'bg-slate-50/95 text-slate-900 border-black/5'} backdrop-blur-3xl transition-colors duration-1000`}>
+    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-transparent text-white border-white/5' : 'bg-transparent text-slate-900 border-black/5'} transition-colors duration-1000`}>
       {/* Ambient Gradient Background */}
       {isDark && (
         <>
@@ -215,13 +220,27 @@ export const AiSettingsModal: React.FC = () => {
                     
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6 pb-10">
                       {[
-                        { title: t('aiSettings.promptLinux', 'Linux Expert'), desc: t('aiSettings.promptLinuxDesc', 'A senior Sysadmin specialized in kernel tuning and troubleshooting.'), icon: TerminalSquare, color: 'text-emerald-400' },
-                        { title: t('aiSettings.promptLog', 'Log Analyzer'), desc: t('aiSettings.promptLogDesc', 'Find anomalies, trace errors, and extract patterns from raw logs.'), icon: Database, color: 'text-cyan-400' },
-                        { title: t('aiSettings.promptDocker', 'Docker Master'), desc: t('aiSettings.promptDockerDesc', 'Containerization expert. Writes robust Dockerfiles and compose configs.'), icon: Server, color: 'text-blue-400' },
-                        { title: t('aiSettings.promptSecurity', 'Security Auditor'), desc: t('aiSettings.promptSecurityDesc', 'Reviews configurations and scripts for vulnerabilities and bad practices.'), icon: Key, color: 'text-rose-400' }
-                      ].map((prompt, i) => (
-                        <div key={i} className={`group relative p-6 rounded-[32px] border flex flex-col overflow-hidden shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 hover:border-amber-500/30 cursor-pointer ${isDark ? 'bg-white/5 border-white/5' : 'bg-white border-black/5'}`}>
-                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        { id: 'linux', title: t('aiSettings.promptLinux', 'Linux Expert'), desc: t('aiSettings.promptLinuxDesc', 'A senior Sysadmin specialized in kernel tuning and troubleshooting.'), content: appConfig.language === 'zh-CN' ? PERSONAS.linux.zh : PERSONAS.linux.en, icon: TerminalSquare, color: 'text-emerald-400', isBuiltin: true },
+                        { id: 'log', title: t('aiSettings.promptLog', 'Log Analyzer'), desc: t('aiSettings.promptLogDesc', 'Find anomalies, trace errors, and extract patterns from raw logs.'), content: appConfig.language === 'zh-CN' ? PERSONAS.log.zh : PERSONAS.log.en, icon: Database, color: 'text-cyan-400', isBuiltin: true },
+                        { id: 'docker', title: t('aiSettings.promptDocker', 'Docker Master'), desc: t('aiSettings.promptDockerDesc', 'Containerization expert. Writes robust Dockerfiles and compose configs.'), content: appConfig.language === 'zh-CN' ? PERSONAS.docker.zh : PERSONAS.docker.en, icon: Server, color: 'text-blue-400', isBuiltin: true },
+                        { id: 'security', title: t('aiSettings.promptSecurity', 'Security Auditor'), desc: t('aiSettings.promptSecurityDesc', 'Reviews configurations and scripts for vulnerabilities and bad practices.'), content: appConfig.language === 'zh-CN' ? PERSONAS.security.zh : PERSONAS.security.en, icon: Key, color: 'text-rose-400', isBuiltin: true },
+                        ...(appConfig.customPrompts || []).map(p => ({
+                          id: p.id,
+                          title: p.title,
+                          desc: p.desc,
+                          content: p.content,
+                          icon: Bot,
+                          color: 'text-purple-400',
+                          isBuiltin: false
+                        }))
+                      ].map((prompt, i) => {
+                        const isActive = appConfig.activePromptId === prompt.id;
+                        return (
+                        <div 
+                          key={i} 
+                          className={`group relative p-6 rounded-[32px] border flex flex-col overflow-hidden shadow-lg backdrop-blur-xl transition-all hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 hover:border-amber-500/30 ${isActive ? (isDark ? 'bg-amber-500/10 border-amber-500/50' : 'bg-amber-50 border-amber-500/50') : (isDark ? 'bg-white/5 border-white/5' : 'bg-white border-black/5')}`}
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                           <div className="relative z-10 flex items-start gap-4 mb-4">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner border ${isDark ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-black/5'} ${prompt.color}`}>
                               <prompt.icon className="w-6 h-6" />
@@ -231,13 +250,47 @@ export const AiSettingsModal: React.FC = () => {
                               <p className={`text-sm leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{prompt.desc}</p>
                             </div>
                           </div>
-                          <div className="relative z-10 mt-auto flex justify-end">
-                            <button disabled className="px-4 py-2 rounded-xl text-xs font-bold text-amber-500/50 bg-amber-500/5 border border-amber-500/10 cursor-not-allowed flex items-center gap-1.5">
-                              <Play className="w-3 h-3" /> {t('aiSettings.comingSoon', 'Coming Soon')}
+                          <div className="relative z-10 mt-auto flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {prompt.isBuiltin ? (
+                                <button onClick={() => { setEditingPromptData(prompt as any); setIsEditingPrompt(true); }} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-slate-500 hover:text-slate-900'}`} title={t('aiSettings.viewSource', 'View Source')}>
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <>
+                                  <button onClick={() => { setEditingPromptData(prompt as any); setIsEditingPrompt(true); }} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10 text-white/50 hover:text-white' : 'hover:bg-black/5 text-slate-500 hover:text-slate-900'}`} title={t('aiSettings.editPersona', 'Edit Persona')}>
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => {
+                                    if(confirm(t('aiSettings.deletePersonaConfirm', 'Delete this persona?'))) {
+                                      const newPrompts = (appConfig.customPrompts || []).filter(p => p.id !== prompt.id);
+                                      updateConfig('customPrompts', newPrompts);
+                                      if (appConfig.activePromptId === prompt.id) updateConfig('activePromptId', undefined);
+                                    }
+                                  }} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-rose-500/20 text-rose-400 hover:text-rose-300' : 'hover:bg-rose-100 text-rose-500 hover:text-rose-600'}`} title={t('aiSettings.deletePersona', 'Delete Persona')}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                            <button onClick={() => updateConfig('activePromptId', isActive ? undefined : prompt.id)} className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${isActive ? 'text-amber-500 bg-amber-500/10 border-amber-500/30' : 'text-slate-500 bg-black/5 border-transparent hover:bg-amber-500/10 hover:text-amber-600'}`}>
+                              {isActive ? <><Check className="w-3 h-3" /> {t('aiSettings.active', 'Active')}</> : <><Play className="w-3 h-3" /> {t('aiSettings.activate', 'Activate')}</>}
                             </button>
                           </div>
                         </div>
-                      ))}
+                      )})}
+                      
+                      {/* Add New Persona Button */}
+                      <div 
+                        onClick={() => { setEditingPromptData({ id: `custom_${Date.now()}`, title: '', desc: '', content: '' }); setIsEditingPrompt(true); }}
+                        className={`group relative p-6 rounded-[32px] border-2 border-dashed flex flex-col items-center justify-center text-center overflow-hidden transition-all hover:scale-[1.02] cursor-pointer ${isDark ? 'bg-white/5 border-white/10 hover:border-amber-500/50 hover:bg-amber-500/5' : 'bg-slate-50 border-black/10 hover:border-amber-500/50 hover:bg-amber-50'}`}
+                      >
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 transition-colors ${isDark ? 'bg-white/5 group-hover:bg-amber-500/20 text-white/50 group-hover:text-amber-400' : 'bg-black/5 group-hover:bg-amber-100 text-slate-500 group-hover:text-amber-600'}`}>
+                          <Plus className="w-6 h-6" />
+                        </div>
+                        <h4 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('aiSettings.newPersona', 'New Persona')}</h4>
+                        <p className={`text-sm ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{t('aiSettings.newPersonaDesc', 'Create your own custom AI expert')}</p>
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -249,17 +302,41 @@ export const AiSettingsModal: React.FC = () => {
                       <Bot className="text-amber-500 w-8 h-8" /> {t('aiSettings.agentsTitle', 'Autonomous Agents')}
                     </h3>
                     <p className={`mb-8 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.agentsDesc', 'Deploy autonomous AI agents to your servers for continuous monitoring and management.')}</p>
-                    
-                    <div className={`flex-1 flex flex-col items-center justify-center p-12 text-center rounded-[32px] border-2 border-dashed backdrop-blur-sm relative overflow-hidden ${isDark ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white'}`}>
-                      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5" />
-                      <Bot className={`w-20 h-20 mb-6 ${isDark ? 'text-white/10' : 'text-slate-200'}`} />
-                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-500 text-[10px] font-bold uppercase tracking-widest mb-4 border border-amber-500/20">
-                        <Play className="w-3 h-3" /> {t('aiSettings.comingSoon', 'Coming Soon')}
-                      </div>
-                      <h4 className={`text-2xl font-black mb-2 tracking-wide ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('aiSettings.agentWorkflows', 'Agent Workflows')}</h4>
-                      <p className={`max-w-md mx-auto leading-relaxed ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                        {t('aiSettings.agentWorkflowsDesc', 'In a future update, you will be able to deploy long-running agents directly to your hosts from this command center.')}
-                      </p>
+                    <div className="grid gap-4 mt-4">
+                      {[
+                        { id: 'readonly', title: t('aiSettings.modeReadonly', 'Read-Only (Default)'), desc: t('aiSettings.modeReadonlyDesc', 'AI can only answer questions and read your prompt. It cannot read the server terminal or execute commands.') },
+                        { id: 'assistant', title: t('aiSettings.modeAssistant', 'Assistant Mode'), desc: t('aiSettings.modeAssistantDesc', 'AI automatically reads your active terminal buffer to understand the context, but it cannot run commands.') },
+                        { id: 'agent_semi', title: t('aiSettings.modeAgentSemi', 'Semi-Takeover (Approval)'), desc: t('aiSettings.modeAgentSemiDesc', 'AI has autonomy to plan and propose commands, but requires your explicit click approval before executing any command.') },
+                        { id: 'agent_full', title: t('aiSettings.modeAgentFull', 'Full Takeover (Agent)'), desc: t('aiSettings.modeAgentFullDesc', 'AI has full autonomy. It will execute commands directly on the server until the objective is completed.') }
+                      ].map((mode) => (
+                        <div 
+                          key={mode.id}
+                          onClick={() => updateConfig('aiMode', mode.id as any)}
+                          className={`relative p-5 rounded-2xl border cursor-pointer flex items-start gap-4 transition-all ${
+                            appConfig.aiMode === mode.id 
+                              ? (isDark ? 'bg-amber-500/10 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-amber-50 border-amber-500/50 shadow-md')
+                              : (isDark ? 'bg-black/20 border-white/5 hover:border-white/20' : 'bg-white border-black/5 hover:border-black/20')
+                          }`}
+                        >
+                          <div className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            appConfig.aiMode === mode.id 
+                              ? 'border-amber-500' 
+                              : (isDark ? 'border-white/30' : 'border-slate-300')
+                          }`}>
+                            {appConfig.aiMode === mode.id && <div className="w-2.5 h-2.5 bg-amber-500 rounded-full" />}
+                          </div>
+                          <div>
+                            <h4 className={`text-lg font-bold mb-1 ${
+                              appConfig.aiMode === mode.id 
+                                ? 'text-amber-500' 
+                                : (isDark ? 'text-white' : 'text-slate-900')
+                            }`}>{mode.title}</h4>
+                            <p className={`text-sm leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                              {mode.desc}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </motion.div>
                 )}
@@ -428,6 +505,77 @@ export const AiSettingsModal: React.FC = () => {
               </div>
             </div>
       </div>
+
+      {/* Edit/View Persona Modal positioned relative to the whole Settings pane, not inside scrolling div */}
+      {isEditingPrompt && editingPromptData && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className={`w-full max-w-2xl max-h-full overflow-y-auto rounded-3xl border shadow-2xl p-8 flex flex-col gap-6 ${isDark ? 'bg-[#1a1a24] border-white/10' : 'bg-white border-black/10'}`}>
+            <div className="flex items-center justify-between">
+              <h3 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {editingPromptData.isBuiltin ? t('aiSettings.modalViewPersona', 'View Persona') : (editingPromptData.title ? t('aiSettings.modalEditPersona', 'Edit Persona') : t('aiSettings.modalNewPersona', 'New Custom Persona'))}
+              </h3>
+              <button onClick={() => { setIsEditingPrompt(false); setEditingPromptData(null); }} className={`p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-widest mb-2 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.personaTitle', 'Title')}</label>
+                <input 
+                  type="text"
+                  value={editingPromptData.title}
+                  onChange={e => setEditingPromptData({...editingPromptData, title: e.target.value})}
+                  readOnly={editingPromptData.isBuiltin}
+                  placeholder={t('aiSettings.personaTitlePlaceholder', 'e.g. Database Architect')}
+                  className={`w-full px-4 py-3 rounded-xl border outline-none transition-all ${isDark ? 'bg-black/20 border-white/10 text-white focus:border-amber-500 focus:bg-white/5' : 'bg-slate-50 border-black/10 text-slate-900 focus:border-amber-500 focus:bg-white'}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-widest mb-2 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.personaDesc', 'Description')}</label>
+                <input 
+                  type="text"
+                  value={editingPromptData.desc}
+                  onChange={e => setEditingPromptData({...editingPromptData, desc: e.target.value})}
+                  readOnly={editingPromptData.isBuiltin}
+                  placeholder={t('aiSettings.personaDescPlaceholder', 'e.g. Expert at optimizing Postgres queries.')}
+                  className={`w-full px-4 py-3 rounded-xl border outline-none transition-all ${isDark ? 'bg-black/20 border-white/10 text-white focus:border-amber-500 focus:bg-white/5' : 'bg-slate-50 border-black/10 text-slate-900 focus:border-amber-500 focus:bg-white'}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-widest mb-2 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.personaSystemPrompt', 'System Prompt')}</label>
+                <textarea 
+                  value={editingPromptData.content}
+                  onChange={e => setEditingPromptData({...editingPromptData, content: e.target.value})}
+                  readOnly={editingPromptData.isBuiltin}
+                  placeholder={t('aiSettings.personaSystemPromptPlaceholder', 'You are a senior database architect...')}
+                  className={`w-full h-48 px-4 py-3 rounded-xl border outline-none transition-all resize-none font-mono text-sm leading-relaxed ${isDark ? 'bg-black/20 border-white/10 text-white focus:border-amber-500 focus:bg-white/5' : 'bg-slate-50 border-black/10 text-slate-900 focus:border-amber-500 focus:bg-white'}`}
+                />
+              </div>
+            </div>
+            
+            {!editingPromptData.isBuiltin && (
+              <div className="flex justify-end gap-3 mt-4">
+                <button onClick={() => { setIsEditingPrompt(false); setEditingPromptData(null); }} className={`px-6 py-3 rounded-xl font-bold transition-all ${isDark ? 'hover:bg-white/5 text-white/70' : 'hover:bg-black/5 text-slate-600'}`}>{t('common.cancel', 'Cancel')}</button>
+                <button onClick={() => {
+                  if (!editingPromptData.title.trim() || !editingPromptData.content.trim()) return;
+                  const existingPrompts = appConfig.customPrompts || [];
+                  const isExisting = existingPrompts.find(p => p.id === editingPromptData.id);
+                  let newPrompts;
+                  if (isExisting) {
+                    newPrompts = existingPrompts.map(p => p.id === editingPromptData.id ? { ...p, title: editingPromptData.title, desc: editingPromptData.desc, content: editingPromptData.content } : p);
+                  } else {
+                    newPrompts = [...existingPrompts, { id: editingPromptData.id, title: editingPromptData.title, desc: editingPromptData.desc, content: editingPromptData.content }];
+                  }
+                  updateConfig('customPrompts', newPrompts);
+                  setIsEditingPrompt(false);
+                  setEditingPromptData(null);
+                }} className="px-6 py-3 rounded-xl font-bold bg-amber-500 text-white shadow-lg hover:bg-amber-400 transition-all hover:scale-105 active:scale-95">{t('aiSettings.savePersona', 'Save Persona')}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

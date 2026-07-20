@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileJson, Upload, Shield, Database } from 'lucide-react';
 import { useAppStore } from '../../../store/appStore';
+import { promptWebAuthn } from '../../../utils/webauthn';
 
 export const ExportTab: React.FC = () => {
   const { t } = useTranslation();
@@ -40,20 +41,46 @@ export const ExportTab: React.FC = () => {
               <div className="flex gap-4">
                 <button 
                   onClick={async () => {
-                    if (window.electronAPI && window.electronAPI.exportDatabase) {
-                      const res = await window.electronAPI.exportDatabase();
+                    if (window.electronAPI && window.electronAPI.exportDatabaseAll) {
+                      const webAuthnSuccess = await promptWebAuthn();
+                      if (!webAuthnSuccess) {
+                        setProfilesStatus({ type: 'error', msg: 'Biometric verification failed or was canceled.' });
+                        setTimeout(() => setProfilesStatus(null), 3000);
+                        return;
+                      }
+
+                      const res = await window.electronAPI.exportDatabaseAll();
                       if (res.success) {
-                        setProfilesStatus({ type: 'success', msg: `Database backup saved: ${res.path}` });
+                        setProfilesStatus({ type: 'success', msg: `All databases exported to: ${res.path}` });
                       } else if (res.error !== 'canceled') {
-                        setProfilesStatus({ type: 'error', msg: `Backup failed: ${res.error}` });
+                        setProfilesStatus({ type: 'error', msg: `Global export failed: ${res.error}` });
                       }
                       setTimeout(() => setProfilesStatus(null), 3000);
                     }
                   }}
                   className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-purple-500/30 text-purple-400 bg-purple-500/10 hover:bg-purple-500 hover:text-purple-950' : 'border-purple-500/30 text-purple-600 bg-purple-50 hover:bg-purple-500 hover:text-white'}`}
                 >
-                  <Database className="w-5 h-5" /> {t('settings.exportDb')}
+                  <Database className="w-5 h-5" /> Export All DBs
                 </button>
+                <button 
+                  onClick={async () => {
+                    if (window.electronAPI && window.electronAPI.exportDatabaseWorkspace) {
+                      const res = await window.electronAPI.exportDatabaseWorkspace();
+                      if (res.success) {
+                        setProfilesStatus({ type: 'success', msg: `Workspace exported to: ${res.path}` });
+                      } else if (res.error !== 'canceled') {
+                        setProfilesStatus({ type: 'error', msg: `Workspace export failed: ${res.error}` });
+                      }
+                      setTimeout(() => setProfilesStatus(null), 3000);
+                    }
+                  }}
+                  className={`py-4 px-6 text-sm font-black tracking-widest uppercase border transition-all flex items-center justify-center gap-3 rounded-xl flex-1 shadow-sm ${isDark ? 'border-blue-500/30 text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-blue-950' : 'border-blue-500/30 text-blue-600 bg-blue-50 hover:bg-blue-500 hover:text-white'}`}
+                >
+                  <Database className="w-5 h-5" /> Export Active DB
+                </button>
+              </div>
+
+              <div className="flex gap-4">
                 <button 
                   onClick={async () => {
                     if (window.electronAPI?.exportProfiles) {

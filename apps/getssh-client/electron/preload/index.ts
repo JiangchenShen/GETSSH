@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   updateBackendConfig: (config: BackendConfig, authToken?: string) => ipcRenderer.send('update-backend-config', config, authToken),
   checkProfiles: () => ipcRenderer.invoke('check-profiles'),
+  bridgeFetchProfiles: (sourceWorkspaceId: string) => ipcRenderer.invoke('workspace:bridge:fetchProfiles', sourceWorkspaceId),
+  bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => ipcRenderer.invoke('workspace:bridge:importProfiles', targetWorkspaceId, profiles, runbooks),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
   saveProfiles: (payload: { masterPassword?: string; payload: unknown[] }) => ipcRenderer.invoke('save-profiles', payload),
   onAppBlur: (callback: () => void) => {
@@ -64,11 +66,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showContextMenu: (payload?: any) => ipcRenderer.send('show-context-menu', payload),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  exportDatabase: () => ipcRenderer.invoke('export-database'),
+  exportDatabaseAll: () => ipcRenderer.invoke('export-database-all'),
+  exportDatabaseWorkspace: () => ipcRenderer.invoke('export-database-workspace'),
   importDatabase: () => ipcRenderer.invoke('import-database'),
   confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => ipcRenderer.invoke('import-database-confirm', sourcePath, strategy),
+  getGlobalSetting: (key: string) => ipcRenderer.invoke('app:getGlobalSetting', key),
+  setGlobalSetting: (key: string, value: string) => ipcRenderer.invoke('app:setGlobalSetting', key, value),
   deleteWorkspace: (id: string) => ipcRenderer.invoke('workspace:delete', id),
+  getWorkspaceStats: (id: string) => ipcRenderer.invoke('workspace:getStats', id),
+  getWorkspaceAuditLogs: (id: string) => ipcRenderer.invoke('workspace:getAuditLogs', id),
   setMainWorkspace: (id: string) => ipcRenderer.invoke('workspace:setMain', id),
+  toggleWorkspaceBiometric: (id: string, enabled: boolean) => ipcRenderer.invoke('workspace:toggleBiometric', id, enabled),
+  promptTouchID: (reason: string) => ipcRenderer.invoke('system:promptTouchID', reason),
+  updateWorkspacePreferences: (id: string, preferencesStr: string) => ipcRenderer.invoke('workspace:updatePreferences', id, preferencesStr),
   exportProfiles: () => ipcRenderer.invoke('export-profiles'),
   onSysmonData: (callback: (data: SysmonData) => void) => {
     const listener = (_event: IpcRendererEvent, data: SysmonData) => callback(data)
@@ -202,11 +212,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(`ai-stream-chunk-${requestId}`, listener);
       return () => ipcRenderer.removeListener(`ai-stream-chunk-${requestId}`, listener);
     },
+    onAgentApprovalRequest: (callback: (payload: { requestId: string, command: string }) => void) => {
+      const listener = (_event: IpcRendererEvent, payload: { requestId: string, command: string }) => callback(payload);
+      ipcRenderer.on(`ai-agent-approval-request`, listener);
+      return () => ipcRenderer.removeListener(`ai-agent-approval-request`, listener);
+    },
+    onAgentGlobalAction: (callback: (payload: { action: string, target: string, execute: string }) => void) => {
+      const listener = (_event: IpcRendererEvent, payload: { action: string, target: string, execute: string }) => callback(payload);
+      ipcRenderer.on(`ai-agent-global-action`, listener);
+      return () => ipcRenderer.removeListener(`ai-agent-global-action`, listener);
+    },
     getSessions: () => ipcRenderer.invoke('ai-get-sessions'),
     createSession: (id: string, title: string, timestamp: number) => ipcRenderer.invoke('ai-create-session', id, title, timestamp),
     saveMessage: (msg: any) => ipcRenderer.invoke('ai-save-message', msg),
     deleteSession: (id: string) => ipcRenderer.invoke('ai-delete-session', id),
-    updateSessionTitle: (id: string, title: string) => ipcRenderer.invoke('ai-update-session-title', id, title)
+    updateSessionTitle: (id: string, title: string) => ipcRenderer.invoke('ai-update-session-title', id, title),
+    approveAgentAction: (requestId: string, approved: boolean) => ipcRenderer.send('ai-agent-approve', requestId, approved)
   },
   
   // Workspace 2.0 API

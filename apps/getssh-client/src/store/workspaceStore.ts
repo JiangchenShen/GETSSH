@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
+import { useCryptoStore } from './cryptoStore';
+import { useAppStore } from './appStore';
 
 export interface WorkspaceMeta {
   id: string;
   name: string;
   themeColor: string;
   hasPassword?: boolean;
+  biometricEnabled?: boolean;
   isMain?: boolean;
+  preferences?: any;
 }
 
 export interface Runbook {
@@ -95,7 +99,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           name: typeof ws === 'string' ? ws : (ws.visualMeta?.name || ws.name || ws.id),
           themeColor: typeof ws === 'string' ? '#0ea5e9' : (ws.visualMeta?.themeColor || ws.themeColor || '#0ea5e9'),
           hasPassword: typeof ws === 'string' ? false : !!(ws.visualMeta?.hasPassword || ws.hasPassword),
-          isMain: typeof ws === 'string' ? ws === 'default' : !!(ws.visualMeta?.isMain || ws.isMain)
+          biometricEnabled: typeof ws === 'string' ? false : !!(ws.visualMeta?.biometricEnabled || ws.biometricEnabled),
+          isMain: typeof ws === 'string' ? ws === 'default' : !!(ws.visualMeta?.isMain || ws.isMain),
+          preferences: typeof ws === 'string' ? {} : (ws.visualMeta?.preferences || ws.preferences || {})
         }));
         set({ workspaces: mappedList });
         
@@ -134,7 +140,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
           // Zero-Trust Lazy Unlock: if target workspace has a password, lock the vault
           if (targetWs?.hasPassword) {
-            set({ isVaultLocked: true, isUnlockModalOpen: true });
+            set({ isVaultLocked: true, isUnlockModalOpen: false }); // Rely on inline CryptoModal now
+
+            // If biometric is enabled for this workspace, auto-trigger it
+            if (targetWs.biometricEnabled && window.electronAPI?.promptBiometricUnlock) {
+              window.electronAPI.promptBiometricUnlock().then(async bioRes => {
+                if (bioRes.success && bioRes.masterPassword) {
+                  try {
+                    const profiles = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                    if (profiles) {
+                      useSessionStore.getState().setSessions(profiles);
+                      set({ isVaultLocked: false });
+                      useCryptoStore.getState().setMasterPassword(bioRes.masterPassword);
+                    }
+                  } catch (e) {
+                    console.warn('Biometric auto-unlock failed to decrypt:', e);
+                  }
+                }
+              });
+            }
           } else {
             set({ isVaultLocked: false });
             // Fetch sessions immediately if the workspace is plain (unencrypted)
@@ -147,7 +171,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             }
           }
           return true;
-
         }
       } else {
         // Fallback for development if IPC is not fully ready
@@ -168,7 +191,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   deleteWorkspace: async (id: string) => {
-    if (id === 'default') return false;
+    if (id === 'default') {
+      useAppStore.getState().addToast('Cannot delete the default origin workspace', 'error');
+      return false;
+    }
     try {
       if (window.electronAPI?.deleteWorkspace) {
         const res = await window.electronAPI.deleteWorkspace(id);
@@ -181,6 +207,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             await get().switchWorkspace('default');
           }
           return true;
+        } else if (res && !res.success && res.error) {
+          useAppStore.getState().addToast(`Failed to delete: ${res.error}`, 'error');
         }
       }
       return false;

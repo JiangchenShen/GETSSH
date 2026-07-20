@@ -25,6 +25,28 @@ export function useAppBoot() {
     syncConfigEffects();
   }, [appConfig, systemIsDark, syncConfigEffects]);
 
+  // Check global app boot lock
+  useEffect(() => {
+    const checkAppBootLock = async () => {
+      if (window.electronAPI && window.electronAPI.getGlobalSetting) {
+        try {
+          const hash = await window.electronAPI.getGlobalSetting('app_boot_password_hash');
+          if (hash) {
+            useAppStore.getState().setIsAppBootLocked(true);
+          } else {
+            useAppStore.getState().setIsAppBootLocked(false);
+          }
+        } catch (e) {
+          useAppStore.getState().setIsAppBootLocked(false);
+        }
+        useAppStore.getState().setIsAppBootLoading(false);
+      } else {
+        useAppStore.getState().setIsAppBootLoading(false);
+      }
+    };
+    checkAppBootLock();
+  }, []);
+
   useEffect(() => {
     loadStoredConfig();
 

@@ -70,6 +70,7 @@ export interface SessionProfile {
   username: string;
   password?: string;
   privateKeyPath?: string;
+  passphrase?: string;
   autoStart?: boolean;
   port?: number;
   useKeepAlive?: boolean;
@@ -77,6 +78,18 @@ export interface SessionProfile {
   authType?: 'password' | 'key';
   osType?: OsType;
   group?: string; // e.g. "Production/DB"
+  
+  // Advanced Networking
+  proxyJump?: string;
+  strictHostKeyChecking?: boolean;
+  
+  // Automation
+  postConnectScript?: string;
+  initialDirectory?: string;
+  envVars?: Record<string, string>;
+  
+  // Appearance
+  themeOverride?: string;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────

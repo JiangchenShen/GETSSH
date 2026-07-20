@@ -1,15 +1,15 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../store/appStore';
-import { Shield, ShieldAlert, Cpu, EyeOff, Lock, FileJson, Server } from 'lucide-react';
+import { Shield, ShieldAlert, Cpu, EyeOff, Lock, Server, ShieldOff } from 'lucide-react';
 
 export interface SecureSidebarProps {
   securePage: string;
-  setSecurePage: (page: 'rasp' | 'privacy' | 'safestorage' | 'export' | 'known_hosts' | 'shield_details') => void;
-  setSafeAction: (action: 'none') => void;
+  setSecurePage: (page: 'rasp' | 'privacy' | 'safe_storage' | 'known_hosts' | 'shield_details') => void;
+  setSafeAction?: (action: 'none' | 'change' | 'disable' | 'enable') => void;
 }
 
-export const SecureSidebar: React.FC<SecureSidebarProps> = ({ securePage, setSecurePage, setSafeAction }) => {
+export const SecureSidebar: React.FC<SecureSidebarProps> = ({ securePage, setSecurePage }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
@@ -84,8 +84,8 @@ export const SecureSidebar: React.FC<SecureSidebarProps> = ({ securePage, setSec
                <button onClick={() => setSecurePage('privacy')} className={`${baseItemClass} ${securePage === 'privacy' ? activeItemClass : inactiveItemClass}`}><EyeOff className="w-4 h-4"/>{t("security.privacyTitle")}</button>
                
                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('security.categoryData', 'Data & Privacy')}</div>
-               <button onClick={() => { setSafeAction('none'); setSecurePage('safestorage'); }} className={`${baseItemClass} ${securePage === 'safestorage' ? activeItemClass : inactiveItemClass}`}><Lock className="w-4 h-4"/>{t("security.safeStorageTitle")}</button>
-               <button onClick={() => setSecurePage('export')} className={`${baseItemClass} ${securePage === 'export' ? activeItemClass : inactiveItemClass}`}><FileJson className="w-4 h-4"/>{t("security.exportTitle")}</button>
+               <button onClick={() => setSecurePage('safe_storage')} className={`${baseItemClass} ${securePage === 'safe_storage' ? activeItemClass : inactiveItemClass}`}><Lock className="w-4 h-4"/>{t("security.safeStorageTitle")}</button>
+               <button onClick={() => setSecurePage('isolation_rules')} className={`${baseItemClass} ${securePage === 'isolation_rules' ? activeItemClass : inactiveItemClass}`}><ShieldOff className="w-4 h-4"/>{t("workspaceCenter.isolationRulesTitle", "Isolation Rules")}</button>
                
                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('security.categoryNetwork', 'Network Management')}</div>
                <button onClick={() => setSecurePage('known_hosts')} className={`${baseItemClass} ${securePage === 'known_hosts' ? activeItemClass : inactiveItemClass}`}><Server className="w-4 h-4"/>{t("security.knownHostsTitle")}</button>

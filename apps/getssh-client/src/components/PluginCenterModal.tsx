@@ -9,10 +9,10 @@ export const PluginCenterModal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'installed' | 'marketplace' | 'logs' | 'local'>('installed');
   const isDark = useAppStore(state => state.isDark);
   return (
-    <div className={`relative w-full h-full flex flex-col overflow-hidden border shadow-2xl rounded-xl backdrop-blur-3xl ${
+    <div className={`relative w-full h-full flex flex-col overflow-hidden border shadow-2xl rounded-xl ${
       isDark 
-        ? 'border-white/10 bg-[#0A0A0A]/95 text-white' 
-        : 'border-black/10 bg-[#F5F5F5]/95 text-slate-900'
+        ? 'border-white/10 bg-transparent text-white' 
+        : 'border-black/10 bg-transparent text-slate-900'
     }`}>
         {/* Ambient Gradient Background */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">

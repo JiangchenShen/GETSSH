@@ -4,6 +4,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Send, TerminalSquare, ClipboardPaste, X } from 'lucide-react';
+import { getPersonaContent } from '../utils/persona';
 import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../services/aiBridge';
 
@@ -110,14 +111,40 @@ export const FloatingAiCenter: React.FC = () => {
       const workspaceName = activeWs?.name || activeWsId;
       
       const runbooks = useWorkspaceStore.getState().runbooks || [];
-      const sessionAlias = useSessionStore.getState().activeSession?.alias || '';
+      let sessionId = '';
+      let sessionName = '';
+      const state = useSessionStore.getState();
+      if (state.activeTabId && state.activePaneId) {
+        const tab = state.tabs.find(t => t.id === state.activeTabId);
+        if (tab && tab.paneTree) {
+          const traverse = (node: any) => {
+            if (node.type === 'leaf') {
+              if (node.paneId === state.activePaneId && node.paneType === 'terminal') {
+                sessionId = node.sessionId;
+                sessionName = node.config?.alias || node.config?.host || node.sessionId;
+              }
+            } else if (node.children) {
+              traverse(node.children[0]);
+              traverse(node.children[1]);
+            }
+          };
+          traverse(tab.paneTree);
+        }
+      }
 
       const finalPrompt = i18n.language === 'zh-CN' ? prompt + '\n\n(请尽量用中文回答我)' : prompt;
       
       await AiBridge.invokePrivileged({
         requestId,
         prompt: finalPrompt,
-        contextData: { workspaceName, sessionAlias, runbooks },
+        contextData: { 
+          workspaceName, 
+          sessionId, 
+          sessionName,
+          runbooks: runbooks.map(r => ({ name: r.name, description: r.description || '', dangerLevel: r.dangerLevel })), 
+          language: appConfig.language,
+          personaContent: getPersonaContent(appConfig.activePromptId, appConfig.language)
+        },
         provider: appConfig.aiProvider,
         model: appConfig.aiModel,
         endpoint: appConfig.aiEndpoint,

@@ -1,5 +1,6 @@
 import { IpcMainInvokeEvent, BrowserWindow, app, safeStorage } from 'electron';
 import { streamLLM, fetchAvailableModels } from '../services/llmService';
+import { AgentEngine } from '../services/AgentEngine';
 import { MicroContextAssembler } from '../services/MicroContextAssembler';
 import { ChatStorageManager } from '../services/chatStorageManager';
 import fs from 'node:fs';
@@ -93,13 +94,28 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
 
     const rawPrompt = payload?.prompt || '';
     const contextData = payload?.contextData;
+    const mode = payload?.mode || 'readonly';
     
     // Assemble the micro-RAG context dynamically
-    const rawContext = contextData ? MicroContextAssembler.assemble(contextData) : '';
+    const rawContext = contextData ? MicroContextAssembler.assemble({ ...contextData, agentMode: mode }) : '';
     
     // 将传入的 Prompt 和终端 Context 送入洗涤中间件
     const sanitizedPrompt = sanitizeAiContext(rawPrompt);
-    const sanitizedContext = sanitizeAiContext(rawContext);
+    let sanitizedContext = sanitizeAiContext(rawContext);
+
+    // [System Prompt Injection] Enforce beautiful Markdown rendering
+    const MARKDOWN_INSTRUCTION = `
+[SYSTEM INSTRUCTION]
+You are a highly capable AI assistant operating within the GETSSH terminal environment.
+Please follow these formatting rules strictly:
+1. Always format your responses using standard Markdown.
+2. Use headings (##, ###) to structure your response.
+3. Use bold (**text**) for emphasis.
+${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent modes)' : '4. When providing code or terminal commands, ALWAYS use fenced code blocks (```language) with the correct language tag (e.g., bash, shell, python, json).'}
+5. Use bullet points (-) or numbered lists for steps.
+6. Keep your responses concise, professional, and visually structured.
+`;
+    sanitizedContext = MARKDOWN_INSTRUCTION + '\n' + sanitizedContext;
 
     console.log(`[AI Gateway] 🟢 数据洗涤完毕，准备建立流式隧道. RequestID: ${requestId}`);
 
@@ -111,30 +127,55 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey
     const apiKey = provider === 'ollama' ? '' : getSecureApiKey();
 
+    const sessionId = contextData?.sessionId;
+
     // 发起不阻塞主流程的流式请求，并将 chunk 发回对应 requestId 的专属频道
-    streamLLM(
-      endpoint,
-      apiKey,
-      provider,
-      model,
-      sanitizedPrompt,
-      sanitizedContext,
-      (chunk) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send(`ai-stream-chunk-${requestId}`, { chunk, isDone: false });
-        }
-      },
-      () => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send(`ai-stream-chunk-${requestId}`, { chunk: '', isDone: true });
-        }
-      },
-      (error) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send(`ai-stream-chunk-${requestId}`, { chunk: '', isDone: true, error: error.message });
-        }
+    const onChunk = (chunk: string) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(`ai-stream-chunk-${requestId}`, { chunk, isDone: false });
       }
-    );
+    };
+    const onDone = () => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(`ai-stream-chunk-${requestId}`, { chunk: '', isDone: true });
+      }
+    };
+    const onError = (error: Error) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(`ai-stream-chunk-${requestId}`, { chunk: '', isDone: true, error: error.message });
+      }
+    };
+
+    if ((mode === 'agent_semi' || mode === 'agent_full') && sessionId) {
+      console.log(`[AI Gateway] 🚀 Launching Agent Engine for session ${sessionId} in mode ${mode}`);
+      
+      const askApproval = async (command: string): Promise<boolean> => {
+        return new Promise((resolve) => {
+          const listener = (e: any, approvedRequestId: string, isApproved: boolean) => {
+            if (approvedRequestId === requestId) {
+              ipcMain.removeListener('ai-agent-approve', listener);
+              resolve(isApproved);
+            }
+          };
+          ipcMain.on('ai-agent-approve', listener);
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(`ai-agent-approval-request`, { requestId, command });
+          }
+        });
+      };
+
+      AgentEngine.runAgentLoop(
+        endpoint, apiKey, provider, model,
+        sanitizedPrompt, sanitizedContext, sessionId, mode, requestId,
+        onChunk, onDone, onError, askApproval
+      );
+    } else {
+      streamLLM(
+        endpoint, apiKey, provider, model,
+        sanitizedPrompt, sanitizedContext,
+        onChunk, onDone, onError
+      );
+    }
 
     // 立刻返回成功，由前端开始监听 stream 频道
     return { 

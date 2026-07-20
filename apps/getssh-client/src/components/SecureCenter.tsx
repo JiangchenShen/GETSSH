@@ -5,12 +5,13 @@ import { useTranslation } from 'react-i18next';
 import { SecureSidebar } from './secure-center/SecureSidebar';
 import { RaspTab } from './secure-center/tabs/RaspTab';
 import { PrivacyTab } from './secure-center/tabs/PrivacyTab';
-import { SafeStorageTab } from './secure-center/tabs/SafeStorageTab';
-import { ExportTab } from './secure-center/tabs/ExportTab';
 import { KnownHostsTab } from './secure-center/tabs/KnownHostsTab';
 import { ShieldDetailsTab } from './secure-center/tabs/ShieldDetailsTab';
+import { SafeStorageTab } from './secure-center/tabs/SafeStorageTab';
+import { IsolationRulesTab } from './secure-center/tabs/IsolationRulesTab';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useSessionStore } from '../store/sessionStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 export const SecureCenter: React.FC = () => {
   const { t } = useTranslation();
@@ -23,12 +24,54 @@ export const SecureCenter: React.FC = () => {
   const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
   const sessions = useSessionStore(state => state.sessions);
 
-  const [securePage, setSecurePage] = useState<'rasp' | 'privacy' | 'safestorage' | 'export' | 'known_hosts' | 'shield_details'>('shield_details');
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const activeWs = workspaces.find(w => w.id === activeWorkspaceId);
 
-  const [safeAction, setSafeAction] = useState<'none'|'change'|'disable'|'enable'>('none');
+  const [securePage, setSecurePage] = useState<'rasp' | 'privacy' | 'safe_storage' | 'known_hosts' | 'shield_details' | 'isolation_rules'>('shield_details');
+  const [safeAction, setSafeAction] = useState<'none' | 'change' | 'disable' | 'enable'>('none');
   const [safeOldPwd, setSafeOldPwd] = useState('');
   const [safeNewPwd, setSafeNewPwd] = useState('');
   const [safeError, setSafeError] = useState('');
+
+  const handleConfirmSafeAction = async () => {
+    if (safeAction === 'change' && safeOldPwd !== masterPassword) {
+      return setSafeError(t('security.errWrongOldPwd'));
+    }
+    if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
+      return setSafeError(t('security.errEmptyPwd'));
+    }
+    if ((safeAction === 'change' || safeAction === 'enable') && safeNewPwd.length < 8) {
+      return setSafeError(t('crypto.passwordTooShort', 'Password too short (min 8 chars)'));
+    }
+
+    if (safeAction === 'change') {
+      setMasterPassword(safeNewPwd);
+      if (window.electronAPI) {
+        await window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+      }
+      await useWorkspaceStore.getState().initWorkspaces();
+      setTimeout(() => window.alert(t('security.pwdUpdated')), 100);
+    } else if (safeAction === 'disable') {
+      setEncryptionDisabled(true);
+      setMasterPassword('');
+      if (window.electronAPI) {
+        await window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+      }
+      await useWorkspaceStore.getState().initWorkspaces();
+      setTimeout(() => window.alert(t('security.pwdDisabled')), 100);
+    } else if (safeAction === 'enable') {
+      setEncryptionDisabled(false);
+      setMasterPassword(safeNewPwd);
+      if (window.electronAPI) {
+        await window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
+      }
+      await useWorkspaceStore.getState().initWorkspaces();
+      setTimeout(() => window.alert(t('security.pwdEnabled')), 100);
+    }
+
+    setSafeAction('none');
+  };
 
   const [knownHosts, setKnownHosts] = useState<{host: string, port: number, fingerprint: string, trustedAt: number}[]>([]);
   const [revokingHost, setRevokingHost] = useState<string | null>(null);
@@ -44,36 +87,6 @@ export const SecureCenter: React.FC = () => {
       window.electronAPI.getKnownHosts().then(setKnownHosts);
     }
   }, [securePage]);
-
-  const handleConfirmSafeAction = () => {
-    if ((safeAction === 'change' || safeAction === 'disable') && safeOldPwd !== masterPassword) {
-      return setSafeError(t('security.errIncorrectPwd'));
-    }
-    if ((safeAction === 'change' || safeAction === 'enable') && !safeNewPwd) {
-      return setSafeError(t('security.errEmptyPwd'));
-    }
-    if ((safeAction === 'change' || safeAction === 'enable') && safeNewPwd.length < 8) {
-      return setSafeError(t('crypto.passwordTooShort', 'Password too short (min 8 chars)'));
-    }
-
-    if (safeAction === 'change') {
-      setMasterPassword(safeNewPwd);
-      window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-      setTimeout(() => window.alert(t('security.pwdUpdated')), 100);
-    } else if (safeAction === 'disable') {
-      setEncryptionDisabled(true);
-      setMasterPassword('');
-      window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-      setTimeout(() => window.alert(t('security.pwdDisabled')), 100);
-    } else if (safeAction === 'enable') {
-      setEncryptionDisabled(false);
-      setMasterPassword(safeNewPwd);
-      window.electronAPI.saveProfiles({ masterPassword: safeNewPwd, payload: sessions });
-      setTimeout(() => window.alert(t('security.pwdEnabled')), 100);
-    }
-
-    setSafeAction('none');
-  };
 
   const handleRevokeHost = async (host: string, port: number) => {
     if (!window.electronAPI?.deleteKnownHost) return;
@@ -96,17 +109,17 @@ export const SecureCenter: React.FC = () => {
   );
   const isWarning = !!watchdogStatus && !isWatchdogDisabled && watchdogStatus.status !== 'secure' && watchdogStatus.level === 'yellow';
 
-  const getAmbientColors = () => {
-    if (isDanger) return { bg: isDark ? 'bg-[#110505]/95' : 'bg-red-50/95', top: 'bg-red-600/15', bottom: 'bg-rose-600/15', border: isDark ? 'border-red-500/20' : 'border-red-900/10' };
-    if (isWarning) return { bg: isDark ? 'bg-[#111105]/95' : 'bg-yellow-50/95', top: 'bg-yellow-600/15', bottom: 'bg-amber-600/15', border: isDark ? 'border-yellow-500/20' : 'border-yellow-900/10' };
+  const getThemeClass = () => {
+    if (isDanger) return { bg: 'bg-transparent', top: 'bg-red-600/15', bottom: 'bg-rose-600/15', border: isDark ? 'border-red-500/20' : 'border-red-900/10' };
+    if (isWarning) return { bg: 'bg-transparent', top: 'bg-yellow-600/15', bottom: 'bg-amber-600/15', border: isDark ? 'border-yellow-500/20' : 'border-yellow-900/10' };
     
-    if (isWatchdogDisabled) {
-      return { bg: isDark ? 'bg-[#0a0a0a]/95' : 'bg-slate-50/95', top: 'bg-white/5', bottom: 'bg-white/5', border: isDark ? 'border-white/10' : 'border-black/5' };
+    if (securePage === 'isolation_rules' || securePage === 'safe_storage') {
+      return { bg: 'bg-transparent', top: 'bg-white/5', bottom: 'bg-white/5', border: isDark ? 'border-white/10' : 'border-black/5' };
     }
-
-    return { bg: isDark ? 'bg-[#05110d]/95' : 'bg-emerald-50/95', top: 'bg-emerald-600/10', bottom: 'bg-teal-600/10', border: isDark ? 'border-emerald-500/10' : 'border-emerald-900/10' };
+    
+    return { bg: 'bg-transparent', top: 'bg-emerald-600/10', bottom: 'bg-teal-600/10', border: isDark ? 'border-emerald-500/10' : 'border-emerald-900/10' };
   };
-  const ambient = getAmbientColors();
+  const ambient = getThemeClass();
 
   return (
     <>
@@ -125,7 +138,7 @@ export const SecureCenter: React.FC = () => {
           <SecureSidebar 
             securePage={securePage} 
             setSecurePage={setSecurePage as any} 
-            setSafeAction={setSafeAction as any} 
+            setSafeAction={setSafeAction as any}
           />
 
           {/* Right Payload Area */}
@@ -171,10 +184,10 @@ export const SecureCenter: React.FC = () => {
             <div className="max-w-3xl mx-auto p-12 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {securePage === 'rasp' && <RaspTab />}
               {securePage === 'privacy' && <PrivacyTab />}
-              {securePage === 'safestorage' && (
-                <SafeStorageTab 
-                  safeAction={safeAction}
-                  setSafeAction={setSafeAction}
+              {securePage === 'safe_storage' && (
+                <SafeStorageTab
+                  safeAction={safeAction as any}
+                  setSafeAction={setSafeAction as any}
                   safeOldPwd={safeOldPwd as any}
                   setSafeOldPwd={setSafeOldPwd}
                   safeNewPwd={safeNewPwd as any}
@@ -182,9 +195,14 @@ export const SecureCenter: React.FC = () => {
                   safeError={safeError}
                   setSafeError={setSafeError}
                   handleConfirmSafeAction={handleConfirmSafeAction}
+                  biometricEnabled={activeWs?.biometricEnabled}
+                  onToggleBiometric={async (enabled) => {
+                    if (!activeWorkspaceId || !window.electronAPI?.toggleWorkspaceBiometric) return;
+                    await window.electronAPI.toggleWorkspaceBiometric(activeWorkspaceId, enabled);
+                    await useWorkspaceStore.getState().initWorkspaces();
+                  }}
                 />
               )}
-              {securePage === 'export' && <ExportTab />}
               {securePage === 'known_hosts' && (
                 <KnownHostsTab 
                   knownHosts={knownHosts}
@@ -193,6 +211,7 @@ export const SecureCenter: React.FC = () => {
                   handleRevokeHost={handleRevokeHost}
                 />
               )}
+              {securePage === 'isolation_rules' && <IsolationRulesTab />}
               {securePage === 'shield_details' && <ShieldDetailsTab setSecurePage={setSecurePage as any} />}
             </div>
           </div>

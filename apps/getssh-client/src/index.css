@@ -1,5 +1,11 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @source "../../../packages/moovier/src";
+
+/* 浅色模式下强制关闭所有毛玻璃效果 */
+html:not(.dark) [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+}
 
 /* --- Reddit Sans (Latin & Digits) --- */
 @font-face {

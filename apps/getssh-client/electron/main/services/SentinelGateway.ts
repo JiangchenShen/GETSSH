@@ -27,8 +27,8 @@ export class SentinelGateway {
     try {
       const result = sentinelCore.sanitize(text);
       return {
-        cleanText: result.clean_text,
-        mappingDict: result.mapping_dict,
+        cleanText: result.cleanText,
+        mappingDict: result.mappingDict,
       };
     } catch (err) {
       console.error('[SentinelGateway] Sanitize failed:', err);

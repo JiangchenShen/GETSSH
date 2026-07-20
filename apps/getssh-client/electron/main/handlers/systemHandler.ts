@@ -245,19 +245,60 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     }
   });
 
-  // Export DB
-  ipcMain.handle('export-database', async () => {
+  // Export Global DB (All workspaces)
+  ipcMain.handle('export-database-all', async () => {
     const win = getWin();
     if (!win) return { success: false, error: 'No active window' };
     try {
       const { dialog } = require('electron');
       const fs = require('node:fs');
       const path = require('node:path');
-      const dbPath = path.join(app.getPath('home'), '.getssh', 'getssh.db');
+      const AdmZip = require('adm-zip');
+      const baseDir = path.join(app.getPath('home'), '.getssh');
       
       const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        title: 'Export Database Backup',
-        defaultPath: 'getssh_backup.db',
+        title: 'Export All Databases (ZIP)',
+        defaultPath: 'getssh_backup.zip',
+        filters: [{ name: 'ZIP Archive', extensions: ['zip'] }]
+      });
+
+      if (!canceled && filePath) {
+        const zip = new AdmZip();
+        const files = fs.readdirSync(baseDir);
+        for (const file of files) {
+          if (file.endsWith('.db')) {
+            zip.addLocalFile(path.join(baseDir, file));
+          }
+        }
+        zip.writeZip(filePath);
+        return { success: true, path: filePath };
+      }
+      return { success: false, error: 'canceled' };
+    } catch (e) {
+      console.error('Failed to export all DBs', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  // Export Specific Workspace DB
+  ipcMain.handle('export-database-workspace', async () => {
+    const win = getWin();
+    if (!win) return { success: false, error: 'No active window' };
+    try {
+      const { dialog } = require('electron');
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const { getActiveWorkspaceId } = require('./workspaceHandler');
+      const wsId = getActiveWorkspaceId();
+      const dbPath = path.join(app.getPath('home'), '.getssh', `workspace_${wsId}.db`);
+      
+      if (!fs.existsSync(dbPath)) {
+         return { success: false, error: 'Workspace database not found' };
+      }
+
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: 'Export Workspace Database Backup',
+        defaultPath: `workspace_${wsId}_backup.db`,
         filters: [{ name: 'SQLite Database', extensions: ['db', 'sqlite'] }]
       });
 
@@ -267,7 +308,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       }
       return { success: false, error: 'canceled' };
     } catch (e) {
-      console.error('Failed to export DB', e);
+      console.error('Failed to export workspace DB', e);
       return { success: false, error: String(e) };
     }
   });
@@ -408,6 +449,19 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   // Periodic background update check
   checkForUpdates(app, getWin);
   setInterval(() => checkForUpdates(app, getWin), 12 * 60 * 60 * 1000); // Check every 12 hours
+
+  ipcMain.handle('system:promptTouchID', async (event, reason: string) => {
+    try {
+      const { systemPreferences } = require('electron');
+      if (process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
+        await systemPreferences.promptTouchID(reason);
+        return { success: true };
+      }
+      return { success: false, error: 'Touch ID not available' };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
 }
 
 export function getBackendConfig() {

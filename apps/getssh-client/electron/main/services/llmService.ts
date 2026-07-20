@@ -75,7 +75,8 @@ export async function streamLLM(
     const response = await fetch(apiUrl, fetchOptions);
 
     if (!response.ok) {
-      throw new Error(`LLM API Error: ${response.status} ${response.statusText}`);
+      const errText = await response.text().catch(() => '');
+      throw new Error(`LLM API Error: ${response.status} ${response.statusText} - ${errText}`);
     }
 
     if (!response.body) {

@@ -2,11 +2,15 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { Plus, Layers, Loader2, Trash2, Shield, LayoutGrid, Star, ShieldAlert, Link, TerminalSquare, Database } from 'lucide-react';
+import { Plus, Layers, Loader2, Trash2, Shield, LayoutGrid, Star, Link, TerminalSquare, Database, FileJson } from 'lucide-react';
 import { MoovierTile } from '@moovier/core';
+import { ExportTab } from './secure-center/tabs/ExportTab';
+import { AssetBridgeTab } from './workspace-center/AssetBridgeTab';
+import { EnvironmentHooksTab } from './workspace-center/tabs/EnvironmentHooksTab';
+import { StorageAuditTab } from './workspace-center/tabs/StorageAuditTab';
 
 export const WorkspaceCenter: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'all' | 'vault' | 'isolation' | 'assetBridge' | 'envHooks' | 'storageAudit'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'export' | 'assetBridge' | 'envHooks' | 'storageAudit'>('all');
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -37,7 +41,7 @@ export const WorkspaceCenter: React.FC = () => {
 
 
   return (
-    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-[#050510]/95 text-white border-white/5' : 'bg-slate-50/95 text-slate-900 border-black/5'} backdrop-blur-3xl transition-colors duration-1000`}>
+    <div className={`w-full h-full flex flex-col overflow-hidden relative border shadow-2xl rounded-xl ${isDark ? 'bg-transparent text-white border-white/5' : 'bg-transparent text-slate-900 border-black/5'} transition-colors duration-1000`}>
 
         {/* Ambient Lighting (The Void) */}
         {isDark && (
@@ -74,11 +78,8 @@ export const WorkspaceCenter: React.FC = () => {
                     <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.overview', 'Overview')}</div>
                     <button onClick={() => setActiveTab('all')} className={`${baseItemClass} ${activeTab === 'all' ? activeItemClass : inactiveItemClass}`}><LayoutGrid className="w-4 h-4"/>{t('workspaceCenter.sidebar.allWorkspaces', 'All Workspaces')}</button>
                     
-                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.security', 'Security & Policies')}</div>
-                    <button onClick={() => setActiveTab('vault')} className={`${baseItemClass} ${activeTab === 'vault' ? activeItemClass : inactiveItemClass}`}><Shield className="w-4 h-4"/>{t('workspaceCenter.sidebar.vault', 'Vault Encryption')}</button>
-                    <button onClick={() => setActiveTab('isolation')} className={`${baseItemClass} ${activeTab === 'isolation' ? activeItemClass : inactiveItemClass}`}><ShieldAlert className="w-4 h-4"/>{t('workspaceCenter.sidebar.isolation', 'Isolation Rules')}</button>
-                    
                     <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('workspaceCenter.sidebar.dataEnv', 'Data & Environment')}</div>
+                    <button onClick={() => setActiveTab('export')} className={`${baseItemClass} ${activeTab === 'export' ? activeItemClass : inactiveItemClass}`}><FileJson className="w-4 h-4"/>{t('security.exportTitle', 'Data Import/Export')}</button>
                     <button onClick={() => setActiveTab('assetBridge')} className={`${baseItemClass} ${activeTab === 'assetBridge' ? activeItemClass : inactiveItemClass}`}><Link className="w-4 h-4"/>{t('workspaceCenter.sidebar.assetBridge', 'Asset Bridge')}</button>
                     <button onClick={() => setActiveTab('envHooks')} className={`${baseItemClass} ${activeTab === 'envHooks' ? activeItemClass : inactiveItemClass}`}><TerminalSquare className="w-4 h-4"/>{t('workspaceCenter.sidebar.envHooks', 'Environment Hooks')}</button>
                     <button onClick={() => setActiveTab('storageAudit')} className={`${baseItemClass} ${activeTab === 'storageAudit' ? activeItemClass : inactiveItemClass}`}><Database className="w-4 h-4"/>{t('workspaceCenter.sidebar.storageAudit', 'Storage & Audit')}</button>
@@ -125,7 +126,7 @@ export const WorkspaceCenter: React.FC = () => {
                    key={id}
                    dragLevel="fixed"
                    onClick={() => handleSwitch(id)}
-                   className={`p-8 min-h-[220px] flex flex-col justify-between cursor-pointer group relative overflow-hidden transition-all duration-500 rounded-[32px] backdrop-blur-xl border shadow-lg ${isActive ? 'bg-purple-500/5 border-purple-500/30 ring-1 ring-purple-500/50' : 'bg-white/5 border-white/5 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:border-white/20'}`}
+                   className={`p-8 min-h-[220px] flex flex-col justify-between cursor-pointer group relative overflow-hidden transition-all duration-500 rounded-[32px] backdrop-blur-xl border shadow-lg ${isActive ? 'bg-purple-500/5 border-purple-500/30 ring-1 ring-purple-500/50' : (isDark ? 'bg-white/5 border-white/5 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:border-white/20' : '!bg-white !border-black/5 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.1)] hover:border-black/20')}`}
                  >
                    {/* Dynamic Glowing Top Border */}
                    <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: themeColor, boxShadow: `0 0 15px ${themeColor}` }} />
@@ -163,7 +164,7 @@ export const WorkspaceCenter: React.FC = () => {
                              <Star className="w-4 h-4" />
                            </button>
                          )}
-                         {!isMain && (
+                         {!isMain && id !== 'default' && (
                            <button
                              onClick={(e) => {
                                e.stopPropagation();
@@ -192,7 +193,25 @@ export const WorkspaceCenter: React.FC = () => {
                   </div>
                 </>
               )}
-              {activeTab !== 'all' && (
+              {activeTab === 'export' && (
+                <div className="max-w-3xl mx-auto mt-4">
+                  <ExportTab />
+                </div>
+              )}
+              {activeTab === 'assetBridge' && (
+                <AssetBridgeTab />
+              )}
+              {activeTab === 'envHooks' && (
+                <div className="max-w-3xl mx-auto mt-4">
+                  <EnvironmentHooksTab />
+                </div>
+              )}
+              {activeTab === 'storageAudit' && (
+                <div className="max-w-3xl mx-auto mt-4">
+                  <StorageAuditTab />
+                </div>
+              )}
+              {activeTab !== 'all' && activeTab !== 'export' && activeTab !== 'assetBridge' && activeTab !== 'envHooks' && activeTab !== 'storageAudit' && (
                 <div className="flex flex-col items-center justify-center pt-24 text-center opacity-50">
                   <Shield className="w-16 h-16 mb-6 text-purple-500" />
                   <h4 className="text-xl font-black uppercase tracking-widest mb-2">{t('workspaceCenter.comingSoon', 'Coming Soon')}</h4>

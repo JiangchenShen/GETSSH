@@ -80,8 +80,8 @@ export const LeafPane: React.FC<{
 
   const isZoomed = node.isZoomed;
   const zoomClasses = isZoomed 
-    ? `absolute bottom-4 left-4 right-4 top-12 z-[100] shadow-[0_0_100px_rgba(0,0,0,0.8)] ring-1 ring-[#222] rounded-2xl overflow-hidden ${isDark ? 'bg-[#0a0a0a]' : 'bg-slate-50'}` 
-    : `relative w-full h-full ${isDark ? 'bg-[#0a0a0a] border border-[#222]' : 'bg-white border border-gray-200'} rounded-2xl overflow-hidden`;
+    ? `absolute bottom-4 left-4 right-4 top-12 z-[100] shadow-[0_0_100px_rgba(0,0,0,0.8)] ring-1 ring-[#222] rounded-2xl overflow-hidden ${isDark ? 'bg-black/60 backdrop-blur-2xl' : 'bg-white/80 backdrop-blur-2xl'}` 
+    : `relative w-full h-full ${isDark ? 'bg-black/60 backdrop-blur-2xl border border-white/10' : 'bg-white/80 backdrop-blur-2xl border border-black/10'} rounded-2xl overflow-hidden`;
 
   return (
     <div
@@ -91,8 +91,8 @@ export const LeafPane: React.FC<{
     >
       {/* Pane header with title and toolbar */}
       <div
-        className={`relative z-10 flex-none flex items-center justify-between px-4 h-[38px] text-xs select-none transition-colors border-b ${
-          isDark ? (isActive ? 'bg-[#1a1a1a] border-[#222]' : 'bg-[#111] border-[#222]') : (isActive ? 'bg-slate-100 border-gray-200' : 'bg-slate-50 border-gray-100')
+        className={`relative z-10 flex-none flex items-center justify-between px-4 h-[38px] text-xs select-none transition-colors border-b app-region-no-drag ${
+          isDark ? (isActive ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/5') : (isActive ? 'bg-white/60 border-black/5' : 'bg-white/40 border-black/5')
         }`}
       >
         <div className="flex items-center gap-2 text-gray-400">
@@ -101,7 +101,7 @@ export const LeafPane: React.FC<{
              {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (node.paneType === 'center' ? (tabTitle || 'Center') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : '')))}
            </span>
         </div>
-        <div className={`flex items-center gap-1 transition-opacity ${isActive || isZoomed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        <div className={`flex items-center gap-1 transition-opacity app-region-no-drag relative z-50 ${isActive || isZoomed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           {!isMaxPanes && (
             <>
               {parentDirection !== 'hsplit' && (

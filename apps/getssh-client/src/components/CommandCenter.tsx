@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
@@ -13,6 +13,7 @@ import Fuse from 'fuse.js';
 import { PluginDetailsModal } from './command-center/PluginDetailsModal';
 import { CommandCenterList } from './command-center/CommandCenterList';
 import { ActionDrawer, ActionDrawerItem } from './command-center/ActionDrawer';
+import { CommandCenterAiChat } from './command-center/CommandCenterAiChat';
 
 interface CommandCenterProps {
   isOpen: boolean;
@@ -54,6 +55,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const [activeDrawerIndex, setActiveDrawerIndex] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [inspectingPlugin, setInspectingPlugin] = useState<any | null>(null);
+  const [isAiMode, setIsAiMode] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -75,6 +77,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       setActiveDrawerIndex(0);
       setDeleteConfirmId(null);
       setInspectingPlugin(null);
+      setIsAiMode(false);
       
       // Phase 3: Trigger Cinematic Focus Pulling globally
       setActiveTileId('overlay-cmd-center');
@@ -317,12 +320,17 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         setActiveIndex(prev => Math.max(prev - 1, 0));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (unifiedItems.length > 0) {
+        if (unifiedItems.length > 0 && !isAiMode) {
           unifiedItems[activeIndex].onSelect();
-        } else if (searchQuery.trim().length > 0) {
+        } else if (searchQuery.trim().length > 0 && !isAiMode) {
           onClose();
           const event = new CustomEvent('app:create-session', { detail: searchQuery.trim() });
           window.dispatchEvent(event);
+        } else if (isAiMode && searchQuery.trim().length > 0) {
+          // Trigger AI Request in AiChat component (which will listen to custom event or via ref)
+          const event = new CustomEvent('command-center:ai-submit', { detail: searchQuery.trim() });
+          window.dispatchEvent(event);
+          setSearchQuery('');
         }
       } else if (e.key === 'ArrowRight') {
         if (unifiedItems.length > 0) {
@@ -435,12 +443,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         
         {/* Main Command Center Panel */}
         <motion.div
-          initial={{ y: 20, opacity: 0, scale: 0.98 }}
-          animate={{ y: 0, opacity: 1, scale: 1 }}
-          exit={{ y: 10, opacity: 0, scale: 0.98 }}
-          transition={{ type: 'spring', stiffness: 350, damping: 30, mass: 1 }}
-          className={`relative w-[650px] shrink-0 pointer-events-auto shadow-2xl rounded-2xl overflow-hidden flex flex-col border ${
-            isDark ? 'bg-[#151515]/80 border-white/10 water-glass text-white' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl'
+          initial={{ opacity: 0, scale: 0.96, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98, y: -10 }}
+          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          className={`relative w-[650px] shrink-0 pointer-events-auto shadow-2xl rounded-2xl flex flex-col border transition-all duration-500 overflow-hidden ${
+            isAiMode
+              ? (isDark ? 'bg-[#151515]/90 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.15)] text-white' : 'bg-white/95 border-cyan-500/40 shadow-[0_0_40px_rgba(6,182,212,0.1)] text-slate-900')
+              : (isDark ? 'bg-[#151515]/80 border-white/10 water-glass text-white' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl')
           }`}
           onClick={(e) => e.stopPropagation()}
         >
@@ -455,32 +465,51 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           )}
 
           {/* Header Input */}
-          <div className="flex items-center px-4 py-4 border-b border-white/10 shrink-0">
-            <Command className="w-5 h-5 opacity-50 mr-3" />
+          <div className="flex items-center px-4 py-4 border-b border-white/10 shrink-0 relative z-10">
+            {isAiMode && (
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-transparent pointer-events-none" />
+            )}
+            <Command className={`w-5 h-5 mr-3 transition-colors ${isAiMode ? 'text-cyan-500' : 'opacity-50'}`} />
             <input
               ref={inputRef}
               type="text"
               className="w-full bg-transparent border-none outline-none text-lg font-medium placeholder:opacity-40"
-              placeholder={t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
+              placeholder={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               spellCheck={false}
               autoComplete="off"
             />
-            <div className={`text-[10px] font-mono px-2 py-1 rounded border ${isDark ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+            <button
+              className={`p-1.5 rounded-lg transition-colors ml-2 ${isAiMode ? 'bg-cyan-500/20 text-cyan-500' : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-50 hover:opacity-100'}`}
+              onClick={() => setIsAiMode(!isAiMode)}
+              title={t('commandCenter.aiModeToggle', 'Toggle AI Mode')}
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
+            <div className={`text-[10px] font-mono px-2 py-1 rounded border ml-3 ${isDark ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
               {t('commandCenter.escToClose', 'ESC TO CLOSE')}
             </div>
           </div>
 
           {/* List Area */}
-          <CommandCenterList
-            ref={listRef}
-            unifiedItems={unifiedItems}
-            activeIndex={activeIndex}
-            setActiveIndex={setActiveIndex}
-            searchQuery={searchQuery}
-            isDark={isDark}
-          />
+          {!isAiMode ? (
+            <CommandCenterList
+              ref={listRef}
+              unifiedItems={unifiedItems}
+              activeIndex={activeIndex}
+              setActiveIndex={setActiveIndex}
+              searchQuery={searchQuery}
+              isDark={isDark}
+            />
+          ) : (
+            <CommandCenterAiChat 
+              onClose={onClose} 
+              onConnect={onConnect} 
+              isDark={isDark} 
+              sessions={sessions} 
+            />
+          )}
           
           {/* Footer */}
           <div className={`px-4 py-2 text-[10px] flex items-center justify-between border-t ${isDark ? 'border-white/5 text-white/30' : 'border-black/5 text-slate-400'}`}>
