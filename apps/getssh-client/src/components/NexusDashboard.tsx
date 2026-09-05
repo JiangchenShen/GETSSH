@@ -1,36 +1,50 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useCryptoStore } from '../store/cryptoStore';
-import { useSessionStore } from '../store/sessionStore';
+import { useSessionStore, type SessionProfile } from '../store/sessionStore';
+import { useAiStore } from '../store/aiStore';
 import { motion } from 'framer-motion';
-import { MoovierTile } from '@moovier/core';
-import { Rocket, ShieldCheck, Globe, Sparkles, Blocks, Settings } from 'lucide-react';
+import { Sparkles, Plus, ArrowRight, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { CryptoModal } from './CryptoModal';
 import { promptWebAuthn } from '../utils/webauthn';
 
-export const NexusDashboard: React.FC = () => {
+/**
+ * 主屏。
+ *
+ * 时钟和问候语保留，但从「内容」降为「状态带」—— 同一条带子顺带交付主机数、
+ * 会话数、Watchdog 与模型端点。腾出来的中段放真能接着干的东西：当前会话与主机表。
+ * 六个中心不在这里，它们是导航，归底部状态条。
+ *
+ * 颜色一律走 index.css 里的 v2 语义令牌（bg / panel / surf / line / ink…），
+ * 深浅两套主题整套切换；近黑底上不投黑影，层级由表面提亮 + 1px 描边表达。
+ *
+ * 只渲染 store 里真实存在的字段。延迟、负载这类还没有数据源的指标不编。
+ */
+export const NexusDashboard: React.FC<{ onConnect?: (s: SessionProfile) => void }> = ({ onConnect }) => {
   const { t } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
-  const appConfig = useAppStore(state => state.appConfig);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
-  
-  // Crypto logic for Zero-Trust Local Unlock
+  const watchdogStatus = useAppStore(state => state.watchdogStatus);
+
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
-  
+
   const cryptoMode = useCryptoStore(state => state.cryptoMode);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
   const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
   const masterPassword = useCryptoStore(state => state.masterPassword);
   const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
-  
+
   const sessions = useSessionStore(state => state.sessions);
   const setSessions = useSessionStore(state => state.setSessions);
+  const tabs = useSessionStore(state => state.tabs);
+  const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+
+  const aiModel = useAiStore(state => state.aiModel);
 
   const handleUnlock = async (pwd: string) => {
     const profiles = await window.electronAPI.unlockProfiles(pwd);
@@ -51,7 +65,6 @@ export const NexusDashboard: React.FC = () => {
   };
 
   const [time, setTime] = useState(new Date());
-
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -70,238 +83,228 @@ export const NexusDashboard: React.FC = () => {
     if (hour < 22) return 'evening';
     return 'lateNight';
   };
-
-  const greetingIndex = useMemo(() => Math.floor(Math.random() * 10), []);
-
-  // CSS variables for SPRING_FLUID hover effect
-  const tileHoverClass = "group relative overflow-hidden cursor-pointer rounded-xl shadow-[0_4px_10px_rgba(0,0,0,0.5),0_10px_20px_rgba(0,0,0,0.4),0_20px_40px_rgba(0,0,0,0.3)]";
-  const glowOverlayClass = "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br pointer-events-none";
+  // 每次挂载固定一句，避免每秒 tick 时问候语乱跳
+  const [greetingIndex] = useState(() => Math.floor(Math.random() * 10));
 
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
 
   if (isVaultLocked) {
     const _activeWs = workspaces.find(w => w.id === activeWorkspaceId);
-    const _wsName = _activeWs?.name || activeWorkspaceId;
-    const _wsColor = _activeWs?.themeColor;
     return (
       <div className="absolute inset-0 w-full h-full z-[100] rounded-[32px] overflow-hidden">
-        <CryptoModal 
-          mode="locked" 
-          isDark={isDark} 
+        <CryptoModal
+          mode="locked"
+          isDark={isDark}
           encryptionDisabled={encryptionDisabled}
-          onUnlock={handleUnlock} 
+          onUnlock={handleUnlock}
           onSetup={async (pwd) => { await handleSetup(pwd); }}
           onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
           onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
-              if (cryptoMode === 'setup') {
-                 setEncryptionDisabled(true);
-                 window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
-              }
-              setCryptoMode('idle');
+            if (cryptoMode === 'setup') {
+              setEncryptionDisabled(true);
+              window.electronAPI.saveProfiles({ masterPassword: '', payload: sessions });
+            }
+            setCryptoMode('idle');
           }}
-          onRetryBiometric={workspaces.find(w => w.id === activeWorkspaceId)?.biometricEnabled ? async () => {
-             const webAuthnSuccess = await promptWebAuthn();
-             if (!webAuthnSuccess) return;
-
-             const bioRes = await window.electronAPI.promptBiometricUnlock();
-             if (bioRes.success && bioRes.masterPassword) {
-               try {
-                  const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                  setMasterPassword(bioRes.masterPassword);
-                  setSessions(decrypted);
-                  setCryptoMode('idle');
-                  useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-               } catch (e) {
-                  console.warn('Biometric unlock failed:', e);
-               }
-             }
+          onRetryBiometric={_activeWs?.biometricEnabled ? async () => {
+            const webAuthnSuccess = await promptWebAuthn();
+            if (!webAuthnSuccess) return;
+            const bioRes = await window.electronAPI.promptBiometricUnlock();
+            if (bioRes.success && bioRes.masterPassword) {
+              try {
+                const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
+                setMasterPassword(bioRes.masterPassword);
+                setSessions(decrypted);
+                setCryptoMode('idle');
+                useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
+              } catch (e) {
+                console.warn('Biometric unlock failed:', e);
+              }
+            }
           } : undefined}
-          workspaceName={isVaultLocked ? _wsName : undefined}
-          themeColor={isVaultLocked ? _wsColor : undefined}
-          onSwitchWorkspace={isVaultLocked && activeWorkspaceId !== 'default' ? async () => {
-            await switchWorkspace('default');
-          } : undefined}
+          workspaceName={_activeWs?.name || activeWorkspaceId}
+          themeColor={_activeWs?.themeColor}
         />
       </div>
     );
   }
 
+  // 已打开的会话 = 真实的 tabs，不是编出来的「最近记录」
+  const openTabs = tabs.filter(tb => !tb.isTornOff).slice(0, 6);
+  const openHostKeys = new Set(
+    tabs.map(tb => (tb.config && 'host' in tb.config ? `${tb.config.username}@${tb.config.host}` : ''))
+  );
+  const keyOf = (s: SessionProfile) => `${s.username}@${s.host}`;
+
+  const wd = watchdogStatus;
+  const wdOk = !!wd && wd.status === 'secure' && !wd.watchdogDisabled;
+
+  const connect = (s: SessionProfile) => {
+    if (onConnect) onConnect(s);
+    else setIsCommandCenterOpen(true); // 未接线时退回指令中心，不做死按钮
+  };
+
   return (
-    <div className="drag-region w-full h-full max-w-6xl mx-auto flex flex-col justify-center gap-8 p-8 animate-in fade-in zoom-in-95 duration-700">
-      
-      {/* Top Greeting */}
-      <div className="no-drag-region flex flex-col items-center text-center mb-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className={`text-6xl md:text-7xl font-black tracking-tighter mb-4 ${isDark ? 'text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40' : 'text-transparent bg-clip-text bg-gradient-to-b from-slate-800 to-slate-400'}`}
-        >
-          {timeString}
-        </motion.div>
-        
-        <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
+    <div className="drag-region w-full h-full flex flex-col bg-bg text-ink">
+
+      {/* ── 状态带：时钟与问候留下，但这条带子要自己挣到高度 ───────────── */}
+      <div className="no-drag-region flex items-end justify-between gap-7 flex-wrap
+                      px-7 pt-6 pb-4 border-b border-line-soft">
+        <div className="flex flex-col gap-[7px] min-w-0">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`text-xl font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}
+            transition={{ duration: 0.5, ease: [0.33, 1, 0.68, 1] }}
+            className="text-[54px] leading-none font-extralight tracking-[-0.035em] tabular-nums"
           >
-            <Sparkles className="w-5 h-5 text-primary" />
-            {(() => {
-              const greetingObj = t(`welcome.greeting.${getGreetingKey()}`, { returnObjects: true });
-              return Array.isArray(greetingObj) ? greetingObj[greetingIndex % greetingObj.length] : greetingObj;
-            })()}
+            {timeString}
           </motion.div>
-          
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className={`text-sm md:text-base font-medium tracking-widest uppercase ${isDark ? 'text-white/40' : 'text-slate-500'}`}
-          >
-            <span className="hidden md:inline mr-4 opacity-50">|</span>
-            {dateString}
-          </motion.div>
+          <div className="flex items-center gap-[9px] flex-wrap">
+            <Sparkles className="w-[15px] h-[15px] text-primary shrink-0" />
+            <p className="text-sm font-medium text-ink-2">
+              {(() => {
+                const g = t(`welcome.greeting.${getGreetingKey()}`, { returnObjects: true });
+                return Array.isArray(g) ? g[greetingIndex % g.length] : g;
+              })()}
+            </p>
+            <span className="font-mono text-[10.5px] tracking-wider text-ink-3 pl-[11px] border-l border-line">
+              {dateString}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-6 flex-wrap">
+          <Stat value={String(sessions.length)} label={t('welcome.stats.hosts', '主机')} />
+          <Stat value={String(tabs.length)} label={t('welcome.stats.sessions', '活动会话')} />
+          <Stat
+            text
+            value={wd ? (wdOk ? t('security.watchdogSecure', '正常') : (wd.reason || t('security.watchdogWarning', '异常'))) : '—'}
+            label="Watchdog"
+            tone={wd ? (wdOk ? 'ok' : 'warn') : undefined}
+          />
+          <Stat text value={aiModel || '—'} label={t('aiSettings.activeModel', '模型端点')} />
         </div>
       </div>
 
-      {/* The Grid */}
-      <div className="no-drag-region grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl mx-auto">
-        
-        {/* COMMAND CENTER */}
-        <MoovierTile 
-          tileId="dashboard-command"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => setIsCommandCenterOpen(true)}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-blue-500/10 to-transparent`} />
-          <div className="relative z-10 flex items-center justify-between">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>
-              <Rocket className="w-5 h-5" />
-            </div>
-            <div className="text-right">
-              <kbd className={`px-1.5 py-0.5 rounded-lg font-mono text-[10px] opacity-50 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>⌘K</kbd>
-            </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>COMMAND CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-blue-200/50' : 'text-blue-800/60'}`}>{t('welcome.dashboard.commandCenterDesc')}</p>
-          </div>
-        </MoovierTile>
+      {/* ── 工作区 ─────────────────────────────────────────────────── */}
+      <div className="no-drag-region flex-1 min-h-0 overflow-y-auto px-7 py-5 flex flex-col gap-6">
 
-        {/* Pillar 2: SECURE CENTER */}
-        <MoovierTile 
-          tileId="dashboard-secure"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'secure', title: 'SECURE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-emerald-500/10 to-transparent`} />
-          <div className="relative z-10 flex items-center justify-between">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'}`}>
-              <ShieldCheck className="w-5 h-5" />
+        {openTabs.length > 0 && (
+          <section>
+            <SecHead title={t('welcome.openSessions', '当前会话')} />
+            <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(226px,1fr))]">
+              {openTabs.map(tb => (
+                <button
+                  key={tb.id}
+                  onClick={() => setActiveTabId(tb.id)}
+                  className="group text-left bg-panel border border-line-soft rounded-[10px] px-3.5 py-3
+                             flex flex-col gap-2 transition-colors hover:bg-surf hover:border-line"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" />
+                    <b className="text-[13px] font-semibold truncate">{tb.title}</b>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] text-ink-3 truncate">
+                      {tb.config && 'host' in tb.config ? `${tb.config.username}@${tb.config.host}` : '—'}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </div>
+                </button>
+              ))}
             </div>
-            <div className="flex gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-xl bg-emerald-500 animate-pulse" />
-              <div className="w-1.5 h-1.5 rounded-xl bg-emerald-500/30" />
-            </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>SECURE CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-emerald-200/50' : 'text-emerald-800/60'}`}>{t('welcome.dashboard.secureCenterDesc')}</p>
-          </div>
-        </MoovierTile>
+          </section>
+        )}
 
-        {/* Pillar 3: WORKSPACE CENTER */}
-        <MoovierTile 
-          tileId="dashboard-workspace"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'workspace', title: 'WORKSPACE CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-purple-500/10 to-transparent`} />
-          <div className="relative z-10">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600'}`}>
-              <Globe className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>WORKSPACE CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-purple-200/50' : 'text-purple-800/60'}`}>{t('welcome.dashboard.workspaceCenterDesc')}</p>
-          </div>
-        </MoovierTile>
+        <section>
+          <SecHead
+            title={t('welcome.hosts', '主机')}
+            action={
+              <button
+                onClick={() => setIsCommandCenterOpen(true)}
+                className="flex items-center gap-1.5 text-[11.5px] text-ink-3 hover:text-primary transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                {t('welcome.newConnection', '新建连接')}
+              </button>
+            }
+          />
 
-        {/* Pillar 4: AI CENTER */}
-        <MoovierTile 
-          tileId="dashboard-ai"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'} ${appConfig.aiEnabled === false ? 'grayscale opacity-50 cursor-not-allowed hover:-translate-y-0' : ''}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-amber-500/10 to-transparent`} />
-          <div className="relative z-10">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600'}`}>
-              <Sparkles className="w-5 h-5" />
+          {sessions.length === 0 ? (
+            <div className="border border-dashed border-line rounded-[10px] py-10 text-center">
+              <p className="text-[13px] text-ink-3 mb-3">{t('welcome.noHosts', '还没有主机')}</p>
+              <button
+                onClick={() => setIsCommandCenterOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg border border-line
+                           text-[12.5px] text-ink-2 hover:border-primary hover:text-primary transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                {t('welcome.newConnection', '新建连接')}
+              </button>
             </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>AI CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-amber-200/50' : 'text-amber-800/60'}`}>{t('welcome.dashboard.aiCenterDesc')}</p>
-          </div>
-        </MoovierTile>
+          ) : (
+            <div className="border border-line-soft rounded-[10px] overflow-hidden bg-panel">
+              <div className="grid items-center gap-3 px-3.5 h-8 bg-surf border-b border-line-soft
+                              text-[10.5px] font-semibold tracking-wider uppercase text-ink-3
+                              [grid-template-columns:16px_minmax(120px,1.3fr)_minmax(140px,1.5fr)_72px_64px_minmax(80px,1fr)_24px]">
+                <span />
+                <span>{t('welcome.col.name', '名称')}</span>
+                <span>{t('welcome.col.addr', '地址')}</span>
+                <span>{t('welcome.col.proto', '协议')}</span>
+                <span>{t('welcome.col.port', '端口')}</span>
+                <span>{t('welcome.col.group', '分组')}</span>
+                <span />
+              </div>
 
-
-        {/* Pillar 5: PLUGIN CENTER */}
-        <MoovierTile 
-          tileId="dashboard-plugin"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'plugin', title: 'PLUGIN CENTER' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-rose-500/10 to-transparent`} />
-          <div className="relative z-10">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-600'}`}>
-              <Blocks className="w-5 h-5" />
+              {sessions.map((s, i) => {
+                const online = openHostKeys.has(keyOf(s));
+                return (
+                  <button
+                    key={`${keyOf(s)}-${i}`}
+                    onClick={() => connect(s)}
+                    className="group w-full text-left grid items-center gap-3 px-3.5 h-[42px]
+                               border-b border-line-soft last:border-b-0 transition-colors hover:bg-surf
+                               [grid-template-columns:16px_minmax(120px,1.3fr)_minmax(140px,1.5fr)_72px_64px_minmax(80px,1fr)_24px]"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-ok' : 'bg-ink-3'}`} />
+                    <span className="text-[12.5px] font-medium truncate">{s.alias || s.host}</span>
+                    <span className="font-mono text-[11px] text-ink-2 truncate">{keyOf(s)}</span>
+                    <span className="justify-self-start font-mono text-[9.5px] tracking-wider
+                                     px-1.5 py-0.5 rounded-md bg-surf-2 text-ink-3 uppercase">
+                      {(s.protocol || 'ssh')}
+                    </span>
+                    <span className="font-mono text-[11px] text-ink-3 tabular-nums">{s.port ?? 22}</span>
+                    <span className="text-[11px] text-ink-3 truncate">{s.group || '—'}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                );
+              })}
             </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>PLUGIN CENTER</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-rose-200/50' : 'text-rose-800/60'}`}>{t('welcome.dashboard.pluginCenterDesc')}</p>
-          </div>
-        </MoovierTile>
-
-        {/* Pillar 6: SETTINGS */}
-        <MoovierTile 
-          tileId="dashboard-settings"
-          dragLevel="fixed" 
-          whileHover={{ y: -4 }}
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: 'Settings' } }))}
-          className={`${tileHoverClass} p-5 min-h-[140px] flex flex-col justify-between ${!isDark && '!bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]'}`}
-          style={{ '--moovier-bg': isDark ? 'rgba(255, 255, 255, 0.03)' : undefined } as React.CSSProperties}
-        >
-          <div className={`${glowOverlayClass} from-slate-500/10 to-transparent`} />
-          <div className="relative z-10">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDark ? 'bg-slate-500/20 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
-              <Settings className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="relative z-10 mt-auto pt-3">
-            <h3 className={`text-lg font-black tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>SETTINGS</h3>
-            <p className={`text-[11px] font-medium ${isDark ? 'text-slate-300/50' : 'text-slate-600/60'}`}>{t('welcome.dashboard.settingsDesc')}</p>
-          </div>
-        </MoovierTile>
+          )}
+        </section>
       </div>
     </div>
   );
 };
+
+/* ── 小件 ─────────────────────────────────────────────────────────── */
+
+const Stat: React.FC<{ value: string; label: string; text?: boolean; tone?: 'ok' | 'warn' }> =
+  ({ value, label, text, tone }) => (
+    <div className="flex flex-col gap-[3px] min-w-[62px]">
+      <b className={`flex items-center gap-1.5 leading-tight tabular-nums
+                     ${text ? 'text-[13px] font-medium font-mono text-ink-2' : 'text-[19px] font-semibold text-ink'}`}>
+        {tone === 'ok' && <ShieldCheck className="w-3.5 h-3.5 text-ok shrink-0" />}
+        {tone === 'warn' && <ShieldAlert className="w-3.5 h-3.5 text-warn shrink-0" />}
+        <span className="truncate max-w-[160px]">{value}</span>
+      </b>
+      <s className="no-underline text-[11px] text-ink-3">{label}</s>
+    </div>
+  );
+
+const SecHead: React.FC<{ title: string; action?: React.ReactNode }> = ({ title, action }) => (
+  <div className="flex items-baseline justify-between gap-3 mb-2.5">
+    <h2 className="text-[12.5px] font-semibold text-ink-2">{title}</h2>
+    {action}
+  </div>
+);

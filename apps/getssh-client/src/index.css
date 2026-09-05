@@ -54,12 +54,45 @@ html:not(.dark) [class*="backdrop-blur"] {
   --color-obsidian-border: #27272a;  /* 克制的边框色 */
 
   /* Border-radius restored to tailwind defaults */
+
+  /* ── v2 语义令牌：注册成 Tailwind 工具类 ──────────────────────────────
+     值来自下面 @layer base 里的 --v2-* 变量，随 .dark 整套切换。
+     用法：bg-panel / bg-surf / border-line / text-ink / text-ink-2 …
+     近黑底上不投黑影：层级由 bg → panel → surf 三档表面提亮 + 1px 描边表达。 */
+  --color-bg:      var(--v2-bg);
+  --color-panel:   var(--v2-panel);
+  --color-surf:    var(--v2-surf);
+  --color-surf-2:  var(--v2-surf-2);
+  --color-line:    var(--v2-line);
+  --color-line-soft: var(--v2-line-soft);
+  --color-ink:     var(--v2-ink);
+  --color-ink-2:   var(--v2-ink-2);
+  --color-ink-3:   var(--v2-ink-3);
+  --color-ok:      var(--v2-ok);
+  --color-warn:    var(--v2-warn);
+  --color-down:    var(--v2-down);
 }
 
 /* ── Base design variables ───────────────────────────────────────────────── */
 
 @layer base {
   :root {
+    /* ── v2 语义令牌 · 浅色（默认） ─────────────────────────────
+       深色在下面 html.dark 里成套重定义。任何组件都不该直接写死颜色，
+       一律走这里的语义名，否则换主题必然漏。 */
+    --v2-bg:        #f4f4f5;
+    --v2-panel:     #ffffff;
+    --v2-surf:      #fafafa;
+    --v2-surf-2:    #f1f1f3;
+    --v2-line:      #e4e4e7;
+    --v2-line-soft: #eeeef0;
+    --v2-ink:       #18181b;
+    --v2-ink-2:     #52525b;
+    --v2-ink-3:     #8b8b93;
+    --v2-ok:        #059669;
+    --v2-warn:      #b45309;
+    --v2-down:      #e11d48;
+
     --primary-color: 0 212 255; /* Default: fallback to color-a */
     --color-a: 0 212 255; /* Duo-Tone Track A Default (e.g. 电光蓝) */
     --color-b: 44 44 52;  /* Duo-Tone Track B Default (e.g. 机甲灰) */
@@ -100,8 +133,27 @@ html:not(.dark) [class*="backdrop-blur"] {
       0 16px 32px rgba(0, 0, 0, 0.08);
   }
 
+
+  /* ── v2 语义令牌 · 深色（主场） ───────────────────────────────
+     沿用已有的 Obsidian 阶：bg #09090b / panel #121214 / surf #18181b。 */
+  html.dark {
+    --v2-bg:        #09090b;
+    --v2-panel:     #121214;
+    --v2-surf:      #18181b;
+    --v2-surf-2:    #1f1f23;
+    --v2-line:      #27272a;
+    --v2-line-soft: #1a1a1d;
+    --v2-ink:       #fafafa;
+    --v2-ink-2:     #a1a1aa;
+    --v2-ink-3:     #71717a;
+    --v2-ok:        #34d399;
+    --v2-warn:      #fbbf24;
+    --v2-down:      #fb7185;
+  }
+
   html, body, #root {
-    @apply h-screen w-screen overflow-hidden m-0 p-0 text-white font-sans;
+    @apply h-screen w-screen overflow-hidden m-0 p-0 font-sans;
+    color: var(--v2-ink);
     background-color: transparent !important;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

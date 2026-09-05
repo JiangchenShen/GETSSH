@@ -107,6 +107,13 @@ function App() {
     i18n.changeLanguage(appConfig.language);
   }, [appConfig.language, i18n]);
 
+  // Sync native window theme for OS Vibrancy (fixing glassmorphism layering issues)
+  useEffect(() => {
+    if (window.electronAPI?.setTheme) {
+      window.electronAPI.setTheme(appConfig.theme);
+    }
+  }, [appConfig.theme]);
+
   // Auto-Start trigger
   useAutoStart();
 
@@ -122,7 +129,7 @@ function App() {
 
   syncProfilesRef.current = syncProfiles;
 
-  useCoreAppEvents(setPendingHighRiskRunbook, syncProfiles);
+  useCoreAppEvents(setPendingHighRiskRunbook, syncProfiles, handleConnect);
 
   // Prevent pre-warmed Hollow Windows from rendering heavy UI components (WebGL, TabBar, etc) until they are hijacked.
   // This saves massive amounts of CPU/RAM/GPU and prevents ghost terminals.
@@ -355,7 +362,7 @@ function App() {
                 <div 
                   key={tab.id}
                   className="absolute inset-0 flex flex-col"
-                  style={{ display: (activeTabId === tab.id && selectedSessionIndex === null) ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
+                  style={{ display: activeTabId === tab.id ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
                 >
                   {tab.paneTree ? (
                     <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={(paneId, direction) => splitPane(paneId, direction, {})} />
@@ -376,16 +383,15 @@ function App() {
                     animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
                     exit={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
                     transition={{ duration: 0.4, ease: CINEMATIC_OUT }}
-                    className={`absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 ${tabs.filter(t => !t.title.startsWith('Torn ')).length > 0 ? 'bg-black/80 backdrop-blur-md' : 'bg-transparent'}`}
+                    className="absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 bg-transparent"
                   >
-                    <NexusDashboard />
+                    <NexusDashboard onConnect={handleConnect} />
                   </motion.div>
                 )}
               </AnimatePresence>
 
               {/* Connect Form Overlay */}
               <ConnectFormOverlay
-                tabsLength={tabs.filter(t => !t.title.startsWith('Torn ')).length}
                 isDark={isDark}
                 selectedSessionIndex={selectedSessionIndex}
                 sessions={sessions}
