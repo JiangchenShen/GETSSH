@@ -49,10 +49,10 @@ export const ShieldDetailsTab: React.FC<{ setSecurePage: (page: any) => void }> 
             <Lock className="w-7 h-7 drop-shadow-md"/>
           </div>
           <div className="flex items-center justify-between">
-            <h5 className="font-bold text-xl">{t("security.shieldDetailsCrypto", "AES-256-GCM 物理加密")}</h5>
+            <h5 className="font-bold text-xl">{t("security.shieldDetailsCrypto", "AES-256-GCM 底层加密")}</h5>
             <ChevronRight className="w-5 h-5 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-green-500" />
           </div>
-          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "由 N-API 驱动的 AES-256-GCM 物理加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。")}</p>
+          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsCryptoDesc", "由 N-API 驱动的 AES-256-GCM 底层加密。结合 PBKDF2 高强度派生密钥，消除 V8 垃圾回收造成的明文残留风险。")}</p>
         </div>
 
         {/* Zeroize */}
@@ -68,7 +68,7 @@ export const ShieldDetailsTab: React.FC<{ setSecurePage: (page: any) => void }> 
             <h5 className="font-bold text-xl">{t("security.shieldDetailsZeroize", "内存即焚 (Zeroize)")}</h5>
             <ChevronRight className="w-5 h-5 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-blue-500" />
           </div>
-          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "核心凭证运算后，立刻通过 Rust Zeroize 机制在物理内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。")}</p>
+          <p className="text-sm opacity-60 leading-relaxed font-medium">{t("security.shieldDetailsZeroizeDesc", "核心凭证运算后，立刻通过 Rust Zeroize 机制在内存级别覆写 0x00，并在 TS 层二次擦除，彻底防范内存 Dump 攻击。")}</p>
         </div>
 
         {/* Zero-copy */}

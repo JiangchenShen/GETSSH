@@ -75,7 +75,7 @@ const DesignLab = () => {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     /* 
-                      【物理手感盲测预设】
+                      【拟真手感盲测预设】
                       请取消注释以切换对应的弹簧手感：
                     */
 

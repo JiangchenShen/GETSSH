@@ -153,8 +153,8 @@ export function setupWorkspaceHandlers() {
       if (!db) throw new Error('Target workspace DB not found');
 
       const importProfile = db.prepare(`
-        INSERT OR REPLACE INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType, protocol, groupName, useKeepAlive, authType, proxyJump, strictHostKeyChecking, initialDirectory, postConnectScript, themeOverride)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       const importRunbook = db.prepare(`
@@ -164,7 +164,13 @@ export function setupWorkspaceHandlers() {
 
       db.transaction(() => {
         for (const p of profilesToImport) {
-          importProfile.run(p.id, targetWorkspaceId, p.host, p.username, p.password, p.privateKeyPath, p.passphrase, p.port, p.autoStart, p.alias, p.osType);
+          importProfile.run(
+            p.id, targetWorkspaceId, p.host, p.username, p.password, p.privateKeyPath, p.passphrase,
+            p.port, p.autoStart, p.alias, p.osType, p.protocol || 'ssh', p.groupName || p.group || null,
+            p.useKeepAlive === false || p.useKeepAlive === 0 ? 0 : 1, p.authType || 'password',
+            p.proxyJump || null, p.strictHostKeyChecking ? 1 : 0, p.initialDirectory || null,
+            p.postConnectScript || null, p.themeOverride || null
+          );
         }
         for (const r of runbooksToImport) {
           importRunbook.run(r.id, targetWorkspaceId, r.title, r.script, r.riskLevel, r.created_at);
@@ -222,7 +228,8 @@ export function setupWorkspaceHandlers() {
       // ==========================================
       // Phase 1: 记忆脑叶切除与重连 (RAG Memory Swap)
       // ==========================================
-      // Note: In GETSSH 3.0, we no longer use LanceDB. Micro Context Assembler is used on-the-fly.
+      // Semantic memory is keyed by workspace in the encrypted main database;
+      // switching this pointer prevents cross-workspace retrieval.
       ChatStorageManager.init(targetWorkspaceId);
 
       // ==========================================

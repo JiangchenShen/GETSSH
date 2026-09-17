@@ -34,7 +34,7 @@ export class SecureCenter {
   }
 
   public gracefulShutdown() {
-    if (this.socket && !this.socket.destroyed) {
+    if (this.socket && !this.socket.destroyed && this.socket.writable) {
       try { this.socket.write('ACTION:QUIT\n'); } catch (e) {}
     }
     try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown error:', e); }
@@ -89,12 +89,17 @@ export class SecureCenter {
   }
 
   private initWatchdog() {
-    const pipeName = os.platform() === 'win32'
+    const platform = os.platform();
+    if (platform !== 'darwin' && platform !== 'win32') {
+      throw new Error(`GETSSH desktop security runtime is unavailable on ${platform}.`);
+    }
+
+    const pipeName = platform === 'win32'
       ? `\\\\.\\pipe\\getssh-watchdog-${process.pid}`
       : path.join(os.tmpdir(), `getssh-watchdog-${process.pid}.sock`);
 
-    // Clean up old socket file if it exists on Unix
-    if (os.platform() !== 'win32' && fs.existsSync(pipeName)) {
+    // Clean up an old macOS socket file if it exists.
+    if (platform === 'darwin' && fs.existsSync(pipeName)) {
       fs.unlinkSync(pipeName);
     }
 
@@ -164,7 +169,7 @@ export class SecureCenter {
 
     this.server.listen(pipeName, () => {
       let watchdogExecutable = 'watchdog';
-      if (os.platform() === 'win32') watchdogExecutable += '.exe';
+      if (platform === 'win32') watchdogExecutable += '.exe';
 
       const watchdogPath = app.isPackaged
         ? path.join(process.resourcesPath, watchdogExecutable)

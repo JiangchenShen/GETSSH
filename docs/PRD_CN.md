@@ -2,7 +2,7 @@
 
 **文档版本**：V2.1（正式发布版）
 **产品名称**：GETSSH
-**当前稳定版本**：v2.0.0（代号 R7K4S）
+**当前稳定版本**：v3.0.0（代号 R7K4S）
 **文档性质**：本文档基于正式发布代码库进行全量逆向工程推导，完整还原产品功能边界、技术架构决策及设计哲学，并结合 v2.0 里程碑期间所有核心工程改造进行了全面增补。
 **最后更新**：2026-06
 **文档负责人**：GETSSH 产品技术委员会
@@ -13,7 +13,7 @@
 
 ### 1.1 产品定位
 
-GETSSH 是一款面向**专业开发者、DevOps 工程师与信息安全研究人员**的跨平台桌面 SSH 终端客户端，以 **Electron + React 19 + Rust Native Addon** 技术栈构建，以「极简极客」美学与「物理级」零信任安全防护作为核心差异化战略。
+GETSSH 是一款面向**专业开发者、DevOps 工程师与信息安全研究人员**的跨平台桌面 SSH 终端客户端，以 **Electron + React 19 + Rust Native Addon** 技术栈构建，以「极简极客」美学与「纵深式」零信任安全防护作为核心差异化战略。
 
 产品定位于在企业级安全防护标准与极致的开发者用户体验之间，建立一条无需妥协的纵深防御通道。
 
@@ -45,7 +45,6 @@ GETSSH 是一款面向**专业开发者、DevOps 工程师与信息安全研究�
 | macOS | x64 (Intel) | DMG | ✅ 正式支持（进入维护阶段，Intel 架构停服倒计时已启动）|
 | Windows | x64 | NSIS 安装包 | ✅ 正式支持 |
 | Windows | arm64 | NSIS 安装包 | ✅ 正式支持 |
-| Linux | x64 / arm64 | AppImage | ✅ 正式支持 |
 
 > ⚠️ **架构路线声明**：Apple 已确认 macOS 26 (Tahoe) 为最后一个支持 Intel 芯片 Mac 的 macOS 版本，Rosetta 2 转译层预计于 macOS 28 全面移除。GETSSH 将在上游依赖链停止对 x64 macOS 的交叉编译支持后，同步终止 Intel 架构安装包的编译与分发。
 
@@ -213,7 +212,7 @@ type PaneNode = PaneLeaf | PaneSplit;
 
 ### 2.5 凭证安全保险箱（Crypto Vault）
 
-**产品目标**：在本地持久化存储敏感凭证时，提供操作系统级密钥链（Keychain / DPAPI）与 Rust N-API 物理加密引擎的双重保护，实现零知识凭证管理。
+**产品目标**：在本地持久化存储敏感凭证时，提供操作系统级密钥链（Keychain / DPAPI）与 Rust N-API 底层加密引擎的双重保护，实现零知识凭证管理。
 
 #### 2.5.1 主密码加密机制
 
@@ -297,13 +296,13 @@ type PaneNode = PaneLeaf | PaneSplit;
 
 ### 2.7 安全中心（SecureCenter / RASP）
 
-**产品目标**：为用户提供可感知、可操作的物理级运行态安全防护，而非隐形黑盒式的被动防御。
+**产品目标**：为用户提供可感知、可操作的系统级运行态安全防护，而非隐形黑盒式的被动防御。
 
 #### 2.7.1 六大安全防御纵深屏障
 
 | 序号 | 屏障名称 | 核心组件 | 技术描述 |
 |---|---|---|---|
-| ① | **Rust 物理看门狗（Watchdog）** | `rust-core/watchdog` 独立二进制 | 独立于 Electron 进程运行，通过 Unix Domain Socket（macOS/Linux）或 Named Pipe（Windows）进行心跳通信。主进程 60 秒内未响应心跳，Watchdog 通过 OS API 对父进程群发出物理级 SIGKILL 强制终止。同时支持 SAFE MODE 自动识别，崩溃恢复时不误杀 |
+| ① | **Rust 系统级看门狗（Watchdog）** | `rust-core/watchdog` 独立二进制 | 独立于 Electron 进程运行，通过 Unix Domain Socket（macOS）或 Named Pipe（Windows）进行心跳通信。主进程 60 秒内未响应心跳，Watchdog 通过 OS API 对父进程群发出终止信号强制退出。同时支持 SAFE MODE 自动识别，崩溃恢复时不误杀 |
 | ② | **内存即焚引擎（Zeroize）** | `getssh-vault` Rust N-API | `ZeroizeOnDrop` 在 Rust 对象离开作用域时自动以 0x00 覆写 AES 密钥与密文缓冲区；TypeScript 层 `finally` 块调用 `buffer.fill(0)` 执行二次擦除 |
 | ③ | **金库级加密引擎（Vault）** | `getssh-vault` Rust N-API | PBKDF2-HMAC-SHA256（100,000 次）+ AES-256-GCM 认证加密，全程在 Rust 密闭空间执行，密钥材料绝不进入 V8 GC 管辖的堆内存 |
 | ④ | **零拷贝网络 I/O 引擎** | `sftp-stream` Rust N-API | SFTP 大文件传输由 Rust 直接接管磁盘 I/O，Zero-copy 绕过 V8 堆内存，从根本上杜绝大文件操作的 OOM 风险 |
@@ -316,7 +315,7 @@ type PaneNode = PaneLeaf | PaneSplit;
 
 | 告警级别 | 触发条件 | 用户操作选项 |
 |---|---|---|
-| 🔴 红色警报（内存级）| 检测到内存完整性异常或物理级威胁 | 「立刻重启安全模式」/ 「15 秒抢救性存盘」/ 「忽略」|
+| 🔴 红色警报（内存级）| 检测到内存完整性异常或底层威胁 | 「立刻重启安全模式」/ 「15 秒抢救性存盘」/ 「忽略」|
 | 🟡 黄色警告（插件级）| 插件触发了 RASP 高危行为被阻断 | 「关闭异常插件」/ 「继续执行」/ 「忽略」|
 
 > 覆层附带 `00:XX` 格式倒计时，超时后 Watchdog 自动执行强制关闭操作。
@@ -416,7 +415,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | 功能 | 描述 |
 |---|---|
 | macOS（未代码签名）| 通过 `electron.net.request` 调用 GitHub Releases API 进行手动版本检查 |
-| Windows / Linux | 通过 `electron-updater` 进行全自动更新检查与下载 |
+| Windows | 通过 `electron-updater` 进行全自动更新检查与下载 |
 | 更新提示横幅 | 检测到新版本后，侧边栏设置图标显示红色提醒角标，全局顶部横幅提示 |
 | 后台静默检查 | 应用启动时检查一次，此后每 12 小时后台检查一次 |
 | 手动触发检查 | 偏好设置 → 关于 → 检查更新 |
@@ -457,7 +456,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | 分屏标签页切换延迟 | 无可感知重连或卡顿（CSS 常驻挂载保活策略）|
 | 插件加载影响 | 全异步 I/O，对主进程 UI 渲染零阻塞 |
 | 大流量终端（如 `tail -f` 压测）| 维持稳定 60fps 渲染（Rust 多线程 PTY 二进制直通）|
-| 系统监控采集延迟 | 毫秒级（Rust Sysprobe 近零开销采集，相比 `child_process` 方案显著降低）|
+| 系统监控采集延迟 | 极低延迟（Rust Sysprobe 近零开销采集，相比 `child_process` 方案显著降低）|
 
 ### 3.2 安全基线要求
 
@@ -474,9 +473,8 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 |---|---|
 | macOS DMG 格式 | ULFO 高效压缩，arm64 / x64 独立安装包 |
 | Windows NSIS 格式 | x64 / arm64 独立安装包 |
-| Linux AppImage 格式 | x64 / arm64 便携式安装包 |
-| Rust 原生模块（`.node`）| 通过 `asarUnpack: ["**/*.node"]` 从 ASAR 包中解出，在文件系统中直接 `require()`；加载器严格按平台 + 架构 + ABI 后缀（Windows 的 `-msvc`，Linux 的 `-gnu` / `-musl`）精确映射文件名 |
-| Watchdog 守护进程 | 通过 `extraResources` 打包至 `resources/watchdog`（macOS/Linux）和 `resources/watchdog.exe`（Windows）|
+| Rust 原生模块（`.node`）| 通过 `asarUnpack: ["**/*.node"]` 从 ASAR 包中解出，在文件系统中直接 `require()`；加载器严格按 macOS / Windows 平台、架构与 ABI 精确映射文件名（Windows 使用 `-msvc` 后缀）|
+| Watchdog 守护进程 | 通过 `extraResources` 打包至 `resources/watchdog`（macOS）和 `resources/watchdog.exe`（Windows）|
 
 ---
 
@@ -500,7 +498,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | Rust 系统监控 | `getssh-sysprobe` N-API | sysinfo crate 系统指标采集 |
 | Rust SFTP 流 | `sftp-stream` N-API | Zero-copy 上传 / 下载 |
 | Rust 工作区引擎 | `nexus-core` N-API | 分屏布局状态机，SSOT 架构 |
-| Rust 看门狗 | `watchdog` 独立二进制 | 无 V8 依赖，物理强杀机制 |
+| Rust 看门狗 | `watchdog` 独立二进制 | 无 V8 依赖，系统级熔断机制 |
 | Rust 插件存储 | `getssh-kv` N-API | 插件隔离 KV 持久化存储 |
 | Rust 归档处理 | `getssh-unarchive` N-API | ZIP 解压，ZipSlip 防御 |
 | 自动化测试 | Vitest + Playwright | 单元测试 + E2E 集成测试 |
@@ -516,7 +514,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | `sftp-stream` | `rust-core/sftp-stream` | N-API `.node` | SFTP 零拷贝上传 / 下载，全平台 ABI 精确映射 |
 | `getssh-kv` | `rust-core/getssh-kv` | N-API `.node` | 插件隔离 KV 持久化存储 |
 | `getssh-unarchive` | `rust-core/getssh-unarchive` | N-API `.node` | ZIP 插件包解压（含 ZipSlip 目录穿越防御）|
-| `watchdog` | `rust-core/watchdog` | 独立二进制 | 主进程心跳监控，跨平台物理强杀，SAFE MODE 识别 |
+| `watchdog` | `rust-core/watchdog` | 独立二进制 | 主进程心跳监控，跨平台系统级熔断，SAFE MODE 识别 |
 
 ### 4.3 主进程模块结构
 
@@ -565,16 +563,16 @@ electron/main/
 | v1.2.1 | 主进程模块化重构 | 主进程按领域模块化重构 + SFTP 健壮性修复 + 静默后台更新 | ✅ 已发布 |
 | v1.3.0 | 安全审计 V3.0 | 安全审计全量修复（5 个 CRITICAL 漏洞）+ RASP 沙盒实装 + 设置中心 UI 全面重设计 | ✅ 已发布 |
 | v1.3.x | 键盘体验与协议扩展 | Command Center 完整键盘导航 + 插件 UI 优化 + Telnet 协议支持 | ✅ 已发布 |
-| **v2.0.0（R7K4S）** | **Rust 全栈整合与双子星视觉** | **Nexus Core 工作区引擎（Rust SSOT 分屏状态机）+ 全离线双子星字体栈（Reddit Sans + MiSans）+ Rust Vault + Sysprobe + SFTP-Stream + Watchdog 全面量产 + React 19 + Tailwind v4 + 32 个历史漏洞全量修复 + 六大安全防御纵深屏障 + 全平台 NAPI 精确 ABI 映射修复** | 🚀 **当前正式版本** |
-| v2.1.0（规划中）| 安全加固与工作区 | CSP 全面收紧（移除 `unsafe-eval`）+ Windows 正式代码签名发布 + Workspace 工作区上下文隔离 | 📋 规划中 |
-| v2.2.0（规划中）| 生态与跳板机 | Plugin Marketplace 插件市场 + SSH Jump Host 多级跳板机 + 终端内容实时搜索 | 📋 规划中 |
+| **v3.0.0（R7K4S）** | **Rust 全栈整合与双子星视觉** | **Nexus Core 工作区引擎（Rust SSOT 分屏状态机）+ 全离线双子星字体栈（Reddit Sans + MiSans）+ Rust Vault + Sysprobe + SFTP-Stream + Watchdog 全面量产 + React 19 + Tailwind v4 + 32 个历史漏洞全量修复 + 六大安全防御纵深屏障 + 全平台 NAPI 精确 ABI 映射修复** | 🚀 **当前正式版本** |
+| v3.1.0（规划中）| 安全加固与工作区 | CSP 全面收紧（移除 `unsafe-eval`）+ Windows 正式代码签名发布 + Workspace 工作区上下文隔离 | 📋 规划中 |
+| v3.2.0（规划中）| 生态与跳板机 | Plugin Marketplace 插件市场 + SSH Jump Host 多级跳板机 + 终端内容实时搜索 | 📋 规划中 |
 
 ---
 
 ## 6. 产品设计哲学
 
 > **「机制即防御，而非单靠加密」**
-> 安全性通过架构机制保障：IPC 帧来源校验、Watchdog 物理强杀、Rust 内存即焚，而非单纯依赖通信加密层。
+> 安全性通过架构机制保障：IPC 帧来源校验、Watchdog 强制熔断、Rust 内存即焚，而非单纯依赖通信加密层。
 
 > **「开发者工具首先应该是工具，其次才是视觉体验」**
 > UI 以极简为基调，在不损失信息密度的前提下，融入精致的过渡动效与毛玻璃材质美学。

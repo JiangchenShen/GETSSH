@@ -1,4 +1,4 @@
-const { existsSync, readFileSync } = require('fs')
+const { existsSync } = require('fs')
 const { join } = require('path')
 
 const { platform, arch } = process
@@ -6,25 +6,6 @@ const { platform, arch } = process
 let nativeBinding = null
 let localFileExisted = false
 let loadError = null
-
-function isMusl() {
-  // For Node 10
-  if (!process.report || typeof process.report.getReport !== 'function') {
-    try {
-      const fs = require('fs')
-      const path = require('path')
-      const envPath = process.env.PATH || ''
-      const envPaths = envPath.split(path.delimiter)
-      const lddPath = envPaths.map(p => path.join(p, 'ldd')).find(p => fs.existsSync(p))
-      return lddPath ? fs.readFileSync(lddPath, 'utf8').includes('musl') : true
-    } catch (e) {
-      return true
-    }
-  } else {
-    const { glibcVersionRuntime } = process.report.getReport().header
-    return !glibcVersionRuntime
-  }
-}
 
 switch (platform) {
   case 'android':
@@ -151,111 +132,6 @@ switch (platform) {
       }
     } catch (e) {
       loadError = e
-    }
-    break
-  case 'linux':
-    switch (arch) {
-      case 'x64':
-        if (isMusl()) {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-x64-musl.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-x64-musl.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-x64-musl')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        } else {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-x64-gnu.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-x64-gnu.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-x64-gnu')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        }
-        break
-      case 'arm64':
-        if (isMusl()) {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-arm64-musl.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-arm64-musl.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-arm64-musl')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        } else {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-arm64-gnu.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-arm64-gnu.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-arm64-gnu')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        }
-        break
-      case 'arm':
-        localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-arm-gnueabihf.node'))
-        try {
-          if (localFileExisted) {
-            nativeBinding = require('./getssh-unarchive.linux-arm-gnueabihf.node')
-          } else {
-            nativeBinding = require('getssh-unarchive-linux-arm-gnueabihf')
-          }
-        } catch (e) {
-          loadError = e
-        }
-        break
-      case 'riscv64':
-        if (isMusl()) {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-riscv64-musl.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-riscv64-musl.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-riscv64-musl')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        } else {
-          localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-riscv64-gnu.node'))
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./getssh-unarchive.linux-riscv64-gnu.node')
-            } else {
-              nativeBinding = require('getssh-unarchive-linux-riscv64-gnu')
-            }
-          } catch (e) {
-            loadError = e
-          }
-        }
-        break
-      case 's390x':
-        localFileExisted = existsSync(join(__dirname, 'getssh-unarchive.linux-s390x-gnu.node'))
-        try {
-          if (localFileExisted) {
-            nativeBinding = require('./getssh-unarchive.linux-s390x-gnu.node')
-          } else {
-            nativeBinding = require('getssh-unarchive-linux-s390x-gnu')
-          }
-        } catch (e) {
-          loadError = e
-        }
-        break
-      default:
-        throw new Error(`Unsupported architecture on Linux: ${arch}`)
     }
     break
   default:

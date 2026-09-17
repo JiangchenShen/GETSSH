@@ -8,17 +8,41 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 2000,
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'zustand',
+      'zustand/middleware',
+      'zustand/react/shallow',
+      'immer',
+      'framer-motion',
+      'lucide-react',
+      'i18next',
+      'react-i18next',
+      '@xterm/xterm',
+      '@xterm/addon-fit',
+      '@xterm/addon-webgl',
+      '@xterm/addon-web-links',
+      '@xterm/addon-canvas',
+      '@xterm/addon-search',
+    ],
+  },
   plugins: [
     tailwindcss(),
     react(),
     electron([
       {
-        entry: 'electron/main/index.ts',
+        entry: {
+          index: 'electron/main/index.ts',
+          'plugin-host': 'electron/main/plugin-host.ts',
+          'plugin-sandbox': 'electron/main/services/plugin/PluginProcessSandbox.ts',
+        },
         vite: {
           build: {
             minify: true,
             rollupOptions: {
-              external: ['ssh2', 'node-pty', /rust-core/, 'better-sqlite3'],
+              external: ['ssh2', 'node-pty', /rust-core/, 'better-sqlite3-multiple-ciphers'],
             },
             outDir: 'dist-electron/main',
           },

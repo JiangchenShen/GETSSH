@@ -12,6 +12,8 @@ napi-derive = "2.12.2"
 regex = "1.10"
 lazy_static = "1.4"
 uuid = { version = "1.4", features = ["v4"] }
+tree-sitter = "0.25.10"
+tree-sitter-bash = "0.25.1"
 
 [build-dependencies]
 napi-build = "2.0.1"

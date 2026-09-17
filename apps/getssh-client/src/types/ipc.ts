@@ -24,6 +24,12 @@ export interface BackendConfig {
   pluginSecurityMode?: 'safe' | 'strict' | 'normal' | 'developer';
 }
 
+export interface BackendConfigUpdateResult {
+  success: boolean;
+  effectiveConfig: BackendConfig;
+  error?: string;
+}
+
 export interface ExportPayload {
   sessions: any[];
   masterPassword?: string;
@@ -40,16 +46,23 @@ export interface WatchdogStatus {
 }
 
 export interface SshConnectConfig {
+  protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   port: number;
   username: string;
   password?: string;
   privateKeyPath?: string;
+  passphrase?: string;
+  alias?: string;
   sessionId?: string;
-  useKeepAlive?: boolean;
+  keepaliveInterval?: number;
   proxyType?: 'none' | 'socks5' | 'http';
   proxyHost?: string;
   proxyPort?: number;
+  strictHostKeyChecking?: boolean;
+  initialDirectory?: string;
+  postConnectScript?: string;
+  themeOverride?: string;
   enableAuditLogging?: boolean;
 }
 

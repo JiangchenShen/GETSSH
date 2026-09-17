@@ -2,28 +2,28 @@
 
 [中文版](README_CN.md) | English
 
-[![Version](https://img.shields.io/badge/version-2.0.0--preview-blueviolet?style=flat-square)](package.json)
+[![Version](https://img.shields.io/badge/version-3.0.0--preview-blueviolet?style=flat-square)](package.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
 [![Electron](https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-v2.0-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
+[![Changelog](https://img.shields.io/badge/Changelog-v3.0-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
 
-**GETSSH** is a next-generation cross-platform SSH terminal client built for developers and DevOps engineers. It is designed around three uncompromising principles: **military-grade physical security**, **a GPU-accelerated terminal experience**, and **a Glassmorphism UI that makes you actually want to open your terminal**.
+**GETSSH** is a next-generation SSH terminal client for macOS and Windows, built for developers and DevOps engineers. It is designed around three uncompromising principles: **defense-in-depth security**, **a GPU-accelerated terminal experience**, and **a Glassmorphism UI that makes you actually want to open your terminal**.
 
-Under the hood, GETSSH v2.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and the physical-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
+Under the hood, GETSSH v3.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and the OS-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
 
-📢 **[View Full Changelog (v2.0)](docs/CHANGELOG_EN.md)**
+📢 **[View Full Changelog (v3.0)](docs/CHANGELOG_EN.md)**
 
 ---
 
-## ✨ What's New in v2.0
+## ✨ What's New in v3.0
 
-v2.0 is a ground-up architectural overhaul — not just a feature release:
+v3.0 is a ground-up architectural overhaul — not just a feature release:
 
 - 🦀 **Full Rust Native Core** — Five production Rust N-API addons replace the entire JS-layer crypto, SFTP I/O, and system monitoring stack
-- 🛡 **Six-Layer Physical Security Architecture** — Watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
+- 🛡 **Six-Layer Defense-in-Depth Architecture** — Watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
 - 🔒 **32 Security Vulnerabilities Fixed** — Full internal security audit covering Critical, High, Medium, and Low severity findings, all resolved
 - ⚛️ **React 19 + Electron 42** — Rebuilt on the latest stable foundation
 - 🎨 **Tailwind CSS v4** — Complete style system overhaul
@@ -38,7 +38,7 @@ v2.0 is a ground-up architectural overhaul — not just a feature release:
 
 ## 🔒 Security Architecture
 
-GETSSH v2.0 implements a **six-layer defense-in-depth architecture** extending from the OS kernel to the application layer:
+GETSSH v3.0 implements a **six-layer defense-in-depth architecture** extending from the OS kernel to the application layer:
 
 | Layer | Component | What It Does |
 |---|---|---|
@@ -61,18 +61,21 @@ Plugin UIs run inside `<iframe sandbox="allow-scripts">` — `allow-same-origin`
 
 ## 🧩 Plugin System
 
-GETSSH has a dual-mode plugin architecture:
+GETSSH has an isolated backend and sandboxed UI plugin architecture:
 
-- **Main-process plugins** — Run as sandboxed `vm.Script` contexts in the Electron main process. They get a capability-gated API: `ssh:read`, `ssh:write`, `storage`, `clipboard`, `notification`, etc. Each capability must be declared in `package.json` and approved by the user at install time.
-- **Renderer plugins** — Run as sandboxed iframes. They communicate via a typed RPC bridge with `BLOCKED_ACTIONS` enforcement.
+- **Backend plugins** — In normal and strict modes, each backend runs in a separate OS-confined process. Host files, direct networking, subprocesses, and Workers are blocked; capability-bound operations are exposed through the injected `context` API. Safe mode runs no backend plugin code, while developer mode treats plugins as fully trusted main-process code.
+- **UI plugins** — Run in sandboxed iframes and communicate through the allowlisted `window.GETSSH` bridge. UI-only plugins declare `getssh.type: "sandbox"`; plugins with a backend omit `getssh.type`.
 
 **Extension Points:**
 - `registerSidebarAction` — Inject custom sidebar buttons (SVG sanitized via DOMPurify)
 - `registerPanel` / `openPanel` — Register and open custom panels as Pane Tree nodes
-- `registerUIExtension` — Add actions to terminal right-click menus and SFTP toolbars
-- `registerSettingsSchema` — Inject a custom settings UI into the settings panel
-- `pluginStorage` — Isolated KV store per plugin (`getssh-kv` Rust module)
-- `onSysmonData` — Subscribe to live CPU/memory/network data from the Rust sysprobe
+- `context.ui.registerTerminalContextMenu` / `registerSFTPContextMenu` — Add native context-menu actions
+- `context.ui.registerSettings` — Define host-rendered plugin settings
+- `context.storage` — Isolated KV store per plugin (`getssh-kv` Rust module)
+- `context.rpc` / `window.GETSSH.invokeBackend` — Structured frontend/backend messaging
+- `context.net.fetch` — Public HTTP/HTTPS through an SSRF-protected gateway
+
+See the [GETSSH 3.0 Plugin SDK Guide](docs/PLUGIN_SDK_INTERNAL.md) for manifests, complete API signatures, examples, limits, and migration notes.
 
 ---
 
@@ -104,7 +107,7 @@ A Raycast/Spotlight-style launcher: full-text fuzzy search across all saved sess
 ### SafeStorage Credential Vault
 
 - Rust `getssh-vault`: PBKDF2 (100k iterations) + AES-256-GCM, two format versions with auto-migration
-- `Electron.safeStorage` protects the master password at rest (macOS Keychain / Windows DPAPI)
+- `Electron.safeStorage` protects the master password at rest (hardware-backed via macOS Keychain / Windows DPAPI)
 - Touch ID biometric unlock on macOS for passwordless app launch
 - Sensitive config fields (`initScript`, `proxyHost`, `proxyPort`) encrypted separately via `safeStorage` and stored outside the main localStorage key
 - Auto-lock: idle timeout triggers master password screen; Zustand `cryptoStore` is cleared on lock
@@ -170,7 +173,7 @@ pnpm run build:watchdog
 pnpm run dev
 ```
 
-> **Note:** The five Rust `.node` addons (`getssh-vault`, `getssh-sysprobe`, `sftp-stream`, `getssh-kv`, `getssh-unarchive`) ship pre-compiled for macOS arm64/x64. If you are on Windows or Linux, you need to rebuild them with `napi build --release` inside each `rust-core/*` directory.
+> **Note:** The five Rust `.node` addons (`getssh-vault`, `getssh-sysprobe`, `sftp-stream`, `getssh-kv`, `getssh-unarchive`) ship pre-compiled for macOS arm64/x64. On Windows, rebuild them with `napi build --release` inside each `rust-core/*` directory.
 
 ### Build Distributable
 
@@ -181,7 +184,6 @@ pnpm run build
 # Platform-specific builds
 pnpm run build -- --mac      # macOS DMG (ULFO) — x64 + arm64
 pnpm run build -- --win      # Windows NSIS — x64 + arm64
-pnpm run build -- --linux    # Linux AppImage — x64 + arm64
 ```
 
 ---
@@ -193,16 +195,16 @@ pnpm run build -- --linux    # Linux AppImage — x64 + arm64
 | **Security** | Rust AES-256-GCM + Watchdog daemon + RASP + Zeroize | Closed-source cloud sync | Open source, no hardware security | Open source, no encryption layer |
 | **SFTP** | Zero-copy Rust engine, real-time local edit sync | Paid tier only | Basic | Requires plugin |
 | **Architecture** | TS + Rust hybrid, 6 native addons | Proprietary | Electron + TS | Objective-C |
-| **Plugins** | Dual-mode sandbox (vm.Script + iframe), capability-gated | Limited | Theme-focused | Scripting API |
+| **Plugins** | OS-confined backend processes + sandboxed UI, capability-gated | Limited | Theme-focused | Scripting API |
 | **Price** | **Free & Open Source** | Subscription | Free | Free (macOS only) |
 
 ---
 
 ## 🗺 Roadmap
 
-- [ ] **v2.1** — CSP `unsafe-eval` full removal · Windows code signing · Workspace isolation (multi-vault)
-- [ ] **v2.2** — Plugin Marketplace · SSH Jump Host (ProxyJump) · In-terminal search
-- [ ] **v2.3** — Cluster broadcast (send command to N sessions simultaneously) · SSH config file import
+- [ ] **v3.1** — CSP `unsafe-eval` full removal · Windows code signing · Workspace isolation (multi-vault)
+- [ ] **v3.2** — Plugin Marketplace · SSH Jump Host (ProxyJump) · In-terminal search
+- [ ] **v3.3** — Cluster broadcast (send command to N sessions simultaneously) · SSH config file import
 
 ---
 

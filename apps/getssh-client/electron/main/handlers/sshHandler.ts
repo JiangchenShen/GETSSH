@@ -287,6 +287,10 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                 }
               }
 
+              if (isChanged && config.strictHostKeyChecking === true) {
+                return callback(false);
+              }
+
               const requestId = crypto.randomUUID();
               pendingVerifications.set(requestId, callback);
               
@@ -527,7 +531,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
     }
   });
 
-  ipcMain.on('ssh-write', (event, { sessionId, data }) => {
+  // 这条通道有两个来源：
+  //   1. 渲染进程 ipcRenderer.send('ssh-write')  —— event 有值，用户在终端里敲字
+  //   2. SSHBridge.writeCommand 经 ipcMain.emit  —— event 为 null，AI / 插件写入，
+  //      已在 SSHBridge 那层过了 SecureCenter.auditPluginCommand
+  // 来源以前无法区分（event 形参全程未使用，AI 侧又传 null）。
+  ipcMain.on('ssh-write', (event, payload: any) => {
+    if (!event && !payload?.__fromBridge) {
+      console.warn('[sshHandler] 拒绝来源不明的 ssh-write（既非渲染进程，也无 bridge 标记）');
+      return;
+    }
+    const { sessionId, data } = payload || {};
     const proto = sessionProtocols.get(sessionId);
     if (proto === 'local' || proto === 'telnet') {
       ptyWrite(sessionId, data, proto);

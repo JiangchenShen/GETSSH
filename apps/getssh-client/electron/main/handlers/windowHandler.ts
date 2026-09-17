@@ -114,7 +114,7 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     titleBarStyle: 'hidden',
     frame: process.platform === 'darwin',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
-    titleBarOverlay: process.platform !== 'darwin' ? {
+    titleBarOverlay: process.platform === 'win32' ? {
       color: '#00000000',
       symbolColor: '#ffffff',
       height: 32

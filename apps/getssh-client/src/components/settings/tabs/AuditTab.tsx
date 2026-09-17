@@ -75,7 +75,7 @@ export const AuditTab: React.FC = () => {
               <div className="flex flex-col">
                 <span className="text-sm font-bold flex items-center gap-2">
                   {appConfig.enableAuditLogging && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />}
-                  启用终端指令与物理级审计录屏
+                  启用终端指令与底层审计录屏
                 </span>
                 <span className={`text-[10px] mt-0.5 ${isDark ? 'text-white/50' : 'text-black/50'}`}>在底层引擎接管记录所有终端会话输出。遵循零信任，默认关闭且需您主动开启。</span>
               </div>

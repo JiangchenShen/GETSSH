@@ -34,11 +34,11 @@ export interface PluginSettingsSchema {
 
 export interface MainContextAPI {
   showNotification: (title: string, body: string) => void;
-  safeStorageEncrypt: (text: string) => string;
+  safeStorageEncrypt: (text: string) => Promise<string>;
   onSSHSessionConnect?: (callback: (sessionId: string, host: string) => void) => void;
   ssh?: {
-    onData: (sessionId: string, callback: (chunk: string) => void) => void;
-    write: (sessionId: string, command: string) => void;
+    onData: (sessionId: string, callback: (chunk: string) => void) => () => void;
+    write: (sessionId: string, command: string) => Promise<void>;
   };
   storage: {
     set: (key: string, value: any) => Promise<void>;

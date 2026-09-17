@@ -67,13 +67,13 @@
 
 ### 🦀 战区一：Watchdog 进程卫士 (Process Guardian)
 - **Rust 独立守护进程正式落地**：`rust-core/watchdog` 是一个完全独立于 Electron 主进程的 Rust 二进制守护程序，通过 Unix Domain Socket（macOS/Linux）和 Named Pipe（Windows）与主进程进行心跳通信。
-- **60 秒物理强杀机制**：若 Watchdog 在 60 秒内未收到心跳应答（如主进程被外部强制冻结或注入），Watchdog 将通过操作系统 API 对父进程发出物理级 SIGKILL，并弹出桌面通知，防止应用在被劫持状态下继续运行。
+- **60 秒系统级熔断机制**：若 Watchdog 在 60 秒内未收到心跳应答（如主进程被外部强制冻结或注入），Watchdog 将通过操作系统 API 对父进程发出 SIGKILL 信号，并弹出桌面通知，防止应用在被劫持状态下继续运行。
 - **SAFE MODE 防卡死兜底**：当主进程从崩溃恢复并以 SAFE MODE 启动时，Watchdog 会自动识别并进入静默模式，不会对 SAFE MODE 进程执行强杀。
 - **生产环境路径桥接**：已全面实现 `app.isPackaged` 双路径判断，确保无论是在开发环境还是打包后的生产环境，Watchdog 二进制文件均能被精准定位和启动。
 
 ### 🦀 战区二：Vault 本地凭证加密引擎 (Local Credential Encryption)
 - **`getssh-vault` N-API 扩展量产**：通过 `@napi-rs` 将 Rust 加密逻辑编译为 `.node` 原生扩展，由 Electron 主进程直接加载。
-- **AES-256-GCM 硬件级加密**：使用 Rust `aes-gcm` crate 在底层实现对本地 `profiles.enc` 的物理级加密与解密，彻底消灭了 Node.js 层面的 `crypto` 模块潜在漏洞。
+- **AES-256-GCM 核心加密**：使用 Rust `aes-gcm` crate 在底层实现对本地 `profiles.enc` 的底层加密与解密，彻底消灭了 Node.js 层面的 `crypto` 模块潜在漏洞。
 - **主密码与生物验证双重门禁**：`cryptoHandler.ts` 实现了主密码校验与 `systemPreferences.promptTouchID` 生物识别的完整集成链路。
 
 ### 🦀 战区三：Sysprobe 系统探针 (System Metrics Probe)
@@ -88,7 +88,7 @@
 ### 🔥 绝灭 adm-zip 内存毒瘤 (getssh-unarchive)
 - **新建 `getssh-unarchive` Rust N-API 扩展**：彻底废弃 `PluginManager.ts` 中使用的纯 JS 库 `adm-zip`（其全量内存读取策略是一颗随时引爆的 OOM 炸弹）。
 - **零拷贝流式解压**：使用 Rust 的 `zip` crate 与 `std::io::copy`，文件从压缩包直接流式落盘，**全程不经过任何 JavaScript/V8 内存**。无论插件包体积多大，内存峰值波动恒定压制在 10MB 以内。
-- **军工级 Zip Slip 漏洞物理封杀**：在 Rust 层对压缩包内的每一条路径进行严格检查，一旦发现包含目录穿越符 (`../`) 或绝对根路径的恶意条目，立即触发**熔断机制**，并物理销毁当前已解压的所有残骸文件，彻底封杀 Zip Slip 攻击向量。
+- **Zip Slip 漏洞防御**：在 Rust 层对压缩包内的每一条路径进行严格检查，一旦发现包含目录穿越符 (`../`) 或绝对根路径的恶意条目，立即触发**熔断机制**，并销毁当前已解压的所有残骸文件，彻底防御 Zip Slip 攻击向量。
 - **`tokio` 异步非阻塞解压**：解压操作在 Rust 的 `tokio::task::spawn_blocking` 线程池中执行，Electron 主进程与渲染进程在解压过程中**全程无感**。
 
 ### 🔒 安全与锁定体验强化 (Security & Lock UX)
@@ -140,7 +140,7 @@
 ### 🔌 插件沙盒生态系统正式贯通 (Plugin Sandbox Ecosystem)
 这是 GETSSH 迈向高扩展性终端平台的最核心跨越。我们抛弃了硬编码的占位符，彻底打通了从本地文件物理提取到动态沙盒渲染的全链路闭环。
 - **动态挂载与解析引擎**：重构 Welcome Pane，系统现已支持动态侦测 `plugins` 目录下的解压资产。智能解析插件内部的 `package.json`（优先读取 `getssh.name` / `displayName` 并优雅降级至 `name` 字段），结合 Zustand 状态树实现插件卡片的动态按需渲染。
-- **终结 macOS 物理路径“黑洞”**：精准排查并修复了 macOS 环境下极度隐蔽的 Chromium 底层拦截机制。针对 `app.getPath('userData')` (如 `Application Support`) 因包含系统级空格导致本地 `file://` 协议解析断裂、引发 Iframe“绝对黑屏”的致命缺陷，现已通过标准 `encodeURI` 强制物理路径转码，完美打通本地安全路由。
+- **终结 macOS 本地路径解析问题**：精准排查并修复了 macOS 环境下极度隐蔽的 Chromium 底层拦截机制。针对 `app.getPath('userData')` (如 `Application Support`) 因包含系统级空格导致本地 `file://` 协议解析断裂、引发 Iframe“绝对黑屏”的致命缺陷，现已通过标准 `encodeURI` 强制路径转码，完美打通本地安全路由。
 - **Iframe 进程隔离与权限微调**：对插件渲染层进行精细的安全管控，注入 `sandbox="allow-scripts allow-same-origin"` 指令，在确保插件内 JS 引擎正常运转的同时，阻断对外部敏感环境的越权访问。
 - **首个官方高能插件落地**：成功实装“本地系统资源监控 (System Monitor)”插件。以极致的紫黑赛博朋克 UI，实时抓取、可视化渲染本机 CPU 核心调度流水线与内存 (RAM) 的极限负载状态。
 
@@ -220,7 +220,7 @@
   - 在异步 I/O 重构中，完整保留并加固了 **Zip Slip 漏洞防御** 和 **路径穿越 (Path Traversal) 修复** 逻辑。
   - **getSecurePluginPath**：即使在异步模式下，系统依然会对所有插件路径进行严格的边界校验，确保插件无法越权访问 `.ssh/id_rsa` 等敏感系统文件。
 - **SVG XSS 动态过滤**：采用 `DOMParser` 对插件图标进行深度扫描，强制拦截所有潜在的 XSS 攻击向量。
-- **Iframe Sandbox 隔离**：插件运行环境彻底剥离 `allow-same-origin` 权限，实现物理级别的 API 隔离。
+- **Iframe Sandbox 隔离**：插件运行环境彻底剥离 `allow-same-origin` 权限，实现深度的 API 隔离。
 
 ### 📦 打包与体积优化
 - **包体积“魔术”级瘦身**：从 ~450MB 降低至 **~83MB (macOS)**。

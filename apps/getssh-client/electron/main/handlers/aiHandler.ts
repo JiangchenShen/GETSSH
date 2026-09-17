@@ -3,13 +3,30 @@ import { streamLLM, fetchAvailableModels } from '../services/llmService';
 import { AgentEngine } from '../services/AgentEngine';
 import { MicroContextAssembler } from '../services/MicroContextAssembler';
 import { ChatStorageManager } from '../services/chatStorageManager';
+import { LocalMemoryService, formatLocalMemoryContext } from '../services/LocalMemoryService';
+import { SearchEngine } from '../services/SearchEngine';
+import { SentinelGateway } from '../services/SentinelGateway';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
-const getAiVaultPath = () => join(app.getPath('userData'), 'ai_vault.enc');
+const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
-function getSecureApiKey(): string {
-  const vaultPath = getAiVaultPath();
+/**
+ * Per-provider vault path. Each provider stores its API Key separately.
+ * Format: ai_vault_${provider}.enc (e.g. ai_vault_gemini.enc)
+ * Legacy fallback: ai_vault.enc (pre-multi-provider)
+ */
+const getAiVaultPath = (provider = 'default') =>
+  join(app.getPath('userData'), `ai_vault_${provider.toLowerCase()}.enc`);
+
+function getSecureApiKey(provider = 'default'): string {
+  // Per-provider vault (new format)
+  let vaultPath = getAiVaultPath(provider);
+  // Legacy fallback: read ai_vault.enc if per-provider file doesn't exist yet
+  if (!fs.existsSync(vaultPath)) {
+    vaultPath = join(app.getPath('userData'), 'ai_vault.enc');
+  }
   if (!fs.existsSync(vaultPath)) return '';
   try {
     const encrypted = fs.readFileSync(vaultPath);
@@ -27,11 +44,12 @@ function getSecureApiKey(): string {
  * 核心安全网关：负责特权请求拦截、上下文脱敏与状态销毁
  */
 export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
-  
+
   // =====================================================================
   // 【0】 API Key 安全托管 (BYOK Vault)
   // =====================================================================
-  ipcMain.handle('ai-save-api-key', async (event: IpcMainInvokeEvent, apiKey: string) => {
+  // ai-save-api-key: now accepts optional provider to separate vaults
+  ipcMain.handle('ai-save-api-key', async (event: IpcMainInvokeEvent, apiKey: string, provider?: string) => {
     if (event.senderFrame && event.senderFrame.parent !== null) {
       throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
     }
@@ -39,7 +57,7 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     try {
       if (safeStorage.isEncryptionAvailable()) {
         const encrypted = safeStorage.encryptString(apiKey);
-        fs.writeFileSync(getAiVaultPath(), encrypted);
+        fs.writeFileSync(getAiVaultPath(provider), encrypted);
         return { success: true };
       }
       return { success: false, error: 'OS Keychain encryption unavailable' };
@@ -48,15 +66,17 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     }
   });
 
-  ipcMain.handle('ai-delete-api-key', async (event: IpcMainInvokeEvent) => {
+  // ai-delete-api-key: delete per-provider vault (and legacy vault as fallback)
+  ipcMain.handle('ai-delete-api-key', async (event: IpcMainInvokeEvent, provider?: string) => {
     if (event.senderFrame && event.senderFrame.parent !== null) {
       throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
     }
     try {
-      const vaultPath = getAiVaultPath();
-      if (fs.existsSync(vaultPath)) {
-        fs.unlinkSync(vaultPath);
-      }
+      const vaultPath = getAiVaultPath(provider);
+      if (fs.existsSync(vaultPath)) fs.unlinkSync(vaultPath);
+      // Also clean up legacy vault
+      const legacyVaultPath = join(app.getPath('userData'), 'ai_vault.enc');
+      if (fs.existsSync(legacyVaultPath)) fs.unlinkSync(legacyVaultPath);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -67,7 +87,7 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
   // 【1】&【2】 主进程特权 IPC 注册与溯源验证 & 统一安全洗涤层
   // =====================================================================
   ipcMain.handle('ai-privileged-invoke', async (event: IpcMainInvokeEvent, payload: any) => {
-    
+
     // ---------------------------------------------------------
     // 1. 溯源验证 (Origin Verification) - 防护沙箱逃逸
     // ---------------------------------------------------------
@@ -92,42 +112,59 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
       throw new Error('Security Violation: Missing requestId for IPC stream multiplexing.');
     }
 
-    const rawPrompt = payload?.prompt || '';
+    const rawPrompt = typeof payload?.prompt === 'string' ? payload.prompt : '';
     const contextData = payload?.contextData;
     const mode = payload?.mode || 'readonly';
-    
-    // Assemble the micro-RAG context dynamically
-    const rawContext = contextData ? MicroContextAssembler.assemble({ ...contextData, agentMode: mode }) : '';
-    
-    // 将传入的 Prompt 和终端 Context 送入洗涤中间件
-    const sanitizedPrompt = sanitizeAiContext(rawPrompt);
-    let sanitizedContext = sanitizeAiContext(rawContext);
 
-    // [System Prompt Injection] Enforce beautiful Markdown rendering
-    const MARKDOWN_INSTRUCTION = `
-[SYSTEM INSTRUCTION]
-You are a highly capable AI assistant operating within the GETSSH terminal environment.
-Please follow these formatting rules strictly:
-1. Always format your responses using standard Markdown.
-2. Use headings (##, ###) to structure your response.
-3. Use bold (**text**) for emphasis.
-${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent modes)' : '4. When providing code or terminal commands, ALWAYS use fenced code blocks (```language) with the correct language tag (e.g., bash, shell, python, json).'}
-5. Use bullet points (-) or numbered lists for steps.
-6. Keep your responses concise, professional, and visually structured.
-`;
-    sanitizedContext = MARKDOWN_INSTRUCTION + '\n' + sanitizedContext;
+    const aiMaxTokens = payload?.aiMaxTokens || 200000;
+    const endpoint = payload?.endpoint || '';
+    const provider = payload?.provider || 'openai';
+    const model = payload?.model || 'gpt-3.5-turbo';
+
+    const sessionId = typeof contextData?.sessionId === 'string' ? contextData.sessionId : undefined;
+    const workspaceId = ChatStorageManager.getCurrentWorkspaceId() || undefined;
+    let memoryContext = '';
+    if (workspaceId && rawPrompt.trim()) {
+      try {
+        memoryContext = formatLocalMemoryContext(
+          LocalMemoryService.search(workspaceId, rawPrompt, {
+            excludeSessionId: sessionId,
+            limit: 6
+          }),
+          contextData?.language
+        );
+      } catch (error) {
+        console.warn('[AI Gateway] Encrypted local-memory retrieval failed:', error);
+      }
+    }
+
+    // Retrieved history is bounded, marked as untrusted data, and passes
+    // through the same final Sentinel egress sanitizer as all other context.
+    const rawContext = contextData
+      ? MicroContextAssembler.assemble({
+          ...contextData,
+          agentMode: mode,
+          aiMaxTokens,
+          provider,
+          memoryContext
+        })
+      : '';
+
+    // LlmGateway is the single egress sanitizer. A one-shot pass here is only
+    // returned as local audit evidence; the outbound request is sanitized again
+    // as one reversible session together with history and tool results.
+    const auditPrompt = SentinelGateway.sanitize(rawPrompt).cleanText;
+    const auditContext = SentinelGateway.sanitize(rawContext).cleanText;
+
+    // Formatting and identity instructions are handled by MicroContextAssembler.
+    // No additional prompt injection needed here.
 
     console.log(`[AI Gateway] 🟢 数据洗涤完毕，准备建立流式隧道. RequestID: ${requestId}`);
 
     // BYOK 加密解密与云端大模型 API 直连逻辑
-    const endpoint = payload?.endpoint || '';
-    const provider = payload?.provider || 'openai';
-    const model = payload?.model || 'gpt-3.5-turbo';
-    
     // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey
-    const apiKey = provider === 'ollama' ? '' : getSecureApiKey();
-
-    const sessionId = contextData?.sessionId;
+    // 按 provider 分文件读取，确保不同 provider 的 key 完全隔离
+    const apiKey = provider === 'ollama' ? '' : getSecureApiKey(provider);
 
     // 发起不阻塞主流程的流式请求，并将 chunk 发回对应 requestId 的专属频道
     const onChunk = (chunk: string) => {
@@ -146,41 +183,86 @@ ${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent mode
       }
     };
 
-    if ((mode === 'agent_semi' || mode === 'agent_full') && sessionId) {
-      console.log(`[AI Gateway] 🚀 Launching Agent Engine for session ${sessionId} in mode ${mode}`);
-      
+    if (mode === 'agent_semi' || mode === 'agent_full') {
+      console.log(`[AI Gateway] 🚀 Launching Agent Engine for session ${sessionId || 'GLOBAL'} in mode ${mode}`);
+
       const askApproval = async (command: string): Promise<boolean> => {
         return new Promise((resolve) => {
-          const listener = (e: any, approvedRequestId: string, isApproved: boolean) => {
-            if (approvedRequestId === requestId) {
-              ipcMain.removeListener('ai-agent-approve', listener);
-              resolve(isApproved);
-            }
+          const approvalId = randomUUID();
+          const requestSender = event.sender;
+          let settled = false;
+          const finish = (approved: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            ipcMain.removeListener('ai-agent-approve', listener);
+            requestSender.removeListener('destroyed', senderDestroyed);
+            resolve(approved);
           };
+          const listener = (
+            approvalEvent: Electron.IpcMainEvent,
+            receivedApprovalId: unknown,
+            isApproved: unknown
+          ) => {
+            if (
+              approvalEvent.sender.id !== requestSender.id ||
+              (approvalEvent.senderFrame && approvalEvent.senderFrame.parent !== null) ||
+              receivedApprovalId !== approvalId
+            ) return;
+            finish(isApproved === true);
+          };
+          const senderDestroyed = () => finish(false);
+          const timer = setTimeout(() => finish(false), AGENT_APPROVAL_TIMEOUT_MS);
+          timer.unref();
           ipcMain.on('ai-agent-approve', listener);
-          if (!event.sender.isDestroyed()) {
-            event.sender.send(`ai-agent-approval-request`, { requestId, command });
+          requestSender.once('destroyed', senderDestroyed);
+          if (!requestSender.isDestroyed()) {
+            requestSender.send('ai-agent-approval-request', { requestId: approvalId, command });
+          } else {
+            finish(false);
           }
         });
       };
 
+      const onGlobalAction = (actionPayload: any) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('ai-agent-global-action', actionPayload);
+        }
+      };
+
+      const aiMaxTokens = payload?.aiMaxTokens || 200000;
+      const searchConfig = payload?.searchConfig || { enabled: true, provider: 'hybrid' };
+      const thinkingEffort = payload?.thinkingEffort || 'medium';
+
       AgentEngine.runAgentLoop(
         endpoint, apiKey, provider, model,
-        sanitizedPrompt, sanitizedContext, sessionId, mode, requestId,
-        onChunk, onDone, onError, askApproval
+        rawPrompt, rawContext, sessionId, workspaceId, mode, requestId, aiMaxTokens,
+        searchConfig,
+        onChunk, onDone, onError, askApproval, onGlobalAction, thinkingEffort
       );
     } else {
+      const thinkingEffort = payload?.thinkingEffort || 'medium';
+      const aiMaxTokens = payload?.aiMaxTokens;
+
       streamLLM(
         endpoint, apiKey, provider, model,
-        sanitizedPrompt, sanitizedContext,
-        onChunk, onDone, onError
+        rawPrompt, rawContext,
+        onChunk, onDone, onError,
+        { thinkingEffort, maxOutputTokens: aiMaxTokens }
       );
     }
 
     // 立刻返回成功，由前端开始监听 stream 频道
-    return { 
-      success: true, 
-      _audit: { sanitizedPrompt, sanitizedContext } 
+    return {
+      success: true,
+      _audit: {
+        sanitizedPrompt: auditPrompt,
+        sanitizedContext: auditContext,
+        // Native Sentinel uses reversible placeholders. If it is unavailable,
+        // SentinelGateway applies an irreversible JS fallback to every egress segment.
+        sentinelActive: SentinelGateway.isAvailable(),
+        sentinelError: SentinelGateway.getLoadError()
+      }
     };
   });
 
@@ -188,12 +270,12 @@ ${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent mode
     if (event.senderFrame && event.senderFrame.parent !== null) {
       throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
     }
-    
+
     const endpoint = payload?.endpoint || '';
     const provider = payload?.provider || 'openai';
-    
-    // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey
-    const apiKey = provider === 'ollama' ? '' : getSecureApiKey();
+
+    // 强制从安全存储中读取，忽略前端传入的任何伪造 apiKey（按 provider 分文件）
+    const apiKey = provider === 'ollama' ? '' : getSecureApiKey(provider);
 
     try {
       const models = await fetchAvailableModels(endpoint, apiKey, provider);
@@ -207,19 +289,36 @@ ${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent mode
   // 【3】 状态联动原子销毁 (Zero-Out Memory)
   // =====================================================================
   ipcMain.handle('clear-ai-history', async (event: IpcMainInvokeEvent, targetWorkspaceId: string) => {
-    
+
     // 即使是清空操作，依然需要进行溯源验证
     if (event.senderFrame && event.senderFrame.parent !== null) {
       throw new Error('Security Violation: Sandbox cannot issue memory wipe commands.');
     }
 
     console.log(`[AI Gateway] 🟡 接收到工作区切换指令，执行原子级销毁，目标: ${targetWorkspaceId}`);
-    
-    // The new LanceDB-free architecture does not require vector DB destruction.
-    // The Zero-Out command here only signals the frontend to clear the ephemeral chat window.
-    
+
+    // Local memory is workspace-keyed inside the app-key SQLCipher database.
+    // A workspace switch changes the active key immediately; persistent history
+    // remains available until the user deletes its sessions or workspace.
+
     return { success: true };
   });
+
+  // =====================================================================
+  // 【3.5】 测试搜索配置
+  // =====================================================================
+  ipcMain.handle('ai-test-search', async (event: IpcMainInvokeEvent, config: any) => {
+    try {
+      // Force enabled for test, otherwise it might throw if disabled
+      const testConfig = { ...config, enabled: true };
+      const results = await SearchEngine.search('GETSSH', testConfig);
+      return { success: true, count: results.length };
+    } catch (e: any) {
+      console.warn('[AI Gateway] Test search failed:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
   // =====================================================================
   // 【4】 SQLite 聊天持久化接口 (Persistent Chat Storage)
   // =====================================================================
@@ -272,22 +371,4 @@ ${(mode === 'agent_semi' || mode === 'agent_full') ? '4. (Skipped for agent mode
       return { success: false, error: e.message };
     }
   });
-}
-
-/**
- * ---------------------------------------------------------
- * 核心数据洗涤中间件 (The Sentinel Sanitizer)
- * ---------------------------------------------------------
- * 负责对发往云端的任何纯文本数据进行高强度的物理打码
- */
-function sanitizeAiContext(input: string): string {
-  if (!input) return input;
-  
-  let output = input;
-
-  // 1. SSH 私钥强行脱敏拦截 (涵盖 RSA, OPENSSH, ECDSA 等标准格式)
-  const privateKeyRegex = /-----BEGIN (?:RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----(?:.|[\r\n])*?-----END (?:RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----/g;
-  output = output.replace(privateKeyRegex, '[REDACTED_SSH_KEY]');
-
-  return output;
 }

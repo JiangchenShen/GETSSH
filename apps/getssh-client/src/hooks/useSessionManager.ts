@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { useSessionStore, PaneLeaf } from '../store/sessionStore';
+import { useSessionStore, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { findLeaf, findWelcomePane, updateLeafInTree } from '../utils/paneHelpers';
+import { buildConnectionConfig, buildStartupCommand } from '../utils/connectionProfile';
 
 export const useSessionManager = () => {
   const { t } = useTranslation();
@@ -29,8 +30,9 @@ export const useSessionManager = () => {
 
   const syncProfiles = async (updatedSessions: SessionProfile[]) => {
     setSessions(updatedSessions);
+    const persistedSessions = updatedSessions.filter(session => !session.isDraft);
     if (masterPassword || encryptionDisabled) {
-      await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: updatedSessions });
+      await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: persistedSessions });
     } else {
       setCryptoMode('setup');
     }
@@ -85,25 +87,17 @@ export const useSessionManager = () => {
     setError(null);
     setConnecting(true);
 
-    const config = { 
-        host: targetSession.host, 
-        username: targetSession.username, 
-        password: targetSession.password, 
-        privateKeyPath: targetSession.privateKeyPath,
-        port: targetSession.port || appConfig.defaultPort || 22,
-        keepaliveInterval: targetSession.useKeepAlive !== false ? (appConfig.keepalive * 1000) : 0,
-        protocol: targetSession.protocol,
-        proxyType: appConfig.proxyType,
-        proxyHost: appConfig.proxyHost,
-        proxyPort: appConfig.proxyPort,
-        initScript: appConfig.initScript
-    };
+    const config = buildConnectionConfig(targetSession, appConfig);
     
     const payload = { ...config, enableAuditLogging: appConfig.enableAuditLogging };
     const res = await window.electronAPI.sshConnect(payload);
     setConnecting(false);
 
     if (res.success && res.sessionId) {
+      const startupCommand = buildStartupCommand(targetSession);
+      if (startupCommand && window.confirm(t('connection.confirmStartup', { command: startupCommand }))) {
+        window.electronAPI.sshWrite(res.sessionId, `${startupCommand}\n`);
+      }
       const tabTitle = targetSession.alias || `${config.username}@${config.host}`;
       const rootPaneId = res.sessionId;
       const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config };

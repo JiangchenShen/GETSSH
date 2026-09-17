@@ -15,7 +15,7 @@ pub async fn extract_plugin(zip_path: String, target_dir: String) -> Result<()> 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).map_err(|e| Error::new(Status::GenericFailure, format!("Failed to read zip entry: {}", e)))?;
             
-            // 军工级防御：Zip Slip 漏洞拦截
+            // 防御：Zip Slip 漏洞拦截
             let raw_name = file.name().to_string();
 
             // 如果使用 zip 库内置的安全检查发现问题，或者手动校验发现越权符

@@ -147,10 +147,10 @@ export const PluginSettings = ({ isDark }: { isDark: boolean }) => {
 
                 if (caps.includes('ssh:write')) {
                   items.push(
-                    <div key="ssh:write" className="flex gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-500">
+                    <div key="ssh:write" className="flex gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500">
                       <AlertTriangle className="w-5 h-5 shrink-0" />
                       <div className="text-sm font-medium">
-                        <strong>ssh:write</strong> — {t('plugins.caps.sshWrite', 'Can inject commands into active SSH sessions (Warning)')}
+                        <strong>ssh:write</strong> — {t('plugins.caps.sshWrite', 'Can silently inject commands into active SSH sessions (High Risk)')}
                       </div>
                     </div>
                   );

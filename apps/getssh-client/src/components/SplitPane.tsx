@@ -100,12 +100,12 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
 
         {/* Bottom panel */}
         <div
-          className={`shrink-0 relative flex flex-col ${isDark ? 'shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'shadow-[inset_0_1px_0_rgba(0,0,0,0.05)]'}`}
+          className={`shrink-0 relative flex flex-col shadow-[inset_0_1px_0_var(--color-line-soft)]`}
           style={{ height: currentSize }}
         >
           {/* Resizer handle — top edge */}
           <div
-            className={`absolute top-0 left-0 right-0 h-[1px] hover:h-[4px] -translate-y-1/2 cursor-row-resize z-50 transition-all duration-200 ${isDark ? 'hover:bg-primary/80' : 'hover:bg-primary/50'}`}
+            className={`absolute top-0 left-0 right-0 h-[1px] hover:h-[4px] -translate-y-1/2 cursor-row-resize z-50 transition-all duration-200 hover:bg-primary/70`}
             onMouseDown={handleMouseDown}
           />
           <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />
@@ -125,12 +125,12 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
       {/* Right Dynamic Panel */}
       {showPanel && (
         <div
-          className={`shrink-0 relative flex flex-col ${isDark ? 'shadow-[inset_1px_0_0_rgba(255,255,255,0.05)]' : 'shadow-[inset_1px_0_0_rgba(0,0,0,0.05)]'}`}
+          className={`shrink-0 relative flex flex-col shadow-[inset_1px_0_0_var(--color-line-soft)]`}
           style={{ width: currentSize }}
         >
           {/* Resizer Handle */}
           <div
-            className={`absolute left-0 top-0 bottom-0 w-[1px] hover:w-[4px] -translate-x-1/2 cursor-col-resize z-50 transition-all duration-200 ${isDark ? 'hover:bg-primary/80' : 'hover:bg-primary/50'}`}
+            className={`absolute left-0 top-0 bottom-0 w-[1px] hover:w-[4px] -translate-x-1/2 cursor-col-resize z-50 transition-all duration-200 hover:bg-primary/70`}
             onMouseDown={handleMouseDown}
           />
           <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />

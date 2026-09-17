@@ -4,12 +4,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 use std::os::unix::net::UnixStream;
 #[cfg(windows)]
 use std::fs::OpenOptions;
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn kill_process(pid: u32) {
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGKILL);
@@ -28,15 +28,6 @@ fn kill_process(pid: u32) {
             winapi::um::processthreadsapi::TerminateProcess(handle, 1);
             winapi::um::handleapi::CloseHandle(handle);
         }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn get_api_address(name: &str) -> Option<usize> {
-    let cname = std::ffi::CString::new(name).unwrap();
-    unsafe {
-        let ptr = libc::dlsym(libc::RTLD_DEFAULT, cname.as_ptr());
-        if ptr.is_null() { None } else { Some(ptr as usize) }
     }
 }
 
@@ -61,35 +52,6 @@ fn get_api_address(name: &str) -> Option<usize> {
             None
         } else {
             Some(ptr as usize)
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn read_remote_memory(pid: u32, addr: usize, size: usize) -> Option<Vec<u8>> {
-    let mut buf = vec![0u8; size];
-    let local_iov = libc::iovec {
-        iov_base: buf.as_mut_ptr() as *mut libc::c_void,
-        iov_len: size,
-    };
-    let remote_iov = libc::iovec {
-        iov_base: addr as *mut libc::c_void,
-        iov_len: size,
-    };
-
-    unsafe {
-        let res = libc::process_vm_readv(
-            pid as libc::pid_t,
-            &local_iov,
-            1,
-            &remote_iov,
-            1,
-            0
-        );
-        if res == size as isize {
-            Some(buf)
-        } else {
-            None
         }
     }
 }
@@ -180,7 +142,7 @@ fn main() {
         }
     });
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
         let tx_scan = tx.clone();
         let pid_scan = pid;
@@ -370,7 +332,7 @@ fn main() {
 }
 
 // OS Specific stream connection
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn connect_pipe(path: &str) -> std::os::unix::net::UnixStream {
     // Retry logic in case the server takes a moment to bind
     for _ in 0..50 {

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getTheme: () => ipcRenderer.invoke('get-theme'),
+  setTheme: (theme: 'system' | 'light' | 'dark') => ipcRenderer.invoke('set-theme', theme),
   onThemeChanged: (callback: (isDark: boolean) => void) => {
     const listener = (_event: IpcRendererEvent, isDark: boolean) => callback(isDark)
     ipcRenderer.on('theme-changed', listener)
@@ -35,7 +36,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(`ssh-closed-${sessionId}`, listener)
     return () => ipcRenderer.removeListener(`ssh-closed-${sessionId}`, listener)
   },
-  updateBackendConfig: (config: BackendConfig, authToken?: string) => ipcRenderer.send('update-backend-config', config, authToken),
+  updateBackendConfig: (config: BackendConfig, authToken?: string) => ipcRenderer.invoke('update-backend-config', config, authToken),
   checkProfiles: () => ipcRenderer.invoke('check-profiles'),
   bridgeFetchProfiles: (sourceWorkspaceId: string) => ipcRenderer.invoke('workspace:bridge:fetchProfiles', sourceWorkspaceId),
   bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => ipcRenderer.invoke('workspace:bridge:importProfiles', targetWorkspaceId, profiles, runbooks),
@@ -202,10 +203,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // AI Center Gateway
   ai: {
-    invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string, provider?: string, model?: string }) => ipcRenderer.invoke('ai-privileged-invoke', payload),
+    invokePrivileged: (payload: any) => ipcRenderer.invoke('ai-privileged-invoke', payload),
     getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => ipcRenderer.invoke('ai-get-models', payload),
-    saveApiKey: (apiKey: string) => ipcRenderer.invoke('ai-save-api-key', apiKey),
-    deleteApiKey: () => ipcRenderer.invoke('ai-delete-api-key'),
+    saveApiKey: (apiKey: string, provider?: string) => ipcRenderer.invoke('ai-save-api-key', apiKey, provider),
+    deleteApiKey: (provider?: string) => ipcRenderer.invoke('ai-delete-api-key', provider),
     clearHistory: (workspaceId: string) => ipcRenderer.invoke('clear-ai-history', workspaceId),
     onStreamChunk: (requestId: string, callback: (payload: { chunk: string, isDone: boolean, error?: string }) => void) => {
       const listener = (_event: IpcRendererEvent, payload: { chunk: string, isDone: boolean, error?: string }) => callback(payload);
@@ -217,8 +218,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(`ai-agent-approval-request`, listener);
       return () => ipcRenderer.removeListener(`ai-agent-approval-request`, listener);
     },
-    onAgentGlobalAction: (callback: (payload: { action: string, target: string, execute: string }) => void) => {
-      const listener = (_event: IpcRendererEvent, payload: { action: string, target: string, execute: string }) => callback(payload);
+    onAgentGlobalAction: (callback: (payload: { type: string, target: string, execute?: string }) => void) => {
+      const listener = (_event: IpcRendererEvent, payload: { type: string, target: string, execute?: string }) => callback(payload);
       ipcRenderer.on(`ai-agent-global-action`, listener);
       return () => ipcRenderer.removeListener(`ai-agent-global-action`, listener);
     },
@@ -227,7 +228,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveMessage: (msg: any) => ipcRenderer.invoke('ai-save-message', msg),
     deleteSession: (id: string) => ipcRenderer.invoke('ai-delete-session', id),
     updateSessionTitle: (id: string, title: string) => ipcRenderer.invoke('ai-update-session-title', id, title),
-    approveAgentAction: (requestId: string, approved: boolean) => ipcRenderer.send('ai-agent-approve', requestId, approved)
+    approveAgentAction: (requestId: string, approved: boolean) => ipcRenderer.send('ai-agent-approve', requestId, approved),
+    testSearch: (config: any) => ipcRenderer.invoke('ai-test-search', config)
   },
   
   // Workspace 2.0 API
@@ -237,6 +239,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     switchWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:switch', workspaceId)
   },
   
+  // Model Context Protocol (MCP) API
+  mcp: {
+    getServers: () => ipcRenderer.invoke('mcp:get-servers'),
+    addServer: (config: any) => ipcRenderer.invoke('mcp:add-server', config),
+    updateServer: (id: string, updates: any) => ipcRenderer.invoke('mcp:update-server', { id, updates }),
+    removeServer: (id: string) => ipcRenderer.invoke('mcp:remove-server', id),
+    restartServer: (id: string) => ipcRenderer.invoke('mcp:restart-server', id),
+    getResources: () => ipcRenderer.invoke('mcp:get-resources'),
+    readResource: (serverId: string, uri: string) => ipcRenderer.invoke('mcp:read-resource', { serverId, uri }),
+    getPrompts: () => ipcRenderer.invoke('mcp:get-prompts'),
+    getPrompt: (serverId: string, name: string, args?: Record<string, string>) => ipcRenderer.invoke('mcp:get-prompt', { serverId, name, args })
+  },
+
   // Agentic Execution Shell API
   onAgentPropose: (callback: (payload: { id: string, intent: string, command: string, riskLevel: 'low' | 'medium' | 'high' }) => void) => {
     const listener = (_event: IpcRendererEvent, payload: any) => callback(payload);
@@ -244,4 +259,3 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('app:agent-propose', listener);
   }
 })
-

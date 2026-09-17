@@ -1,14 +1,42 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Settings, Plus, Sparkles, Home } from 'lucide-react';
+
+/**
+ * 工作区导轨。
+ *
+ * 原来是 Discord 那套：48px 圆头像、圆↔圆角变形、投影、写死的 bg-red-900。
+ * 近黑底上投黑影本来就看不见，只会糊掉边界；现在改成 34px 方章 + 1px 描边，
+ * 选中态 = 主色淡底 + 主色描边 + 贴着导轨左沿的 2px 竖条。
+ *
+ * 底色不写死：导轨、侧栏、主区在原型里是同一个 --bg，只靠发丝线分隔，
+ * 所以这里保持透明，让根容器的底色（以及开了毛玻璃时的透射）透上来。
+ */
 
 interface GlobalWorkspaceBarProps {
   onHomeClick: () => void;
 }
 
+const RailIcon: React.FC<{
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}> = ({ onClick, title, children }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    className="w-[34px] h-[34px] rounded-[9px] grid place-items-center text-ink-3
+               transition-colors hover:bg-surf hover:text-ink-2"
+  >
+    {children}
+  </button>
+);
+
 export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeClick }) => {
-  const isDark = useAppStore(state => state.isDark);
+  const { t } = useTranslation();
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const isMac = useAppStore(state => state.isMac);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -16,8 +44,6 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
   const setIsCreateModalOpen = useWorkspaceStore(state => state.setIsCreateModalOpen);
-  
-
   const setIsAiCenterOpen = useAppStore(state => state.setIsAiCenterOpen);
 
   useEffect(() => {
@@ -36,89 +62,87 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
 
   const handleWorkspaceSwitch = async (id: string) => {
     if (id === activeWorkspaceId) {
-      window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'workspace', title: 'WORKSPACE CENTER' } }));
+      window.dispatchEvent(new CustomEvent('app:open-center', {
+        detail: { type: 'workspace', title: t('statusBar.workspace') }
+      }));
       return;
     }
     await switchWorkspace(id);
   };
 
+  const topPad = isFullScreen ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
+
   return (
-    <div className={`drag-region h-full w-[64px] flex flex-col items-center py-4 border-r ${isFullScreen ? 'pt-4' : (isMac ? 'pt-10' : 'pt-8')} transition-all duration-300 ${isDark ? 'bg-black/10 border-white/5' : 'bg-white/30 border-black/5'} z-50 shadow-2xl`}>
-      {/* Top: Workspaces List */}
-      <div className="no-drag-region flex-1 flex flex-col items-center gap-3 w-full overflow-y-auto no-scrollbar">
+    <div className={`drag-region h-full w-full flex flex-col items-center gap-2 pb-3.5 ${topPad}
+                     border-r border-line-soft`}>
+
+      {/* 工作区 */}
+      <div className="no-drag-region flex-1 min-h-0 w-full flex flex-col items-center gap-2 overflow-y-auto">
         {workspaces.map((wObj: any) => {
           const wsId = typeof wObj === 'string' ? wObj : wObj.id;
           const meta = typeof wObj === 'string' ? null : wObj.visualMeta;
           const isActive = wsId === activeWorkspaceId;
-          const customStyle = meta?.themeColor ? { backgroundColor: meta.themeColor } : {};
-          const bgClass = wsId === 'default' && !meta?.themeColor 
-            ? (isDark ? 'bg-slate-800 text-white' : 'bg-white shadow-sm border border-black/5 text-slate-800') 
-            : (!meta?.themeColor ? 'bg-red-900 text-white' : 'text-white');
-          
+          const name = (typeof wObj === 'object' && wObj.name) || wsId;
+          const tint = meta?.themeColor;
+
+          // 工作区自定义色是真实数据，选中时用它当强调色；没设就退回主色
+          const activeStyle: React.CSSProperties = tint
+            ? { backgroundColor: `${tint}26`, borderColor: tint, color: tint }
+            : {};
+
           return (
-            <div
-              key={wsId}
-              onClick={() => handleWorkspaceSwitch(wsId)}
-              className="relative group cursor-pointer w-full flex items-center justify-center py-1"
-            >
-              {/* Dynamic Pill Indicator */}
-              <div
-                className={`absolute left-0 top-1/2 -translate-y-1/2 w-[4px] ${isDark ? 'bg-white' : 'bg-primary'} rounded-r-md transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
-                  isActive ? 'h-[40px]' : 'h-[0px] group-hover:h-[20px]'
-                }`}
-              />
-              
-              {/* Avatar with Fluid Morphing */}
-              <div 
-                style={customStyle}
-                className={`w-12 h-12 flex items-center justify-center text-lg font-black transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${bgClass} ${
-                  isActive 
-                    ? 'rounded-[16px] shadow-[0_4px_10px_rgba(0,0,0,0.5),inset_1px_1px_0px_rgba(255,255,255,0.2)] brightness-110' 
-                    : 'rounded-[50%] group-hover:rounded-[16px] brightness-75 group-hover:brightness-100'
+            <div key={wsId} className="relative w-full flex items-center justify-center">
+              {isActive && (
+                <span
+                  className="absolute left-0 top-[7px] bottom-[7px] w-0.5 rounded-sm bg-primary"
+                  style={tint ? { backgroundColor: tint } : undefined}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => handleWorkspaceSwitch(wsId)}
+                title={name}
+                style={isActive ? activeStyle : undefined}
+                className={`w-[34px] h-[34px] rounded-[9px] grid place-items-center border
+                            text-[13px] font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-primary/15 border-primary text-primary'
+                    : 'bg-surf border-line-soft text-ink-2 hover:text-ink'
                 }`}
               >
-                {wsId.charAt(0).toUpperCase()}
-              </div>
+                {String(wsId).charAt(0).toUpperCase()}
+              </button>
             </div>
           );
         })}
-        
-        {/* Add Workspace Button (Discord Style) */}
-        <div 
+
+        <button
+          type="button"
           onClick={() => setIsCreateModalOpen(true)}
-          className={`w-12 h-12 flex items-center justify-center mt-2 mb-2 transition-all duration-300 cursor-pointer text-[#10b981] bg-[rgba(255,255,255,0.05)] hover:bg-[#10b981] hover:text-white rounded-[50%] hover:rounded-[16px]`}
+          title={t('workspaceCenter.create', '新建工作区')}
+          className="w-[34px] h-[34px] rounded-[9px] grid place-items-center border border-dashed
+                     border-line text-ink-3 transition-colors hover:border-primary hover:text-primary"
         >
-          <Plus className="w-6 h-6" />
-        </div>
+          <Plus className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Bottom: Settings & AI */}
-      <div className="no-drag-region flex flex-col items-center gap-2 w-full px-2 mt-auto">
-        <div 
-          onClick={onHomeClick}
-          className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer rounded-xl ${
-            isDark ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-black/40 hover:text-black hover:bg-black/10'
-          }`}
-          title="Home Dashboard"
+      {/* 主页 / AI / 设置 */}
+      <div className="no-drag-region flex flex-col items-center gap-1.5">
+        <RailIcon onClick={onHomeClick} title={t('tabs.home')}>
+          <Home className="w-[17px] h-[17px]" />
+        </RailIcon>
+        <RailIcon onClick={() => setIsAiCenterOpen(true)} title={t('statusBar.aiAssistant')}>
+          <Sparkles className="w-[17px] h-[17px]" />
+        </RailIcon>
+        <RailIcon
+          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
+            detail: { type: 'settings', title: t('statusBar.settings') }
+          }))}
+          title={t('statusBar.settings')}
         >
-          <Home className="w-6 h-6" />
-        </div>
-        <div 
-          onClick={() => setIsAiCenterOpen(true)}
-          className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer rounded-xl ${
-            isDark ? 'text-amber-500/50 hover:text-amber-400 hover:bg-amber-500/10' : 'text-amber-600/50 hover:text-amber-600 hover:bg-amber-600/10'
-          }`}
-        >
-          <Sparkles className="w-6 h-6" />
-        </div>
-        <div 
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: 'Settings' } }))}
-          className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer rounded-xl ${
-            isDark ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-black/40 hover:text-black hover:bg-black/10'
-          }`}
-        >
-          <Settings className="w-6 h-6" />
-        </div>
+          <Settings className="w-[17px] h-[17px]" />
+        </RailIcon>
       </div>
     </div>
   );

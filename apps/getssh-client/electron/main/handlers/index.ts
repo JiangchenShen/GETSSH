@@ -10,6 +10,7 @@ import { registerAiHandlers } from './aiHandler';
 import { setupWorkspaceHandlers } from './workspaceHandler';
 import { registerAgentHandlers } from '../services/AgentExecutor';
 import { registerAppHandlers } from './appHandler';
+import { registerMcpHandlers } from './mcpHandler';
 
 /**
  * Central Registry for all Main Process IPC handlers.
@@ -46,4 +47,7 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
 
   // Agentic Execution Shell & TECTONIUM Integration
   registerAgentHandlers(ipcMain);
+
+  // Model Context Protocol (MCP) Integration
+  registerMcpHandlers(ipcMain);
 }

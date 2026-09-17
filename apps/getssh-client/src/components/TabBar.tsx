@@ -1,27 +1,56 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Home, Columns2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Tab, collectSessionIds } from '../store/sessionStore';
 import { getTerminalBuffer } from './Terminal';
+
+/**
+ * 标签条。
+ *
+ * 主页是一个标签，不是「没有标签时才出现的状态」—— 连进终端后主页还在，
+ * 随时切回来，不用先关掉会话。
+ *
+ * 原来每个标签是 120–200px 的方块加渐变下划线，四五个标签就占满一行；
+ * 现在是 27px 的药丸，选中态只靠 surf 提亮，不投影不描边。
+ */
 
 interface TabBarProps {
   tabs: Tab[];
   activeTabId: string | null;
-  isDark: boolean;
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
+  onHomeClick: () => void;
+  isHomeActive: boolean;
+  onSplit?: () => void;
+  canSplit?: boolean;
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSelectTab, onCloseTab }) => {
-  const sshTabs = tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
-
-  if (sshTabs.length === 0) return null;
+export const TabBar: React.FC<TabBarProps> = ({
+  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, onSplit, canSplit,
+}) => {
+  const { t } = useTranslation();
+  const sshTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
 
   return (
-    <div
-      className={`drag-region flex items-center pt-2 px-0 gap-0 border-b shrink-0 ${isDark ? 'border-white/5 bg-transparent' : 'border-black/5 bg-slate-100/50'}`}
-    >
+    <div className="drag-region flex-none flex items-center gap-0.5 h-[38px] px-2
+                    border-b border-line-soft overflow-x-auto">
+
+      <button
+        type="button"
+        onClick={onHomeClick}
+        className={`no-drag-region flex-none flex items-center gap-[7px] h-[27px] px-2.5 rounded-[7px]
+                    text-[12.5px] whitespace-nowrap transition-colors ${
+          isHomeActive ? 'bg-surf text-ink' : 'text-ink-3 hover:bg-surf hover:text-ink-2'
+        }`}
+      >
+        <Home className="w-[13px] h-[13px]" />
+        {t('tabs.home')}
+      </button>
+
       {sshTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
+        // 中心页（AI / 安全 / 工作区 / 插件 / 设置）不是会话，别给它画「在线」绿点
+        const isCenter = !!tab.config && typeof tab.config === 'object' && 'centerType' in tab.config;
         return (
           <div
             key={tab.id}
@@ -55,26 +84,43 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, isDark, onSel
                 }
               }
             }}
-            className={`no-drag-region group flex items-center justify-between gap-3 px-4 py-1.5 border-r cursor-pointer text-sm transition-all min-w-[120px] max-w-[200px] ${isActive
-              ? (isDark ? 'bg-black/20 border-white/5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] relative z-10' : 'bg-white border-black/10 text-black relative z-10')
-              : (isDark ? 'bg-transparent border-white/5 text-white/50 hover:text-white hover:bg-white/5' : 'bg-transparent border-transparent text-black/50 hover:bg-black/5')
+            title={tab.title}
+            className={`no-drag-region group flex-none flex items-center gap-[7px] h-[27px] pl-2.5 pr-1.5
+                        rounded-[7px] text-[12.5px] whitespace-nowrap cursor-pointer transition-colors
+                        max-w-[190px] ${
+              isActive ? 'bg-surf text-ink' : 'text-ink-3 hover:bg-surf hover:text-ink-2'
             }`}
           >
-            <div className="flex flex-col h-full max-w-full relative">
-              <span className="truncate font-semibold tracking-wide w-full" title={tab.title}>
-                {tab.title}
-              </span>
-              <div className={`absolute bottom-0 left-0 w-full h-[2px] bg-gradient-duo transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-x-0'}`} />
-            </div>
+            {!isCenter && <span className="w-[5px] h-[5px] rounded-full bg-ok flex-none" />}
+            <span className="truncate">{tab.title}</span>
             <button
+              type="button"
+              aria-label={t('tabs.close')}
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-              className={`p-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
+              className="flex-none w-[15px] h-[15px] rounded grid place-items-center text-ink-3
+                         opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surf-2 hover:text-ink"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-[11px] h-[11px]" />
             </button>
           </div>
         );
       })}
+
+      <div className="flex-1 min-w-[6px]" />
+
+      {onSplit && (
+        <button
+          type="button"
+          onClick={onSplit}
+          disabled={!canSplit}
+          className="no-drag-region flex-none flex items-center gap-1.5 h-[26px] px-2.5 rounded-[7px]
+                     text-[11.5px] text-ink-3 whitespace-nowrap transition-colors
+                     hover:bg-surf hover:text-ink disabled:opacity-40 disabled:pointer-events-none"
+        >
+          <Columns2 className="w-[13px] h-[13px]" />
+          {t('tabs.split')}
+        </button>
+      )}
     </div>
   );
 };

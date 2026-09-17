@@ -4,7 +4,16 @@
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
-    "name": "audit_stream"
+    "name": "audit_stream",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-pc-windows-msvc",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
   },
   "scripts": {
     "build": "napi build --platform --release"

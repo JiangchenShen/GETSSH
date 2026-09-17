@@ -9,9 +9,10 @@ import path from 'path';
  *   (because rust-core modules are placed in extraResources → Resources/rust-core/)
  */
 export function getRustCorePath(moduleName: string): string {
-  if (app.isPackaged) {
+  if (app?.isPackaged) {
     return path.join(process.resourcesPath, 'rust-core', moduleName);
   }
   // Development: app.getAppPath() = .../apps/getssh-client
-  return path.join(app.getAppPath(), '../../rust-core', moduleName);
+  const appPath = typeof app?.getAppPath === 'function' ? app.getAppPath() : process.cwd();
+  return path.join(appPath, '../../rust-core', moduleName);
 }

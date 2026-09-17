@@ -59,7 +59,7 @@ export const AboutTab: React.FC = () => {
               <div className="text-3xl font-bold tracking-tight mb-2">
                 {(() => {
                   const p = window.electronAPI?.getEnvInfo?.()?.platform;
-                  return p === 'darwin' ? 'macOS' : p === 'win32' ? 'Windows' : p === 'linux' ? 'Linux' : (p || 'Unknown');
+                  return p === 'darwin' ? 'macOS' : p === 'win32' ? 'Windows' : (p || 'Unknown');
                 })()}
               </div>
               <div className={`text-sm font-mono ${isDark ? 'text-white/50' : 'text-black/50'}`}>

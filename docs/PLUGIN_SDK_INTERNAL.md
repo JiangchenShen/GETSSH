@@ -1,815 +1,689 @@
-# GETSSH Plugin SDK Documentation
+# GETSSH 3.0 Plugin SDK Guide
 
-[🇨🇳 中文版 (Chinese Version)](./PLUGIN_SDK_INTERNAL_CN.md) | English
+[中文](./PLUGIN_SDK_INTERNAL_CN.md) | English
 
-Welcome to the GETSSH Plugin SDK. This document is the complete reference for third-party developers, covering plugin types, the Manifest specification, APIs, the security model, and the publishing workflow.
+> Applies to the GETSSH `3.0.0-F0A0G-PREVIEW` plugin runtime. This guide follows the current implementation and replaces the former VM-sandbox SDK documentation.
 
----
+The GETSSH 3.0 SDK is a host-injected capability API, not an npm package. Backend code receives a `context` object through `activate(context)`. Plugin pages communicate with the host through `window.GETSSH`.
 
-## Table of Contents
+## 1. Choose a plugin shape
 
-1. [Plugin Types at a Glance](#1-plugin-types-at-a-glance)
-2. [Manifest Specification (`package.json`)](#2-manifest-specification-packagejson)
-3. [Sandbox Plugin](#3-sandbox-plugin)
-4. [Backend Plugin (Node.js)](#4-backend-plugin-nodejs)
-5. [Security Sandbox Model & Escape Prevention](#5-security-sandbox-model--escape-prevention)
-6. [RASP Lifecycle Integration (Mandatory)](#6-rasp-lifecycle-integration-mandatory)
-7. [System Monitor Data Stream (sysmon)](#7-system-monitor-data-stream-sysmon)
-8. [UI Extension Points (Context Menus)](#8-ui-extension-points-context-menus)
-9. [Full Example: Hello World Sandbox Plugin](#9-full-example-hello-world-sandbox-plugin)
-10. [Full Example: Backend Node.js Plugin](#10-full-example-backend-nodejs-plugin)
-11. [Packaging & Installation](#11-packaging--installation)
-12. [Common Errors & Troubleshooting](#12-common-errors--troubleshooting)
-
----
-
-## 1. Plugin Types at a Glance
-
-GETSSH supports two fundamentally different plugin types. Read their permission boundaries carefully before choosing:
-
-| Feature | Sandbox Plugin (`sandbox`) | Backend Plugin (Node.js) |
-|---|---|---|
-| **Main entry** | `index.html` (pure frontend) | `main.js` (runs in main process) |
-| **Node.js access** | ❌ Fully prohibited | ✅ VM-sandboxed access |
-| **Access to `electronAPI`** | ❌ Fully prohibited | ✅ Via injected `ctx` context |
-| **File system (`fs`)** | ❌ Fully prohibited | ⛔ Blocked in strict mode |
-| **Network (`net`)** | ❌ Fully prohibited | ⛔ Blocked in strict mode |
-| **Lifecycle hook required** | ✅ Exempt | ⛔ **`deactivate()` is mandatory** |
-| **Use cases** | Data dashboards, status monitors, read-only UI panels | SSH auditing, automation scripts, encrypted storage integration |
-
-> **Strongly recommended: choose sandbox plugins first.** Sandbox plugins cannot be exploited and are unaffected by security mode switches. Users trust them more.
-
----
-
-## 2. Manifest Specification (`package.json`)
-
-Every plugin must include a `package.json` in its root directory.
-
-### Full Field Reference
-
-```json
-{
-  "name": "my-awesome-plugin",
-  "version": "1.0.0",
-  "displayName": "My Awesome Plugin",
-  "description": "A one-line description of your plugin.",
-  "author": "Your Name <email@example.com>",
-  "main": "main.js",
-  "getssh": {
-    "pluginId": "com.example.my-awesome-plugin",
-    "type": "sandbox",
-    "capabilities": ["lifecycle"]
-  }
-}
-```
-
-### Field Reference
-
-| Field | Type | Required | Description |
+| Shape | Manifest | Runtime | Typical use |
 |---|---|---|---|
-| `name` | `string` | ✅ | Unique identifier (lowercase + hyphens). Used as the plugin's install directory name. |
-| `version` | `string` | ✅ | Semantic version, e.g. `1.0.0`. |
-| `displayName` | `string` | ✅ | Friendly name shown in the GETSSH plugin marketplace and settings UI. |
-| `description` | `string` | ✅ | Short description shown in the plugin list. |
-| `author` | `string` | Recommended | Author information. |
-| `main` | `string` | ✅ | Main entry point. Use `index.html` for sandbox plugins, `main.js` for backend plugins. |
-| `getssh.pluginId` | `string` | ✅ | **Globally unique** reverse-domain ID, e.g. `com.example.myplugin`. Duplicates are not permitted. |
-| `getssh.type` | `"sandbox"` | Required for sandbox | Declares this as a sandbox plugin. **Do not set this for backend plugins.** |
-| `getssh.capabilities` | `string[]` | Required for backend | Backend plugins must include `"lifecycle"`. Missing this declaration causes installation rejection. |
+| UI-only | `getssh.type: "sandbox"` | `iframe sandbox="allow-scripts"` | Panels, dashboards, read-only tools |
+| Backend-only | Omit `getssh.type` | Separate OS-confined process | Storage, SSH extensions, network requests, native dialogs |
+| UI + backend | Omit `getssh.type`; provide `main`, `renderer`, and HTML | UI iframe plus backend process | Interactive plugins that need controlled host capabilities |
 
-> **Name resolution priority:** GETSSH resolves the plugin display name as: `getssh.name` → `displayName` → `name`.
+Do not use `"type": "hybrid"`. V3 recognizes only `"sandbox"`; any plugin with a backend must omit `getssh.type`.
 
----
+UI-only plugins continue to work in safe mode. Backend execution follows the user's selected policy:
 
-## 3. Sandbox Plugin
-
-### How It Works
-
-A sandbox plugin's HTML file is loaded inside a strictly restricted `<iframe>`. The iframe uses the `sandbox="allow-scripts"` attribute, which means:
-
-- **No** `allow-same-origin`: The iframe's origin is `null`. It cannot read the host app's DOM, cookies, or localStorage.
-- **No** Node.js environment: `require`, `process`, and `window.electronAPI` do not exist.
-- **The only communication channel**: The `window.GETSSH` SDK injected by GETSSH, used via `postMessage`.
-
-### Injected `window.GETSSH` SDK
-
-Before your plugin code runs, GETSSH automatically injects the following SDK object into the sandbox:
-
-```typescript
-window.GETSSH = {
-  /**
-   * Registers a clickable icon button in the sidebar.
-   * @param id     Unique button ID (unique within your plugin)
-   * @param icon   SVG string (automatically sanitized; malicious scripts are stripped)
-   * @param label  Tooltip label shown on hover
-   */
-  registerSidebarAction(id: string, icon: string, label: string): void;
-
-  /**
-   * Shows a system desktop notification (requires user notification permission).
-   * @param title Notification title
-   * @param body  Notification body text
-   */
-  showNotification(title: string, body: string): void;
-
-  /**
-   * Returns the current locale string of the host app (e.g. 'en-US', 'zh-CN').
-   * This is a synchronous, snapshot read. To track changes, use onThemeChange.
-   */
-  getLocale(): string;
-
-  /**
-   * Subscribes to theme changes in the host app.
-   * Fires immediately on change whenever the user switches between dark/light/system mode.
-   * @param callback Receives the new theme value: 'dark' | 'light' | 'system'
-   */
-  onThemeChange(callback: (theme: 'dark' | 'light' | 'system') => void): void;
-}
-
-/**
- * Handler map for sidebar button click events.
- * Keys must match the id passed to registerSidebarAction.
- */
-window.__sidebarHandlers: Record<string, () => void>;
-```
-
-### Theme & Locale Usage Example
-
-You can use these APIs to make your plugin's UI adapt seamlessly to the host app:
-
-```javascript
-// Read locale once at startup
-const locale = window.GETSSH.getLocale();
-document.getElementById('greeting').textContent =
-  locale.startsWith('zh') ? '你好，世界！' : 'Hello, World!';
-
-// React to live theme changes
-window.GETSSH.onThemeChange((theme) => {
-  document.body.setAttribute('data-theme', theme);
-  // e.g. update CSS variables, chart colors, etc.
-});
-```
-
-### Receiving Messages from the Host App
-
-The host app may push data to your plugin via `postMessage`. Listen for the `message` event:
-
-```javascript
-window.addEventListener('message', (event) => {
-  // Always check the message type to avoid processing unrelated messages
-  if (event.data.type === 'sysmon:data') {
-    // See Section 7: System Monitor Data Stream
-    const { cpus, mem, net } = event.data.payload;
-  }
-});
-```
-
-### PluginBridge Message Interceptor (Allowlist)
-
-All `postMessage` requests sent from the sandbox to the host must pass through the `PluginBridge` allowlist. **Only the following actions are permitted:**
-
-| Action | Description |
+| Mode | Backend behavior |
 |---|---|
-| `registerSidebarAction` | Register an icon button in the sidebar |
-| `registerPanel` | Register a panel page |
-| `showNotification` | Trigger a system desktop notification |
-| `getActiveSessionId` | Get the current active SSH session ID (always returns `null` for security — plugins cannot access real session IDs) |
+| `safe` | No plugin backend code runs |
+| `normal` | Each backend runs in a separate OS-confined process |
+| `strict` | Currently uses the same OS boundary as `normal`; the name remains for future compatibility policy |
+| `developer` | Loads the plugin directly into the Electron main process as fully trusted code |
 
-**The following actions are always intercepted and trigger a security warning log:**
+GETSSH uses Seatbelt on macOS and its AppContainer launcher on Windows. In isolated modes, plugins cannot directly access host-private files, write to host directories, use the network, spawn subprocesses, or create Workers. Use the APIs documented below for host operations.
 
-| Blocked Action | Reason |
-|---|---|
-| `sshWrite` | Plugins cannot directly write to SSH terminals |
-| `sshConnect` / `sshDisconnect` | Plugins cannot control connection lifecycle |
-| `saveProfiles` / `unlockProfiles` | Plugins cannot access encrypted connection profiles |
-| `sftpWriteFile` / `sftpDelete` | Plugins cannot modify or delete files over SFTP |
+## 2. Manifest: `package.json`
 
-> **Security Note**: Any malicious backend plugin that tries to bypass lifecycle checks by declaring `"type": "sandbox"` will be completely stripped of execution rights. When the main process sees the `sandbox` declaration, it skips all backend JS code loading. Any malicious code hidden in `main.js` never gets a chance to run.
-
----
-
-## 4. Backend Plugin (Node.js)
-
-### How It Works
-
-A backend plugin's `main.js` is executed inside an isolated sandbox created by the Node.js `vm` module within Electron's **main process**.
-
-### `activate(ctx)` Context API
-
-When the plugin is activated, the `activate` function receives a `ctx` object — this is your only legitimate API entry point:
-
-```typescript
-interface MainContextAPI {
-  /**
-   * @deprecated Use ctx.host.notify() instead for new plugins.
-   * Shows a native system desktop notification.
-   */
-  showNotification(title: string, body: string): void;
-
-  /**
-   * Encrypts a string using Electron's OS-level encryption.
-   * Keys are managed by the OS keychain, bound to the current user account.
-   */
-  safeStorageEncrypt(text: string): string;
-
-  /**
-   * Listens for SSH session connection events (read-only).
-   * Called whenever the user successfully establishes a new SSH connection.
-   * @param callback sessionId is the GETSSH internal session ID; host is the target hostname
-   */
-  onSSHSessionConnect?(callback: (sessionId: string, host: string) => void): void;
-
-  /**
-   * Persistent key-value storage isolated per plugin.
-   */
-  storage: {
-    get(key: string): Promise<any>;
-    set(key: string, value: any): Promise<void>;
-    delete(key: string): Promise<void>;
-    clear(): Promise<void>;
-  };
-
-  /**
-   * Bidirectional RPC bridge between the backend VM and any frontend iframe plugin.
-   */
-  rpc: {
-    /** Register a method that the frontend can invoke via window.electronAPI.pluginRpcInvoke(). */
-    registerMethod(method: string, handler: (payload: any) => Promise<any>): void;
-    /** Push arbitrary data to the frontend. Received via window.electronAPI.onPluginRpcMessage(). */
-    sendToFrontend(payload: any): void;
-  };
-
-  /**
-   * Native OS host integration APIs.
-   * ♥️ All dialog calls are logged to the main process console with [Plugin Host API] audit traces.
-   */
-  host: {
-    /**
-     * Sends a native OS desktop notification directly from the background plugin.
-     * Works even when no UI is visible. Ideal for server monitors & alert systems.
-     * @param title  Notification title
-     * @param body   Notification body text
-     * @param type   Visual intent: 'info' (default) | 'warning' | 'error'
-     */
-    notify(title: string, body: string, type?: 'info' | 'warning' | 'error'): void;
-
-    /**
-     * Shows a native OS message/confirmation dialog.
-     * Returns a Promise resolving to the index of the button clicked by the user.
-     * @param options.type        Dialog icon: 'none' | 'info' | 'warning' | 'error' | 'question'
-     * @param options.buttons     Button labels array, e.g. ['OK', 'Cancel']
-     * @param options.message     Main message text (displayed in bold)
-     * @param options.detail      Secondary message text (smaller font, optional)
-     * @param options.defaultId   Index of the button focused by default
-     * @param options.cancelId    Index of the button triggered by pressing Escape
-     * @param options.checkboxLabel  Optional checkbox label at the bottom
-     * @returns { response: number (index of clicked button), checkboxChecked: boolean }
-     */
-    showMessageBox(options: {
-      type?: 'none' | 'info' | 'warning' | 'error' | 'question';
-      buttons?: string[];
-      defaultId?: number;
-      cancelId?: number;
-      title?: string;
-      message: string;
-      detail?: string;
-      checkboxLabel?: string;
-    }): Promise<{ response: number; checkboxChecked: boolean }>;
-
-    /**
-     * Shows a native OS file/directory picker.
-     * Security guarantee: the plugin only receives file path strings —
-     * no implicit file content access is granted.
-     * @param options.properties  Selection mode: 'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles'
-     * @param options.filters     File type filters, e.g. [{ name: 'Images', extensions: ['png', 'jpg'] }]
-     * @returns { canceled: boolean, filePaths: string[] }
-     */
-    showOpenDialog(options: {
-      title?: string;
-      defaultPath?: string;
-      filters?: { name: string; extensions: string[] }[];
-      properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles'>;
-    }): Promise<{ canceled: boolean; filePaths: string[] }>;
-
-    /**
-     * Shows a native OS file save-path picker.
-     * @param options.filters  File type filters
-     * @returns { canceled: boolean, filePath?: string }
-     */
-    showSaveDialog(options: {
-      title?: string;
-      defaultPath?: string;
-      filters?: { name: string; extensions: string[] }[];
-    }): Promise<{ canceled: boolean; filePath?: string }>;
-  };
-
-  /**
-   * SSH I/O bridge (requires capabilities: ['ssh:read', 'ssh:write']).
-   */
-  ssh?: {
-    onData(sessionId: string, callback: (chunk: string) => void): void;
-    write(sessionId: string, command: string): void;
-  };
-
-  /**
-   * UI Extension Points — Inject custom context menus, or register plugin settings schema.
-   * See Section 8.
-   */
-  ui: {
-    registerTerminalContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, selectionText: string }) => void): void;
-    registerSFTPContextMenu(actionId: string, label: string, handler: (context: { sessionId: string, currentPath: string, selectedFiles: string[] }) => void): void;
-    
-    /**
-     * [MANDATORY] Register the plugin's configuration schema.
-     * All backend plugins MUST call this exactly once during activate().
-     * Your plugin must provide at least one configuration parameter. You CANNOT pass an empty array `[]`; doing so will cause the kernel to reject the plugin.
-     */
-    registerSettings(schema: PluginSettingsSchema[]): void;
-  };
-}
-```
-
-### VM Sandbox Security Levels
-
-Backend plugin permissions are controlled by the security mode the user selects in GETSSH settings:
-
-| Security Mode | `require()` Permissions | Use Case |
-|---|---|---|
-| **Strict** | Only `path`, `os` | Maximum security, limited distribution |
-| **Normal** | Blocks dangerous modules: `fs`, `child_process`, `net` | Standard plugin development |
-| **Developer** | Full native `require`, no restrictions | **For development/debugging only. Do not distribute in production.** |
-
-### `ctx.host` Usage Examples
-
-```javascript
-// ① Show a confirmation dialog and wait for user response
-const result = await ctx.host.showMessageBox({
-  type: 'warning',
-  title: 'Confirm Action',
-  message: 'Are you sure you want to delete this config file?',
-  detail: 'This action cannot be undone.',
-  buttons: ['Delete', 'Cancel'],
-  defaultId: 1,   // focus 'Cancel' by default
-  cancelId: 1,
-});
-if (result.response === 0) {
-  // User clicked 'Delete' (index 0)
-}
-
-// ② Open a file picker to let the user choose a config file
-const open = await ctx.host.showOpenDialog({
-  title: 'Select Config File',
-  filters: [{ name: 'JSON Config', extensions: ['json'] }],
-  properties: ['openFile'],
-});
-if (!open.canceled) {
-  const configPath = open.filePaths[0];
-  // Use configPath via ctx.storage or other controlled APIs...
-}
-
-// ③ Open a save dialog to let the user pick an export path
-const save = await ctx.host.showSaveDialog({
-  title: 'Export Audit Report',
-  defaultPath: 'audit-report.csv',
-  filters: [{ name: 'CSV', extensions: ['csv'] }],
-});
-if (!save.canceled && save.filePath) {
-  // save.filePath is the full local path chosen by the user
-}
-```
-
-> **Security Note**: `showOpenDialog` only returns **path strings** — it does not implicitly grant file read access. Plugins must use existing controlled channels (like `ctx.storage` or a dedicated streaming API) to further access file data.
-
----
-
-## 5. Security Sandbox Model & Escape Prevention
-
-### Why Can't `sandbox` Type Be Used to Bypass Hooks?
-
-This is a common question: since `sandbox` plugins are exempt from lifecycle checks, what if a malicious backend plugin lies in `package.json` by declaring `"type": "sandbox"`?
-
-**The answer: absolutely not possible.** GETSSH's security architecture has multiple layers specifically designed to counter this deception:
-
-```
-Declares type: "sandbox"
-         │
-         ▼
-[PluginManager] sees the sandbox flag
-         │
-         ▼
-The main-process Node.js loader executes return immediately.
-No main.js code is ever read or executed.
-         │
-         ▼
-PluginBridge puts it in an iframe cage
-(sandbox="allow-scripts", no allow-same-origin)
-         │
-         ▼
-It can only communicate via postMessage
-         │
-         ▼
-PluginBridge allowlist interceptor:
-Any action outside the allowlist → silently dropped + security log warning
-```
-
-**Conclusion:** A plugin that lies about being `sandbox` type voluntarily gives up all Node.js backend privileges. Its `main.js` is never executed. Inside the iframe it can only do limited read-only UI rendering. This is a dead end, not a bypass.
-
-### SVG Icon Sanitization
-
-When you register a sidebar button with a custom SVG icon via `registerSidebarAction`, GETSSH automatically sanitizes the SVG:
-- **Strips** all dangerous tags: `<script>`, `<iframe>`, `<foreignObject>`, etc.
-- **Removes** all `javascript:` URI attributes.
-- **The sanitizer uses Set-based $O(1)$ lookups** — no impact on UI rendering performance.
-
----
-
-## 6. RASP Lifecycle Integration (Mandatory)
-
-**This is the most important security contract for backend plugins.**
-
-GETSSH's underlying security is monitored by a Rust-written Watchdog daemon that monitors the main process in real time. When Watchdog detects abnormal behavior (such as malicious API hook injection), it triggers the RASP (Runtime Application Self-Protection) protocol and may **forcibly terminate the Electron main process**.
-
-Before the forced kill occurs, GETSSH attempts to execute all plugins' `deactivate()` hooks to prevent data corruption or resource leaks. **This hook is therefore not optional — it is part of system security.**
-
-### Two Mandatory Enforcement Checkpoints
-
-| Checkpoint | Triggered When | Consequence of Failure |
-|---|---|---|
-| **Install time (static scan)** | User installs the `.zip` | Installation is immediately rejected; no files are written to disk. Error shown in UI. |
-| **Load time (runtime check)** | App starts and scans the plugin directory | Plugin is skipped and will not run. Warning written to the console log. |
-
-### What `deactivate()` Must Do
-
-```javascript
-let pollingInterval = null;
-let openFileHandle = null;
-
-module.exports = {
-  activate(ctx) {
-    openFileHandle = fs.openSync('/tmp/plugin.log', 'w');
-    pollingInterval = setInterval(() => {
-      // periodic operations...
-    }, 1000);
-  },
-
-  deactivate() {
-    // ✅ Required: clear all timers
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
-    }
-
-    // ✅ Required: close all file handles
-    if (openFileHandle !== null) {
-      fs.closeSync(openFileHandle);
-      openFileHandle = null;
-    }
-
-    // ✅ Required: destroy all network connections
-    // socket.destroy(); socket = null;
-
-    // ✅ Required: remove all event listeners
-    // emitter.removeAllListeners();
-  }
-};
-```
-
-### Full RASP-Triggered Teardown Flow
-
-```
-User selects "Restart in Safe Mode" in RASP overlay
-          │
-          ▼
-SecureCenter.handleAction('restart-safe')
-          │
-          ▼
-① Calls pluginTeardownFn()
-          │
-          ▼
-② PluginManager.deactivateAll()
-   ─ Iterates all runningPlugins
-   ─ Calls deactivate() for each plugin inside try/catch
-          │
-          ▼
-③ Sends ACTION:RESTART-SAFE to Watchdog
-          │
-          ▼
-④ app.exit(0)
-```
-
-Normal app quit (`app.on('before-quit')`) also triggers the same teardown chain via `SecureCenter.getInstance().gracefulShutdown()`.
-
-### Required Manifest Declaration
-
-A backend plugin missing either of the following **will not install**:
+Every plugin needs a `package.json` at its root. This is a complete UI + backend example:
 
 ```json
 {
-  "name": "my-plugin",
+  "name": "hello-getssh",
   "version": "1.0.0",
-  "displayName": "My Backend Plugin",
-  "description": "A backend plugin example.",
-  "main": "main.js",
-  "getssh": {
-    "pluginId": "com.example.my-backend-plugin",
-    "capabilities": ["lifecycle"]
-  }
-}
-```
-
-> **Note**: Backend plugins should **NOT** set `"type": "sandbox"`.
-
-### Runtime Mandatory Contract: Settings Registration
-
-In addition to `deactivate`, when running the `activate` hook, the plugin **MUST** register its parameter schema to prove compatibility with GETSSH's settings distribution pipeline:
-
-```javascript
-module.exports = {
-  activate(ctx) {
-    // ✅ MANDATORY: You must provide at least one valid parameter!
-    ctx.ui.registerSettings([
-      { id: 'debugMode', type: 'boolean', label: 'Enable Debug', default: false }
-    ]);
-    // If not called or called with an empty array, GETSSH will intercept the plugin launch, throw an exception, and destroy it.
-  },
-  deactivate() {
-    // Actual cleanup logic goes here
-  }
-}
-```
-
----
-
-## 7. System Monitor Data Stream (sysmon)
-
-If your sandbox plugin needs to display real-time system stats (CPU, memory, network), GETSSH automatically pushes system data to every active plugin iframe via `postMessage`.
-
-> **Data source**: Powered by the Rust `getssh-sysprobe` N-API extension, using the `sysinfo` library under the hood. CPU utilization is pre-computed on the Rust side — **no delta calculation is needed** in your JS code.
-
-### Data Structure
-
-```typescript
-// In your sandbox plugin HTML/JS, listen for this message:
-window.addEventListener('message', (event) => {
-  if (event.data.type !== 'sysmon:data') return;
-
-  const payload: SysmonPayload = event.data.payload;
-});
-
-interface SysmonPayload {
-  cpus: {
-    overall: number;   // Global CPU utilization, range 0–100
-    cores: number[];   // Per-core utilization array, range 0–100
-  };
-  mem: {
-    total: number;     // Total RAM (bytes)
-    used: number;      // Used RAM (bytes)
-    free: number;      // Available RAM (bytes)
-  };
-  net: {
-    rx: number;        // Bytes received since last refresh
-    tx: number;        // Bytes sent since last refresh
-  };
-}
-```
-
----
-
-## 8. UI Extension Points (Context Menus)
-
-Backend Node.js plugins can inject custom items into the **native OS context menus** of the Terminal and SFTP views, without any frontend code required.
-
-### How It Works
-
-1. Plugin calls `ctx.ui.registerTerminalContextMenu` or `ctx.ui.registerSFTPContextMenu` during `activate()`.
-2. The GETSSH main process broadcasts a `sync-plugin-ui-extensions` event to the React frontend.
-3. When the user right-clicks in the Terminal or SFTP view, the host builds a native OS menu that includes your registered items.
-4. When the user clicks your item, the main process invokes your handler callback with the contextual data (selected text, file path, etc.).
-5. When the plugin is **uninstalled or reloaded**, all its context menu items are immediately garbage-collected — no ghost menus.
-
-### API Reference
-
-```typescript
-// Inside activate(ctx):
-
-// Inject an item into the Terminal right-click menu
-ctx.ui.registerTerminalContextMenu(
-  'action-id',       // unique within your plugin
-  'Menu Item Label', // displayed to the user
-  (context) => {
-    console.log('Session:', context.sessionId);
-    console.log('Selected text:', context.selectionText);
-  }
-);
-
-// Inject an item into the SFTP file list right-click menu
-ctx.ui.registerSFTPContextMenu(
-  'preview-file',
-  'Preview File',
-  (context) => {
-    console.log('Current path:', context.currentPath);
-    console.log('Selected files:', context.selectedFiles); // string[]
-  }
-);
-```
-
-### Context Data Shapes
-
-| Menu Type | Context Object |
-|---|---|
-| `registerTerminalContextMenu` | `{ sessionId: string, selectionText: string }` |
-| `registerSFTPContextMenu` | `{ sessionId: string, currentPath: string, selectedFiles: string[] }` |
-
-> **Note**: Context menu items are registered at `activate()` time and are **persistent** for the lifetime of the plugin. You cannot dynamically add or remove individual items — to change the set, you must reload the plugin.
-
----
-
-## 9. Full Example: Hello World Sandbox Plugin
-
-The simplest possible sandbox plugin — registers a sidebar button that shows a notification when clicked.
-
-### Directory Structure
-
-```
-hello-world/
-├── package.json
-└── index.html
-```
-
-### `package.json`
-
-```json
-{
-  "name": "hello-world-plugin",
-  "version": "1.0.0",
-  "displayName": "Hello World",
-  "description": "A minimal GETSSH sandbox plugin example.",
+  "displayName": "Hello GETSSH",
+  "description": "A GETSSH 3.0 plugin example",
   "author": "Your Name",
-  "main": "index.html",
+  "main": "main.js",
+  "renderer": "renderer.js",
   "getssh": {
-    "pluginId": "com.example.hello-world",
-    "type": "sandbox"
+    "pluginId": "com.example.hello-getssh",
+    "capabilities": ["lifecycle", "storage:default"]
   }
 }
 ```
 
-### `index.html`
+### Fields
 
-```html
-<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"></head>
-<body>
-<script>
-// After the sandbox boots, window.GETSSH and window.__sidebarHandlers
-// are already injected by GETSSH — no need to wait for any events.
+| Field | Required | Current meaning |
+|---|---|---|
+| `name` | Yes | **V3 runtime identity**, installation directory, backend RPC binding, and `getssh-plugin://` hostname |
+| `version` | Yes | Plugin version; semantic versioning is recommended |
+| `main` | Yes | HTML for a UI-only plugin; CommonJS JavaScript entry for a backend plugin |
+| `displayName` | Recommended | Friendly display name |
+| `description` | Recommended | Short plugin description |
+| `author` | Recommended | Author information |
+| `renderer` | For host UI integration | Bootstrap script run in a hidden UI sandbox to register sidebar actions and panels |
+| `getssh.type` | UI-only plugins | The only valid value is `"sandbox"`; it makes GETSSH skip backend loading completely |
+| `getssh.capabilities` | Backend plugins | Capability declarations; must contain `"lifecycle"` |
+| `getssh.name` | Optional | Display name with priority over `displayName` |
+| `getssh.pluginId` | Optional | Compatibility and marketplace metadata; **not part of current runtime identity binding** |
 
-const actionId = 'hello-btn';
+Use `name` in panel URLs, RPC routing, and storage identity. Do not use `getssh.pluginId` for those operations. Public plugins should use a lowercase, cross-platform-safe name containing letters, digits, and hyphens, such as `server-health`.
 
-// 1. Register the click handler
-window.__sidebarHandlers[actionId] = () => {
-  window.GETSSH.showNotification('Hello!', 'Greetings from a sandboxed plugin.');
-};
+### Supported capabilities
 
-// 2. Register the button in the sidebar (SVG is auto-sanitized)
-window.GETSSH.registerSidebarAction(
-  actionId,
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-    <circle cx="12" cy="12" r="10" fill="currentColor"/>
-  </svg>`,
-  'Say Hello'
-);
-</script>
-</body>
-</html>
+| Capability | Effect |
+|---|---|
+| `lifecycle` | Mandatory for every backend; confirms a `deactivate()` export |
+| `storage:default` | Explicit default storage tier; omission also gives 5 MiB |
+| `storage:extended` | Raises plugin KV storage to 500 MiB |
+| `storage:unlimited` | Removes the plugin KV storage quota |
+| `ssh:read` | Subscribes to terminal output for a specified SSH session |
+| `ssh:write` | Writes to a specified SSH session; the first write requires user approval |
+| `host:clipboard` | Reads and writes the system clipboard; reads notify the user |
+| `net:fetch` | Makes public HTTP/HTTPS requests through the SSRF-protected gateway |
+
+A capability unlocks only its corresponding host API. It does not grant arbitrary Electron, Node.js, or operating-system access.
+
+## 3. Supported layouts
+
+### UI-only
+
+```text
+hello-ui/
+├── package.json
+├── renderer.js
+├── index.html
+└── ui.js
 ```
 
----
-
-## 10. Full Example: Backend Node.js Plugin
-
-An SSH audit logger that listens for connection events and writes them to a local log file.
-
-### Directory Structure
-
+```json
+{
+  "name": "hello-ui",
+  "version": "1.0.0",
+  "displayName": "Hello UI",
+  "description": "A UI-only plugin",
+  "main": "index.html",
+  "renderer": "renderer.js",
+  "getssh": { "type": "sandbox" }
+}
 ```
-ssh-auditor/
+
+`main` points to HTML and is never executed as Node.js. Third-party UI plugins should provide `renderer.js` so GETSSH can register an entry point for their panel.
+
+### Backend-only
+
+```text
+hello-backend/
 ├── package.json
 └── main.js
 ```
 
-### `package.json`
-
 ```json
 {
-  "name": "ssh-auditor",
+  "name": "hello-backend",
   "version": "1.0.0",
-  "displayName": "SSH Audit Logger",
-  "description": "Logs all SSH connection events to a local file.",
-  "author": "Your Name",
+  "displayName": "Hello Backend",
+  "description": "A backend-only plugin",
   "main": "main.js",
   "getssh": {
-    "pluginId": "com.example.ssh-auditor",
-    "capabilities": ["lifecycle"]
+    "capabilities": ["lifecycle", "storage:default"]
   }
 }
 ```
 
-### `main.js`
+### UI + backend
+
+```text
+hello-getssh/
+├── package.json
+├── main.js
+├── renderer.js
+├── index.html
+└── ui.js
+```
+
+Use the full manifest from section 2. `renderer.js` registers the UI, `index.html` is the visible page, and `main.js` registers backend methods.
+
+## 4. Build a UI + backend plugin
+
+### `renderer.js`: register the UI
+
+The renderer bootstrap runs in a hidden sandboxed iframe. Use it only for host UI registration; backend RPC is not available there.
 
 ```javascript
-// Note: In strict mode, the fs module is unavailable.
-// This example requires the user to set security mode to "Normal" or "Developer".
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const panelId = 'hello-getssh.main';
+const actionId = 'open-hello-panel';
 
-const logPath = path.join(os.tmpdir(), 'getssh-audit.log');
-let fileStream = null;
+window.GETSSH.registerPanel(
+  panelId,
+  'Hello GETSSH',
+  'getssh-plugin://hello-getssh/index.html'
+);
+
+window.__sidebarHandlers[actionId] = () => {
+  window.GETSSH.openPanel(panelId);
+};
+
+window.GETSSH.registerSidebarAction(
+  actionId,
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg>',
+  'Open Hello plugin'
+);
+```
+
+The `hello-getssh` URL hostname must exactly match the manifest `name`. Relative JavaScript, CSS, JSON, and common image assets are served from the same plugin package.
+
+### `main.js`: register backend behavior
+
+The backend entry must be CommonJS and export both lifecycle functions.
+
+```javascript
+let unsubscribe = null;
 
 module.exports = {
-  activate(ctx) {
-    fileStream = fs.createWriteStream(logPath, { flags: 'a' });
-    fileStream.write(`[${new Date().toISOString()}] SSH Audit plugin started\n`);
-
-    ctx.onSSHSessionConnect?.((sessionId, host) => {
-      const line = `[${new Date().toISOString()}] Connected to: ${host} (session: ${sessionId})\n`;
-      fileStream?.write(line);
-    });
-
-    // ⛔ MANDATORY: Declare the configuration parameters for this plugin
-    ctx.ui.registerSettings([
-      { id: 'logLevel', type: 'string', label: 'Log Level', default: 'info' }
+  async activate(context) {
+    context.ui.registerSettings([
+      {
+        id: 'greeting',
+        type: 'string',
+        label: 'Greeting',
+        default: 'Hello from GETSSH'
+      }
     ]);
 
-    ctx.showNotification('SSH Audit', `Audit logging started at ${logPath}`);
+    context.rpc.registerMethod('greet', async (payload) => {
+      const configured = await context.storage.get('greeting');
+      const greeting = configured ?? 'Hello from GETSSH';
+      return { message: `${greeting}, ${payload?.name || 'developer'}!` };
+    });
+
+    context.ui.registerTerminalContextMenu(
+      'remember-selection',
+      'Remember selected text',
+      async ({ selectionText }) => {
+        await context.storage.set('lastSelection', selectionText);
+        context.host.notify('Hello GETSSH', 'The selection was saved');
+      }
+    );
   },
 
-  // ⛔ This hook is mandatory — the plugin cannot be installed without it
-  deactivate() {
-    if (fileStream) {
-      fileStream.write(`[${new Date().toISOString()}] SSH Audit plugin stopped\n`);
-      fileStream.end();    // ✅ Required: close the file stream
-      fileStream = null;
-    }
+  async deactivate() {
+    unsubscribe?.();
+    unsubscribe = null;
   }
 };
 ```
 
----
+### `index.html` and `ui.js`: call the backend
 
-## 11. Packaging & Installation
-
-### Packaging Rules
-
-Pack the plugin directory as a `.zip` file. Plugin files can be placed directly in the `.zip` root, or wrapped inside a single subdirectory:
-
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hello GETSSH</title>
+</head>
+<body>
+  <input id="name" value="GETSSH">
+  <button id="run">Call backend</button>
+  <pre id="output"></pre>
+  <script src="./ui.js"></script>
+</body>
+</html>
 ```
-# Format A (recommended): directly at the root
-my-plugin.zip
+
+```javascript
+const output = document.querySelector('#output');
+
+document.querySelector('#run').addEventListener('click', async () => {
+  try {
+    const result = await window.GETSSH.invokeBackend('greet', {
+      name: document.querySelector('#name').value
+    });
+    output.textContent = result.message;
+  } catch (error) {
+    output.textContent = error instanceof Error ? error.message : String(error);
+  }
+});
+
+window.GETSSH.onBackendMessage((payload) => console.log('backend event:', payload));
+window.GETSSH.onThemeChange((theme) => {
+  document.documentElement.dataset.theme = theme;
+});
+```
+
+`invokeBackend()` rejects when safe mode disables the backend, activation fails, or the method does not exist. Always handle that error.
+
+## 5. Backend lifecycle contract
+
+```typescript
+interface PluginModule {
+  activate(context: MainContextAPI): void | Promise<void>;
+  deactivate(): void | Promise<void>;
+}
+```
+
+- `activate()` has an 8-second timeout.
+- Register RPC methods, terminal actions, SFTP actions, and the settings schema before `activate()` resolves. The isolated runtime sends one registration snapshot at the end of activation; late registrations do not reach the host.
+- Every backend currently must call `context.ui.registerSettings()` with at least one valid field. If the plugin has no tuning options, expose a meaningful boolean such as `enabled`.
+- `deactivate()` should close timers, streams, listeners, and subscriptions. Keep cleanup below roughly two seconds because GETSSH will terminate an unresponsive process.
+- Threat mitigation can force-kill a plugin without completing `deactivate()`. Persist important state as it changes.
+- Use `console.log/info/warn/error` for logs. Stdout is the isolated process protocol channel; do not replace `process.stdout` or write custom protocol frames.
+
+The entry is loaded with `require()`. Compile TypeScript or ESM source to CommonJS before packaging.
+
+## 6. Backend API: `context`
+
+Boundary values use this data model:
+
+```typescript
+type StructuredData =
+  | null
+  | string
+  | boolean
+  | number
+  | StructuredData[]
+  | { [key: string]: StructuredData };
+```
+
+### Notifications and OS encryption
+
+```typescript
+interface MainContextAPI {
+  showNotification(title: string, body: string): void;
+  safeStorageEncrypt(text: string): Promise<string>;
+  host: {
+    notify(
+      title: string,
+      body: string,
+      type?: 'info' | 'warning' | 'error'
+    ): void;
+  };
+}
+```
+
+`showNotification()` is a compatibility alias; new plugins should use `host.notify()`. Notification appearance is controlled by the operating system.
+
+`safeStorageEncrypt()` returns base64 ciphertext and must be awaited. The current plugin SDK exposes no matching decrypt operation, so it is not a complete plugin secret vault.
+
+### Plugin KV storage
+
+```typescript
+interface PluginStorageAPI {
+  get(key: string): Promise<StructuredData | undefined>;
+  set(key: string, value: StructuredData): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+Storage is bound to the manifest `name`. Keys are limited to 256 characters. The default quota is 5 MiB, `storage:extended` provides 500 MiB, and `storage:unlimited` removes the quota.
+
+Use JSON-style values: `null`, strings, booleans, finite numbers, arrays, and plain objects. Do not pass functions, symbols, BigInt, Date, Map, Set, Buffer, class instances, circular references, or `undefined`.
+
+### Frontend/backend RPC
+
+```typescript
+interface PluginRpcAPI {
+  registerMethod(
+    method: string,
+    handler: (payload: StructuredData | undefined) =>
+      StructuredData | undefined | Promise<StructuredData | undefined>
+  ): void;
+  sendToFrontend(payload: StructuredData): void;
+}
+```
+
+Method names may contain letters, digits, `.`, `_`, `:`, and `-`; length is 1-128. `__proto__`, `prototype`, and `constructor` are reserved.
+
+```javascript
+context.rpc.registerMethod('server:list', async ({ group }) => ({
+  group,
+  items: await context.storage.get(`group:${group}`) ?? []
+}));
+
+context.rpc.sendToFrontend({ type: 'sync-complete', count: 12 });
+```
+
+Payloads and results must be structured data, no larger than 2 MiB after encoding and no deeper than 24 levels. Calls time out after 15 seconds. Paginate large results.
+
+### Settings schema
+
+```typescript
+interface PluginSettingsField {
+  id: string;
+  type: 'string' | 'number' | 'boolean' | 'password';
+  label: string;
+  description?: string;
+  default?: StructuredData;
+}
+
+interface PluginSettingsAPI {
+  registerSettings(fields: PluginSettingsField[]): void;
+}
+```
+
+- Every backend must register 1-256 fields.
+- IDs follow the safe identifier rule and must be unique.
+- Labels contain 1-256 characters; descriptions are limited to 4096.
+- GETSSH stores each saved value under its field ID and reloads the plugin.
+- Read a setting with `await context.storage.get(field.id)`.
+- `password` masks the input control; it does not add a separate encryption guarantee.
+
+### Terminal and SFTP context menus
+
+```typescript
+interface PluginContextMenuAPI {
+  registerTerminalContextMenu(
+    actionId: string,
+    label: string,
+    handler: (data: {
+      sessionId: string;
+      selectionText: string;
+    }) => unknown | Promise<unknown>
+  ): void;
+  registerSFTPContextMenu(
+    actionId: string,
+    label: string,
+    handler: (data: {
+      sessionId: string;
+      currentPath: string;
+      selectedFiles: string[];
+    }) => unknown | Promise<unknown>
+  ): void;
+}
+```
+
+Action IDs follow the safe identifier rule, labels contain 1-256 characters, and each menu type accepts at most 128 registrations.
+
+### SSH
+
+```typescript
+interface PluginSshAPI {
+  onData(sessionId: string, callback: (chunk: string) => void): () => void;
+  write(sessionId: string, command: string): Promise<void>;
+}
+```
+
+- `ssh:read` unlocks `onData()`; `ssh:write` unlocks `write()`.
+- Plugin pages do not receive raw session IDs. A backend normally gets one from a terminal or SFTP context-menu event.
+- Save and call the unsubscribe function returned by `onData()`.
+- `write()` accepts up to about 1 MiB per call. On first use, the user can deny, allow once, or allow for the current run.
+
+### Clipboard and native dialogs
+
+```typescript
+interface PluginHostAPI {
+  clipboard: {
+    writeText(text: string): Promise<void>;
+    readText(): Promise<string>;
+  };
+  showMessageBox(options: {
+    type?: 'none' | 'info' | 'warning' | 'error' | 'question';
+    buttons?: string[];
+    defaultId?: number;
+    cancelId?: number;
+    title?: string;
+    message: string;
+    detail?: string;
+    checkboxLabel?: string;
+  }): Promise<{ response: number; checkboxChecked: boolean }>;
+  showOpenDialog(options: {
+    title?: string;
+    defaultPath?: string;
+    filters?: Array<{ name: string; extensions: string[] }>;
+    properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles'>;
+  }): Promise<{ canceled: boolean; filePaths: string[] }>;
+  showSaveDialog(options: {
+    title?: string;
+    defaultPath?: string;
+    filters?: Array<{ name: string; extensions: string[] }>;
+  }): Promise<{ canceled: boolean; filePath?: string }>;
+}
+```
+
+Clipboard operations require `host:clipboard`; dialogs need no extra capability. A file dialog returns path strings only. In normal and strict modes it does not grant the plugin direct `fs` access to those host files.
+
+### Public network requests
+
+Declare `net:fetch`, then use the host gateway:
+
+```javascript
+const response = await context.net.fetch('https://api.example.com/v1/status', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ source: 'getssh' }),
+  redirect: 'follow'
+});
+
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+const data = await response.json();
+```
+
+The gateway:
+
+- allows only HTTP and HTTPS URLs up to 8192 characters;
+- rejects embedded URL credentials and any DNS result in loopback, private, link-local, reserved, or multicast ranges;
+- follows at most five redirects and strips `authorization` and `cookie` on cross-origin redirects;
+- times out after 30 seconds and limits response bodies to 1 MiB;
+- accepts at most 128 headers and controls connection-level headers itself;
+- supports `method`, `headers`, `body`, and `redirect` options;
+- accepts string, URLSearchParams, ArrayBuffer, and typed-array bodies in isolated mode; use strings for developer-mode portability;
+- does not support AbortSignal, FormData, Blob, streaming request bodies, or raw sockets.
+
+A network policy violation raises `SecurityError`, activates the security center, and stops the plugin. Ordinary request failures reject with `NetworkError`.
+
+## 7. Frontend API: `window.GETSSH`
+
+GETSSH must load a page through `getssh-plugin://<name>/<file>` for the SDK to exist. Opening the HTML directly in a browser or from disk does not inject `window.GETSSH`.
+
+| API | `renderer.js` bootstrap | Visible HTML panel |
+|---|---:|---:|
+| `registerSidebarAction` | Yes | Yes |
+| `registerPanel` / `openPanel` | Yes | Yes |
+| `showNotification` | Yes | Yes |
+| `getLocale` / `onThemeChange` | Yes | Yes |
+| `invokeBackend` / `onBackendMessage` | No | Yes |
+
+### Sidebar actions
+
+```typescript
+interface RendererContextAPI {
+  registerSidebarAction(id: string, svgIcon: string, label: string): void;
+}
+```
+
+GETSSH sanitizes the SVG. Store the click callback in `window.__sidebarHandlers` under the same ID:
+
+```javascript
+window.__sidebarHandlers.open = () => window.GETSSH.openPanel('server-dashboard.main');
+window.GETSSH.registerSidebarAction('open', svg, 'Open dashboard');
+```
+
+### Panels
+
+```typescript
+interface RendererContextAPI {
+  registerPanel(panelId: string, title: string, renderUrl: string): void;
+  openPanel(panelId: string): void;
+}
+```
+
+Register before opening and use a package-local URL. The current panel registry uses `panelId` as a global key, so prefix it with the plugin name:
+
+```javascript
+window.GETSSH.registerPanel(
+  'server-dashboard.main',
+  'Server Dashboard',
+  'getssh-plugin://server-dashboard/index.html'
+);
+```
+
+### Environment and notifications
+
+```typescript
+interface RendererContextAPI {
+  showNotification(title: string, body: string): void;
+  getLocale(): string;
+  onThemeChange(
+    callback: (theme: 'dark' | 'light' | 'system') => void
+  ): void;
+}
+```
+
+Frontend notifications depend on OS notification permission. `getLocale()` returns the current snapshot and updates after a host language change. `onThemeChange()` currently has no unsubscribe return value, so register a callback once per page.
+
+### Backend communication
+
+```typescript
+interface RendererContextAPI {
+  invokeBackend(
+    method: string,
+    payload?: StructuredData
+  ): Promise<StructuredData | undefined>;
+  onBackendMessage(callback: (payload: StructuredData) => void): void;
+}
+```
+
+RPC is bound to the manifest `name` taken from the current panel URL. A page cannot select another plugin ID and call across plugin boundaries. `onBackendMessage()` receives values sent by `context.rpc.sendToFrontend()` and is released when the iframe is destroyed.
+
+### System-monitor compatibility event
+
+Active plugin panels currently receive a `sysmon:data` message about once per second:
+
+```javascript
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent) return;
+  if (event.data?.type !== 'sysmon:data') return;
+  const { cpus, mem, net } = event.data.payload;
+});
+```
+
+`cpus` contains `overall` and `cores`; `mem` contains byte counts for `total`, `used`, and `free`; `net` contains `rx` and `tx`. This is a host event rather than a `window.GETSSH` method.
+
+## 8. Limits
+
+| Item | Current limit |
+|---|---:|
+| Process protocol message | 2 MiB |
+| Structured-data depth | 24 levels |
+| RPC/host-call timeout | 15 seconds |
+| Activation timeout | 8 seconds |
+| RPC methods | 128 |
+| Terminal actions | 128 |
+| SFTP actions | 128 |
+| Settings fields | 1-256 |
+| Host calls from one isolated plugin | 250/second |
+| Isolated protocol traffic | 500 messages/second and 16 MiB/second |
+| Collected backend logs | 64 KiB per run |
+
+Throttle polling, logs, and event delivery. Paginate large results.
+
+## 9. Node.js rules in isolated modes
+
+Backend plugins are JavaScript processes and may load CommonJS modules bundled inside their package, but the OS sandbox is the authority:
+
+- the plugin directory is read-only;
+- GETSSH provides a random private temporary HOME for temporary writes and removes it when the process exits;
+- host home, GETSSH user data, system temporary roots, and mounted volumes are not directly accessible;
+- direct networking is disabled; use `context.net.fetch()`;
+- subprocesses, Workers, cross-process signals, debugging, and native addons are not portable plugin capabilities;
+- only a small environment-variable allowlist is inherited.
+
+Bundle business logic as pure JavaScript and keep host interaction behind `context`. Do not build production plugins around direct file, network, subprocess, Electron, or other access that happens to work in developer mode.
+
+Normal and strict mode require the platform isolation backend: Seatbelt on macOS or the bundled AppContainer launcher on Windows. If that backend is unavailable, GETSSH refuses to start backend plugins. UI-only plugins are unaffected.
+
+## 10. Dependencies, packaging, and installation
+
+GETSSH does not run `npm install` during installation. Include every runtime JavaScript, CSS, image, and dependency in the archive. Bundling backend dependencies into one CommonJS file and frontend dependencies into static browser assets is recommended.
+
+A ZIP may contain plugin files at its root or inside exactly one top-level directory:
+
+```text
+hello-getssh.zip
 ├── package.json
 ├── main.js
-└── index.html
-
-# Format B (also supported): wrapped in a subdirectory
-my-plugin.zip
-└── my-plugin/
-    ├── package.json
-    ├── main.js
-    └── index.html
+├── renderer.js
+├── index.html
+└── ui.js
 ```
 
-> **Warning**: GETSSH validates all extracted paths against the plugin directory root to prevent **Zip Slip (path traversal)** attacks. Any `.zip` that attempts to extract files outside the plugin directory will be immediately rejected.
+macOS:
 
-### Installation
+```bash
+cd hello-getssh
+zip -r ../hello-getssh.zip . -x '*.DS_Store'
+```
 
-Inside GETSSH: **Settings → Plugins → Install Plugin**, then select your `.zip` file.
+Windows PowerShell:
 
----
+```powershell
+Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -Force
+```
 
-## 12. Common Errors & Troubleshooting
+Open **Settings → Plugins**, drop the ZIP into the installer, review its permissions, and install it. A package with the same `name` replaces the existing plugin directory.
 
-### Install error: `[Security] Plugin installation rejected: ...capabilities...`
+Internal TypeScript interfaces live in [`apps/getssh-client/src/types/plugin.d.ts`](../apps/getssh-client/src/types/plugin.d.ts). Third-party plugins should use the signatures in this guide as the authoritative reference.
 
-**Cause**: The backend plugin's `package.json` is missing `"getssh": { "capabilities": ["lifecycle"] }`.  
-**Fix**: Add the complete `getssh` field as shown in Section 6.
+## 11. Migrating from the old SDK
 
-### Install error: `[Security] ... does not export a 'deactivate' lifecycle hook`
+| Old SDK assumption | V3 behavior |
+|---|---|
+| Backend uses `vm.Script` in the main process | Normal/strict use a separate OS-confined process |
+| `getssh.type: "hybrid"` | Omit `getssh.type`; combine `renderer` with backend `main` |
+| `getssh.pluginId` is runtime identity | `name` is runtime identity; `pluginId` is currently metadata |
+| `safeStorageEncrypt()` is synchronous | `await context.safeStorageEncrypt()` |
+| `ssh.onData()` has no cleanup | Save and call its unsubscribe function |
+| `ssh.write()` is synchronous | `await context.ssh.write()` |
+| `pluginRpcInvoke()` | `window.GETSSH.invokeBackend()` |
+| `onPluginRpcMessage()` | `window.GETSSH.onBackendMessage()` |
+| `registerSettingsSchema()` | `context.ui.registerSettings()` |
+| `registerUIExtension()` | `registerTerminalContextMenu()` or `registerSFTPContextMenu()` |
+| `onSSHSessionConnect` | Not exposed; obtain a session ID from a context-menu event |
+| Normal mode can access host files/network directly | Use `context.storage`, `context.net`, `context.ssh`, and `context.host` |
 
-**Cause**: GETSSH could not find the `deactivate` keyword in your `main.js` during static scanning, or it determined that your `deactivate` hook is an empty function (e.g., `() => {}`) during runtime analysis.
-**Solution**: Ensure your `main.js` exports a `deactivate` function and that it contains actual resource cleanup logic (disconnecting sockets, clearing intervals, etc.). **Empty functions are strictly forbidden to pass the security check.**
+## 12. Troubleshooting
 
-### Install error: `Invalid Architecture: Missing package.json manifest.`
+### `Node.js plugins must declare ... lifecycle`
 
-**Cause**: No `package.json` was found in the `.zip`, or the `.zip` contains multiple sibling subdirectories.  
-**Fix**: Ensure `package.json` is either directly in the `.zip` root or inside a single subdirectory.
+Add `lifecycle` to backend capabilities and export a real `deactivate()` function.
 
-### Plugin is loaded but `window.GETSSH` is `undefined`
+### `Backend plugins must export activate() and deactivate()`
 
-**Cause**: This typically means your script is loaded via an external `src` attribute, which is blocked inside the sandbox.  
-**Fix**: Place your JavaScript directly inside an inline `<script>` tag in your `index.html`. The SDK is injected before any inline script runs.
+The entry is not CommonJS, has incorrect exports, or `main` points to the wrong built file.
 
-### Notifications don't appear
+### `Backend plugins must call context.ui.registerSettings()`
 
-**Cause**: OS notification permissions have not been granted to GETSSH.  
-**Fix**: This is controlled by the user's operating system permissions. `showNotification` silently fails when permission is not granted — this is expected behavior.
+Call `registerSettings()` before activation completes and provide at least one valid field.
+
+### `Plugin '<name>' is not running`
+
+The backend may be disabled by safe mode, may have failed activation, may lack the OS isolation runtime, or the panel URL hostname may not match the manifest `name`.
+
+### `Method '<method>' not found`
+
+Register the exact name with `context.rpc.registerMethod()` before `activate()` resolves.
+
+### `window.GETSSH` is undefined
+
+Load the page through a GETSSH `getssh-plugin://<name>/...` panel. Direct browser and disk loads do not receive the SDK.
+
+### A `SecurityError` stops the plugin
+
+The plugin crossed a security boundary, commonly because a `net.fetch` destination resolved to a private or reserved address. Correct the destination or capability declaration, then reload the plugin.
+
+### RPC or storage rejects a value
+
+Convert it to plain JSON-style data, remove functions, classes, BigInt, circular references, and large binary values, then check the 2 MiB message limit.
+
+## 13. Release checklist
+
+- Keep `name` lowercase and identical in every `getssh-plugin://<name>/...` URL.
+- Set `getssh.type: "sandbox"` only for UI-only plugins; omit `type` for every backend.
+- Compile the backend to CommonJS and export both lifecycle functions.
+- Declare `lifecycle` plus only the capabilities the plugin actually needs.
+- Complete activation within eight seconds and register every method, action, and setting before it resolves.
+- Clean up timers, subscriptions, streams, and listeners in `deactivate()`.
+- Handle `invokeBackend()` rejection and render a useful UI when the backend is unavailable.
+- Keep all boundary data serializable and within size and rate limits.
+- Avoid dependencies on direct file, network, subprocess, native addon, or Electron access.
+- Include all dependencies in the ZIP and put `package.json` at its root or in its only top-level directory.
+- Test normal/strict mode on both macOS and Windows.

@@ -13,12 +13,16 @@ export interface AiRequest {
       description: string;
       dangerLevel: string;
     }>;
+    aiSearchEnabled?: boolean;
   };
   mode?: 'readonly' | 'assistant' | 'agent_semi' | 'agent_full';
   endpoint?: string;
   apiKey?: string;
   provider?: string;
   model?: string;
+  thinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  aiMaxTokens?: number;
+  searchConfig?: any;
 }
 
 export interface StreamPayload {
@@ -35,59 +39,6 @@ export interface AiResponse {
     sanitizedPrompt: string;
     sanitizedContext: string;
   };
-}
-
-export class DataMasker {
-  private static vault = new Map<string, string>();
-  private static counter = 0;
-
-  private static storeSecret(secret: string): string {
-    for (const [token, val] of this.vault.entries()) {
-      if (val === secret) return token;
-    }
-    this.counter++;
-    const token = `{{GETSSH_SEC_${this.counter}}}`;
-    this.vault.set(token, secret);
-    return token;
-  }
-
-  static tokenize(text: string): string {
-    if (!text) return text;
-    let masked = text;
-    
-    // Passwords
-    masked = masked.replace(/(password|passwd|pwd)\s*(:|=)\s*(\S+)/gi, (_match, p1, p2, p3) => {
-      const token = this.storeSecret(p3);
-      return `${p1}${p2}${token}`;
-    });
-    
-    // Bearer Tokens
-    masked = masked.replace(/Bearer\s+([A-Za-z0-9\-\._~\+\/]+={0,2})/g, (_match, p1) => {
-      const token = this.storeSecret(p1);
-      return `Bearer ${token}`;
-    });
-    
-    // Private Keys
-    masked = masked.replace(/-----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----[\s\S]*?-----END \1 PRIVATE KEY-----/g, (match) => {
-      return this.storeSecret(match);
-    });
-    
-    // JWTs
-    masked = masked.replace(/ey[A-Za-z0-9_-]+\.ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, (match) => {
-      return this.storeSecret(match);
-    });
-    
-    return masked;
-  }
-
-  static detokenize(text: string): string {
-    if (!text) return text;
-    let result = text;
-    for (const [token, secret] of this.vault.entries()) {
-      result = result.split(token).join(secret);
-    }
-    return result;
-  }
 }
 
 /**
@@ -111,20 +62,12 @@ export class AiBridge {
         throw new Error('Security Error: AI Bridge is not available in the current context.');
       }
 
-      // Apply Data Vaulting (Tokenization)
-      request.prompt = DataMasker.tokenize(request.prompt);
-      if (request.contextData && request.contextData.terminalBuffer) {
-        request.contextData.terminalBuffer = DataMasker.tokenize(request.contextData.terminalBuffer);
-      }
-
       let unsubscribeChunk: (() => void) | undefined;
       let unsubscribeApproval: (() => void) | undefined;
       
       // Setup the stream listener before making the invoke call
       if (onChunk) {
         unsubscribeChunk = window.electronAPI.ai.onStreamChunk(request.requestId, (payload) => {
-          // Detokenize chunk seamlessly before UI receives it
-          payload.chunk = DataMasker.detokenize(payload.chunk);
           onChunk(payload);
           // Automatically clean up listener when stream finishes
           if (payload.isDone) {
@@ -137,8 +80,6 @@ export class AiBridge {
       if (onApprovalRequest && window.electronAPI.ai.onAgentApprovalRequest) {
         unsubscribeApproval = window.electronAPI.ai.onAgentApprovalRequest((payload: { requestId: string, command: string }) => {
           if (payload.requestId === request.requestId) {
-             // Detokenize command seamlessly before execution and UI approval
-             payload.command = DataMasker.detokenize(payload.command);
              onApprovalRequest(payload.command, payload.requestId);
           }
         });
@@ -241,5 +182,11 @@ export class AiBridge {
     if (!window.electronAPI || !window.electronAPI.ai) return false;
     const res = await window.electronAPI.ai.updateSessionTitle(id, title);
     return res.success;
+  }
+
+  static async testSearch(config: any): Promise<{success: boolean, count?: number, error?: string}> {
+    if (!window.electronAPI || !window.electronAPI.ai) return { success: false, error: 'Electron API unavailable' };
+    const res = await window.electronAPI.ai.testSearch(config);
+    return res;
   }
 }

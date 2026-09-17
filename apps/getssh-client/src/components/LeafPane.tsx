@@ -1,16 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Terminal as TerminalComponent, getTerminalBuffer } from './Terminal';
+import { getTerminalBuffer } from './Terminal';
 import { PaneLeaf, PaneNode, useSessionStore, isSSHConfig } from '../store/sessionStore';
 import { useShallow } from 'zustand/react/shallow';
 import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink, ArrowDownToLine } from 'lucide-react';
-import { useTranslation, Trans } from 'react-i18next';
-import { PluginPane } from './PluginPane';
-import { RecBadge } from './RecBadge';
-import { WorkspaceCenter } from './WorkspaceCenter';
-import { AiSettingsModal as AiSettingsPane } from './AiSettingsModal';
-import { PluginCenterModal as PluginCenterPane } from './PluginCenterModal';
-import { SecureCenter } from './SecureCenter';
-import { SettingsPane } from './SettingsPane';
+import { useTranslation } from 'react-i18next';
+import { paneRegistry } from '../registry/paneRegistry';
 
 function countLeaves(node: PaneNode | undefined): number {
   if (!node) return 0;
@@ -79,9 +73,9 @@ export const LeafPane: React.FC<{
   const isMaxPanes = totalPanes >= 4;
 
   const isZoomed = node.isZoomed;
-  const zoomClasses = isZoomed 
-    ? `absolute bottom-4 left-4 right-4 top-12 z-[100] shadow-[0_0_100px_rgba(0,0,0,0.8)] ring-1 ring-[#222] rounded-2xl overflow-hidden ${isDark ? 'bg-black/60 backdrop-blur-2xl' : 'bg-white/80 backdrop-blur-2xl'}` 
-    : `relative w-full h-full ${isDark ? 'bg-black/60 backdrop-blur-2xl border border-white/10' : 'bg-white/80 backdrop-blur-2xl border border-black/10'} rounded-2xl overflow-hidden`;
+  const zoomClasses = isZoomed
+    ? 'absolute inset-2 z-[100] rounded-[10px] border border-line bg-bg overflow-hidden'
+    : 'relative w-full h-full overflow-hidden';
 
   return (
     <div
@@ -91,13 +85,13 @@ export const LeafPane: React.FC<{
     >
       {/* Pane header with title and toolbar */}
       <div
-        className={`relative z-10 flex-none flex items-center justify-between px-4 h-[38px] text-xs select-none transition-colors border-b app-region-no-drag ${
-          isDark ? (isActive ? 'bg-black/40 border-white/5' : 'bg-black/20 border-white/5') : (isActive ? 'bg-white/60 border-black/5' : 'bg-white/40 border-black/5')
-        }`}
+        className={`relative z-10 flex-none flex items-center justify-between gap-2 px-3 h-8 text-xs
+                    select-none border-b border-line-soft bg-panel app-region-no-drag
+                    ${isActive ? 'shadow-[inset_0_2px_0_var(--color-primary)]' : ''}`}
       >
-        <div className="flex items-center gap-2 text-gray-400">
-           <TerminalSquare className="w-4 h-4 opacity-70" />
-           <span className="truncate font-medium text-sm">
+        <div className="flex items-center gap-2 min-w-0 text-ink-2">
+           <TerminalSquare className="w-3.5 h-3.5 flex-none text-ink-3" />
+           <span className="truncate font-medium text-xs text-ink">
              {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (node.paneType === 'center' ? (tabTitle || 'Center') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : '')))}
            </span>
         </div>
@@ -109,9 +103,9 @@ export const LeafPane: React.FC<{
                   title={t('pane.splitRight', 'Split Right')}
                   disabled={!canSplit}
                   onClick={(e) => { e.stopPropagation(); handleSplit('hsplit'); }}
-                  className={`p-1 rounded transition-colors ${!canSplit ? 'opacity-20 cursor-not-allowed' : (isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70')}`}
+                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplit ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
-                  <Columns className="w-3.5 h-3.5" />
+                  <Columns className="w-3 h-3" />
                 </button>
               )}
               {parentDirection !== 'vsplit' && (
@@ -119,12 +113,12 @@ export const LeafPane: React.FC<{
                   title="Split Down"
                   disabled={!canSplit}
                   onClick={(e) => { e.stopPropagation(); handleSplit('vsplit'); }}
-                  className={`p-1 rounded transition-colors ${!canSplit ? 'opacity-20 cursor-not-allowed' : (isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70')}`}
+                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplit ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
-                  <Rows className="w-3.5 h-3.5" />
+                  <Rows className="w-3 h-3" />
                 </button>
               )}
-              <div className={`w-[1px] h-3 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`}></div>
+              <div className="w-px h-3 mx-1 bg-line"></div>
             </>
           )}
           <button
@@ -133,9 +127,9 @@ export const LeafPane: React.FC<{
               e.stopPropagation(); 
               window.electronAPI.nexusToggleZoom(node.paneId).catch(console.error);
             }}
-            className={`p-1 rounded transition-colors ${isZoomed ? 'text-cyan-400 bg-cyan-400/10' : (isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70')}`}
+            className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${isZoomed ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
           >
-            {isZoomed ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+            {isZoomed ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />}
           </button>
           {!isHollow ? (
             <button
@@ -159,9 +153,9 @@ export const LeafPane: React.FC<{
                    tornTitle: tabTitle
                 });
               }}
-              className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
+              className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-3 h-3" />
             </button>
           ) : (
             <button
@@ -178,9 +172,9 @@ export const LeafPane: React.FC<{
                    terminalBuffers
                 });
               }}
-              className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/20 text-white/70' : 'hover:bg-black/10 text-black/70'}`}
+              className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink"
             >
-              <ArrowDownToLine className="w-3.5 h-3.5" />
+              <ArrowDownToLine className="w-3 h-3" />
             </button>
           )}
           <button
@@ -189,68 +183,36 @@ export const LeafPane: React.FC<{
               e.stopPropagation(); 
               window.electronAPI.nexusClosePane(node.paneId).catch(console.error); 
             }}
-            className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-red-500/30 text-white/70 hover:text-red-400' : 'hover:bg-red-500/20 text-black/70 hover:text-red-500'}`}
+            className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-down/15 hover:text-down"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>
 
-      {node.paneType === 'terminal' && node.sessionId && (<>
-        <TerminalComponent
-          sessionId={node.sessionId}
-          isDisconnected={node.isDisconnected ?? false}
-          onDisconnectedChange={(val) => {
-            useSessionStore.getState().patchNexusLeaf(node.paneId, { isDisconnected: val });
-          }}
-          onDisconnected={() => { window.electronAPI.nexusClosePane(node.paneId).catch(console.error); }}
-          onReconnect={() => {
-            if (!isSSHConfig(node.config)) return;
-            const payload = { ...node.config, enableAuditLogging: appConfig.enableAuditLogging };
-            window.electronAPI.sshConnect(payload).then(res => {
-              if (res.success && res.sessionId) {
-                useSessionStore.getState().patchNexusLeaf(node.paneId, { sessionId: res.sessionId });
-              }
-            });
-          }}
-          config={appConfig}
-          isDark={isDark}
-          isActive={isTabActive && isActive}
-        />
-        <RecBadge isRecording={appConfig.enableAuditLogging || false} />
-      </>)}
-
-      {node.paneType === 'welcome' && (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-transparent min-h-0 overflow-y-auto">
-          <div className="flex flex-col items-center gap-3 text-center px-4 py-4 min-h-min shrink-0">
-            <div className="w-12 h-12 shrink-0 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-              <TerminalSquare className="w-6 h-6" />
-            </div>
-            <div className="shrink-0">
-              <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('welcome.readyToConnect', 'Ready to Connect')}</h3>
-              <p className={`text-xs mt-1.5 leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'} max-w-[220px]`}>
-                <Trans i18nKey="welcome.openCommandCenter">
-                  Press <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-current opacity-70 font-mono text-[10px] mx-0.5 shadow-sm bg-background">Option+Space</kbd> to open Command Center
-                </Trans>
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {node.paneType === 'plugin' && (
-        <PluginPane paneId={node.paneId} isDark={isDark} pluginUrl={node.config && 'pluginUrl' in node.config ? node.config.pluginUrl : undefined} />
-      )}
-
-      {node.paneType === 'center' && node.config && 'centerType' in node.config && (
-        <div className="w-full h-full relative overflow-hidden bg-transparent flex flex-col">
-          {node.config.centerType === 'workspace' && <WorkspaceCenter />}
-          {node.config.centerType === 'ai' && <AiSettingsPane />}
-          {node.config.centerType === 'plugin' && <PluginCenterPane />}
-          {node.config.centerType === 'secure' && <SecureCenter />}
-          {node.config.centerType === 'settings' && <SettingsPane />}
-        </div>
-      )}
+      {paneRegistry.render({
+        node,
+        tabId,
+        appConfig,
+        isDark,
+        isTabActive,
+        isActive,
+        onDisconnectedChange: (val) => {
+          useSessionStore.getState().patchNexusLeaf(node.paneId, { isDisconnected: val });
+        },
+        onClosePane: () => {
+          window.electronAPI?.nexusClosePane(node.paneId).catch(console.error);
+        },
+        onReconnect: () => {
+          if (!isSSHConfig(node.config)) return;
+          const payload = { ...node.config, enableAuditLogging: appConfig.enableAuditLogging };
+          window.electronAPI.sshConnect(payload).then(res => {
+            if (res.success && res.sessionId) {
+              useSessionStore.getState().patchNexusLeaf(node.paneId, { sessionId: res.sessionId });
+            }
+          });
+        }
+      })}
     </div>
   );
 };

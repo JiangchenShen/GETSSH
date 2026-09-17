@@ -1,4 +1,4 @@
-name: Release GETSSH v2.0
+name: Release GETSSH v3.0
 
 on:
   workflow_dispatch:
@@ -20,30 +20,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-15-intel
             arch: x64
             eb_target: --mac --x64
             rust_target: x86_64-apple-darwin
-          - os: macos-latest
+          - os: macos-15
             arch: arm64
             eb_target: --mac --arm64
             rust_target: aarch64-apple-darwin
-          - os: windows-latest
+          - os: windows-2022
             arch: x64
             eb_target: --win --x64
             rust_target: x86_64-pc-windows-msvc
-          - os: windows-latest
+          - os: windows-11-arm
             arch: arm64
             eb_target: --win --arm64
             rust_target: aarch64-pc-windows-msvc
-          - os: ubuntu-latest
-            arch: x64
-            eb_target: --linux --x64
-            rust_target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            arch: arm64
-            eb_target: --linux --arm64
-            rust_target: aarch64-unknown-linux-gnu
 
     steps:
       - name: Checkout Code
@@ -57,28 +49,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 11
+          version: 11.2.2
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
 
-      - name: Install System Dependencies (Linux)
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev pkg-config gcc g++ make
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-            # Required by cc crate when napi-rs modules have C/C++ dependencies
-            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          fi
-
       - name: Install Node Dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Check TypeScript
+        working-directory: apps/getssh-client
+        run: pnpm exec tsc -b tsconfig.json --force --pretty false
 
       - name: Build Rust N-API Addons
         run: node scripts/build-native.js
@@ -92,15 +75,13 @@ jobs:
           echo "========================="
         shell: bash
 
-      - name: Build Rust Watchdog
+      - name: Build Native Process Tools
         run: |
-          cd rust-core/watchdog
-          cargo build --release --target ${{ matrix.rust_target }}
-          cd ../..
+          cargo build --release --target ${{ matrix.rust_target }} -p watchdog -p getssh-process-sandbox
           mkdir -p target/release
-          # Handle Windows (.exe) vs Unix binary naming explicitly
           if [ -f "target/${{ matrix.rust_target }}/release/watchdog.exe" ]; then
             cp "target/${{ matrix.rust_target }}/release/watchdog.exe" "target/release/watchdog.exe"
+            cp "target/${{ matrix.rust_target }}/release/getssh-sandbox.exe" "target/release/getssh-sandbox.exe"
           elif [ -f "target/${{ matrix.rust_target }}/release/watchdog" ]; then
             cp "target/${{ matrix.rust_target }}/release/watchdog" "target/release/watchdog"
             chmod +x "target/release/watchdog"
@@ -111,7 +92,13 @@ jobs:
         run: |
           pnpm exec vite build
           pnpm exec electron-builder --publish never ${{ matrix.eb_target }}
+        working-directory: apps/getssh-client
         shell: bash
+
+      - name: Smoke-test Packaged App (Windows)
+        if: runner.os == 'Windows'
+        working-directory: apps/getssh-client
+        run: npm run test:packaged-startup
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
@@ -121,6 +108,5 @@ jobs:
             dist/*.dmg
             dist/*.zip
             dist/*.exe
-            dist/*.AppImage
           draft: true
           prerelease: false

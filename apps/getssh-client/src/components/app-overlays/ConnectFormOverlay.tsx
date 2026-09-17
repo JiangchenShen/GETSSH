@@ -1,9 +1,7 @@
 import React from 'react';
-import { MoovierTile } from '@moovier/core';
 import { ConnectForm } from '../ConnectForm';
 
 interface ConnectFormOverlayProps {
-  tabsLength: number;
   isDark: boolean;
   selectedSessionIndex: number | null;
   sessions: any[];
@@ -13,10 +11,10 @@ interface ConnectFormOverlayProps {
   error: string | null;
   handleConnect: (session: any) => Promise<void>;
   syncProfiles: (updatedSessions: any[]) => void;
+  onCancel: () => void;
 }
 
 export const ConnectFormOverlay: React.FC<ConnectFormOverlayProps> = ({
-  tabsLength,
   isDark,
   selectedSessionIndex,
   sessions,
@@ -25,15 +23,16 @@ export const ConnectFormOverlay: React.FC<ConnectFormOverlayProps> = ({
   connecting,
   error,
   handleConnect,
-  syncProfiles
+  syncProfiles,
+  onCancel
 }) => {
   if (selectedSessionIndex === null || !sessions[selectedSessionIndex] || activeTabId === 'settings') {
     return null;
   }
 
   return (
-    <div className={`absolute inset-0 flex items-center justify-center overflow-y-auto z-30 ${tabsLength > 0 ? (isDark ? 'bg-black/60 backdrop-blur-md' : 'bg-white/60 backdrop-blur-md') : 'bg-transparent'}`}>
-      <MoovierTile exemptFromFocus dragLevel="fixed" className={`p-8 w-full max-w-5xl rounded-[32px] ${isDark ? 'bg-[#121212] shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-white/5' : ''}`}>
+    <div className={`absolute inset-0 z-30 overflow-hidden dashboard-shell ${activeTabId ? 'backdrop-blur-xl' : ''}`}>
+      <div className="relative h-full w-full overflow-hidden">
         <ConnectForm
           session={sessions[selectedSessionIndex]}
           index={selectedSessionIndex}
@@ -41,6 +40,7 @@ export const ConnectFormOverlay: React.FC<ConnectFormOverlayProps> = ({
           isDark={isDark}
           connecting={connecting}
           error={error}
+          onCancel={onCancel}
           onConnect={handleConnect}
           onUpdateSession={(index, updatedSession) => {
             const u = [...sessions];
@@ -48,7 +48,7 @@ export const ConnectFormOverlay: React.FC<ConnectFormOverlayProps> = ({
             syncProfiles(u);
           }}
         />
-      </MoovierTile>
+      </div>
     </div>
   );
 };

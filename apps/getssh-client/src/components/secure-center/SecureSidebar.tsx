@@ -5,7 +5,7 @@ import { Shield, ShieldAlert, Cpu, EyeOff, Lock, Server, ShieldOff } from 'lucid
 
 export interface SecureSidebarProps {
   securePage: string;
-  setSecurePage: (page: 'rasp' | 'privacy' | 'safe_storage' | 'known_hosts' | 'shield_details') => void;
+  setSecurePage: (page: 'rasp' | 'privacy' | 'safe_storage' | 'known_hosts' | 'shield_details' | 'isolation_rules') => void;
   setSafeAction?: (action: 'none' | 'change' | 'disable' | 'enable') => void;
 }
 

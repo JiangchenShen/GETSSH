@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MoovierTile, MoovierFocusProvider, CINEMATIC_OUT } from '@moovier/core';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -32,11 +31,14 @@ import { TabBar } from './components/TabBar';
 import { CommandCenter } from './components/CommandCenter';
 import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
+import { StatusBar } from './components/StatusBar';
 
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
 import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
 import { GlobalBootLockOverlay } from './components/app-overlays/GlobalBootLockOverlay';
+
+const DASHBOARD_EASE = [0.33, 1, 0.68, 1] as const;
 
 export type { AppConfig } from './store/appStore';
 
@@ -55,6 +57,7 @@ function App() {
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
+  const activePaneId = useSessionStore(state => state.activePaneId);
   const connecting = useSessionStore(state => state.connecting);
   const error = useSessionStore(state => state.error);
 
@@ -93,6 +96,10 @@ function App() {
 
 
   const handleHomeClick = () => {
+    const state = useSessionStore.getState();
+    if (state.selectedSessionIndex !== null && state.sessions[state.selectedSessionIndex]?.isDraft) {
+      state.setSessions(state.sessions.filter((_, index) => index !== state.selectedSessionIndex));
+    }
     setSelectedSessionIndex(null);
     setActiveTabId(null);
   };
@@ -152,25 +159,23 @@ function App() {
   } as React.CSSProperties;
   let containerClasses = '';
 
+  // 窗口底色就是 --v2-bg（深 #09090b / 浅 #f4f4f5）。导轨、侧栏、主区在原型里
+  // 是同一个底色，只靠发丝线分隔，所以它们保持透明，由这里统一上色；
+  // 开了毛玻璃就把这层底色调透，让系统 vibrancy 透上来。
+  // 文字颜色一律走 text-ink，不再写死 slate/neutral，否则换主题必然漏。
+  containerClasses = 'text-ink border-none';
   if (!isDark) {
-    // Light Mode (Glass on or off)
     const uiOpacity = appConfig.enableGlassmorphism ? (appConfig.bgOpacity ?? 0.8) : 1;
-    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(248, 250, 252, ${uiOpacity})` }; // slate-50
-    containerClasses = 'text-slate-900 border-none';
+    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(244, 244, 245, ${uiOpacity})` }; // --v2-bg 浅
   } else if (!appConfig.enableGlassmorphism) {
-    // Dark Mode (Glass off): Solid
-    appBgStyle = { ...appBgStyle, backgroundColor: '#09090b' }; // obsidian-bg
-    containerClasses = 'text-neutral-200 border-none';
+    appBgStyle = { ...appBgStyle, backgroundColor: '#09090b' }; // --v2-bg 深
   } else {
-    // Dark Mode (Glass on): Liquid Glass
     const uiOpacity = appConfig.bgOpacity ?? 1;
-    // We blend our obsidian background (#09090b) with the OS Vibrancy using the requested opacity
     appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${uiOpacity})` };
-    containerClasses = 'text-neutral-200 border-none'; 
   }
 
   return (
-    <MoovierFocusProvider>
+    <>
       <IpcManager />
       <div 
         className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
@@ -283,7 +288,7 @@ function App() {
         </AnimatePresence>
 
         {/* ── STANDARD LOCK SCREEN MOVED TO NEXUS DASHBOARD ── */}
-        {/* --- MOOVIER SUPREME: Absolute Grid Layout --- */}
+        {/* Main application grid */}
         {tornPaneId ? (
           <div className="w-full h-full bg-transparent flex flex-col no-drag-region">
             {/* Cinematic Torn Title Bar */}
@@ -306,7 +311,7 @@ function App() {
             className="w-full h-full bg-transparent"
             style={{
                display: 'grid',
-               gridTemplateColumns: `var(--sidebar-width-collapsed) ${isSidebarCollapsed ? '48px' : 'var(--sidebar-width)'} 1fr`,
+               gridTemplateColumns: `var(--rail-width) ${isSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} 1fr`,
                gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} 1fr 0px`,
                zIndex: 'var(--z-app-chrome)'
             }}
@@ -318,42 +323,44 @@ function App() {
 
           {/* Left Sidebar (L4 Region Material, Edge-Flush) */}
           <div style={{ gridColumn: '2 / 3', gridRow: '1 / 4', zIndex: 'var(--z-region-material)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <MoovierTile 
-              exemptFromFocus 
-              dragLevel="fixed" 
-              className={`w-full h-full shrink-0 flex flex-col ${!isDark ? '!bg-white/90 border-r !border-black/5 shadow-sm' : ''}`}
-              style={{ borderRadius: 0, '--moovier-bg': isDark ? 'rgba(0, 0, 0, 0.1)' : undefined } as React.CSSProperties}
-            >
+            <div className="relative w-full h-full shrink-0 flex flex-col overflow-hidden backdrop-blur-xl">
               <ContextSidebar 
                 onAddSession={() => {
-                  const newSession = { host: '', username: '', password: '', privateKeyPath: '', autoStart: false };
+                  const existingDraftIndex = sessions.findIndex(session => session.isDraft);
+                  if (existingDraftIndex >= 0) {
+                    setSelectedSessionIndex(existingDraftIndex);
+                    setActiveTabId(null);
+                    return;
+                  }
+                  const newSession = { id: crypto.randomUUID(), isDraft: true, host: '', username: '', password: '', privateKeyPath: '', autoStart: false, protocol: 'auto' as const };
                   const updated = [...sessions, newSession];
-                  syncProfiles(updated);
+                  useSessionStore.getState().setSessions(updated);
                   setSelectedSessionIndex(updated.length - 1);
                   setActiveTabId(null);
                 }}
                 onToggleAutoStart={toggleAutoStart}
                 onDeleteSession={deleteSession}
               />
-            </MoovierTile>
+            </div>
           </div>
 
             {/* Main Content Area (L5 Content) */}
           <div style={{ gridColumn: '3 / 4', gridRow: '1 / 4', zIndex: 'var(--z-content)' }} className="flex flex-col min-h-0 overflow-hidden relative">
             
             {/* Tab Bar ALWAYS visible if tabs.length > 0 */}
-            {(tabs.filter(t => !t.isTornOff).length > 0 && activeTabId !== 'settings') && (
-              <TabBar
-                tabs={tabs.filter(t => !t.isTornOff)}
-                activeTabId={activeTabId}
-                isDark={isDark}
-                onSelectTab={(id) => {
-                  setActiveTabId(id);
-                  setSelectedSessionIndex(null);
-                }}
-                onCloseTab={closeTab}
-              />
-            )}
+            <TabBar
+              tabs={tabs.filter(t => !t.isTornOff)}
+              activeTabId={activeTabId}
+              onSelectTab={(id) => {
+                setActiveTabId(id);
+                setSelectedSessionIndex(null);
+              }}
+              onCloseTab={closeTab}
+              onHomeClick={handleHomeClick}
+              isHomeActive={selectedSessionIndex === null && !activeTabId}
+              onSplit={() => { if (activePaneId) splitPane(activePaneId, 'hsplit', {}); }}
+              canSplit={!!activeTabId && !!activePaneId}
+            />
 
             <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
               
@@ -382,8 +389,8 @@ function App() {
                     initial={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
                     animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
                     exit={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
-                    transition={{ duration: 0.4, ease: CINEMATIC_OUT }}
-                    className="absolute inset-0 flex items-center justify-center overflow-y-auto overflow-x-hidden p-4 z-20 bg-transparent"
+                    transition={{ duration: 0.4, ease: DASHBOARD_EASE }}
+                    className="absolute inset-0 z-20 bg-transparent"
                   >
                     <NexusDashboard onConnect={handleConnect} />
                   </motion.div>
@@ -401,9 +408,12 @@ function App() {
                 error={error}
                 handleConnect={handleConnect}
                 syncProfiles={syncProfiles}
+                onCancel={handleHomeClick}
               />
 
             </div>
+
+            <StatusBar />
           </div>
         </div>
         )}
@@ -432,7 +442,7 @@ function App() {
         </AnimatePresence>
         <ToastProvider />
       </div>
-    </MoovierFocusProvider>
+    </>
   );
 }
 

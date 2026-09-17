@@ -1,8 +1,14 @@
 import { ipcMain } from 'electron';
+import { SecureCenter } from '../security/SecureCenter';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+/**
+ * NOTE: This module is currently isolated and NOT integrated with the modern AgentEngine or ToolRegistry.
+ * The workspace permissions logic here is inactive because AgentEngine does not currently invoke it.
+ * This is left for future Tectonium integration.
+ */
 export type AgentAccessLevel = 'Read-Only' | 'Runbook-Only' | 'Full-Access';
 
 export class AgentExecutor {
@@ -41,6 +47,13 @@ export function registerAgentHandlers(ipcMain: Electron.IpcMain) {
   ipcMain.handle('tectonium:trigger-agent', async (event, payload) => {
      console.log("[Tectonium RPC] Received autonomous deployment request.");
      
+     // 这条 channel 既不过 ToolRegistry 也不过 SSHBridge，SecureCenter 的
+     // 高危命令审计原本在这条路上是空的。preload 目前没暴露 invoke 端，
+     // 渲染进程打不到，但 channel 是开着的 —— 先把审计补上。
+     if (!SecureCenter.getInstance().auditPluginCommand(payload?.command || '')) {
+        return { success: false, error: 'BLOCKED: Command rejected by SecureCenter audit.' };
+     }
+
      // Evaluate permissions
      const result = await agentExecutor.executeProposal(payload.workspaceId || 'default', payload.command);
      if (!result.allowed) {

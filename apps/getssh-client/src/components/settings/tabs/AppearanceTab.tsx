@@ -271,25 +271,18 @@ export const AppearanceTab: React.FC = () => {
                 {t('appearance.enableGlassmorphism')}
               </h3>
               <button 
-                disabled={!isDark}
                 onClick={() => updateConfig('enableGlassmorphism', !appConfig.enableGlassmorphism)}
-                className={`relative w-12 h-6 rounded-xl border border-black/20 dark:border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-colors ${!isDark ? 'bg-slate-200 cursor-not-allowed' : appConfig.enableGlassmorphism ? 'bg-fuchsia-500' : 'bg-black/20 dark:bg-white/10'}`}
+                className={`relative w-12 h-6 rounded-xl border border-black/20 dark:border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-colors ${appConfig.enableGlassmorphism ? 'bg-fuchsia-500' : 'bg-black/20 dark:bg-white/10'}`}
               >
-                <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-xl transition-transform ${appConfig.enableGlassmorphism && isDark ? 'translate-x-6' : 'translate-x-0'}`} />
+                <div className={`absolute top-1 left-1 bg-white shadow-sm w-4 h-4 rounded-xl transition-transform ${appConfig.enableGlassmorphism ? 'translate-x-6' : 'translate-x-0'}`} />
               </button>
             </div>
-            {!isDark ? (
-              <div className="text-[10px] text-orange-500/80 font-bold tracking-widest uppercase ml-1">
-                * {t('appearance.glassmorphismOnlyDark')}
-              </div>
-            ) : (
-              <div className={`text-[10px] uppercase tracking-widest font-bold ml-1 ${appConfig.enableGlassmorphism ? 'text-fuchsia-400' : 'text-white/30'}`}>
-                {appConfig.enableGlassmorphism ? 'Active' : 'Disabled'}
-              </div>
-            )}
+            <div className={`text-[10px] uppercase tracking-widest font-bold ml-1 ${appConfig.enableGlassmorphism ? (isDark ? 'text-fuchsia-400' : 'text-fuchsia-500') : (isDark ? 'text-white/30' : 'text-black/30')}`}>
+              {appConfig.enableGlassmorphism ? 'Active' : 'Disabled'}
+            </div>
           </div>
           
-          {isDark && appConfig.enableGlassmorphism && (
+          {appConfig.enableGlassmorphism && (
             <div className={`p-4 rounded-2xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
               <div className={`flex p-1.5 rounded-[1.25rem] ${isDark ? 'bg-black/30 shadow-inner border border-white/5' : 'bg-black/5'}`}>
                 {[0.25, 0.5, 0.75, 1].map(op => {
@@ -298,7 +291,7 @@ export const AppearanceTab: React.FC = () => {
                     <button 
                       key={op}
                       onClick={() => updateConfig('bgOpacity', op)}
-                      className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-300 ${active ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/5'}`}
+                      className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-300 ${active ? (isDark ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-white/10' : 'bg-white shadow-sm text-slate-800') : (isDark ? 'text-white/40 hover:text-white/70 hover:bg-white/5' : 'text-slate-500 hover:text-slate-800 hover:bg-black/5')}`}
                     >
                       {Math.round(op * 100)}%
                     </button>

@@ -118,7 +118,7 @@ Workspace 2.0 将不再仅仅是静态的资产分类，而是演进为一个**�
   * **危险分级（dangerLevel）**：对于 `high` 级别命令，UI 将强制弹出二次确认弹窗并执行背景高亮警告（如琥珀色呼吸灯）。
   * **MFA 机制**：若 `requireMfa: true`，将触发一次应用级别的面容 ID/指纹解锁（Biometric Auth）或 Vault 主密码校验，通过后方可下发命令。
 
-### 3.4 物理级会话录制与安全审计日志 (Session Auditing Stream)
+### 3.4 底层会话录制与安全审计日志 (Session Auditing Stream)
 为了满足金融、电力等敏感行业的等保合规要求，工作区提供纯原生的二进制会话流审计记录。
 
 * **录制协议与格式**：采用标准开源的 **Asciinema (v2)** 协议规范。数据记录为 Gzipped JSON 行式文件：

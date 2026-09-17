@@ -41,8 +41,19 @@ try {
 }
 
 function normalizeRemotePath(p: string): string | null {
-  if (typeof p !== 'string') return null;
-  return require('node:path').posix.normalize(p);
+  if (typeof p !== 'string' || p.length === 0) return null;
+  // NUL 截断：底层 C 侧按 NUL 结尾会把后半段丢掉，路径变成另一个
+  if (p.includes('\0')) return null;
+
+  const normalized = require('node:path').posix.normalize(p);
+
+  // 归一化后仍以 .. 开头 = 这条路径要跳出起点。
+  // 绝对路径经 normalize 已把 .. 折叠干净（/a/../../etc -> /etc），
+  // 只有相对路径会把 .. 留下来（../../etc/passwd 原样保留），
+  // 之前直接透传，等于没拦。
+  if (normalized === '..' || normalized.startsWith('../')) return null;
+
+  return normalized;
 }
 
 export function registerSftpHandlers(ipcMain: Electron.IpcMain) {

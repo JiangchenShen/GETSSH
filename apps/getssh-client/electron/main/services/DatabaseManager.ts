@@ -25,17 +25,123 @@ export interface ProfileRow {
   privateKeyPath?: string | null;
   passphrase?: string | null;
   port?: number;
-  autoStart: number;
+  autoStart: number | boolean;
   alias?: string | null;
   osType?: string | null;
+  protocol?: 'ssh' | 'local' | 'telnet' | 'auto' | null;
+  groupName?: string | null;
+  group?: string | null;
+  useKeepAlive?: number | boolean | null;
+  authType?: 'password' | 'key' | null;
+  proxyJump?: string | null;
+  strictHostKeyChecking?: number | boolean | null;
+  initialDirectory?: string | null;
+  postConnectScript?: string | null;
+  themeOverride?: string | null;
+}
+
+export interface AiMemoryVectorRow {
+  workspace_id: string;
+  message_id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  embedding: Buffer;
+  dimensions: number;
+  content_hash: string;
+  timestamp: number;
+}
+
+export interface AiMemoryMessageRow {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
 }
 
 export class DatabaseManager {
   private static mainDb: Database.Database | null = null;
   private static workspaceDbs: Map<string, Database.Database> = new Map();
   private static baseDir: string = '';
+  private static mainDbEncrypted = false;
+
+  private static readonly SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'utf8');
 
   public static getDb(): any { return this.mainDb; }
+
+  private static isPlaintextSqliteDatabase(dbPath: string): boolean {
+    if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size < this.SQLITE_HEADER.length) {
+      return false;
+    }
+
+    const fd = fs.openSync(dbPath, 'r');
+    const header = Buffer.alloc(this.SQLITE_HEADER.length);
+    try {
+      const bytesRead = fs.readSync(fd, header, 0, header.length, 0);
+      return bytesRead === header.length && header.equals(this.SQLITE_HEADER);
+    } finally {
+      header.fill(0);
+      fs.closeSync(fd);
+    }
+  }
+
+  /**
+   * Older V3 previews could create main.db before the app-key path was active.
+   * Upgrade that plaintext metadata database through a verified temporary copy,
+   * then atomically replace it. Workspace profile databases are not touched.
+   */
+  private static encryptLegacyPlaintextMainDatabase(dbPath: string, appKeyBuffer: Buffer): void {
+    const tempPath = `${dbPath}.encrypting-${process.pid}-${Date.now()}`;
+    let sourceDb: Database.Database | null = null;
+    let candidateDb: Database.Database | null = null;
+    let verifierDb: Database.Database | null = null;
+
+    const assertIntegrity = (db: Database.Database) => {
+      const row = db.prepare('PRAGMA integrity_check').get() as Record<string, unknown> | undefined;
+      if (!row || Object.values(row)[0] !== 'ok') {
+        throw new Error('SQLite integrity check failed');
+      }
+    };
+
+    try {
+      sourceDb = new Database(dbPath);
+      assertIntegrity(sourceDb);
+      // Fold any committed WAL pages into the database before taking the copy.
+      sourceDb.pragma('journal_mode = DELETE');
+      sourceDb.close();
+      sourceDb = null;
+
+      fs.copyFileSync(dbPath, tempPath, fs.constants.COPYFILE_EXCL);
+      fs.chmodSync(tempPath, 0o600);
+
+      candidateDb = new Database(tempPath);
+      candidateDb.pragma("cipher = 'sqlcipher'");
+      candidateDb.rekey(appKeyBuffer);
+      assertIntegrity(candidateDb);
+      candidateDb.close();
+      candidateDb = null;
+
+      verifierDb = new Database(tempPath, { readonly: true, fileMustExist: true });
+      verifierDb.pragma("cipher = 'sqlcipher'");
+      verifierDb.key(appKeyBuffer);
+      assertIntegrity(verifierDb);
+      verifierDb.close();
+      verifierDb = null;
+
+      // rename() replaces a file atomically on supported desktop filesystems.
+      fs.renameSync(tempPath, dbPath);
+      fs.chmodSync(dbPath, 0o600);
+      console.log('[DatabaseManager] Upgraded legacy plaintext main.db to app-key SQLCipher.');
+    } catch (error) {
+      try { sourceDb?.close(); } catch {}
+      try { candidateDb?.close(); } catch {}
+      try { verifierDb?.close(); } catch {}
+      try { fs.rmSync(tempPath, { force: true }); } catch {}
+      try { fs.rmSync(`${tempPath}-wal`, { force: true }); } catch {}
+      try { fs.rmSync(`${tempPath}-shm`, { force: true }); } catch {}
+      throw error;
+    }
+  }
 
   public static init(appKeyBuffer: Buffer | null = null) {
     if (this.mainDb) return;
@@ -57,23 +163,36 @@ export class DatabaseManager {
       this.performFissionMigration(legacyDbPath, mainDbPath, appKeyBuffer);
     }
 
-    this.mainDb = new Database(mainDbPath);
-
-    if (appKeyBuffer) {
-      this.mainDb.pragma(`cipher = 'sqlcipher'`);
-      this.mainDb.pragma(`key = '${appKeyBuffer.toString('utf8')}'`);
+    if (appKeyBuffer && this.isPlaintextSqliteDatabase(mainDbPath)) {
+      this.encryptLegacyPlaintextMainDatabase(mainDbPath, appKeyBuffer);
     }
 
-    this.mainDb.pragma('journal_mode = WAL');
-    this.mainDb.pragma('synchronous = NORMAL');
-    this.mainDb.pragma('foreign_keys = ON');
+    const mainDb = new Database(mainDbPath);
+    try {
+      if (appKeyBuffer) {
+        mainDb.pragma("cipher = 'sqlcipher'");
+        mainDb.key(appKeyBuffer);
+      }
 
-    this.runMainMigrations();
+      // Force key validation before exposing the handle to any IPC path.
+      mainDb.prepare('SELECT count(*) AS count FROM sqlite_master').get();
+      mainDb.pragma('journal_mode = WAL');
+      mainDb.pragma('synchronous = NORMAL');
+      mainDb.pragma('foreign_keys = ON');
 
-    // The legacy migration from JSON should still run if no db existed at all
-    if (!needsFissionMigration && !fs.existsSync(legacyDbPath)) {
-       // Only run JSON migration if neither main.db nor getssh.db existed
-       this.migrateLegacyJsonData(this.baseDir);
+      this.mainDb = mainDb;
+      this.mainDbEncrypted = Boolean(appKeyBuffer);
+      this.runMainMigrations();
+
+      // The legacy migration from JSON should still run if no db existed at all
+      if (!needsFissionMigration && !fs.existsSync(legacyDbPath)) {
+        this.migrateLegacyJsonData(this.baseDir);
+      }
+    } catch (error) {
+      try { mainDb.close(); } catch {}
+      this.mainDb = null;
+      this.mainDbEncrypted = false;
+      throw error;
     }
   }
 
@@ -90,7 +209,12 @@ export class DatabaseManager {
       
       if (password) {
         db.pragma(`cipher = 'sqlcipher'`);
-        db.pragma(`key = '${password}'`);
+        const keyBuffer = Buffer.from(password, 'utf8');
+        try {
+          db.key(keyBuffer);
+        } finally {
+          keyBuffer.fill(0);
+        }
       }
 
       db.pragma('journal_mode = WAL');
@@ -134,7 +258,7 @@ export class DatabaseManager {
       const legacyDb = new Database(legacyPath);
       if (appKeyBuffer) {
         legacyDb.pragma(`cipher = 'sqlcipher'`);
-        legacyDb.pragma(`key = '${appKeyBuffer.toString('utf8')}'`);
+        legacyDb.key(appKeyBuffer);
       }
 
       // Check if it's readable
@@ -144,7 +268,7 @@ export class DatabaseManager {
       const mainDb = new Database(mainPath);
       if (appKeyBuffer) {
         mainDb.pragma(`cipher = 'sqlcipher'`);
-        mainDb.pragma(`key = '${appKeyBuffer.toString('utf8')}'`);
+        mainDb.key(appKeyBuffer);
       }
       this.mainDb = mainDb;
       this.runMainMigrations();
@@ -321,6 +445,28 @@ export class DatabaseManager {
       )
     `);
 
+    // Local semantic-memory vectors live in the app-key SQLCipher database.
+    // Message text remains in its workspace database; this table contains only
+    // encrypted-at-rest numeric vectors and identifiers used for bounded scans.
+    this.mainDb.exec(`
+      CREATE TABLE IF NOT EXISTS ai_memory_vectors (
+        workspace_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        embedding BLOB NOT NULL,
+        dimensions INTEGER NOT NULL,
+        content_hash TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, message_id),
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_memory_workspace_time
+        ON ai_memory_vectors(workspace_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_memory_workspace_session
+        ON ai_memory_vectors(workspace_id, session_id);
+    `);
+
     try {
       this.mainDb.exec(`ALTER TABLE workspaces ADD COLUMN is_main INTEGER DEFAULT 0;`);
     } catch (e) {
@@ -360,7 +506,16 @@ export class DatabaseManager {
         port INTEGER DEFAULT 22,
         autoStart INTEGER DEFAULT 0,
         alias TEXT,
-        osType TEXT
+        osType TEXT,
+        protocol TEXT DEFAULT 'ssh',
+        groupName TEXT,
+        useKeepAlive INTEGER DEFAULT 1,
+        authType TEXT DEFAULT 'password',
+        proxyJump TEXT,
+        strictHostKeyChecking INTEGER DEFAULT 0,
+        initialDirectory TEXT,
+        postConnectScript TEXT,
+        themeOverride TEXT
       );
 
       CREATE TABLE IF NOT EXISTS runbooks (
@@ -406,10 +561,24 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_ai_messages_session_id ON ai_messages(session_id);
     `);
 
-    try {
-      db.exec(`ALTER TABLE profiles ADD COLUMN passphrase TEXT;`);
-    } catch (e) {
-      // Column already exists
+    const profileColumns = [
+      ['passphrase', 'TEXT'],
+      ['protocol', "TEXT DEFAULT 'ssh'"],
+      ['groupName', 'TEXT'],
+      ['useKeepAlive', 'INTEGER DEFAULT 1'],
+      ['authType', "TEXT DEFAULT 'password'"],
+      ['proxyJump', 'TEXT'],
+      ['strictHostKeyChecking', 'INTEGER DEFAULT 0'],
+      ['initialDirectory', 'TEXT'],
+      ['postConnectScript', 'TEXT'],
+      ['themeOverride', 'TEXT'],
+    ] as const;
+    for (const [name, definition] of profileColumns) {
+      try {
+        db.exec(`ALTER TABLE profiles ADD COLUMN ${name} ${definition};`);
+      } catch {
+        // Existing databases already have some or all of these columns.
+      }
     }
   }
 
@@ -454,7 +623,11 @@ export class DatabaseManager {
       throw new Error('Cannot delete main workspace');
     }
     
-    this.mainDb.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    const transaction = this.mainDb.transaction(() => {
+      this.mainDb!.prepare('DELETE FROM ai_memory_vectors WHERE workspace_id = ?').run(workspaceId);
+      this.mainDb!.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    });
+    transaction();
 
     // Physically delete the workspace sub-database file
     this.unmountWorkspace(workspaceId);
@@ -489,7 +662,14 @@ export class DatabaseManager {
   public static getProfiles(workspaceId: string): ProfileRow[] {
     const db = this.getWorkspaceDb(workspaceId);
     if (!db) return [];
-    return db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(workspaceId) as ProfileRow[];
+    const rows = db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(workspaceId) as ProfileRow[];
+    return rows.map(profile => ({
+      ...profile,
+      group: profile.groupName || undefined,
+      autoStart: Boolean(profile.autoStart),
+      useKeepAlive: profile.useKeepAlive !== 0,
+      strictHostKeyChecking: Boolean(profile.strictHostKeyChecking),
+    }));
   }
 
   public static saveProfiles(workspaceId: string, profiles: ProfileRow[]) {
@@ -499,11 +679,17 @@ export class DatabaseManager {
     const transaction = db.transaction(() => {
       db.prepare('DELETE FROM profiles WHERE workspace_id = ?').run(workspaceId);
       const insertStmt = db.prepare(`
-        INSERT INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType, protocol, groupName, useKeepAlive, authType, proxyJump, strictHostKeyChecking, initialDirectory, postConnectScript, themeOverride)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of profiles) {
-        insertStmt.run(p.id, p.workspace_id, p.host, p.username, p.password || null, p.privateKeyPath || null, p.passphrase || null, p.port, p.autoStart ? 1 : 0, p.alias || null, p.osType || null);
+        insertStmt.run(
+          p.id, p.workspace_id, p.host, p.username, p.password || null, p.privateKeyPath || null,
+          p.passphrase || null, p.port, p.autoStart ? 1 : 0, p.alias || null, p.osType || null,
+          p.protocol || 'ssh', p.groupName || p.group || (p as any).groupId || null, p.useKeepAlive === false || p.useKeepAlive === 0 ? 0 : 1,
+          p.authType || 'password', p.proxyJump || null, p.strictHostKeyChecking ? 1 : 0,
+          p.initialDirectory || null, p.postConnectScript || null, p.themeOverride || null
+        );
       }
     });
     transaction();
@@ -577,6 +763,106 @@ export class DatabaseManager {
     const db = this.getWorkspaceDb(workspaceId);
     if (!db) return;
     db.prepare('DELETE FROM ai_sessions WHERE id = ?').run(id);
+  }
+
+  // --- Encrypted local semantic memory (Main SQLCipher DB) ---
+
+  public static isEncryptedAiMemoryAvailable(): boolean {
+    return Boolean(this.mainDb && this.mainDbEncrypted);
+  }
+
+  public static upsertAiMemoryVector(row: AiMemoryVectorRow): void {
+    if (!this.mainDb || !this.mainDbEncrypted) return;
+    this.mainDb.prepare(`
+      INSERT INTO ai_memory_vectors (
+        workspace_id, message_id, session_id, role, embedding,
+        dimensions, content_hash, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(workspace_id, message_id) DO UPDATE SET
+        session_id = excluded.session_id,
+        role = excluded.role,
+        embedding = excluded.embedding,
+        dimensions = excluded.dimensions,
+        content_hash = excluded.content_hash,
+        timestamp = excluded.timestamp
+    `).run(
+      row.workspace_id,
+      row.message_id,
+      row.session_id,
+      row.role,
+      row.embedding,
+      row.dimensions,
+      row.content_hash,
+      row.timestamp
+    );
+  }
+
+  public static deleteAiMemoryMessage(workspaceId: string, messageId: string): void {
+    if (!this.mainDb || !this.mainDbEncrypted) return;
+    this.mainDb.prepare(
+      'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND message_id = ?'
+    ).run(workspaceId, messageId);
+  }
+
+  public static deleteAiMemorySession(workspaceId: string, sessionId: string): void {
+    if (!this.mainDb || !this.mainDbEncrypted) return;
+    this.mainDb.prepare(
+      'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND session_id = ?'
+    ).run(workspaceId, sessionId);
+  }
+
+  public static getAiMemoryVectors(
+    workspaceId: string,
+    limit: number,
+    excludeSessionId?: string
+  ): AiMemoryVectorRow[] {
+    if (!this.mainDb || !this.mainDbEncrypted) return [];
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 2_000));
+    if (excludeSessionId) {
+      return this.mainDb.prepare(`
+        SELECT workspace_id, message_id, session_id, role, embedding,
+               dimensions, content_hash, timestamp
+        FROM ai_memory_vectors
+        WHERE workspace_id = ? AND session_id <> ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `).all(workspaceId, excludeSessionId, boundedLimit) as AiMemoryVectorRow[];
+    }
+    return this.mainDb.prepare(`
+      SELECT workspace_id, message_id, session_id, role, embedding,
+             dimensions, content_hash, timestamp
+      FROM ai_memory_vectors
+      WHERE workspace_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `).all(workspaceId, boundedLimit) as AiMemoryVectorRow[];
+  }
+
+  public static getRecentAiMessagesForMemory(workspaceId: string, limit: number): AiMemoryMessageRow[] {
+    const db = this.getWorkspaceDb(workspaceId);
+    if (!db) return [];
+    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 2_000));
+    return db.prepare(`
+      SELECT m.id, m.session_id, m.role, m.content, m.timestamp
+      FROM ai_messages m
+      INNER JOIN ai_sessions s ON s.id = m.session_id
+      WHERE s.workspace_id = ? AND m.role IN ('user', 'assistant')
+      ORDER BY m.timestamp DESC
+      LIMIT ?
+    `).all(workspaceId, boundedLimit) as AiMemoryMessageRow[];
+  }
+
+  public static getAiMessagesByIds(workspaceId: string, messageIds: string[]): AiMemoryMessageRow[] {
+    const db = this.getWorkspaceDb(workspaceId);
+    if (!db || messageIds.length === 0) return [];
+    const boundedIds = [...new Set(messageIds)].slice(0, 32);
+    const placeholders = boundedIds.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT m.id, m.session_id, m.role, m.content, m.timestamp
+      FROM ai_messages m
+      INNER JOIN ai_sessions s ON s.id = m.session_id
+      WHERE s.workspace_id = ? AND m.id IN (${placeholders})
+    `).all(workspaceId, ...boundedIds) as AiMemoryMessageRow[];
   }
 
   public static logAudit(workspaceId: string, action: string, target?: string, details?: string) {

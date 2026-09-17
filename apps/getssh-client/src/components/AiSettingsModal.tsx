@@ -2,11 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
+import { useAiStore } from '../store/aiStore';
 import { AiBridge } from '../services/aiBridge';
-import { Database, Globe, Key, RefreshCw, Cpu, BookOpen, Bot, Sparkles, TerminalSquare, Server, MessageSquare, Play, Check, Edit2, Trash2, Eye, Plus, X } from 'lucide-react';
+import { 
+  cleanModelId, 
+  isConversationalModel, 
+  formatModelDisplayName, 
+  isSameModel 
+} from '../utils/aiModelUtils';
+import { Database, Globe, Key, RefreshCw, Cpu, BookOpen, Bot, Sparkles, TerminalSquare, Server, MessageSquare, Play, Check, Edit2, Trash2, Eye, Plus, X, Zap, Info, Search, Brain } from 'lucide-react';
 import { PERSONAS } from '../utils/persona';
-
-
+import { McpTab } from './ai-center/McpTab';
 
 export const AiSettingsModal: React.FC = () => {
   const isDark = useAppStore(state => state.isDark);
@@ -14,7 +20,7 @@ export const AiSettingsModal: React.FC = () => {
   const updateConfig = useAppStore(state => state.updateConfig);
   const { t } = useTranslation();
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'agents' | 'providers' | 'models'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'agents' | 'providers' | 'models' | 'search' | 'mcp'>('overview');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchError, setFetchError] = useState('');
@@ -25,21 +31,54 @@ export const AiSettingsModal: React.FC = () => {
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [editingPromptData, setEditingPromptData] = useState<{id: string, title: string, desc: string, content: string, isBuiltin?: boolean} | null>(null);
 
+  // Search Test States
+  const [isTestingSearch, setIsTestingSearch] = useState(false);
+  const [testSearchResult, setTestSearchResult] = useState<{ success: boolean, message: string } | null>(null);
 
+
+
+  const handleTestSearch = async () => {
+    setIsTestingSearch(true);
+    setTestSearchResult(null);
+    try {
+      const config = {
+        enabled: true,
+        provider: appConfig.aiSearchProvider || 'hybrid',
+        googleApiKey: appConfig.aiSearchGoogleApiKey,
+        googleCx: appConfig.aiSearchGoogleCx,
+        customUrl: appConfig.aiSearchCustomUrl
+      };
+      const res = await AiBridge.testSearch(config);
+      if (res.success) {
+        setTestSearchResult({ success: true, message: `Connection successful! Found ${res.count} results for 'GETSSH'.` });
+      } else {
+        setTestSearchResult({ success: false, message: res.error || 'Unknown error' });
+      }
+    } catch (err: any) {
+      setTestSearchResult({ success: false, message: err.message || 'Connection failed' });
+    } finally {
+      setIsTestingSearch(false);
+    }
+  };
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);
     setFetchError('');
     try {
-      const models = await AiBridge.getModels({
+      const rawModels = await AiBridge.getModels({
         provider: appConfig.aiProvider,
         endpoint: appConfig.aiEndpoint
       });
-      setAvailableModels(models);
+      const cleanList = (rawModels || [])
+        .map(cleanModelId)
+        .filter(isConversationalModel);
+      const uniqueModels = Array.from(new Set(cleanList));
+      setAvailableModels(uniqueModels);
       
       // Auto-select first model if the current one is not in the list
-      if (models.length > 0 && (!appConfig.aiModel || !models.includes(appConfig.aiModel))) {
-        updateConfig('aiModel', models[0]);
+      if (uniqueModels.length > 0 && (!appConfig.aiModel || !uniqueModels.some(m => isSameModel(m, appConfig.aiModel || '')))) {
+        updateConfig('aiModel', uniqueModels[0]);
+        useAiStore.getState().updateAiConfig('aiModel', uniqueModels[0]);
       }
     } catch (err: any) {
       setFetchError(err.message || t('aiSettings.fetchError'));
@@ -59,7 +98,8 @@ export const AiSettingsModal: React.FC = () => {
     if (!tempApiKey.trim()) return;
     setIsSavingKey(true);
     try {
-      const res = await window.electronAPI.ai.saveApiKey(tempApiKey.trim());
+      const provider = appConfig.aiProvider || 'gemini';
+      const res = await window.electronAPI.ai.saveApiKey(tempApiKey.trim(), provider);
       if (res.success) {
         updateConfig('hasAiApiKey', true);
         setTempApiKey('');
@@ -73,7 +113,8 @@ export const AiSettingsModal: React.FC = () => {
 
   const handleDeleteApiKey = async () => {
     if (confirm('Are you sure you want to delete the bound API Key?')) {
-      const res = await window.electronAPI.ai.deleteApiKey();
+      const provider = appConfig.aiProvider || 'gemini';
+      const res = await window.electronAPI.ai.deleteApiKey(provider);
       if (res.success) {
         updateConfig('hasAiApiKey', false);
       }
@@ -120,10 +161,12 @@ export const AiSettingsModal: React.FC = () => {
                     <button onClick={() => setActiveTab('overview')} className={`${baseItemClass} ${activeTab === 'overview' ? activeItemClass : inactiveItemClass}`}><Globe className="w-4 h-4"/>{t('aiSettings.sidebar.dashboard', 'Dashboard')}</button>
                     <button onClick={() => setActiveTab('providers')} className={`${baseItemClass} ${activeTab === 'providers' ? activeItemClass : inactiveItemClass}`}><Server className="w-4 h-4"/>{t('aiSettings.sidebar.providers', 'Providers')}</button>
                     <button onClick={() => setActiveTab('models')} className={`${baseItemClass} ${activeTab === 'models' ? activeItemClass : inactiveItemClass}`}><Database className="w-4 h-4"/>{t('aiSettings.sidebar.models', 'Models')}</button>
+                    <button onClick={() => setActiveTab('search')} className={`${baseItemClass} ${activeTab === 'search' ? activeItemClass : inactiveItemClass}`}><Search className="w-4 h-4"/>{t('aiSettings.sidebar.search', 'Search')}</button>
                     
                     <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('aiSettings.sidebar.customization', 'Customization')}</div>
                     <button onClick={() => setActiveTab('prompts')} className={`${baseItemClass} ${activeTab === 'prompts' ? activeItemClass : inactiveItemClass}`}><BookOpen className="w-4 h-4"/>{t('aiSettings.sidebar.prompts', 'Prompts')}</button>
                     <button onClick={() => setActiveTab('agents')} className={`${baseItemClass} ${activeTab === 'agents' ? activeItemClass : inactiveItemClass}`}><Bot className="w-4 h-4"/>{t('aiSettings.sidebar.agents', 'Agents')}</button>
+                    <button onClick={() => setActiveTab('mcp')} className={`${baseItemClass} ${activeTab === 'mcp' ? activeItemClass : inactiveItemClass}`}><Cpu className="w-4 h-4"/>{t('aiSettings.sidebar.mcp', 'MCP Servers')}</button>
                   </>
                 );
               })()}
@@ -206,6 +249,20 @@ export const AiSettingsModal: React.FC = () => {
                            </div>
                          )}
                       </div>
+
+                      {/* Web Search Status Card — links to Search tab */}
+                      <button onClick={() => setActiveTab('search')} className={`relative p-6 rounded-[32px] border flex flex-col justify-center gap-2 overflow-hidden backdrop-blur-xl text-left transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? 'bg-white/5 border-white/5 hover:border-amber-500/30' : 'bg-white border-black/5 hover:border-amber-500/30'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className={`text-xs font-bold uppercase tracking-widest ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{t('aiSettings.webSearch', 'Web Search')}</div>
+                          <div className={`text-xs font-bold px-2 py-0.5 rounded-md ${appConfig.aiSearchEnabled ? 'bg-green-500/20 text-green-400' : (isDark ? 'bg-white/10 text-white/40' : 'bg-black/5 text-slate-400')}`}>
+                            {appConfig.aiSearchEnabled ? 'ON' : 'OFF'}
+                          </div>
+                        </div>
+                        <div className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                          {appConfig.aiSearchProvider === 'google' ? 'Google API' : appConfig.aiSearchProvider === 'searxng' ? 'SearXNG' : appConfig.aiSearchProvider === 'duckduckgo' ? 'DuckDuckGo' : appConfig.aiSearchProvider === 'bing' ? 'Bing' : 'Hybrid Fallback'}
+                          {' · '}{t('aiSettings.clickToConfigure', 'Click to configure →')}
+                        </div>
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -352,12 +409,30 @@ export const AiSettingsModal: React.FC = () => {
                       <div>
                         <label className={`block mb-2 text-sm font-bold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{t("aiSettings.providerArchitecture")}</label>
                         <select 
-                          value={appConfig.aiProvider || 'openai'} 
-                          onChange={(e) => updateConfig('aiProvider', e.target.value as any)}
+                          value={appConfig.aiProvider || 'gemini'} 
+                          onChange={(e) => {
+                            const newProv = e.target.value as any;
+                            updateConfig('aiProvider', newProv);
+                            useAiStore.getState().updateAiConfig('aiProvider', newProv);
+                            const defModel = 
+                              newProv === 'gemini' ? 'gemini-3.7-flash' :
+                              newProv === 'claude' ? 'claude-sonnet-5' :
+                              newProv === 'ollama' ? 'qwen2.5-coder' :
+                              newProv === 'deepseek' ? 'deepseek-v4-pro' :
+                              newProv === 'zhipu' ? 'glm-5.3' :
+                              newProv === 'kimi' ? 'kimi-k3' :
+                              'gpt-5.6-terra';
+                            updateConfig('aiModel', defModel);
+                            useAiStore.getState().updateAiConfig('aiModel', defModel);
+                          }}
                           className={`w-full px-4 py-3 border outline-none rounded-xl focus:border-amber-500/50 text-sm ${isDark ? 'text-white bg-black/40 border-white/10' : 'text-slate-900 bg-white border-black/10'}`}
                         >
                           <option value="openai">{t("aiSettings.providerOpenAI")}</option>
                           <option value="gemini">{t("aiSettings.providerGemini")}</option>
+                          <option value="claude">Claude (Anthropic)</option>
+                          <option value="deepseek">DeepSeek (深度求索)</option>
+                          <option value="zhipu">Zhipu GLM (智谱清言)</option>
+                          <option value="kimi">Moonshot Kimi (月之暗面)</option>
                           <option value="ollama">{t("aiSettings.providerOllama")}</option>
                           <option value="custom">{t("aiSettings.providerCustom")}</option>
                         </select>
@@ -420,7 +495,7 @@ export const AiSettingsModal: React.FC = () => {
                                   type="password" 
                                   value={tempApiKey} 
                                   onChange={(e) => setTempApiKey(e.target.value)}
-                                  placeholder={appConfig.aiProvider === 'gemini' ? "AIza..." : "sk-..."}
+                                  placeholder={appConfig.aiProvider === 'gemini' ? "AIza..." : appConfig.aiProvider === 'claude' ? "sk-ant-..." : "sk-..."}
                                   className={`w-full px-5 py-4 border outline-none rounded-2xl focus:border-amber-500/50 font-mono text-sm shadow-inner transition-colors ${isDark ? 'text-white bg-black/60 border-white/10' : 'text-slate-900 bg-slate-50 border-black/10'}`}
                                 />
                                 <div className="flex items-center justify-between">
@@ -476,11 +551,14 @@ export const AiSettingsModal: React.FC = () => {
                           <label className={`block mb-2 text-sm font-bold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{t("aiSettings.availableModels")}</label>
                           <select 
                             value={appConfig.aiModel || ''} 
-                            onChange={(e) => updateConfig('aiModel', e.target.value)}
+                            onChange={(e) => {
+                              updateConfig('aiModel', e.target.value);
+                              useAiStore.getState().updateAiConfig('aiModel', e.target.value);
+                            }}
                             className={`w-full px-4 py-3 border outline-none rounded-xl focus:border-amber-500/50 font-mono text-sm ${isDark ? 'text-white bg-black/40 border-white/10' : 'text-slate-900 bg-white border-black/10'}`}
                           >
                             {availableModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
+                              <option key={m} value={m}>{formatModelDisplayName(m)} ({m})</option>
                             ))}
                           </select>
                         </div>
@@ -492,14 +570,190 @@ export const AiSettingsModal: React.FC = () => {
                         <input 
                           type="text" 
                           value={appConfig.aiModel || ''} 
-                          onChange={(e) => updateConfig('aiModel', e.target.value)}
+                          onChange={(e) => {
+                            updateConfig('aiModel', e.target.value);
+                            useAiStore.getState().updateAiConfig('aiModel', e.target.value);
+                          }}
                           placeholder="e.g. gpt-4o, gemini-1.5-flash"
                           className={`w-full px-4 py-3 border outline-none rounded-xl focus:border-amber-500/50 font-mono text-sm ${isDark ? 'text-white bg-black/40 border-white/10' : 'text-slate-900 bg-white border-black/10'}`}
                         />
                         <p className={`mt-2 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{t("aiSettings.manualOverrideDesc")}</p>
                       </div>
+
+                      {/* Thinking Effort (CoT 思考深度) */}
+                      <div>
+                        <label className={`block mb-2 text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                          <Brain size={14} className="text-amber-500" />
+                          {t("aiSettings.thinkingEffortTitle", "Thinking Effort / 推理深度 (CoT)")}
+                        </label>
+                        <select
+                          value={appConfig.aiThinkingEffort || 'medium'}
+                          onChange={(e) => {
+                            updateConfig('aiThinkingEffort', e.target.value as any);
+                            useAiStore.getState().updateAiConfig('aiThinkingEffort', e.target.value as any);
+                          }}
+                          className={`w-full px-4 py-3 border outline-none rounded-xl focus:border-amber-500/50 text-sm ${isDark ? 'text-white bg-black/40 border-white/10' : 'text-slate-900 bg-white border-black/10'}`}
+                        >
+                          <option value="none">⚡ 关闭思考 (None / Off)</option>
+                          <option value="low">🌱 轻量思考 (Low - 极速响应)</option>
+                          <option value="medium">⚖️ 均衡推理 (Medium - 默认推荐)</option>
+                          <option value="high">🧠 深度推理 (High - 复杂运维排障)</option>
+                          {appConfig.aiProvider !== 'gemini' && (
+                            <>
+                              <option value="xhigh">🚀 超级推理 (XHigh - 更深更广)</option>
+                              <option value="max">🔥 极限探索 (Max - 最大算力)</option>
+                            </>
+                          )}
+                        </select>
+                        <p className={`mt-2 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                          {t("aiSettings.thinkingEffortDesc", "控制 OpenAI Responses、Claude Adaptive Thinking 与 Gemini 3.7+ 思考深度的全局默认级别。")}
+                        </p>
+                      </div>
+
+                      {/* Context Window Limit */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                            <Zap size={14} className="text-amber-500" />
+                            {t("aiSettings.contextSizeTitle", "Context Window (Tokens)")}
+                          </label>
+                          <span className={`text-xs font-mono font-bold px-2 py-1 rounded-md ${isDark ? 'bg-white/10 text-white' : 'bg-black/5 text-slate-800'}`}>
+                            {Math.round((appConfig.aiMaxTokens || 200000) / 1000)}K
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="4000"
+                          max="2000000"
+                          step="4000"
+                          value={appConfig.aiMaxTokens || 200000}
+                          onChange={(e) => updateConfig('aiMaxTokens', parseInt(e.target.value, 10))}
+                          className="w-full h-2 bg-amber-500/20 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400 focus:outline-none"
+                        />
+                        <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                          <Info size={12} className="mt-0.5 shrink-0" />
+                          {t("aiSettings.contextSizeDesc", "Limits terminal context to prevent exploding token usage. Adjust based on your model's maximum context length.")}
+                        </p>
+                      </div>
                     </div>
                   </motion.div>
+                )}
+
+                {/* 4. SEARCH TAB */}
+                {activeTab === 'search' && (
+                  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full">
+                    <div className="flex items-start justify-between mb-8">
+                      <div>
+                        <h3 className={`mb-2 text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{t('aiSettings.searchTitle', 'Web Search Configuration')}</h3>
+                        <p className={`${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t('aiSettings.searchDesc', 'Configure how the AI agent retrieves up-to-date information from the internet.')}</p>
+                      </div>
+                      
+                      {/* Master Web Search Toggle */}
+                      <button
+                        onClick={() => updateConfig('aiSearchEnabled', !appConfig.aiSearchEnabled)}
+                        className={`relative w-14 h-7 rounded-full border-2 transition-all duration-300 ${appConfig.aiSearchEnabled ? 'bg-amber-500 border-amber-400' : (isDark ? 'bg-black/40 border-white/20' : 'bg-slate-200 border-black/10')}`}
+                      >
+                        <div className={`absolute top-1/2 -translate-y-1/2 left-0.5 bg-white shadow-md w-5 h-5 rounded-full transition-all duration-300 ${appConfig.aiSearchEnabled ? 'translate-x-7 scale-110' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+
+                    <div className={`flex flex-col gap-6 transition-all duration-300 ${!appConfig.aiSearchEnabled ? 'opacity-30 pointer-events-none grayscale' : ''}`}>
+                      {/* Search Provider Selection */}
+                      <div>
+                        <label className={`block mb-2 text-sm font-bold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{t('aiSettings.searchProvider', 'Search Provider')}</label>
+                        <select 
+                          value={appConfig.aiSearchProvider || 'hybrid'} 
+                          onChange={(e) => updateConfig('aiSearchProvider', e.target.value as any)}
+                          className={`w-full px-4 py-3 border outline-none rounded-xl focus:border-amber-500/50 text-sm ${isDark ? 'text-white bg-black/40 border-white/10' : 'text-slate-900 bg-white border-black/10'}`}
+                        >
+                          <option value="hybrid">Hybrid Fallback (Recommended)</option>
+                          <option value="google">Google Custom Search API</option>
+                          <option value="searxng">SearXNG</option>
+                          <option value="duckduckgo">DuckDuckGo</option>
+                          <option value="bing">Bing</option>
+                        </select>
+                        <p className={`mt-2 text-xs leading-relaxed ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                          {appConfig.aiSearchProvider === 'hybrid' && 'Automatically cycles through SearXNG pool, DuckDuckGo, and Bing for maximum reliability.'}
+                          {appConfig.aiSearchProvider === 'google' && 'Provides the highest quality results but requires your own API Key and Search Engine ID (CX).'}
+                          {appConfig.aiSearchProvider === 'searxng' && 'Forces the use of SearXNG. You can provide a custom instance URL below.'}
+                          {appConfig.aiSearchProvider === 'duckduckgo' && 'Forces the use of DuckDuckGo HTML scraping.'}
+                          {appConfig.aiSearchProvider === 'bing' && 'Forces the use of Bing HTML scraping.'}
+                        </p>
+                      </div>
+
+                      {/* Google API Config */}
+                      {appConfig.aiSearchProvider === 'google' && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex flex-col gap-4 p-5 rounded-2xl border bg-amber-500/5 border-amber-500/20">
+                          <div>
+                            <label className={`block text-xs font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>API Key</label>
+                            <input 
+                              type="password"
+                              value={appConfig.aiSearchGoogleApiKey || ''}
+                              onChange={(e) => updateConfig('aiSearchGoogleApiKey', e.target.value)}
+                              placeholder="AIzaSy..."
+                              className={`w-full px-4 py-2.5 rounded-xl border outline-none text-sm font-mono ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-amber-500' : 'bg-white border-black/10 text-slate-900 focus:border-amber-500'}`}
+                            />
+                          </div>
+                          <div>
+                            <label className={`block text-xs font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Search Engine ID (CX)</label>
+                            <input 
+                              type="text"
+                              value={appConfig.aiSearchGoogleCx || ''}
+                              onChange={(e) => updateConfig('aiSearchGoogleCx', e.target.value)}
+                              placeholder="e.g. 12345abcdef"
+                              className={`w-full px-4 py-2.5 rounded-xl border outline-none text-sm font-mono ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-amber-500' : 'bg-white border-black/10 text-slate-900 focus:border-amber-500'}`}
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* SearXNG Custom URL Config */}
+                      {appConfig.aiSearchProvider === 'searxng' && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex flex-col gap-4 p-5 rounded-2xl border bg-amber-500/5 border-amber-500/20">
+                          <div>
+                            <label className={`block text-xs font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Custom Instance URL (Optional)</label>
+                            <input 
+                              type="text"
+                              value={appConfig.aiSearchCustomUrl || ''}
+                              onChange={(e) => updateConfig('aiSearchCustomUrl', e.target.value)}
+                              placeholder="e.g. http://127.0.0.1:8080"
+                              className={`w-full px-4 py-2.5 rounded-xl border outline-none text-sm font-mono ${isDark ? 'bg-black/40 border-white/10 text-white focus:border-amber-500' : 'bg-white border-black/10 text-slate-900 focus:border-amber-500'}`}
+                            />
+                            <p className={`mt-2 text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                              Leave empty to use the automatic public pool rotation.
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* Test Connection Button & Result */}
+                      <div className="flex flex-col gap-4 mt-2">
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={handleTestSearch}
+                            disabled={isTestingSearch}
+                            className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border bg-amber-500 text-amber-950 border-amber-500 hover:bg-amber-400 rounded-xl disabled:opacity-50 shadow-lg shadow-amber-500/20"
+                          >
+                            <RefreshCw size={14} className={isTestingSearch ? 'animate-spin' : ''} />
+                            {isTestingSearch ? t('aiSettings.testingConnection', 'Testing Connection...') : t('aiSettings.testConnection', 'Test Connection')}
+                          </button>
+                        </div>
+                        {testSearchResult && (
+                          <div className={`p-4 rounded-xl text-sm border font-mono whitespace-pre-wrap ${
+                            testSearchResult.success 
+                              ? 'bg-green-500/10 border-green-500/20 text-green-400' 
+                              : 'bg-red-500/10 border-red-500/20 text-red-400'
+                          }`}>
+                            {testSearchResult.message}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {activeTab === 'mcp' && (
+                  <McpTab />
                 )}
 
               </div>

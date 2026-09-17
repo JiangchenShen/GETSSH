@@ -13,17 +13,23 @@ declare global {
     username: string;
     password?: string;
     privateKeyPath?: string;
+    passphrase?: string;
     keepaliveInterval?: number;
     proxyType?: string;
     proxyHost?: string;
     proxyPort?: number;
     initScript?: string;
     alias?: string;
+    strictHostKeyChecking?: boolean;
+    initialDirectory?: string;
+    postConnectScript?: string;
+    themeOverride?: string;
   }
 
   interface Window {
     electronAPI: {
       getTheme: () => Promise<boolean>;
+      setTheme: (theme: 'system' | 'light' | 'dark') => Promise<void>;
       onThemeChanged: (cb: (isDark: boolean) => void) => (() => void);
       sshConnect: (config: SSHConnectConfig) => Promise<{ success: boolean; error?: string; sessionId?: string }>;
       sshWrite: (sessionId: string, data: string) => void;
@@ -31,7 +37,7 @@ declare global {
       sshDisconnect: (sessionId: string) => void;
       onSshData: (sessionId: string, cb: (data: string) => void) => (() => void);
       onSshClosed: (sessionId: string, cb: () => void) => (() => void);
-      updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => void;
+      updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => Promise<import('./types/ipc').BackendConfigUpdateResult>;
       selectFile: () => Promise<string | null>;
       getPathForFile: (file: File) => string;
       checkProfiles: () => Promise<{ status: 'encrypted' | 'plain' | 'none'; biometricEnabled: boolean }>;
@@ -128,20 +134,32 @@ declare global {
         switchWorkspace: (workspaceId: string) => Promise<{ success: boolean; error?: string; visualMeta?: any }>;
       };
       ai: {
-        invokePrivileged: (payload: { requestId: string, prompt: string, context?: string, endpoint?: string, apiKey?: string, provider?: string, model?: string }) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;
+        invokePrivileged: (payload: any) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;
         clearHistory: (workspaceId: string) => Promise<{ success: boolean }>;
         getModels: (payload: { endpoint?: string, apiKey?: string, provider?: string }) => Promise<{ success: boolean; models?: string[]; error?: string }>;
-        saveApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>;
-        deleteApiKey: () => Promise<{ success: boolean; error?: string }>;
+        saveApiKey: (apiKey: string, provider?: string) => Promise<{ success: boolean; error?: string }>;
+        deleteApiKey: (provider?: string) => Promise<{ success: boolean; error?: string }>;
         onStreamChunk: (requestId: string, cb: (payload: { chunk: string; isDone: boolean; error?: string }) => void) => () => void;
         getSessions: () => Promise<{ success: boolean; sessions: any[] }>;
         createSession: (id: string, title: string, timestamp: number) => Promise<{ success: boolean }>;
         saveMessage: (msg: any) => Promise<{ success: boolean }>;
         deleteSession: (id: string) => Promise<{ success: boolean }>;
         updateSessionTitle: (id: string, title: string) => Promise<{ success: boolean }>;
+        onAgentApprovalRequest: (cb: (payload: { requestId: string; command: string }) => void) => () => void;
+        onAgentGlobalAction: (cb: (payload: { type: string; target: string; execute?: string }) => void) => () => void;
         approveAgentAction: (requestId: string, approved: boolean) => void;
-        onAgentApprovalRequest: (cb: (payload: { requestId: string, command: string }) => void) => () => void;
-        onAgentGlobalAction: (cb: (payload: { action: string, target: string, execute: string }) => void) => () => void;
+        testSearch: (config: any) => Promise<{ success: boolean; count?: number; error?: string }>;
+      };
+      mcp: {
+        getServers: () => Promise<{ success: boolean; servers?: any[]; error?: string }>;
+        addServer: (config: any) => Promise<{ success: boolean; server?: any; error?: string }>;
+        updateServer: (id: string, updates: any) => Promise<{ success: boolean; server?: any; error?: string }>;
+        removeServer: (id: string) => Promise<{ success: boolean; error?: string }>;
+        restartServer: (id: string) => Promise<{ success: boolean; tools?: any[]; resources?: any[]; prompts?: any[]; error?: string }>;
+        getResources: () => Promise<{ success: boolean; resources?: Array<{ serverName: string; serverId: string; resource: any }>; error?: string }>;
+        readResource: (serverId: string, uri: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getPrompts: () => Promise<{ success: boolean; prompts?: Array<{ serverName: string; serverId: string; prompt: any }>; error?: string }>;
+        getPrompt: (serverId: string, name: string, args?: Record<string, string>) => Promise<{ success: boolean; prompt?: any; error?: string }>;
       };
     };
   }

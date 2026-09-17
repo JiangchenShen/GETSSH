@@ -1,20 +1,31 @@
 {
   "name": "getssh",
   "version": "3.0.0-F0A0G-PREVIEW",
+  "packageManager": "pnpm@11.2.2",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
   "author": "Shen Jiangchen <shenjiangchen@example.com>",
   "scripts": {
+    "prebuild": "node -e \"if (!['darwin', 'win32'].includes(process.platform)) throw new Error('GETSSH desktop builds are supported only on macOS and Windows.')\"",
     "dev": "vite",
-    "build": "pnpm run build:watchdog && vite build && electron-builder",
-    "build:watchdog": "cd ../../rust-core/watchdog && cargo build --release",
+    "postinstall": "electron-builder install-app-deps",
+    "build": "pnpm run build:native-tools && vite build && electron-builder",
+    "build:native-tools": "cargo build --release -p watchdog -p getssh-process-sandbox",
+    "build:watchdog": "cargo build --release -p watchdog",
     "build:plugin": "node scripts/package-plugin.js",
     "preview": "vite preview",
     "test": "vitest",
+    "test:plugin-isolation": "electron scripts/security/plugin-host-smoke.cjs",
+    "test:plugin-network": "vitest run electron/main/services/plugin/PluginNetworkGateway.test.ts --environment node",
+    "test:plugin-sandbox": "vitest run electron/main/services/plugin/PluginProcessSandbox.test.ts --environment node",
+    "test:database-encryption": "electron scripts/security/database-key-smoke.cjs",
+    "test:local-memory": "vitest run electron/main/services/LocalMemoryService.test.ts --environment node",
+    "test:sentinel": "vitest run electron/main/services/SentinelGateway.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
+    "test:mcp-sandbox": "vitest run electron/main/services/mcp/McpProcessSandbox.test.ts --environment node",
+    "test:packaged-startup": "node scripts/security/packaged-startup-smoke.cjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@moovier/core": "workspace:*",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xterm/addon-serialize": "^0.14.0",
     "adm-zip": "^0.5.18",
@@ -73,7 +84,6 @@
   "build": {
     "appId": "com.getssh.app",
     "productName": "GETSSH",
-    "npmRebuild": false,
     "publish": {
       "provider": "github",
       "owner": "JiangchenShen",
@@ -104,8 +114,13 @@
     ],
     "extraResources": [
       {
-        "from": "../../target/release/watchdog",
-        "to": "watchdog"
+        "from": "../../target/release",
+        "to": ".",
+        "filter": [
+          "watchdog",
+          "watchdog.exe",
+          "getssh-sandbox.exe"
+        ]
       },
       {
         "from": "../../rust-core/getssh-kv",
@@ -268,18 +283,6 @@
     "compression": "maximum",
     "removePackageScripts": true,
     "removePackageKeywords": true,
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "category": "Utility"
-    },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
@@ -290,13 +293,5 @@
       "shortcutName": "GETSSH",
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     }
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "electron-builder",
-      "node-pty",
-      "esbuild"
-    ]
   }
 }

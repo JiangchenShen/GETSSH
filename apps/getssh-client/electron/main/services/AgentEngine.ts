@@ -1,10 +1,10 @@
-import { streamLLM } from './llmService';
-import { sshBridge } from './SSHBridge';
-import { SecureCenter } from '../security/SecureCenter';
+import { streamTurnLLM, LlmRequest, Turn, Block, UnifiedTool } from './llmService';
+import { toolRegistry } from './agent/ToolRegistry';
+import { ToolExecutionContext } from './agent/types';
 
 export class AgentEngine {
   /**
-   * Run the Autonomous ReAct Loop
+   * Run the Autonomous ReAct Loop with Native Tool Calling & Block/Turn Continuity
    */
   static async runAgentLoop(
     endpoint: string,
@@ -14,226 +14,348 @@ export class AgentEngine {
     prompt: string,
     context: string,
     sessionId: string,
+    workspaceId: string | undefined,
     mode: string,
     requestId: string,
+    aiMaxTokens: number,
+    searchConfig: any,
     onChunk: (chunk: string) => void,
     onDone: () => void,
     onError: (error: Error) => void,
-    askApproval?: (command: string) => Promise<boolean>
+    askApproval?: (command: string) => Promise<boolean>,
+    onGlobalAction?: (payload: any) => void,
+    thinkingEffort?: any
   ) {
-    let currentPrompt = prompt;
-    let currentContext = context;
+    // ── Mode Guard ───────────────────────────────────────────────────────
+    if (mode !== 'agent_full' && mode !== 'agent_semi') {
+      const rejectionPrompt = `[SYSTEM REJECTION]: Your current permission level is "${mode}". You do NOT have permission to use any tools or execute any commands. Inform the user that they need to switch to Agent mode (Full Takeover or Semi-Takeover) in the AI settings to enable tool execution. Do NOT pretend you executed anything.`;
+      
+      const req: LlmRequest = {
+        endpoint,
+        apiKey,
+        model,
+        prompt: rejectionPrompt,
+        context,
+        thinkingEffort: thinkingEffort || 'medium',
+        store: false
+      };
+      streamTurnLLM(provider, req, {
+        onChunk,
+        onDone: () => onDone(),
+        onError
+      });
+      return;
+    }
+
     let loopCount = 0;
-    const MAX_LOOPS = 10; // Prevent infinite loops
+    const MAX_LOOPS = 15;
 
-    const systemInstructions = sessionId ? `
-You are an autonomous AI Agent operating within the GETSSH terminal environment.
-You have the ability to read the terminal and execute commands directly on the user's server.
+    const ctx: ToolExecutionContext = {
+      sessionId,
+      workspaceId,
+      mode,
+      aiMaxTokens,
+      searchConfig,
+      onChunk,
+      askApproval,
+      onGlobalAction
+    };
 
-If you need to execute a command to achieve your goal, use the following exact syntax:
-<EXECUTE>
-your_command_here
-</EXECUTE>
+    // 工具清单每轮重算：MCP server 是可以在 Agent 跑起来之后才连上的，
+    // 在循环外算一次的话，本轮之内新连的 server 一直不可见。
+    const buildTools = (): UnifiedTool[] =>
+      toolRegistry
+        .getAvailableTools({
+          hasSession: !!sessionId,
+          searchEnabled: searchConfig?.enabled !== false
+        })
+        .map(t => ({
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters || {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        }));
 
-When you output this tag, I will IMMEDIATELY execute the command, capture its output, and provide it to you in the next turn. 
-DO NOT output multiple commands in separate EXECUTE tags in the same response. Wait for the output of the first command before deciding what to do next.
+    // Initialize multi-turn history with system context and initial user prompt
+    const history: Turn[] = [];
+    if (context) {
+      history.push({
+        role: 'system',
+        blocks: [{ kind: 'text', text: context }]
+      });
+    }
+    history.push({
+      role: 'user',
+      blocks: [{ kind: 'text', text: prompt }]
+    });
 
-If you have achieved the goal or need to ask the user a question before proceeding, simply reply with your explanation and DO NOT use the <EXECUTE> tag.
-
-CRITICAL: Keep your responses concise. Explain what you are doing briefly.
-    ` : `
-You are an autonomous AI Agent operating in the GETSSH Global Dispatch Center.
-You have the ability to open connections to the user's saved servers and inject initialization scripts (like sudo -i).
-
-If you need to connect to a server, use the following exact JSON syntax:
-<GLOBAL_ACTION>
-{
-  "action": "open_session",
-  "target": "server alias or host here",
-  "execute": "optional command to run after connecting (e.g. sudo -i)"
-}
-</GLOBAL_ACTION>
-
-When you output this tag, I will IMMEDIATELY open the connection for the user and run the script.
-DO NOT use the <EXECUTE> tag. Use ONLY <GLOBAL_ACTION>.
-
-CRITICAL: Keep your responses concise. Explain what you are doing briefly.
-    `;
-
-    // Prepend system instructions
-    currentContext = systemInstructions + '\n\n' + currentContext;
-
-    const runTurn = () => {
+    const runTurn = async () => {
       if (loopCount >= MAX_LOOPS) {
-        onChunk('\n[AGENT ALERT] Maximum autonomous steps reached. Stopping to prevent runaways.\n');
+        onChunk('\n⚠️ **[AGENT]** 已达到最大自主执行步数，自动停止以防止失控。\n');
         onDone();
         return;
       }
       loopCount++;
 
-      let buffer = '';
-      let isExecuting = false;
-      let executeCommandStr = '';
-      const startTag = sessionId ? '<EXECUTE>' : '<GLOBAL_ACTION>';
-      const endTag = sessionId ? '</EXECUTE>' : '</GLOBAL_ACTION>';
+      let isExecutingLegacyAction = false;
+      let legacyActionStr = '';
+      let textBuffer = '';
+      const startTag = '<ACTION>';
+      const endTag = '</ACTION>';
+      let hasThoughtStarted = false;
+      let hasThoughtEnded = false;
 
-      streamLLM(
+      const request: LlmRequest = {
         endpoint,
         apiKey,
-        provider,
         model,
-        currentPrompt,
-        currentContext,
-        (chunk) => {
-          if (isExecuting) {
-             executeCommandStr += chunk;
-             return;
-          }
-          
-          buffer += chunk;
-          
-          // Check for start tag
-          const executeStartMatch = buffer.indexOf(startTag);
-          if (executeStartMatch !== -1) {
-            // We found the start tag. Send everything before it to the user.
-            const beforeStart = buffer.substring(0, executeStartMatch);
-            if (beforeStart.trim()) {
-              // Note: chunk is appended to buffer, so the beforeStart might contain previously emitted characters.
-              // To be perfectly precise, it's safer to intercept earlier, but since we just stream it's fine 
-              // if we only intercept once we see the tag. Actually, to avoid emitting `<EXE`, we should probably 
-              // use a more robust interceptor, but for simplicity we'll just let the `<EXECUTE` get swallowed and execute.
-            }
-            isExecuting = true;
-            executeCommandStr = buffer.substring(executeStartMatch + startTag.length);
-            buffer = '';
-            
-            // Check if end tag is already in this chunk
-            const executeEndMatch = executeCommandStr.indexOf(endTag);
-            if (executeEndMatch !== -1) {
-               const cmd = executeCommandStr.substring(0, executeEndMatch).trim();
-               executeCommandStr = cmd;
-               // We will handle the execution in onDone to ensure LLM stream is properly closed for this turn.
-            }
-            return;
-          }
+        history,
+        tools: buildTools(),
+        toolChoice: 'auto',
+        thinkingEffort: thinkingEffort || 'medium',
+        store: false
+      };
 
-          if (!isExecuting) {
-             // Basic protection to hide the `<EXECUTE` tag if it's arriving in chunks
-             if (!buffer.includes('<') || buffer.length > 20) {
-                 // Safe to emit
-             }
-             onChunk(chunk);
-          }
-        },
-        async () => {
-          if (isExecuting) {
-             let finalCommand = executeCommandStr;
-             const executeEndMatch = finalCommand.indexOf(endTag);
-             if (executeEndMatch !== -1) {
-               finalCommand = finalCommand.substring(0, executeEndMatch);
-             }
-             finalCommand = finalCommand.trim();
+      try {
+        await streamTurnLLM(provider, request, {
+          onChunk: (chunk: string) => {
+            if (hasThoughtStarted && !hasThoughtEnded) {
+              hasThoughtEnded = true;
+              onChunk('\n</think>\n\n');
+            }
 
-             if (finalCommand) {
-                if (!sessionId) {
-                   // Handle Global Action
-                   try {
-                     const actionPayload = JSON.parse(finalCommand);
-                     onChunk(`\n\n\`\`\`json\n// [AGENT DISPATCHING GLOBAL ACTION]\n${JSON.stringify(actionPayload, null, 2)}\n\`\`\`\n\n`);
-                     
-                     // Use the app mainWindow to broadcast the action
-                     const { BrowserWindow } = require('electron');
-                     const mainWindow = BrowserWindow.getAllWindows()[0];
-                     if (mainWindow) {
-                        mainWindow.webContents.send('ai-agent-global-action', actionPayload);
-                     }
-                     
-                     onDone();
-                     return;
-                   } catch (e) {
-                     onChunk(`\n❌ **[AGENT ALERT]** Failed to parse global action JSON: ${finalCommand}\n`);
-                     onDone();
-                     return;
-                   }
+            // Check for legacy text <ACTION> tags if model outputted them as raw text
+            if (isExecutingLegacyAction) {
+              legacyActionStr += chunk;
+              const executeEndMatch = legacyActionStr.indexOf(endTag);
+              if (executeEndMatch !== -1) {
+                isExecutingLegacyAction = false;
+              }
+              return;
+            }
+
+            textBuffer += chunk;
+            const executeStartMatch = textBuffer.indexOf(startTag);
+            if (executeStartMatch !== -1) {
+              const beforeStart = textBuffer.substring(0, executeStartMatch);
+              if (beforeStart) onChunk(beforeStart);
+
+              isExecutingLegacyAction = true;
+              legacyActionStr = textBuffer.substring(executeStartMatch + startTag.length);
+              textBuffer = '';
+
+              const executeEndMatch = legacyActionStr.indexOf(endTag);
+              if (executeEndMatch !== -1) {
+                isExecutingLegacyAction = false;
+              }
+              return;
+            }
+
+            // Safe stream output
+            let safeToEmitEndIndex = textBuffer.length;
+            for (let i = 0; i < startTag.length; i++) {
+              const suffix = textBuffer.substring(textBuffer.length - (startTag.length - i));
+              if (suffix && startTag.startsWith(suffix)) {
+                safeToEmitEndIndex = textBuffer.length - suffix.length;
+                break;
+              }
+            }
+
+            if (safeToEmitEndIndex > 0) {
+              const safeContent = textBuffer.substring(0, safeToEmitEndIndex);
+              onChunk(safeContent);
+              textBuffer = textBuffer.substring(safeToEmitEndIndex);
+            }
+          },
+
+          onThoughtChunk: (thoughtChunk: string) => {
+            if (!hasThoughtStarted) {
+              hasThoughtStarted = true;
+              onChunk('<think>\n');
+            }
+            onChunk(thoughtChunk);
+          },
+
+          onDone: async (response) => {
+            if (hasThoughtStarted && !hasThoughtEnded) {
+              hasThoughtEnded = true;
+              onChunk('\n</think>\n\n');
+            }
+            if (textBuffer.length > 0 && !isExecutingLegacyAction) {
+              onChunk(textBuffer);
+              textBuffer = '';
+            }
+
+            // Handle Stop Reasons (P0 #11)
+            if (response.stopReason === 'budget_exceeded') {
+              onChunk('\n\n⚠️ **[AGENT]** 模型已达到推理 Token 上限 (Thinking Budget Exceeded)，以下为阶段性总结。\n');
+            } else if (response.stopReason === 'max_tokens') {
+              onChunk('\n\n⚠️ **[AGENT]** 输出已达到最大 Token 长度截断限制 (Max Tokens Reached)。\n');
+            }
+
+            // 1. Native Structured Tool Calls handling (Primary)
+            if (response.toolCalls && response.toolCalls.length > 0) {
+              // Record assistant turn in history (including reasoning blocks with signatures!)
+              history.push({
+                role: 'assistant',
+                blocks: response.blocks
+              });
+
+              const toolResultBlocks: Block[] = [];
+              let skipRemaining = false;
+
+              for (let i = 0; i < response.toolCalls.length; i++) {
+                const call = response.toolCalls[i];
+
+                if (skipRemaining) {
+                  // Pair all remaining tools to prevent provider 400 (P0 #6)
+                  toolResultBlocks.push({
+                    kind: 'tool_result',
+                    callId: call.callId,
+                    name: call.name,
+                    content: ['Execution skipped due to previous critical tool failure.'],
+                    isError: true
+                  });
+                  continue;
                 }
-                if (mode === 'agent_semi' && askApproval) {
-                   onChunk(`\n\n\`\`\`bash\n# [AGENT PROPOSES COMMAND]\n${finalCommand}\n\`\`\`\n\n`);
-                   onChunk(`⏳ Awaiting user approval to execute...\n`);
-                   
-                   try {
-                     const isApproved = await askApproval(finalCommand);
-                     if (!isApproved) {
-                        onChunk(`\n❌ **[AGENT ALERT]** User rejected the command.\n`);
-                        currentPrompt = `[Command Rejected by User]: ${finalCommand}\nDo not execute this command again. What is the alternative?`;
-                        currentContext += `\nAction Proposed: ${finalCommand}\nResult: User Rejected.\n`;
-                        runTurn();
-                        return;
-                     }
-                     onChunk(`\n✅ **[APPROVED]** Executing...\n`);
-                   } catch (err) {
-                     onChunk(`\n❌ **[AGENT ALERT]** Approval request failed.\n`);
-                     onDone();
-                     return;
-                   }
-                } else {
-                   onChunk(`\n\n\`\`\`bash\n# [AGENT IS EXECUTING COMMAND]\n${finalCommand}\n\`\`\`\n\n`);
-                }
+
+                console.log(`[AgentEngine] Executing native tool: ${call.name} (callId=${call.callId})`, call.args);
                 
+                // Real-time progress feedback to the user so they know what the Agent is doing
+                const toolActionDesc = 
+                  call.name === 'search_web' ? `🔍 **[Agent 联网检索]** 正在搜索: "${call.args?.query || ''}"` :
+                  call.name === 'execute_terminal' ? `💻 **[Agent 终端执行]** \`${call.args?.command || ''}\`` :
+                  call.name === 'open_session' ? `🚀 **[Agent 调度会话]** 正在连接主机: \`${call.args?.target || ''}\`` :
+                  call.name === 'get_environment_info' ? `⏱️ **[Agent 环境感知]** 正在读取客户端与系统环境` :
+                  `🔌 **[Agent 工具调用]** 执行 \`${call.name}\``;
+                
+                onChunk(`\n\n> ${toolActionDesc}...\n\n`);
+
                 try {
-                   // Audit check
-                   if (!SecureCenter.getInstance().auditPluginCommand(finalCommand)) {
-                       onChunk(`\n**[AGENT ALERT]** Command rejected by SecureCenter Audit Policies: \`${finalCommand}\`\n`);
-                       onDone();
-                       return;
-                   }
+                  const result = await toolRegistry.execute(call.name, call.args, ctx);
+                  
+                  const resultText = result.contextFeed || result.promptFeed || (result.success ? 'Success' : `Error: ${result.error || 'Execution failed'}`);
+                  toolResultBlocks.push({
+                    kind: 'tool_result',
+                    callId: call.callId,
+                    name: call.name,
+                    content: [resultText],
+                    isError: !result.success
+                  });
 
-                   // Execute
-                   sshBridge.writeCommand(sessionId, finalCommand);
-
-                   // Collect output for a short window (e.g., wait for 2.5 seconds)
-                   let outputBuffer = '';
-                   let outputTimer: NodeJS.Timeout;
-
-                   const handleData = (data: string) => {
-                      outputBuffer += data;
-                   };
-
-                   sshBridge.on(`data:${sessionId}`, handleData);
-
-                   await new Promise((resolve) => {
-                      outputTimer = setTimeout(() => {
-                         sshBridge.removeListener(`data:${sessionId}`, handleData);
-                         resolve(null);
-                      }, 2500); // Wait 2.5 seconds for output
-                   });
-
-                   const safeOutput = outputBuffer.trim() ? outputBuffer.substring(outputBuffer.length - 2000) : '[No Output or Command Still Running]';
-                   
-                   // Prepare next turn
-                   currentPrompt = `[Command Output for \`${finalCommand}\`]:\n${safeOutput}\n\nWhat is the next step?`;
-                   currentContext += `\nAction Taken: ${finalCommand}\nResult:\n${safeOutput}\n`;
-                   
-                   // Recurse
-                   runTurn();
-                   return;
-
-                } catch (e: any) {
-                   onChunk(`\n**[AGENT ALERT]** Failed to execute: ${e.message}\n`);
-                   onDone();
-                   return;
+                  if (!result.success) {
+                    const toolInst = toolRegistry.getTool(call.name);
+                    if (toolInst?.isCritical !== false) {
+                      console.error(`[AgentEngine] Critical tool ${call.name} reported failure, skipping remaining tools.`);
+                      skipRemaining = true;
+                    }
+                  }
+                } catch (toolErr: any) {
+                  console.error(`[AgentEngine] Error executing tool ${call.name}:`, toolErr);
+                  toolResultBlocks.push({
+                    kind: 'tool_result',
+                    callId: call.callId,
+                    name: call.name,
+                    content: [`Tool execution failed with unexpected error: ${toolErr.message || String(toolErr)}`],
+                    isError: true
+                  });
+                  skipRemaining = true;
                 }
-             }
-          }
+              }
 
-          // If no execute tag was found, the agent is done talking.
-          onDone();
-        },
-        (error) => {
-          onError(error);
-        }
-      );
+              // Append user turn containing all tool results (100% paired!)
+              history.push({
+                role: 'user',
+                blocks: toolResultBlocks
+              });
+
+              // P0 #7: Always continue the turn so LLM sees tool results and formulates final response or next actions
+              await runTurn();
+              return;
+            }
+
+            // 2. Pause turn handling for Anthropic / iterative agents
+            if (response.stopReason === 'pause_turn') {
+              history.push({
+                role: 'assistant',
+                blocks: response.blocks
+              });
+              history.push({
+                role: 'user',
+                blocks: [{ kind: 'text', text: 'Please continue.' }]
+              });
+              await runTurn();
+              return;
+            }
+
+            // 3. Legacy Text <ACTION> fallback handling
+            let finalLegacyCommand = '';
+            if (legacyActionStr) {
+              const endIdx = legacyActionStr.indexOf(endTag);
+              finalLegacyCommand = endIdx !== -1 ? legacyActionStr.substring(0, endIdx).trim() : legacyActionStr.trim();
+            }
+
+            if (finalLegacyCommand) {
+              let actionPayload: any;
+              let jsonToParse = finalLegacyCommand;
+              const startBrace = jsonToParse.indexOf('{');
+              const endBrace = jsonToParse.lastIndexOf('}');
+              if (startBrace !== -1 && endBrace !== -1) {
+                jsonToParse = jsonToParse.substring(startBrace, endBrace + 1);
+              }
+
+              try {
+                actionPayload = JSON.parse(jsonToParse);
+              } catch (e) {
+                console.error('[AgentEngine] Failed to parse legacy JSON action:', jsonToParse, e);
+                onChunk(`\n❌ **[AGENT]** 无法解析操作指令: JSON 格式错误。\n`);
+                onDone();
+                return;
+              }
+
+              const toolName = actionPayload.type;
+              delete actionPayload.type;
+
+              try {
+                const result = await toolRegistry.execute(toolName, actionPayload, ctx);
+                
+                history.push({
+                  role: 'assistant',
+                  blocks: [{ kind: 'text', text: `${startTag}\n${finalLegacyCommand}\n${endTag}` }]
+                });
+
+                const resultFeed = result.contextFeed || result.promptFeed || (result.success ? 'Success' : `Error: ${result.error || 'Execution failed'}`);
+                history.push({
+                  role: 'user',
+                  blocks: [{ kind: 'text', text: `[Action Result]: ${resultFeed}` }]
+                });
+
+                await runTurn();
+                return;
+              } catch (err: any) {
+                console.error(`[AgentEngine] Failed to execute legacy action ${toolName}:`, err);
+                onChunk(`\n❌ **[AGENT]** 指令执行发生异常: ${err.message || String(err)}\n`);
+                onDone();
+                return;
+              }
+            }
+
+            onDone();
+          },
+
+          onError: (err) => {
+            onError(err);
+          }
+        });
+      } catch (err: any) {
+        onError(err);
+      }
     };
 
-    runTurn();
+    // Kick off turn 1
+    await runTurn();
   }
 }

@@ -85,22 +85,22 @@ export const SystemTab: React.FC<SystemTabProps> = ({ encryptionDisabled }) => {
             </div>
             <div className="flex-1">
               <select 
-                value={appConfig.pluginSecurityMode || 'normal'}
+                value={appConfig.pluginSecurityMode || 'safe'}
                 onChange={async (e) => {
                   const newMode = e.target.value as 'safe' | 'strict' | 'normal' | 'developer';
-                  let finalToken = undefined;
+                  let finalToken: string | undefined;
                   if (newMode === 'developer') {
                     if (!window.confirm(
                       "🚨 警告: 开发者模式 (Developer Mode) 🚨\n\n" +
-                      "启用此模式将完全关闭 Node.js VM 沙箱隔离！\n" +
-                      "插件将获得原生 require() 能力，可直接访问文件系统与系统进程。\n" +
+                      "启用此模式将关闭独立插件进程隔离！\n" +
+                      "插件会直接加载进 Electron 主进程，并获得原生 require() 能力。\n" +
                       "仅在调试您自己编写的信任代码时开启此模式。\n\n" +
                       "您确定要继续吗？"
                     )) return;
                   }
 
-                  if (newMode === 'safe' || newMode === 'developer') {
-                    // Intercept with Biometric / Master Password ONLY if encryption is enabled
+                  if (newMode !== 'safe') {
+                    // Enabling backend plugin execution requires biometric or master-password verification.
                     if (!encryptionDisabled) {
                       if (window.electronAPI?.promptBiometricUnlock) {
                         const res = await window.electronAPI.promptBiometricUnlock();
@@ -113,21 +113,35 @@ export const SystemTab: React.FC<SystemTabProps> = ({ encryptionDisabled }) => {
                           } else {
                             return; // Cancelled or failed, do not update state
                           }
+                        } else {
+                          finalToken = res.masterPassword;
                         }
                       } else {
                         if (!window.confirm(`WARNING: Are you sure you want to change to ${newMode} mode?`)) return;
                       }
-                    } else {
-                      if (newMode === 'safe' && !window.confirm(`WARNING: You are switching to safe mode without a Master Password set. Are you sure?`)) return;
+                    } else if (!window.confirm(
+                      `WARNING: ${newMode} mode enables backend plugin code inside an OS-confined process. Continue?`
+                    )) {
+                      return;
                     }
                   }
                   
                   if (window.electronAPI?.updateBackendConfig) {
-                    window.electronAPI.updateBackendConfig({ pluginSecurityMode: newMode }, finalToken);
+                    const result = await window.electronAPI.updateBackendConfig(
+                      { pluginSecurityMode: newMode },
+                      finalToken
+                    );
+                    if (!result.success) {
+                      window.alert(result.error || 'Plugin security mode could not be changed.');
+                      return;
+                    }
                   }
                   updateConfig('pluginSecurityMode', newMode);
                   
                   if (newMode === 'safe') {
+                    if (window.electronAPI?.reloadPlugins) {
+                      await window.electronAPI.reloadPlugins();
+                    }
                     setTimeout(() => window.alert(t('settings.pluginSecurityRestartReq')), 100);
                   } else {
                     // Hot Swap

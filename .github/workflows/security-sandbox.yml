@@ -1,0 +1,98 @@
+name: Security Sandbox Matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - v3-next
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-sandbox-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox:
+    name: ${{ matrix.os }} isolation and package runtime
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+            eb_target: --mac --arm64
+            rust_target: aarch64-apple-darwin
+          - os: windows-2022
+            arch: x64
+            eb_target: --win --x64
+            rust_target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11.2.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Rust N-API addons
+        run: node scripts/build-native.js
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+
+      - name: Build native process tools
+        run: cargo build --release -p watchdog -p getssh-process-sandbox
+
+      - name: Check native sandbox launcher
+        run: cargo test -p getssh-process-sandbox
+
+      - name: Build Electron security workers
+        working-directory: apps/getssh-client
+        run: pnpm exec vite build
+
+      - name: Check Electron and renderer types
+        working-directory: apps/getssh-client
+        run: pnpm exec tsc -b tsconfig.json --force --pretty false
+
+      - name: Check sandbox plans and bounded plugin framing
+        working-directory: apps/getssh-client
+        run: npm run test:plugin-sandbox
+
+      - name: Test real stdio MCP confinement
+        working-directory: apps/getssh-client
+        run: npm run test:mcp-sandbox
+
+      - name: Test real backend-plugin confinement
+        working-directory: apps/getssh-client
+        run: npm run test:plugin-isolation
+
+      - name: Package unpacked Electron app
+        if: runner.os != 'macOS'
+        working-directory: apps/getssh-client
+        run: pnpm exec electron-builder --publish never --dir ${{ matrix.eb_target }}
+        shell: bash
+
+      - name: Smoke-test packaged app on Windows
+        if: runner.os == 'Windows'
+        working-directory: apps/getssh-client
+        run: npm run test:packaged-startup

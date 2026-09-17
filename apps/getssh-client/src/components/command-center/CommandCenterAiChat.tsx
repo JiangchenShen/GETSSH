@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Bot, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../../services/aiBridge';
 import { useAppStore } from '../../store/appStore';
+import { useAiStore } from '../../store/aiStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useAiChatStore } from '../../store/aiChatStore';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
+import { parseThoughtProcess, ThoughtProcessBlock } from '../common/ThoughtProcessBlock';
 import { getPersonaContent } from '../../utils/persona';
 
 interface Props {
@@ -15,16 +18,12 @@ interface Props {
   sessions: any[];
 }
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  isStreaming?: boolean;
-}
 
-export const CommandCenterAiChat: React.FC<Props> = ({ onClose, onConnect, isDark, sessions }) => {
+export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
   const { t } = useTranslation();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { activeConversationId, conversations } = useAiChatStore();
+  const activeConversation = conversations.find(c => c.id === activeConversationId);
+  const messages = activeConversation ? activeConversation.messages : [];
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,18 +38,24 @@ export const CommandCenterAiChat: React.FC<Props> = ({ onClose, onConnect, isDar
       const prompt = customEvent.detail;
       if (!prompt) return;
 
-      const userMsgId = Date.now().toString();
-      const aiMsgId = (Date.now() + 1).toString();
+      let convId = useAiChatStore.getState().activeConversationId;
+      const convExists = useAiChatStore.getState().conversations.some(c => c.id === convId);
+      if (!convId || !convExists) {
+        convId = useAiChatStore.getState().newConversation();
+      }
 
-      setMessages(prev => [
-        ...prev,
-        { id: userMsgId, role: 'user', content: prompt },
-        { id: aiMsgId, role: 'assistant', content: '', isStreaming: true }
-      ]);
+      const userMsgId = `user-${Date.now()}`;
+      const aiMsgId = `ai-${Date.now()}`;
+
+      useAiChatStore.getState().addMessage(convId, { id: userMsgId, role: 'user', content: prompt, timestamp: Date.now() });
+      useAiChatStore.getState().addMessage(convId, { id: aiMsgId, role: 'assistant', content: '', timestamp: Date.now() + 1, isStreaming: true, isThinking: true });
 
       const appConfig = useAppStore.getState().appConfig;
+      const aiConfig = useAiStore.getState().aiConfig;
+      const searchConfig = useAiStore.getState().getSearchPayload();
       const workspaceName = useWorkspaceStore.getState().activeWorkspaceId;
 
+      let firstChunk = false;
       try {
         await AiBridge.invokePrivileged(
           {
@@ -62,34 +67,36 @@ export const CommandCenterAiChat: React.FC<Props> = ({ onClose, onConnect, isDar
               sessionName: '',
               runbooks: [], 
               language: appConfig.language,
-              personaContent: getPersonaContent(appConfig.activePromptId, appConfig.language),
-              terminalBuffer: JSON.stringify(sessions.map(s => ({ alias: s.alias, host: s.host }))) 
+              personaContent: getPersonaContent(aiConfig.activePromptId, appConfig.language),
+              terminalBuffer: JSON.stringify(sessions.map(s => ({ alias: s.alias, host: s.host }))),
+              aiSearchEnabled: searchConfig.enabled
             },
-            mode: 'agent_full', // Always full autonomy for global actions
-            provider: appConfig.aiProvider,
-            model: appConfig.aiModel,
-            endpoint: appConfig.aiEndpoint,
+            mode: 'agent_full', // Global Dispatch Center ALWAYS uses AgentEngine regardless of user's aiMode setting
+            provider: appConfig.aiProvider || aiConfig.aiProvider,
+            model: appConfig.aiModel || aiConfig.aiModel,
+            thinkingEffort: appConfig.aiThinkingEffort || aiConfig.aiThinkingEffort || 'medium',
+            endpoint: appConfig.aiEndpoint || aiConfig.aiEndpoint,
+            aiMaxTokens: appConfig.aiMaxTokens || aiConfig.aiMaxTokens || 200000,
+            searchConfig
           },
           (payload) => {
-            setMessages(prev => prev.map(msg => {
-              if (msg.id === aiMsgId) {
-                return { 
-                  ...msg, 
-                  content: msg.content + payload.chunk, 
-                  isStreaming: !payload.isDone 
-                };
-              }
-              return msg;
-            }));
+             if (payload.chunk) {
+               if (!firstChunk) {
+                 firstChunk = true;
+                 useAiChatStore.getState().updateMessage(convId!, aiMsgId, { isThinking: false, isStreaming: true });
+               }
+               useAiChatStore.getState().appendChunk(convId!, aiMsgId, payload.chunk);
+             }
+             if (payload.isDone) {
+               useAiChatStore.getState().updateMessage(convId!, aiMsgId, { isThinking: false, isStreaming: false });
+             }
+             if (payload.error) {
+               useAiChatStore.getState().updateMessage(convId!, aiMsgId, { content: `[Error] ${payload.error}`, isThinking: false, isStreaming: false });
+             }
           }
         );
       } catch (err: any) {
-        setMessages(prev => prev.map(msg => {
-          if (msg.id === aiMsgId) {
-            return { ...msg, content: msg.content + `\n\n**Error**: ${err.message}`, isStreaming: false };
-          }
-          return msg;
-        }));
+        useAiChatStore.getState().updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
       }
     };
 
@@ -97,38 +104,7 @@ export const CommandCenterAiChat: React.FC<Props> = ({ onClose, onConnect, isDar
     return () => window.removeEventListener('command-center:ai-submit', handleAiSubmit);
   }, [sessions]);
 
-  // Handle global session opens
-  useEffect(() => {
-    if (!window.electronAPI || !window.electronAPI.ai || !(window.electronAPI.ai as any).onAgentGlobalAction) return;
 
-    const removeListener = (window.electronAPI.ai as any).onAgentGlobalAction((payload: { action: string, target: string, execute: string }) => {
-       if (payload.action === 'open_session') {
-          // Find the session
-          const session = sessions.find(s => s.alias === payload.target || s.host === payload.target);
-          if (session) {
-             const sessionToOpen = { ...session };
-             onClose();
-             onConnect(sessionToOpen);
-
-             // If AI provided a follow-up command, track it locally via AiCenter
-             if (payload.execute) {
-                setTimeout(() => {
-                   useAppStore.getState().setIsAiCenterOpen(true);
-                   setTimeout(() => {
-                      const prompt = t('commandCenter.aiFollowup', { command: payload.execute, defaultValue: `Execute the following command: {{command}}` }).replace('{{command}}', payload.execute);
-                      window.dispatchEvent(new CustomEvent('ai:submit-prompt', { detail: prompt }));
-                   }, 300);
-                }, 1000); // Give terminal enough time to initialize
-             }
-          } else {
-             // Let the user know the session wasn't found
-             const errorMsg = t('commandCenter.hostNotFound', { target: payload.target, defaultValue: `❌ 找不到主机: {{target}}` }).replace('{{target}}', payload.target);
-             setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: errorMsg }]);
-          }
-       }
-    });
-    return () => removeListener();
-  }, [sessions, onClose, onConnect, t]);
 
   const ThinkingIndicator: React.FC = () => (
     <div className={`flex items-center gap-2 text-xs font-mono tracking-widest ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
@@ -178,14 +154,20 @@ export const CommandCenterAiChat: React.FC<Props> = ({ onClose, onConnect, isDar
               ? (isDark ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-50 rounded-2xl rounded-tr-sm' : 'bg-cyan-50 border border-cyan-500/20 text-slate-800 rounded-2xl rounded-tr-sm')
               : (isDark ? 'bg-white/5 border border-white/10 text-neutral-200 rounded-2xl rounded-tl-sm' : 'bg-white border border-black/10 text-slate-800 rounded-2xl rounded-tl-sm')
           }`}>
-            {msg.isStreaming && !msg.content ? (
+            {msg.isThinking && !msg.content ? (
               <ThinkingIndicator />
-            ) : (
-              <div className="leading-relaxed">
-                <MarkdownRenderer content={msg.content} />
-                {msg.isStreaming && <span className="inline-block w-1.5 h-3 ml-1 bg-current animate-pulse align-middle" />}
-              </div>
-            )}
+            ) : (() => {
+              const { thoughtProcess, actualContent, isThinkingDone } = parseThoughtProcess(msg.content);
+              return (
+                <div className="leading-relaxed">
+                  {msg.role === 'assistant' && thoughtProcess && (
+                    <ThoughtProcessBlock thoughtProcess={thoughtProcess} isDark={isDark} isThinkingDone={isThinkingDone} />
+                  )}
+                  {actualContent && <MarkdownRenderer content={actualContent} />}
+                  {msg.isStreaming && <span className="inline-block w-1.5 h-3 ml-1 bg-current animate-pulse align-middle" />}
+                </div>
+              );
+            })()}
           </div>
         </motion.div>
       ))}

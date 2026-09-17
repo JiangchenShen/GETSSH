@@ -30,8 +30,14 @@ target/
 # TypeScript build info
 *.tsbuildinfo
 
-# PNPM
+# PNPM & snapshots
+.pnpm-store/
+_ui_snapshot.tgz
 *.zip
+
+# TypeScript declarations generated in electron
+apps/getssh-client/electron/**/*.d.ts
+apps/getssh-client/src/types/ipc.d.ts
 
 # Security Reports
 VULNERABILITIES*.md

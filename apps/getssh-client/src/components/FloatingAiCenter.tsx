@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
+import { useAiStore } from '../store/aiStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Send, TerminalSquare, ClipboardPaste, X } from 'lucide-react';
 import { getPersonaContent } from '../utils/persona';
 import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../services/aiBridge';
+import { ContextService } from '../services/contextService';
 
 // Simple custom Markdown parser for the floating window to isolate code blocks
 const renderMarkdownWithPaperPlane = (text: string, onExecute: (code: string) => void, isDark: boolean) => {
@@ -111,26 +113,11 @@ export const FloatingAiCenter: React.FC = () => {
       const workspaceName = activeWs?.name || activeWsId;
       
       const runbooks = useWorkspaceStore.getState().runbooks || [];
-      let sessionId = '';
-      let sessionName = '';
-      const state = useSessionStore.getState();
-      if (state.activeTabId && state.activePaneId) {
-        const tab = state.tabs.find(t => t.id === state.activeTabId);
-        if (tab && tab.paneTree) {
-          const traverse = (node: any) => {
-            if (node.type === 'leaf') {
-              if (node.paneId === state.activePaneId && node.paneType === 'terminal') {
-                sessionId = node.sessionId;
-                sessionName = node.config?.alias || node.config?.host || node.sessionId;
-              }
-            } else if (node.children) {
-              traverse(node.children[0]);
-              traverse(node.children[1]);
-            }
-          };
-          traverse(tab.paneTree);
-        }
-      }
+      const snapshot = ContextService.getActiveTerminalSnapshot();
+      const sessionId = snapshot?.sessionId || '';
+      const sessionName = snapshot?.name || '';
+      const aiConfig = useAiStore.getState().aiConfig;
+      const searchConfig = useAiStore.getState().getSearchPayload();
 
       const finalPrompt = i18n.language === 'zh-CN' ? prompt + '\n\n(请尽量用中文回答我)' : prompt;
       
@@ -143,11 +130,15 @@ export const FloatingAiCenter: React.FC = () => {
           sessionName,
           runbooks: runbooks.map(r => ({ name: r.name, description: r.description || '', dangerLevel: r.dangerLevel })), 
           language: appConfig.language,
-          personaContent: getPersonaContent(appConfig.activePromptId, appConfig.language)
+          personaContent: getPersonaContent(aiConfig.activePromptId, appConfig.language),
+          terminalBuffer: snapshot?.buffer
         },
-        provider: appConfig.aiProvider,
-        model: appConfig.aiModel,
-        endpoint: appConfig.aiEndpoint,
+        provider: appConfig.aiProvider || aiConfig.aiProvider,
+        model: appConfig.aiModel || aiConfig.aiModel,
+        thinkingEffort: appConfig.aiThinkingEffort || aiConfig.aiThinkingEffort || 'medium',
+        endpoint: appConfig.aiEndpoint || aiConfig.aiEndpoint,
+        aiMaxTokens: appConfig.aiMaxTokens || aiConfig.aiMaxTokens || 200000,
+        searchConfig
       }, (payload) => {
         if (payload.error) {
           setResponse(prev => prev + `\n\n**Error**: ${payload.error}`);

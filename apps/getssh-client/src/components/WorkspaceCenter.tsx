@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Plus, Layers, Loader2, Trash2, Shield, LayoutGrid, Star, Link, TerminalSquare, Database, FileJson } from 'lucide-react';
-import { MoovierTile } from '@moovier/core';
 import { ExportTab } from './secure-center/tabs/ExportTab';
 import { AssetBridgeTab } from './workspace-center/AssetBridgeTab';
 import { EnvironmentHooksTab } from './workspace-center/tabs/EnvironmentHooksTab';
@@ -122,9 +121,8 @@ export const WorkspaceCenter: React.FC = () => {
                const displayName = id === 'default' ? t('sidebar.defaultWorkspace') : (wObj.name || id);
                
                return (
-                 <MoovierTile 
+                 <div
                    key={id}
-                   dragLevel="fixed"
                    onClick={() => handleSwitch(id)}
                    className={`p-8 min-h-[220px] flex flex-col justify-between cursor-pointer group relative overflow-hidden transition-all duration-500 rounded-[32px] backdrop-blur-xl border shadow-lg ${isActive ? 'bg-purple-500/5 border-purple-500/30 ring-1 ring-purple-500/50' : (isDark ? 'bg-white/5 border-white/5 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.3)] hover:border-white/20' : '!bg-white !border-black/5 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.1)] hover:border-black/20')}`}
                  >
@@ -187,7 +185,7 @@ export const WorkspaceCenter: React.FC = () => {
                         {loading && isActive ? <><Loader2 className="w-3 h-3 animate-spin" /> {t('workspaceCenter.synchronizing')}</> : t('workspaceCenter.isolatedSandbox')}
                       </div>
                     </div>
-                 </MoovierTile>
+                 </div>
                )
             })}
                   </div>

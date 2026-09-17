@@ -6,6 +6,13 @@ import { registerAllIpcHandlers } from './handlers'
 import { getBackendConfig } from './handlers/systemHandler'
 import { getBrowserWindowOptions, bindWindowEvents, setupSecurityPolicies } from './handlers/windowHandler'
 
+if (process.platform !== 'darwin' && process.platform !== 'win32') {
+  const message = `GETSSH desktop is unsupported on ${process.platform}.`;
+  console.error(message);
+  app.exit(1);
+  throw new Error(message);
+}
+
 process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 
@@ -193,8 +200,39 @@ import { nexusBridge } from './nexus/nexusBridge'
 import { TornWindowManager } from './windowManager'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { DatabaseManager } from './services/DatabaseManager'
+import { mcpManager } from './services/mcp/McpManager'
+import {
+  runPackagedStartupSmoke,
+  shouldRunPackagedStartupSmoke,
+  writePackagedStartupSmokeResult,
+} from './startupSmoke'
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (shouldRunPackagedStartupSmoke(app.isPackaged)) {
+    try {
+      const result = await runPackagedStartupSmoke();
+      writePackagedStartupSmokeResult(result);
+      console.log('[StartupSmoke] Packaged runtime validation passed.');
+      app.exit(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.stack || error.message : String(error);
+      try {
+        writePackagedStartupSmokeResult({
+          status: 'error',
+          platform: process.platform,
+          arch: process.arch,
+          electron: process.versions.electron || 'unknown',
+          error: message,
+        });
+      } catch (writeError) {
+        console.error('[StartupSmoke] Failed to write result:', writeError);
+      }
+      console.error('[StartupSmoke] Packaged runtime validation failed:', error);
+      app.exit(1);
+    }
+    return;
+  }
+
   Menu.setApplicationMenu(null);
 
   // Setup IPC Handlers before window creation to ensure early IPC works
@@ -209,16 +247,27 @@ app.whenReady().then(() => {
   
   // Init GETSSH Secure Center (RASP)
   SecureCenter.getInstance().start(() => win);
+
+  // Init Model Context Protocol (MCP) Manager
+  mcpManager.init().catch(err => {
+    console.warn('[Main] MCP Manager init error:', err);
+  });
   
   let appKeyBuffer: Buffer | null = null;
   try {
-    const appKeyPathEnc = join(app.getPath('home'), '.getssh', 'app_key.enc');
-    const appKeyPathPlain = join(app.getPath('home'), '.getssh', 'app_key.txt');
+    const appDataDir = join(app.getPath('home'), '.getssh');
+    const appKeyPathEnc = join(appDataDir, 'app_key.enc');
+    const appKeyPathPlain = join(appDataDir, 'app_key.txt');
     const fs = require('fs');
     const crypto = require('crypto');
     const { safeStorage } = require('electron');
 
-    if (fs.existsSync(appKeyPathEnc) && safeStorage.isEncryptionAvailable()) {
+    fs.mkdirSync(appDataDir, { recursive: true, mode: 0o700 });
+
+    if (fs.existsSync(appKeyPathEnc)) {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('OS secure storage is unavailable for the existing encrypted app key');
+      }
       const encryptedKey = fs.readFileSync(appKeyPathEnc);
       const appKeyStr = safeStorage.decryptString(encryptedKey);
       appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
@@ -230,18 +279,42 @@ app.whenReady().then(() => {
       const newKey = crypto.randomBytes(32).toString('hex');
       if (safeStorage.isEncryptionAvailable()) {
         const encryptedKey = safeStorage.encryptString(newKey);
-        fs.writeFileSync(appKeyPathEnc, encryptedKey);
+        fs.writeFileSync(appKeyPathEnc, encryptedKey, { mode: 0o600 });
       } else {
         fs.writeFileSync(appKeyPathPlain, newKey, { mode: 0o600 });
       }
       appKeyBuffer = Buffer.from(newKey, 'utf8');
     }
+
+    if (!appKeyBuffer || appKeyBuffer.length === 0) {
+      throw new Error('The GETSSH app key is empty');
+    }
   } catch (e) {
     console.error('Failed to initialize or retrieve global app key', e);
+    dialog.showErrorBox(
+      'GETSSH secure storage error',
+      'GETSSH could not initialize its encrypted database key. The application will close without opening the database.'
+    );
+    app.exit(1);
+    return;
   }
 
-  // Initialize Master SQLite Database synchronously with the Global App Key
-  DatabaseManager.init(appKeyBuffer);
+  // Initialize Master SQLite Database synchronously with the Global App Key.
+  // better-sqlite3 copies the key into SQLite; erase the temporary JS buffer.
+  try {
+    DatabaseManager.init(appKeyBuffer);
+  } catch (e) {
+    console.error('Failed to initialize the encrypted GETSSH database', e);
+    dialog.showErrorBox(
+      'GETSSH database error',
+      'GETSSH could not safely open its encrypted database. The application will close without changing your saved hosts or workspaces.'
+    );
+    app.exit(1);
+    return;
+  } finally {
+    appKeyBuffer?.fill(0);
+    appKeyBuffer = null;
+  }
   
   // Background asynchronous heavy initialization (workspaces, plugins, hollow windows)
   bootstrapAppWorkspace().then(async () => {
@@ -251,8 +324,7 @@ app.whenReady().then(() => {
     pluginManager.setupIPC();
     await pluginManager.loadPlugins();
     
-    // Wire plugin teardown into RASP: on SIGKILL threat, deactivate all plugins first
-    SecureCenter.getInstance().setPluginTeardown(() => pluginManager.deactivateAll());
+    SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
   }).catch(console.error);
   
   protocol.handle('getssh-plugin', (request) => {

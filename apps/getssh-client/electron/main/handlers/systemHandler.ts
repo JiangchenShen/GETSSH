@@ -17,7 +17,11 @@ try {
   console.error("Failed to load getssh-sysprobe native module:", e);
 }
 
-let backendConfig: BackendConfig = { confirmQuit: false, globalHotkey: '' };
+let backendConfig: BackendConfig = {
+  confirmQuit: false,
+  globalHotkey: '',
+  pluginSecurityMode: 'safe'
+};
 
 const registerHotkey = (key: string, getWin: () => BrowserWindow | null) => {
   globalShortcut.unregisterAll();
@@ -173,53 +177,84 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   // Background config and hotkeys
-  ipcMain.on('update-backend-config', async (event, config: BackendConfig, authToken?: string) => {
-    // Intercept plugin security mode changes for biometric verification
+  ipcMain.handle('update-backend-config', async (_event, requestedConfig: BackendConfig, authToken?: string) => {
+    if (!requestedConfig || typeof requestedConfig !== 'object' || Array.isArray(requestedConfig)) {
+      return {
+        success: false,
+        effectiveConfig: { ...backendConfig },
+        error: 'Invalid backend configuration.'
+      };
+    }
+
+    const config: BackendConfig = {};
+    if (typeof requestedConfig.confirmQuit === 'boolean') config.confirmQuit = requestedConfig.confirmQuit;
+    if (typeof requestedConfig.globalHotkey === 'string') config.globalHotkey = requestedConfig.globalHotkey;
+    if (
+      requestedConfig.pluginSecurityMode === 'safe' ||
+      requestedConfig.pluginSecurityMode === 'strict' ||
+      requestedConfig.pluginSecurityMode === 'normal' ||
+      requestedConfig.pluginSecurityMode === 'developer'
+    ) {
+      config.pluginSecurityMode = requestedConfig.pluginSecurityMode;
+    }
+
+    let modeChangeAccepted = true;
+    let modeChangeError: string | undefined;
+    // Safe mode reduces privileges and is always allowed. Any transition that
+    // enables backend plugin code must be authenticated in the main process.
     if (config.pluginSecurityMode && config.pluginSecurityMode !== backendConfig.pluginSecurityMode) {
-      if (config.pluginSecurityMode === 'safe' || config.pluginSecurityMode === 'developer') {
+      if (config.pluginSecurityMode !== 'safe') {
         try {
-          const win = getWin();
-          if (win) {
-            const fs = require('node:fs');
-            const path = require('node:path');
-            const { systemPreferences, safeStorage } = require('electron');
-            const PROFILES_KEY_PATH = path.join(app.getPath('userData'), 'profiles.key');
-            
-            let verified = false;
-            if (fs.existsSync(PROFILES_KEY_PATH)) {
-               // 1. Check Auth Token Fallback
-               if (authToken && safeStorage.isEncryptionAvailable()) {
-                  try {
-                     const encryptedKey = await fs.promises.readFile(PROFILES_KEY_PATH);
-                     const masterPassword = safeStorage.decryptString(encryptedKey);
-                     if (authToken === masterPassword) {
-                        verified = true;
-                     }
-                  } catch (e) {
-                     console.warn("Failed to decrypt master password for auth token verification", e);
-                  }
-               }
-               
-               // 2. Check Biometric
-               if (!verified && process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
-                  try {
-                    await systemPreferences.promptTouchID('Verify identity to change critical plugin security mode');
-                    verified = true;
-                  } catch (e) { verified = false; }
-               }
-            } else {
-               // No key means no encryption, meaning anyone can change it. 
-               verified = true; 
+          const { systemPreferences, safeStorage } = require('electron');
+          const { getActiveWorkspaceId } = require('./workspaceHandler');
+          const vaultKeyPath = join(
+            app.getPath('home'),
+            '.getssh',
+            'workspaces',
+            getActiveWorkspaceId(),
+            'vault.key'
+          );
+
+          let verified = false;
+          if (fs.existsSync(vaultKeyPath)) {
+            // 1. Check master-password fallback supplied by the trusted settings flow.
+            if (authToken && safeStorage.isEncryptionAvailable()) {
+              try {
+                const encryptedKey = await fs.promises.readFile(vaultKeyPath);
+                const masterPassword = safeStorage.decryptString(encryptedKey);
+                if (authToken === masterPassword) {
+                  verified = true;
+                }
+              } catch (e) {
+                console.warn('Failed to decrypt master password for plugin-mode verification', e);
+              }
             }
-            
-            if (!verified) {
-               console.warn(`[Security] Blocked unauthorized attempt to change pluginSecurityMode to ${config.pluginSecurityMode}`);
-               delete config.pluginSecurityMode; // Strip it out
+
+            // 2. Check biometric authentication.
+            if (!verified && process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
+              try {
+                await systemPreferences.promptTouchID('Verify identity to enable backend plugins');
+                verified = true;
+              } catch {
+                verified = false;
+              }
             }
+          } else {
+            // Without an encryption key there is no configured identity secret to verify.
+            verified = true;
+          }
+
+          if (!verified) {
+            console.warn(`[Security] Blocked unauthorized attempt to change pluginSecurityMode to ${config.pluginSecurityMode}`);
+            delete config.pluginSecurityMode;
+            modeChangeAccepted = false;
+            modeChangeError = 'Identity verification failed. Plugin security mode was not changed.';
           }
         } catch (e) {
           console.error("Failed to verify plugin mode change", e);
           delete config.pluginSecurityMode;
+          modeChangeAccepted = false;
+          modeChangeError = 'Plugin security mode verification failed.';
         }
       }
     }
@@ -228,6 +263,11 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     if (config.globalHotkey !== undefined) {
       registerHotkey(config.globalHotkey, getWin);
     }
+    return {
+      success: modeChangeAccepted,
+      effectiveConfig: { ...backendConfig },
+      ...(modeChangeError ? { error: modeChangeError } : {})
+    };
   });
 
   // Updates
@@ -333,7 +373,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
         const sourcePath = filePaths[0];
         if (sourcePath !== dbPath) {
           try {
-            const Database = require('better-sqlite3');
+            const Database = require('better-sqlite3-multiple-ciphers');
             const extDb = new Database(sourcePath, { readonly: true });
             let hasMain = false;
             try {
@@ -367,10 +407,10 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   async function handleMergeDatabase(dbPath: string, sourcePath: string) {
-    const Database = require('better-sqlite3');
+    const Database = require('better-sqlite3-multiple-ciphers');
     const localDb = new Database(dbPath);
     try {
-      localDb.exec(`ATTACH DATABASE '${sourcePath}' AS imported`);
+      localDb.prepare('ATTACH DATABASE ? AS imported').run(sourcePath);
       
       const transaction = localDb.transaction(() => {
         // We only insert non-main workspaces

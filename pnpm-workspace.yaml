@@ -1,14 +1,13 @@
 allowBuilds:
-  better-sqlite3: true
-  better-sqlite3-multiple-ciphers: false
-  cpu-features: true
+  better-sqlite3-multiple-ciphers: true
   electron: true
   electron-winstaller: true
   esbuild: true
   node-pty: true
   ssh2: true
-builtDependencies: "['better-sqlite3']"
 ignoreScripts: false
+ignoredOptionalDependencies:
+  - cpu-features
 minimumReleaseAgeExclude:
   - lucide-react@1.17.0
 packages:

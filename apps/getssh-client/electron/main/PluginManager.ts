@@ -1,8 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import vm from 'vm';
-import dns from 'dns/promises';
-import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, net, clipboard } from 'electron';
+import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, clipboard } from 'electron';
 import { getBackendConfig } from './handlers/systemHandler';
 import pLimit from 'p-limit';
 import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../../src/types/plugin';
@@ -10,41 +8,43 @@ import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
 import { getRustCorePath } from './utils/rustCorePath';
+import { PluginProcessHost } from './services/plugin/PluginProcessHost';
+import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
+import {
+  assertMessageSize,
+  assertSafeIdentifier,
+  type PluginHostMethod,
+  type PluginRegistrationSnapshot
+} from './services/plugin/pluginProtocol';
 
 export function isPrivateIP(ip: string): boolean {
-  // Check against common private/loopback IP ranges
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' || ip === '::') return true;
-  
-  // Parse IPv4 segments
-  const parts = ip.split('.');
-  if (parts.length === 4) {
-    const p1 = parseInt(parts[0], 10);
-    const p2 = parseInt(parts[1], 10);
-    
-    // 10.0.0.0/8
-    if (p1 === 10) return true;
-    // 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
-    if (p1 === 172 && p2 >= 16 && p2 <= 31) return true;
-    // 192.168.0.0/16
-    if (p1 === 192 && p2 === 168) return true;
-    // 169.254.0.0/16 (Link-local)
-    if (p1 === 169 && p2 === 254) return true;
-    // 127.0.0.0/8
-    if (p1 === 127) return true;
-  }
-  return false;
+  return isPrivateNetworkAddress(ip);
+}
+
+interface PluginListener {
+  event: string;
+  callback: (...args: any[]) => void;
+  subscriptionId?: string;
+}
+
+interface RunningPlugin {
+  host?: PluginProcessHost;
+  deactivate?: () => void | Promise<void>;
+  listeners?: PluginListener[];
+  rpcHandlers?: Map<string, (payload: any) => Promise<any>>;
 }
 
 export class PluginManager {
   private pluginsPath: string;
   public installedPlugins: PluginManifest[] = [];
-  private runningPlugins: Map<string, { deactivate: () => void, listeners?: Array<{event: string, callback: any}>, rpcHandlers?: Map<string, (payload: any) => Promise<any>> }> = new Map();
-  
+  private approvedSshWriters: Set<string> = new Set();
+  private runningPlugins: Map<string, RunningPlugin> = new Map();
+
   private uiExtensions: {
     terminal: Array<{ pluginId: string, actionId: string, label: string, handler: Function }>,
     sftp: Array<{ pluginId: string, actionId: string, label: string, handler: Function }>
   } = { terminal: [], sftp: [] };
-  
+
   private settingsSchemas: Map<string, PluginSettingsSchema[]> = new Map();
   private _previewSourceDirCache: Record<string, string> = {};
 
@@ -53,6 +53,7 @@ export class PluginManager {
   }
 
   private getSecurePluginPath(pluginName: string): string {
+    assertSafeIdentifier(pluginName, 'Plugin name');
     const targetPath = path.resolve(this.pluginsPath, pluginName);
     const basePath = path.resolve(this.pluginsPath) + path.sep;
     if (!targetPath.startsWith(basePath)) {
@@ -68,8 +69,8 @@ export class PluginManager {
         terminal: this.uiExtensions.terminal.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'terminal' })),
         sftp: this.uiExtensions.sftp.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'sftp' }))
       });
-      
-      const schemasObj: Record<string, PluginSettingsSchema[]> = {};
+
+      const schemasObj = Object.create(null) as Record<string, PluginSettingsSchema[]>;
       this.settingsSchemas.forEach((schema, id) => { schemasObj[id] = schema; });
       allWindows[0].webContents.send('sync-plugin-settings-schemas', schemasObj);
     }
@@ -78,55 +79,97 @@ export class PluginManager {
   private createMainContext(manifest: PluginManifest): MainContextAPI {
     const context = Object.create(null) as MainContextAPI;
     context.showNotification = (title: string, body: string) => new Notification({ title, body }).show();
-    context.safeStorageEncrypt = (text: string) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text).toString('base64') : text;
-    
+    context.safeStorageEncrypt = async (text: string) => {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('SecurityError: OS safe storage is unavailable.');
+      }
+      return safeStorage.encryptString(text).toString('base64');
+    };
+
     // Inject SSH namespace if capabilities are requested
     const caps = manifest.getssh?.capabilities || [];
     if (caps.includes('ssh:read') || caps.includes('ssh:write')) {
       const sshContext = Object.create(null);
-      
+
       if (caps.includes('ssh:read')) {
         sshContext.onData = (sessionId: string, callback: (chunk: string) => void) => {
           sshBridge.on(`data:${sessionId}`, callback);
+
+          const listener = { event: `data:${sessionId}`, callback };
+
           // Register cleanup hook
           if (!this.runningPlugins.has(manifest.name)) {
             // Might be called before runningPlugins is set, so we defer
             setTimeout(() => {
               const p = this.runningPlugins.get(manifest.name);
-              if (p) p.listeners = p.listeners || [];
-              this.runningPlugins.get(manifest.name)?.listeners?.push({ event: `data:${sessionId}`, callback });
+              if (p) {
+                p.listeners = p.listeners || [];
+                p.listeners.push(listener);
+              }
             }, 0);
           } else {
             const p = this.runningPlugins.get(manifest.name);
             if (p) {
               p.listeners = p.listeners || [];
-              p.listeners.push({ event: `data:${sessionId}`, callback });
+              p.listeners.push(listener);
             }
           }
+
+          return () => {
+            sshBridge.off(`data:${sessionId}`, callback);
+            const p = this.runningPlugins.get(manifest.name);
+            if (p && p.listeners) {
+              p.listeners = p.listeners.filter(l => l !== listener);
+            }
+          };
         };
       } else {
         sshContext.onData = () => { throw new Error(`[Security] Plugin '${manifest.name}' missing 'ssh:read' capability`); };
       }
-      
+
       if (caps.includes('ssh:write')) {
-        sshContext.write = (sessionId: string, command: string) => {
+        sshContext.write = async (sessionId: string, command: string) => {
+          if (!this.approvedSshWriters.has(manifest.name)) {
+            const allWindows = BrowserWindow.getAllWindows();
+            const focusedWindow = allWindows.find(w => w.isFocused()) ?? allWindows[0];
+
+            const options = {
+              type: 'warning' as const,
+              buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '总是允许 (Always Allow)'],
+              defaultId: 0,
+              title: '高危权限请求 (High-Risk Permission Request)',
+              message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
+              detail: `执行内容 (Command snippet): ${command.substring(0, 50)}...`
+            };
+
+            const choice = focusedWindow
+              ? await dialog.showMessageBox(focusedWindow, options)
+              : await dialog.showMessageBox(options);
+
+            if (choice.response === 0) {
+              throw new Error(`Permission denied for ssh:write by user`);
+            }
+            if (choice.response === 2) {
+              this.approvedSshWriters.add(manifest.name);
+            }
+          }
           sshBridge.writeCommand(sessionId, command);
         };
       } else {
         sshContext.write = () => { throw new Error(`[Security] Plugin '${manifest.name}' missing 'ssh:write' capability`); };
       }
-      
+
       context.ssh = Object.freeze(sshContext);
     }
-    
+
     // Inject Storage API hardbound to this plugin's ID
     context.storage = Object.freeze({
       get: (key: string) => pluginStorageManager.get(manifest.name, key),
-      set: (key: string, value: any) => pluginStorageManager.set(manifest.name, key, value),
+      set: (key: string, value: any) => pluginStorageManager.set(manifest.name, key, value, caps),
       delete: (key: string) => pluginStorageManager.delete(manifest.name, key),
       clear: () => pluginStorageManager.clear(manifest.name)
     });
-    
+
     // Inject RPC context (using a closure-captured temp map to avoid activation-time race)
     const pendingRpcHandlers = new Map<string, (payload: any) => Promise<any>>();
     context.rpc = Object.freeze({
@@ -147,10 +190,10 @@ export class PluginManager {
         }
       }
     });
-    
+
     // Expose the pendingRpcHandlers so loadPlugins can merge after activate()
     (context as any).__pendingRpcHandlers = pendingRpcHandlers;
-    
+
     // Inject UI Extensions context
     context.ui = Object.freeze({
       registerTerminalContextMenu: (actionId: string, label: string, handler: Function) => {
@@ -162,11 +205,7 @@ export class PluginManager {
         this.syncUIExtensions();
       },
       registerSettings: (schema: PluginSettingsSchema[]) => {
-        if (!schema || schema.length === 0) {
-          throw new Error(`[Security] Plugins must register at least one valid parameter. Empty schemas are not allowed. Plugin: ${manifest.name}`);
-        }
-        (context as any).__settingsRegistered = true;
-        this.settingsSchemas.set(manifest.name, schema);
+        this.settingsSchemas.set(manifest.name, this.validateSettingsSchema(schema, manifest.name));
         this.syncUIExtensions();
       }
     });
@@ -235,144 +274,490 @@ export class PluginManager {
     // Inject Network context
     context.net = Object.freeze({
       fetch: async (url: string, options?: RequestInit) => {
-        if (!manifest.getssh?.capabilities?.includes('net:fetch')) {
+        if (!caps.includes('net:fetch')) {
           throw new Error('SecurityError: Plugin missing "net:fetch" capability');
         }
-
-        let parsedUrl: URL;
-        try {
-          parsedUrl = new URL(url);
-        } catch (e) {
-          throw new Error(`SecurityError: Invalid URL "${url}"`);
+        const headers = options?.headers ? Array.from(new Headers(options.headers).entries()) : [];
+        const bodyText = typeof options?.body === 'string' ? options.body : undefined;
+        if (options?.body && bodyText === undefined) {
+          throw new Error('NetworkError: Developer-mode plugin fetch only supports string bodies.');
         }
-
-        const hostname = parsedUrl.hostname;
-
-        // Block obvious loopbacks immediately
-        if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '127.0.0.1') {
-          SecureCenter.getInstance().triggerLockdown(`SSRF Attack Detected: Blocked request to local hostname ${hostname} by plugin ${manifest.name}`, 'red');
-          this.runningPlugins.get(manifest.name)?.deactivate();
-          this.runningPlugins.delete(manifest.name);
-          throw new Error('SecurityError: SSRF attack blocked. Plugin terminated.');
-        }
-
-        // DNS Lookup to prevent DNS rebinding or custom domains pointing to local IPs
         try {
-          const lookupResult = await dns.lookup(hostname);
-          if (isPrivateIP(lookupResult.address)) {
-            SecureCenter.getInstance().triggerLockdown(`SSRF Attack Detected: Blocked request to private IP ${lookupResult.address} (resolved from ${hostname}) by plugin ${manifest.name}`, 'red');
-            this.runningPlugins.get(manifest.name)?.deactivate();
-            this.runningPlugins.delete(manifest.name);
-            throw new Error('SecurityError: SSRF attack blocked. Plugin terminated.');
+          const response = await fetchForPlugin(url, {
+            method: options?.method,
+            headers,
+            redirect: options?.redirect,
+            bodyText
+          });
+          return new Response(Buffer.from(response.bodyBase64, 'base64'), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('SecurityError:')) {
+            SecureCenter.getInstance().triggerLockdown(
+              `Plugin network policy violation by '${manifest.name}': ${error.message}`,
+              'red'
+            );
+            this.forceKill(manifest.name);
           }
-        } catch (e: any) {
-          if (e.message.includes('SecurityError')) throw e;
-          throw new Error(`NetworkError: Failed to resolve hostname ${hostname}`);
+          throw error;
         }
-
-        console.log(`[Plugin Net API] [${manifest.name}] Fetching: ${url}`);
-        return net.fetch(url, options);
       }
     });
 
     return Object.freeze(context) as MainContextAPI;
   }
 
-  public async reloadPlugin(pluginId: string) {
-    const running = this.runningPlugins.get(pluginId);
-    if (running) {
-      try {
-        running.deactivate();
-      } catch (err) {
-        console.error(`[PluginManager] Error deactivating plugin ${pluginId}:`, err);
-      }
-      this.runningPlugins.delete(pluginId);
+  private requireCapability(manifest: PluginManifest, capability: string): void {
+    if (!manifest.getssh?.capabilities?.includes(capability)) {
+      throw new Error(`SecurityError: Plugin '${manifest.name}' is missing '${capability}' capability.`);
     }
-    
+  }
+
+  private validateSettingsSchema(schema: unknown, pluginId: string): PluginSettingsSchema[] {
+    if (!Array.isArray(schema) || schema.length === 0 || schema.length > 256) {
+      throw new Error(`Plugin '${pluginId}' must register 1-256 valid settings.`);
+    }
+    const seenIds = new Set<string>();
+    return schema.map((rawField, index) => {
+      if (!rawField || typeof rawField !== 'object' || Array.isArray(rawField)) {
+        throw new Error(`Plugin '${pluginId}' setting ${index} must be an object.`);
+      }
+      const field = rawField as Record<string, unknown>;
+      assertSafeIdentifier(field.id, `Plugin '${pluginId}' setting ID`);
+      if (seenIds.has(field.id)) {
+        throw new Error(`Plugin '${pluginId}' registered duplicate setting '${field.id}'.`);
+      }
+      seenIds.add(field.id);
+      if (
+        field.type !== 'string' &&
+        field.type !== 'number' &&
+        field.type !== 'boolean' &&
+        field.type !== 'password'
+      ) {
+        throw new Error(`Plugin '${pluginId}' setting '${field.id}' has an invalid type.`);
+      }
+      if (typeof field.label !== 'string' || field.label.length === 0 || field.label.length > 256) {
+        throw new Error(`Plugin '${pluginId}' setting '${field.id}' has an invalid label.`);
+      }
+      if (field.description !== undefined && (typeof field.description !== 'string' || field.description.length > 4_096)) {
+        throw new Error(`Plugin '${pluginId}' setting '${field.id}' has an invalid description.`);
+      }
+      if (field.default !== undefined) assertMessageSize(field.default);
+      return {
+        id: field.id,
+        type: field.type,
+        label: field.label,
+        ...(field.description !== undefined ? { description: field.description } : {}),
+        ...(field.default !== undefined ? { default: structuredClone(field.default) } : {})
+      };
+    });
+  }
+
+  private stringArg(args: unknown[], index: number, label: string, maxLength = 65_536): string {
+    const value = args[index];
+    if (typeof value !== 'string' || value.length > maxLength) {
+      throw new Error(`${label} must be a string of at most ${maxLength} characters.`);
+    }
+    return value;
+  }
+
+  private objectArg(args: unknown[], index: number, label: string): Record<string, any> {
+    const value = args[index];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`${label} must be a plain object.`);
+    }
+    return value as Record<string, any>;
+  }
+
+  private async dispatchPluginHostCall(
+    pluginId: string,
+    manifest: PluginManifest,
+    host: PluginProcessHost,
+    method: PluginHostMethod,
+    args: unknown[]
+  ): Promise<unknown> {
+    assertMessageSize(args);
+    const running = this.runningPlugins.get(pluginId);
+    if (!running || running.host !== host) {
+      throw new Error(`Plugin '${pluginId}' is no longer running.`);
+    }
+
+    switch (method) {
+      case 'notification.show': {
+        const title = this.stringArg(args, 0, 'Notification title', 256);
+        const body = this.stringArg(args, 1, 'Notification body', 4_096);
+        new Notification({ title, body }).show();
+        return null;
+      }
+      case 'safeStorage.encrypt': {
+        const text = this.stringArg(args, 0, 'Safe-storage value', 1024 * 1024);
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('SecurityError: OS safe storage is unavailable.');
+        }
+        return safeStorage.encryptString(text).toString('base64');
+      }
+      case 'storage.get': {
+        const key = this.stringArg(args, 0, 'Storage key', 256);
+        return pluginStorageManager.get(pluginId, key);
+      }
+      case 'storage.set': {
+        const key = this.stringArg(args, 0, 'Storage key', 256);
+        await pluginStorageManager.set(
+          pluginId,
+          key,
+          args[1],
+          manifest.getssh?.capabilities || []
+        );
+        return null;
+      }
+      case 'storage.delete': {
+        const key = this.stringArg(args, 0, 'Storage key', 256);
+        await pluginStorageManager.delete(pluginId, key);
+        return null;
+      }
+      case 'storage.clear':
+        await pluginStorageManager.clear(pluginId);
+        return null;
+      case 'ssh.subscribe': {
+        this.requireCapability(manifest, 'ssh:read');
+        const subscriptionId = this.stringArg(args, 0, 'SSH subscription ID', 128);
+        const sessionId = this.stringArg(args, 1, 'SSH session ID', 256);
+        assertSafeIdentifier(subscriptionId, 'SSH subscription ID');
+        if (running.listeners?.some(listener => listener.subscriptionId === subscriptionId)) {
+          throw new Error(`SSH subscription '${subscriptionId}' is already registered.`);
+        }
+        const event = `data:${sessionId}`;
+        const callback = (chunk: string) => host.sendSshData(subscriptionId, String(chunk));
+        sshBridge.on(event, callback);
+        running.listeners = running.listeners || [];
+        running.listeners.push({ event, callback, subscriptionId });
+        return null;
+      }
+      case 'ssh.unsubscribe': {
+        const subscriptionId = this.stringArg(args, 0, 'SSH subscription ID', 128);
+        const listener = running.listeners?.find(item => item.subscriptionId === subscriptionId);
+        if (listener) {
+          sshBridge.off(listener.event, listener.callback);
+          running.listeners = running.listeners?.filter(item => item !== listener);
+        }
+        return null;
+      }
+      case 'ssh.write': {
+        this.requireCapability(manifest, 'ssh:write');
+        const sessionId = this.stringArg(args, 0, 'SSH session ID', 256);
+        const command = this.stringArg(args, 1, 'SSH command', 1024 * 1024);
+        if (!this.approvedSshWriters.has(pluginId)) {
+          const allWindows = BrowserWindow.getAllWindows();
+          const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
+          const options = {
+            type: 'warning' as const,
+            buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '本次运行始终允许 (Allow This Run)'],
+            defaultId: 0,
+            title: '高危权限请求 (High-Risk Permission Request)',
+            message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
+            detail: `执行内容 (Command snippet): ${command.substring(0, 200)}`
+          };
+          const choice = focusedWindow
+            ? await dialog.showMessageBox(focusedWindow, options)
+            : await dialog.showMessageBox(options);
+          if (choice.response === 0) throw new Error('Permission denied for ssh:write by user.');
+          if (choice.response === 2) this.approvedSshWriters.add(pluginId);
+        }
+        sshBridge.writeCommand(sessionId, command);
+        return null;
+      }
+      case 'rpc.sendToFrontend': {
+        const allWindows = BrowserWindow.getAllWindows();
+        allWindows[0]?.webContents.send('plugin-rpc-message', pluginId, args[0]);
+        return null;
+      }
+      case 'host.notify': {
+        const title = this.stringArg(args, 0, 'Notification title', 256);
+        const body = this.stringArg(args, 1, 'Notification body', 4_096);
+        new Notification({ title, body }).show();
+        return null;
+      }
+      case 'host.clipboard.writeText':
+        this.requireCapability(manifest, 'host:clipboard');
+        clipboard.writeText(this.stringArg(args, 0, 'Clipboard text', 1024 * 1024));
+        return null;
+      case 'host.clipboard.readText':
+        this.requireCapability(manifest, 'host:clipboard');
+        new Notification({
+          title: '⚠️ 剪贴板安全提醒',
+          body: `插件 [${manifest.name}] 刚刚读取了您的系统剪贴板`
+        }).show();
+        return clipboard.readText();
+      case 'host.showMessageBox': {
+        const options = this.objectArg(args, 0, 'Message-box options') as Electron.MessageBoxOptions;
+        const allWindows = BrowserWindow.getAllWindows();
+        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
+        return focusedWindow
+          ? dialog.showMessageBox(focusedWindow, options)
+          : dialog.showMessageBox(options);
+      }
+      case 'host.showOpenDialog': {
+        const options = this.objectArg(args, 0, 'Open-dialog options') as Electron.OpenDialogOptions;
+        const allWindows = BrowserWindow.getAllWindows();
+        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
+        return focusedWindow
+          ? dialog.showOpenDialog(focusedWindow, options)
+          : dialog.showOpenDialog(options);
+      }
+      case 'host.showSaveDialog': {
+        const options = this.objectArg(args, 0, 'Save-dialog options') as Electron.SaveDialogOptions;
+        const allWindows = BrowserWindow.getAllWindows();
+        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
+        return focusedWindow
+          ? dialog.showSaveDialog(focusedWindow, options)
+          : dialog.showSaveDialog(options);
+      }
+      case 'net.fetch': {
+        this.requireCapability(manifest, 'net:fetch');
+        const url = this.stringArg(args, 0, 'Network URL', 8_192);
+        const options = args[1] === undefined
+          ? undefined
+          : this.objectArg(args, 1, 'Network options');
+        try {
+          return await fetchForPlugin(url, options);
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('SecurityError:')) {
+            SecureCenter.getInstance().triggerLockdown(
+              `Plugin network policy violation by '${pluginId}': ${error.message}`,
+              'red'
+            );
+            this.forceKill(pluginId);
+          }
+          throw error;
+        }
+      }
+      default:
+        throw new Error(`SecurityError: Unknown plugin host method '${method}'.`);
+    }
+  }
+
+  private registerIsolatedPlugin(
+    pluginId: string,
+    host: PluginProcessHost,
+    registrations: PluginRegistrationSnapshot
+  ): void {
+    assertMessageSize(registrations);
+    if (!registrations || typeof registrations !== 'object') {
+      throw new Error(`Plugin '${pluginId}' sent invalid activation registrations.`);
+    }
+    if (!Array.isArray(registrations.rpcMethods) || registrations.rpcMethods.length > 128) {
+      throw new Error(`Plugin '${pluginId}' registered too many RPC methods.`);
+    }
+    if (!Array.isArray(registrations.terminalActions) || registrations.terminalActions.length > 128) {
+      throw new Error(`Plugin '${pluginId}' registered too many terminal actions.`);
+    }
+    if (!Array.isArray(registrations.sftpActions) || registrations.sftpActions.length > 128) {
+      throw new Error(`Plugin '${pluginId}' registered too many SFTP actions.`);
+    }
+    const settings = this.validateSettingsSchema(registrations.settings, pluginId);
+
+    const rpcHandlers = new Map<string, (payload: any) => Promise<any>>();
+    for (const method of registrations.rpcMethods) {
+      assertSafeIdentifier(method, 'Plugin RPC method');
+      if (rpcHandlers.has(method)) throw new Error(`Duplicate plugin RPC method '${method}'.`);
+      rpcHandlers.set(method, payload => host.invoke('rpc', method, payload));
+    }
+
+    const seenActions = new Set<string>();
+    const registerActions = (
+      target: 'terminal' | 'sftp',
+      actions: PluginRegistrationSnapshot['terminalActions']
+    ) => {
+      for (const action of actions) {
+        assertSafeIdentifier(action.actionId, 'Plugin action ID');
+        assertSafeIdentifier(action.handlerId, 'Plugin handler ID');
+        if (typeof action.label !== 'string' || action.label.length === 0 || action.label.length > 256) {
+          throw new Error('Plugin action label must contain 1-256 characters.');
+        }
+        const key = `${target}:${action.actionId}`;
+        if (seenActions.has(key)) throw new Error(`Duplicate plugin action '${key}'.`);
+        seenActions.add(key);
+        this.uiExtensions[target].push({
+          pluginId,
+          actionId: action.actionId,
+          label: action.label,
+          handler: (payload: unknown) => host.invoke('ui', action.handlerId, payload)
+        });
+      }
+    };
+    registerActions('terminal', registrations.terminalActions);
+    registerActions('sftp', registrations.sftpActions);
+
+    const running = this.runningPlugins.get(pluginId);
+    if (!running || running.host !== host) {
+      throw new Error(`Plugin '${pluginId}' exited during activation.`);
+    }
+    running.rpcHandlers = rpcHandlers;
+    this.settingsSchemas.set(pluginId, settings);
+    this.syncUIExtensions();
+  }
+
+  private async startIsolatedPlugin(
+    pluginId: string,
+    pluginDir: string,
+    entryPath: string,
+    manifest: PluginManifest
+  ): Promise<void> {
+    assertSafeIdentifier(pluginId, 'Plugin ID');
+    if (manifest.name !== pluginId) {
+      throw new Error(
+        `Plugin identity mismatch: directory '${pluginId}' declares manifest name '${manifest.name}'.`
+      );
+    }
+
+    const realPluginDir = await fs.promises.realpath(pluginDir);
+    const realEntryPath = await fs.promises.realpath(entryPath);
+    if (!realEntryPath.startsWith(`${realPluginDir}${path.sep}`)) {
+      throw new Error(`Plugin '${pluginId}' entry point escapes its installation directory.`);
+    }
+
+    let host!: PluginProcessHost;
+    host = new PluginProcessHost({
+      pluginId,
+      pluginDir: realPluginDir,
+      entryPath: realEntryPath,
+      workerPath: path.join(__dirname, 'plugin-host.js'),
+      manifest,
+      onHostCall: (method, args) => this.dispatchPluginHostCall(pluginId, manifest, host, method, args),
+      onHostNotify: async (method, args) => {
+        await this.dispatchPluginHostCall(pluginId, manifest, host, method, args);
+      },
+      onExit: () => {
+        if (this.runningPlugins.get(pluginId)?.host === host) {
+          this.cleanupPluginState(pluginId, false);
+        }
+      }
+    });
+
+    this.runningPlugins.set(pluginId, { host, listeners: [], rpcHandlers: new Map() });
+    try {
+      const registrations = await host.start();
+      this.registerIsolatedPlugin(pluginId, host, registrations);
+      console.log(`[Plugin Kernel] Plugin '${pluginId}' activated in OS-confined process ${host.pid}.`);
+    } catch (error) {
+      this.cleanupPluginState(pluginId, true);
+      throw error;
+    }
+  }
+
+  private async startDeveloperPlugin(
+    pluginId: string,
+    entryPath: string,
+    manifest: PluginManifest
+  ): Promise<void> {
+    if (manifest.name !== pluginId) {
+      throw new Error(
+        `Plugin identity mismatch: directory '${pluginId}' declares manifest name '${manifest.name}'.`
+      );
+    }
+    const resolvedPath = require.resolve(entryPath);
+    delete require.cache[resolvedPath];
+    const pluginModule = require(resolvedPath);
+    if (typeof pluginModule.activate !== 'function' || typeof pluginModule.deactivate !== 'function') {
+      throw new Error(`Plugin '${pluginId}' must export activate() and deactivate().`);
+    }
+
+    const state: RunningPlugin = {
+      deactivate: pluginModule.deactivate,
+      listeners: [],
+      rpcHandlers: new Map()
+    };
+    this.runningPlugins.set(pluginId, state);
+    this.settingsSchemas.delete(pluginId);
+    try {
+      const context = this.createMainContext(manifest);
+      await pluginModule.activate(context);
+      if (!this.settingsSchemas.has(pluginId)) {
+        throw new Error(`Plugin '${pluginId}' must call context.ui.registerSettings() during activation.`);
+      }
+      state.rpcHandlers = (context as any).__pendingRpcHandlers || new Map();
+      console.warn(`[Plugin Kernel] Developer plugin '${pluginId}' is running inside the main process.`);
+    } catch (error) {
+      this.cleanupPluginState(pluginId, false);
+      throw error;
+    }
+  }
+
+  private cleanupPluginState(pluginId: string, killProcess: boolean): void {
+    const plugin = this.runningPlugins.get(pluginId);
+    if (plugin?.listeners) {
+      for (const listener of plugin.listeners) {
+        sshBridge.off(listener.event, listener.callback);
+      }
+    }
+    plugin?.rpcHandlers?.clear();
+    if (killProcess) plugin?.host?.kill();
+    this.uiExtensions.terminal = this.uiExtensions.terminal.filter(item => item.pluginId !== pluginId);
+    this.uiExtensions.sftp = this.uiExtensions.sftp.filter(item => item.pluginId !== pluginId);
+    this.settingsSchemas.delete(pluginId);
+    this.approvedSshWriters.delete(pluginId);
+    this.runningPlugins.delete(pluginId);
+    this.syncUIExtensions();
+  }
+
+  public async gracefulDeactivate(pluginId: string): Promise<void> {
+    const plugin = this.runningPlugins.get(pluginId);
+    if (!plugin) return;
+    try {
+      if (plugin.host) {
+        await plugin.host.shutdown();
+      } else {
+        await plugin.deactivate?.();
+      }
+    } catch (err) {
+      console.error(`[PluginManager] Error deactivating plugin ${pluginId}:`, err);
+    } finally {
+      this.cleanupPluginState(pluginId, true);
+    }
+  }
+
+  public async reloadPlugin(pluginId: string) {
+    if (this.runningPlugins.has(pluginId)) {
+      await this.gracefulDeactivate(pluginId);
+    }
+
     // Clear previously registered UI hooks and schemas for this plugin to prevent duplication
     this.uiExtensions.terminal = this.uiExtensions.terminal.filter(ext => ext.pluginId !== pluginId);
     this.uiExtensions.sftp = this.uiExtensions.sftp.filter(ext => ext.pluginId !== pluginId);
     this.settingsSchemas.delete(pluginId);
     this.syncUIExtensions();
 
-    const pluginDir = path.join(this.pluginsPath, pluginId);
+    const pluginDir = this.getSecurePluginPath(pluginId);
     try {
       const pkgPath = path.join(pluginDir, 'package.json');
       const manifestRaw = await fs.promises.readFile(pkgPath, 'utf8');
       const manifest: PluginManifest = JSON.parse(manifestRaw);
-      
+
       const isDevMode = getBackendConfig()?.pluginSecurityMode === 'developer';
       if (!isDevMode && manifest.getssh?.type !== 'sandbox' && (!manifest.getssh?.capabilities || !manifest.getssh.capabilities.includes('lifecycle'))) {
          console.warn(`[PluginManager] Plugin ${manifest.name} blocked from reload: Missing lifecycle capabilities.`);
          return;
       }
-      
-      if (manifest.getssh?.type !== 'sandbox') {
-        const mainPath = path.join(pluginDir, manifest.main);
-        const code = await fs.promises.readFile(mainPath, 'utf8');
-        const context = this.createMainContext(manifest);
-        const sandbox: any = {
-          console,
-          setTimeout,
-          clearTimeout,
-          setInterval,
-          clearInterval,
-          Promise,
-          Buffer
-        };
 
-        const securityMode = getBackendConfig()?.pluginSecurityMode || 'normal';
-        if (securityMode === 'strict') {
-          sandbox.require = (moduleName: string) => {
-            if (['path', 'os'].includes(moduleName)) return require(moduleName);
-            throw new Error(`[Security] Module '${moduleName}' is blocked in Strict Mode`);
-          };
-        } else if (securityMode === 'normal') {
-          sandbox.require = (moduleName: string) => {
-            if (['fs', 'child_process', 'net', 'http', 'https', 'cluster'].includes(moduleName)) {
-              throw new Error(`[Security] Dangerous module '${moduleName}' is blocked in Normal Mode`);
-            }
-            return require(moduleName);
-          };
-        } else if (securityMode === 'developer') {
-          sandbox.require = require;
+      if (manifest.getssh?.type !== 'sandbox') {
+        const securityMode = getBackendConfig()?.pluginSecurityMode || 'safe';
+
+        // SAFE MODE: Return early, load nothing. loadPlugins() enforces this at startup,
+        // but reloadPlugin() is reachable on its own (saving plugin settings calls it),
+        // so without this check safe mode is bypassed by executing the plugin here.
+        if (securityMode === 'safe') {
+          console.warn(`[PluginManager] Reload of Node plugin '${manifest.name}' skipped: safe mode does not load Node plugins.`);
+          return;
         }
 
-        const script = new vm.Script(
-          `(function(exports, require, module, __filename, __dirname) { 
-            ${code}
-            return { activate, deactivate }; 
-          })`
-        );
-        const resultFn = script.runInNewContext(sandbox);
-        
-        const mod = { exports: {} };
-        const result = resultFn(mod.exports, sandbox.require, mod, mainPath, pluginDir);
-        const activateFn = result.activate || (mod.exports as any).activate;
-        const deactivateFn = result.deactivate || (mod.exports as any).deactivate;
-        
-        if (typeof activateFn === 'function') {
-          // Find pending handlers captured during context creation
-          let tempRpcHandlers: Map<string, (payload: any) => Promise<any>> | undefined;
-          context.rpc.registerMethod = (method: string, handler: any) => {
-             tempRpcHandlers = tempRpcHandlers || new Map();
-             tempRpcHandlers.set(method, handler);
-          };
-
-          (context as any).__settingsRegistered = false;
-          await activateFn(context);
-          
-          if (!(context as any).__settingsRegistered) {
-             throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
-          }
-          
-          this.runningPlugins.set(manifest.name, {
-            deactivate: typeof deactivateFn === 'function' ? deactivateFn : () => {},
-            listeners: [],
-            rpcHandlers: tempRpcHandlers
-          });
+        const mainPath = path.join(pluginDir, manifest.main);
+        if (securityMode === 'developer') {
+          await this.startDeveloperPlugin(pluginId, mainPath, manifest);
         } else {
-           throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
+          await this.startIsolatedPlugin(pluginId, pluginDir, mainPath, manifest);
         }
       }
     } catch (err) {
@@ -384,7 +769,7 @@ export class PluginManager {
     try {
       await fs.promises.mkdir(this.pluginsPath, { recursive: true });
       const dirents = await fs.promises.readdir(this.pluginsPath, { withFileTypes: true });
-      const limit = pLimit(50);
+      const limit = pLimit(8);
       await Promise.all(
         dirents.map((dirent) => limit(async () => {
           if (!dirent.isDirectory()) return;
@@ -405,8 +790,8 @@ export class PluginManager {
             this.installedPlugins.push(manifest);
 
             const mainEntryPath = path.join(pluginDir, manifest.main);
-            
-            // UI Sandbox plugins do not have a backend Node.js entry point, 
+
+            // UI Sandbox plugins do not have a backend Node.js entry point,
             // their main file is loaded in the renderer (e.g. index.html).
             if (manifest.getssh?.type === 'sandbox') {
               return;
@@ -418,141 +803,14 @@ export class PluginManager {
                 `Plugin '${manifest.name}' rejected: Node.js plugins must declare "getssh.capabilities": ["lifecycle"] in package.json to confirm deactivate() is implemented.`
               );
             }
-            
-            try {
-              const securityMode = getBackendConfig().pluginSecurityMode || 'normal';
 
-              // SAFE MODE: Return early, load nothing.
-              if (securityMode === 'safe') {
-                return;
-              }
+            const securityMode = getBackendConfig().pluginSecurityMode || 'safe';
+            if (securityMode === 'safe') return;
 
-              // DEVELOPER MODE: Full native require, no sandbox
-              if (securityMode === 'developer') {
-                try {
-                  const resolvedPath = require.resolve(mainEntryPath);
-                  if (require.cache[resolvedPath]) {
-                    delete require.cache[resolvedPath];
-                  }
-                } catch (e) {
-                  // Ignore if not resolvable yet
-                }
-                const pluginModule = require(mainEntryPath);
-                
-                const activateFn = typeof pluginModule.activate === 'function' ? pluginModule.activate : undefined;
-                const deactivateFn = typeof pluginModule.deactivate === 'function' ? pluginModule.deactivate : undefined;
-                
-                if (typeof deactivateFn !== 'function') {
-                   throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
-                }
-                
-                const deactSource = deactivateFn.toString().replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
-                if (deactSource === '()=>{}' || deactSource === 'function(){}' || deactSource === 'deactivate(){}') {
-                   throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
-                }
-                
-                if (typeof activateFn === 'function') {
-                  const ctx = this.createMainContext(manifest);
-                  (ctx as any).__settingsRegistered = false;
-                  await activateFn(ctx);
-                  
-                  if (!(ctx as any).__settingsRegistered) {
-                     throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
-                  }
-                  
-                  const pending = (ctx as any).__pendingRpcHandlers as Map<string, any> | undefined;
-                  this.runningPlugins.set(manifest.name, { deactivate: deactivateFn, rpcHandlers: pending });
-                } else {
-                  throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
-                }
-                return;
-              }
-
-              // STRICT AND NORMAL MODES: VM Sandboxing
-              const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
-
-              const safeRequire = (moduleName: string) => {
-                const normalizedModuleName = moduleName.startsWith('node:') ? moduleName.slice(5) : moduleName;
-                
-                if (securityMode === 'strict') {
-                  // STRICT: Only path and os
-                  const whitelist = ['path', 'os'];
-                  if (whitelist.includes(normalizedModuleName)) return require(moduleName);
-                  SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require restricted module '${moduleName}' in Strict Mode.`, 'yellow');
-                  throw new Error(`Sandbox violation: Cannot require module '${moduleName}' in Strict Mode`);
-                } else {
-                  // NORMAL: Relaxed but block extremely dangerous ones
-                  const blacklist = ['fs', 'fs/promises', 'child_process', 'net'];
-                  if (blacklist.includes(normalizedModuleName)) {
-                    SecureCenter.getInstance().triggerLockdown(`Sandbox violation: Plugin '${manifest.name}' attempted to require dangerous module '${moduleName}' in Normal Mode.`, 'yellow');
-                    throw new Error(`Sandbox violation: Cannot require dangerous module '${moduleName}' in Normal Mode`);
-                  }
-                  return require(moduleName);
-                }
-              };
-
-              const sandboxExports = securityMode === 'strict' ? Object.create(null) : {};
-              const sandboxModule = securityMode === 'strict' ? Object.create(null) : {};
-              sandboxModule.exports = sandboxExports;
-
-              const sandboxGlobals = securityMode === 'strict' ? Object.create(null) : {};
-              Object.assign(sandboxGlobals, {
-                module: sandboxModule,
-                exports: sandboxExports,
-                console: console,
-                require: safeRequire,
-                __dirname: pluginDir,
-                __filename: mainEntryPath,
-                Buffer: Buffer,
-                setTimeout,
-                clearTimeout,
-                setInterval,
-                clearInterval
-              });
-
-              const sandboxContext = vm.createContext(sandboxGlobals);
-
-              vm.runInContext(pluginCode, sandboxContext, {
-                filename: mainEntryPath,
-                timeout: 5000
-              });
-
-              const exportsObj = sandboxContext.module.exports as any;
-              const activateFn = exportsObj.activate;
-              const deactivateFn = exportsObj.deactivate;
-
-              if (typeof deactivateFn !== 'function') {
-                 throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'deactivate'`);
-              }
-              
-              const deactSource = deactivateFn.toString().replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
-              if (deactSource === '()=>{}' || deactSource === 'function(){}' || deactSource === 'deactivate(){}') {
-                 throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
-              }
-
-              if (typeof activateFn === 'function') {
-                const ctx = this.createMainContext(manifest);
-                (ctx as any).__settingsRegistered = false;
-                await activateFn(ctx);
-                
-                if (!(ctx as any).__settingsRegistered) {
-                   throw new Error(`Plugin '${manifest.name}' rejected: Plugins MUST call context.ui.registerSettings() during activation. If you have no parameters, call it with an empty array: context.ui.registerSettings([]).`);
-                }
-                
-                const pending = (ctx as any).__pendingRpcHandlers as Map<string, any> | undefined;
-                this.runningPlugins.set(manifest.name, { deactivate: deactivateFn, rpcHandlers: pending });
-              } else {
-                throw new Error(`Plugin '${manifest.name}' rejected: Missing required lifecycle hook 'activate'`);
-              }
-            } catch (loadErr: unknown) {
-              const isModuleNotFound = loadErr && typeof loadErr === 'object' && (loadErr as NodeJS.ErrnoException).code === 'ENOENT';
-              const isSyntaxError = loadErr instanceof SyntaxError;
-              
-              if (isModuleNotFound || isSyntaxError) {
-                console.warn(`[Plugin Kernel] Main entry point '${manifest.main}' not found or is a UI file (SyntaxError). Attempting to run headless/renderer-only.`);
-              } else {
-                throw loadErr;
-              }
+            if (securityMode === 'developer') {
+              await this.startDeveloperPlugin(dirent.name, mainEntryPath, manifest);
+            } else {
+              await this.startIsolatedPlugin(dirent.name, pluginDir, mainEntryPath, manifest);
             }
           } catch (err: unknown) {
             console.error(`[Plugin Kernel] Failed to load plugin from ${dirent.name}:`, err instanceof Error ? err.message : String(err));
@@ -564,23 +822,29 @@ export class PluginManager {
     }
   }
 
-  public deactivateAll() {
-    for (const [name, plugin] of this.runningPlugins.entries()) {
-      try {
-        plugin.deactivate();
-        if (plugin.listeners) {
-          for (const l of plugin.listeners) {
-            sshBridge.off(l.event, l.callback);
-          }
-        }
-      } catch (e) {
-        console.error(`[Plugin Kernel] Error deactivating plugin ${name} during teardown:`, e);
-      }
-    }
-    this.runningPlugins.clear();
-    this.uiExtensions = { terminal: [], sftp: [] };
-    this.syncUIExtensions();
+  public async deactivateAll(): Promise<void> {
+    await Promise.all(
+      Array.from(this.runningPlugins.keys()).map(pluginId => this.gracefulDeactivate(pluginId))
+    );
     console.log('[Plugin Kernel] All plugins deactivated.');
+  }
+
+  /**
+   * Host-managed resource eviction.
+   * Completely bypasses the plugin's JS code and forcibly revokes all registered
+   * listeners, RPC handlers, and UI extensions. Used by RASP during active threat mitigation.
+   */
+  public forceKill(pluginId: string) {
+    if (!this.runningPlugins.has(pluginId)) return;
+    this.cleanupPluginState(pluginId, true);
+    console.log(`[Plugin Kernel] Plugin ${pluginId} forcibly killed. Resources reclaimed by host.`);
+  }
+
+  public forceKillAll() {
+    for (const pluginId of Array.from(this.runningPlugins.keys())) {
+      this.forceKill(pluginId);
+    }
+    console.log(`[Plugin Kernel] ALL plugins forcibly killed.`);
   }
 
   public setupIPC() {
@@ -592,14 +856,12 @@ export class PluginManager {
         ext = this.uiExtensions.sftp.find(e => e.pluginId === pluginId && e.actionId === actionId);
       }
       if (ext) {
-        try {
-          ext.handler(contextData);
-        } catch (err) {
+        void Promise.resolve(ext.handler(contextData)).catch((err) => {
           console.error(`[Plugin Kernel] Error executing plugin UI handler ${pluginId}.${actionId}:`, err);
-        }
+        });
       }
     });
-    
+
     ipcMain.handle('plugin-rpc-invoke', async (event, pluginId: string, method: string, payload: any) => {
       const plugin = this.runningPlugins.get(pluginId);
       if (!plugin) {
@@ -608,7 +870,7 @@ export class PluginManager {
       if (!plugin.rpcHandlers || !plugin.rpcHandlers.has(method)) {
         return { success: false, error: `Method '${method}' not found on plugin '${pluginId}'.` };
       }
-      
+
       try {
         const handler = plugin.rpcHandlers.get(method)!;
         const result = await handler(payload);
@@ -617,24 +879,11 @@ export class PluginManager {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
-    
+
      ipcMain.handle('reload-plugins', async () => {
-      for (const [name, plugin] of this.runningPlugins.entries()) {
-         try {
-            plugin.deactivate();
-            if (plugin.listeners) {
-              for (const l of plugin.listeners) {
-                sshBridge.off(l.event, l.callback);
-              }
-            }
-         } catch (e) {
-            console.error(`[Plugin Kernel] Error deactivating plugin ${name}:`, e);
-         }
-      }
-      this.runningPlugins.clear();
-      this.uiExtensions = { terminal: [], sftp: [] };
-      this.settingsSchemas.clear();
-      this.syncUIExtensions();
+      await Promise.all(
+        Array.from(this.runningPlugins.keys()).map(pluginId => this.gracefulDeactivate(pluginId))
+      );
       this.installedPlugins = [];
       await this.loadPlugins();
       return { success: true };
@@ -667,25 +916,11 @@ export class PluginManager {
         return { success: false, error: e.message };
       }
     });
-    
+
     ipcMain.handle('uninstall-plugin', async (event, pluginName: string) => {
        try {
           if (this.runningPlugins.has(pluginName)) {
-             try {
-                const p = this.runningPlugins.get(pluginName)!;
-                p.deactivate();
-                if (p.listeners) {
-                  for (const l of p.listeners) {
-                    sshBridge.off(l.event, l.callback);
-                  }
-                }
-             } catch (e) {
-                console.error(`[Plugin Kernel] Error deactivating plugin ${pluginName}:`, e);
-             }
-             this.runningPlugins.delete(pluginName);
-             this.uiExtensions.terminal = this.uiExtensions.terminal.filter(ext => ext.pluginId !== pluginName);
-             this.uiExtensions.sftp = this.uiExtensions.sftp.filter(ext => ext.pluginId !== pluginName);
-             this.syncUIExtensions();
+             await this.gracefulDeactivate(pluginName);
           }
           const targetDir = this.getSecurePluginPath(pluginName);
           const dirExists = await fs.promises.access(targetDir).then(() => true).catch(() => false);
@@ -698,7 +933,7 @@ export class PluginManager {
           return { success: false, error: err instanceof Error ? err.message : String(err) };
        }
     });
-    
+
     ipcMain.handle('preview-plugin', async (event, zipPath: string) => {
       try {
         const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'getssh-plugin-preview-'));
@@ -706,7 +941,7 @@ export class PluginManager {
 
         const addonPath = getRustCorePath('getssh-unarchive');
         const unarchive = require(addonPath);
-        
+
         await unarchive.extractPlugin(zipPath, resolvedTempDir);
 
         let pkgPath = path.join(tempDir, 'package.json');
@@ -726,7 +961,7 @@ export class PluginManager {
 
         const finalPkgExists = await fs.promises.access(pkgPath).then(() => true).catch(() => false);
         if (!finalPkgExists) throw new Error('Invalid Architecture: Missing package.json manifest.');
-        
+
         const manifest = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
 
         // === LIFECYCLE GATE (install-time) ===
@@ -740,27 +975,6 @@ export class PluginManager {
               `to confirm that a deactivate() lifecycle hook is implemented. ` +
               `This is required for safe RASP shutdown compatibility.`
             );
-          }
-
-          // Static Code Analysis: Verify that the main JS file actually exports 'deactivate'
-          const mainEntryPath = path.join(sourceDir, manifest.main || 'index.js');
-          try {
-            const pluginCode = await fs.promises.readFile(mainEntryPath, 'utf8');
-            const strippedCode = pluginCode.replace(/\s|\/\/.*|\/\*[\s\S]*?\*\//g, '');
-            if (!pluginCode.includes('deactivate')) {
-              throw new Error(`[Security] Plugin '${manifest.name}' installation rejected: ` +
-                `The main script '${manifest.main || 'index.js'}' does not export a 'deactivate' lifecycle hook. ` +
-                `All backend plugins must clean up their resources for system stability.`
-              );
-            }
-            if (strippedCode.includes('deactivate:()=>{}') || strippedCode.includes('deactivate:function(){}') || strippedCode.includes('deactivate(){}')) {
-              throw new Error(`[Security] Plugin installation rejected: The 'deactivate' hook cannot be empty. It must contain actual cleanup logic.`);
-            }
-          } catch (e: any) {
-            // If the error was generated by us, rethrow it
-            if (e.message.includes('[Security]')) throw e;
-            // Otherwise it's an I/O error
-            throw new Error(`[Security] Failed to validate lifecycle hooks: ${e.message}`);
           }
         }
 
@@ -802,30 +1016,19 @@ export class PluginManager {
         }
 
         const targetDir = this.getSecurePluginPath(serverManifest.name);
-        
+
         if (this.runningPlugins.has(serverManifest.name)) {
-           try {
-              const p = this.runningPlugins.get(serverManifest.name)!;
-              p.deactivate();
-              if (p.listeners) {
-                for (const l of p.listeners) {
-                  sshBridge.off(l.event, l.callback);
-                }
-              }
-           } catch (e) {
-              console.error(`[Plugin Kernel] Error deactivating plugin ${serverManifest.name}:`, e);
-           }
-           this.runningPlugins.delete(serverManifest.name);
+          await this.gracefulDeactivate(serverManifest.name);
         }
-        
+
         await fs.promises.rm(targetDir, { recursive: true, force: true });
         await fs.promises.rename(sourceDir, targetDir);
-        
+
         serverManifest.localPath = targetDir;
         if (!this.installedPlugins.find(p => p.name === serverManifest.name)) {
           this.installedPlugins.push(serverManifest);
         }
-        
+
         return { success: true, manifest: serverManifest };
       } catch (err: unknown) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -859,8 +1062,8 @@ export class PluginManager {
               return p._rendererContentCache;
             }
             try {
-              const pluginPath = this.getSecurePluginPath(p.name);
-              const rendererPath = path.resolve(pluginPath, p.renderer!);
+              const pluginPath = await fs.promises.realpath(this.getSecurePluginPath(p.name));
+              const rendererPath = await fs.promises.realpath(path.resolve(pluginPath, p.renderer!));
               if (!rendererPath.startsWith(pluginPath + path.sep)) {
                 throw new Error('Invalid renderer path');
               }

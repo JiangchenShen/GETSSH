@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles, BookOpen, Database } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useAppStore } from '../store/appStore';
-import { useMoovierFocus } from '@moovier/core';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -47,8 +46,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
   const runbooks = useWorkspaceStore(state => state.runbooks);
   
-  const { setActiveTileId } = useMoovierFocus();
-
   const [searchQuery, setSearchQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
@@ -56,9 +53,22 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [inspectingPlugin, setInspectingPlugin] = useState<any | null>(null);
   const [isAiMode, setIsAiMode] = useState(false);
+  const [mcpPrompts, setMcpPrompts] = useState<any[]>([]);
+  const [mcpResources, setMcpResources] = useState<any[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && window.electronAPI?.mcp) {
+      window.electronAPI.mcp.getPrompts().then(res => {
+        if (res.success && res.prompts) setMcpPrompts(res.prompts);
+      });
+      window.electronAPI.mcp.getResources().then(res => {
+        if (res.success && res.resources) setMcpResources(res.resources);
+      });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isPolluted && window.electronAPI?.invoke) {
@@ -79,13 +89,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       setInspectingPlugin(null);
       setIsAiMode(false);
       
-      // Phase 3: Trigger Cinematic Focus Pulling globally
-      setActiveTileId('overlay-cmd-center');
-    } else {
-      // Release focus when closed
-      setActiveTileId(null);
     }
-  }, [isOpen, setActiveTileId]);
+  }, [isOpen]);
 
   useEffect(() => {
     setDeleteConfirmId(null);
@@ -102,7 +107,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         id: 'qa-new',
         type: 'action',
         title: t('sidebar.newConnection', 'New Session'),
-        icon: <Plus className="w-4 h-4 text-emerald-500" />,
+        icon: <Plus className="w-4 h-4 text-ink-3" />,
         onSelect: () => {
           onClose();
           window.dispatchEvent(new CustomEvent('app:create-session', { detail: '' }));
@@ -112,7 +117,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         id: 'qa-settings',
         type: 'action',
         title: t('settings.title', 'Settings'),
-        icon: <Settings className="w-4 h-4 text-slate-500" />,
+        icon: <Settings className="w-4 h-4 text-ink-3" />,
         onSelect: () => {
           onClose();
           window.dispatchEvent(new CustomEvent('app:open-settings'));
@@ -123,7 +128,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         type: 'action',
         title: t('welcome.lockProfile', 'Lock Profile'),
         subtitle: !masterPassword ? t('welcome.lockProfileDisabledTip', 'Password required') : undefined,
-        icon: <Lock className="w-4 h-4 text-red-500" />,
+        icon: <Lock className="w-4 h-4 text-ink-3" />,
         onSelect: () => {
           if (masterPassword) {
             onClose();
@@ -142,7 +147,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       type: 'host' as UnifiedItemType,
       title: s.alias || `${s.username}@${s.host}`,
       subtitle: s.host,
-      icon: <Server className="w-4 h-4 text-blue-500" />,
+      icon: <Server className="w-4 h-4 text-ink-3" />,
       data: s,
       onSelect: () => {
         onClose();
@@ -156,7 +161,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       type: 'plugin' as UnifiedItemType,
       title: p.getssh?.name || p.displayName || p.name,
       subtitle: `v${p.version}`,
-      icon: <Box className="w-4 h-4 text-purple-500" />,
+      icon: <Box className="w-4 h-4 text-ink-3" />,
       data: p,
       onSelect: () => {
         onClose();
@@ -179,7 +184,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       type: 'runbook' as UnifiedItemType,
       title: r.name,
       subtitle: r.description,
-      icon: <Command className={`w-4 h-4 ${r.dangerLevel === 'high' ? 'text-amber-500' : 'text-slate-400'}`} />,
+      icon: <Command className={`w-4 h-4 ${r.dangerLevel === 'high' ? 'text-warn' : 'text-ink-3'}`} />,
       data: r,
       onSelect: () => {
         onClose();
@@ -188,8 +193,58 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       }
     })));
 
+    // 5. MCP Prompts & Workflows (Slash commands)
+    items.push(...mcpPrompts.map((p, idx) => ({
+      id: `mcp-prompt-${idx}-${p.prompt.name}`,
+      type: 'action' as UnifiedItemType,
+      title: `/${p.prompt.name}`,
+      subtitle: `[MCP: ${p.serverName}] ${p.prompt.description || 'External Workflow'}`,
+      icon: <BookOpen className="w-4 h-4 text-ink-3" />,
+      data: p,
+      onSelect: async () => {
+        try {
+          setIsAiMode(true);
+          if (window.electronAPI?.mcp) {
+            const res = await window.electronAPI.mcp.getPrompt(p.serverId, p.prompt.name);
+            if (res.success && res.prompt?.messages) {
+              const promptText = res.prompt.messages.map((m: any) => m.content?.text).filter(Boolean).join('\n');
+              window.dispatchEvent(new CustomEvent('ai:submit-prompt', { detail: promptText }));
+            }
+          }
+        } catch (err) {
+          console.error(`[CommandCenter] MCP Prompt '${p.prompt.name}' failed:`, err);
+        }
+      }
+    })));
+
+    // 6. MCP Resources (@ references)
+    items.push(...mcpResources.map((r, idx) => ({
+      id: `mcp-resource-${idx}-${r.resource.uri}`,
+      type: 'action' as UnifiedItemType,
+      title: `@${r.resource.name || r.resource.uri}`,
+      subtitle: `[MCP: ${r.serverName}] ${r.resource.uri}`,
+      icon: <Database className="w-4 h-4 text-ink-3" />,
+      data: r,
+      onSelect: async () => {
+        try {
+          setIsAiMode(true);
+          if (window.electronAPI?.mcp) {
+            const res = await window.electronAPI.mcp.readResource(r.serverId, r.resource.uri);
+            if (res.success && res.data?.contents) {
+              const contentText = res.data.contents.map((c: any) => c.text).filter(Boolean).join('\n');
+              window.dispatchEvent(new CustomEvent('ai:submit-prompt', {
+                detail: `[Attached MCP Resource: ${r.resource.uri}]\n\`\`\`\n${contentText}\n\`\`\`\nPlease analyze this resource.`
+              }));
+            }
+          }
+        } catch (err) {
+          console.error(`[CommandCenter] MCP Resource '${r.resource.uri}' failed:`, err);
+        }
+      }
+    })));
+
     return items;
-  }, [sessions, installedPlugins, runbooks, masterPassword, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
+  }, [sessions, installedPlugins, runbooks, mcpPrompts, mcpResources, masterPassword, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
 
   const fuse = useMemo(() => {
     return new Fuse(baseItems, {
@@ -237,7 +292,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         id: 'quick-connect',
         type: 'host',
         title: t('commandCenter.quickConnect', 'Quick Connect to {{host}}', { host: q }),
-        icon: <TerminalIcon className="w-4 h-4 text-cyan-500" />,
+        icon: <TerminalIcon className="w-4 h-4 text-ink-3" />,
         onSelect: () => {
           onClose();
           onConnect({ host, username, protocol: 'ssh' });
@@ -360,7 +415,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
     // Execute
     items.push({
       label: t('commandCenter.execute', 'Execute'),
-      icon: <Play className="w-4 h-4 opacity-70" />,
+      icon: <Play className="w-4 h-4" />,
       shortcut: '↵',
       action: () => activeItem.onSelect()
     });
@@ -368,7 +423,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
     if (activeItem.type === 'host') {
       items.push({
         label: t('commandCenter.copyIP', 'Copy IP'),
-        icon: <Copy className="w-4 h-4 opacity-70" />,
+        icon: <Copy className="w-4 h-4" />,
         action: () => {
           if (activeItem.data?.host) {
             navigator.clipboard.writeText(activeItem.data.host);
@@ -380,7 +435,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
       items.push({
         label: t('commandCenter.editProfile', 'Edit Profile'),
-        icon: <Edit2 className="w-4 h-4 opacity-70" />,
+        icon: <Edit2 className="w-4 h-4" />,
         action: () => {
           onClose();
           const idx = sessions.indexOf(activeItem.data);
@@ -393,7 +448,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       if (onDeleteSession) {
         items.push({
           label: deleteConfirmId === activeItem.id ? t('commandCenter.clickToConfirm', 'Click to Confirm') : t('commandCenter.deleteProfile', 'Delete Profile'),
-          icon: <Trash2 className="w-4 h-4 opacity-70" />,
+          icon: <Trash2 className="w-4 h-4" />,
           isDestructive: true,
           action: () => {
             if (deleteConfirmId === activeItem.id) {
@@ -412,7 +467,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
     if (activeItem.type === 'plugin') {
       items.push({
         label: t('commandCenter.pluginParameters', 'Plugin Parameters'),
-        icon: <Settings className="w-4 h-4 opacity-70" />,
+        icon: <Settings className="w-4 h-4" />,
         action: () => {
           setInspectingPlugin(activeItem.data);
           setIsActionMenuOpen(false);
@@ -435,7 +490,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] flex items-start pt-[12vh] justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-start pt-[12vh] justify-center bg-scrim"
       onClick={handleBackdropClick}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
@@ -447,33 +502,28 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98, y: -10 }}
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          className={`relative w-[650px] shrink-0 pointer-events-auto shadow-2xl rounded-2xl flex flex-col border transition-all duration-500 overflow-hidden ${
-            isAiMode
-              ? (isDark ? 'bg-[#151515]/90 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.15)] text-white' : 'bg-white/95 border-cyan-500/40 shadow-[0_0_40px_rgba(6,182,212,0.1)] text-slate-900')
-              : (isDark ? 'bg-[#151515]/80 border-white/10 water-glass text-white' : 'bg-white/90 border-black/10 text-slate-900 backdrop-blur-xl')
-          }`}
+          className={`relative w-[560px] max-w-[86vw] shrink-0 pointer-events-auto rounded-xl flex flex-col
+                      border bg-panel text-ink overflow-hidden transition-colors
+                      ${isAiMode ? 'border-primary/60' : 'border-line'}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Alert Banner */}
           {isPolluted && (
-            <div className={`w-full px-4 py-3 flex items-center justify-center gap-2 border-b text-sm font-bold tracking-widest ${
-              watchdogStatus?.level === 'red' ? 'bg-red-500/20 text-red-500 border-red-500/30' : 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30'
+            <div className={`w-full px-4 py-2.5 flex items-center justify-center gap-2 border-b text-[12.5px] font-medium ${
+              watchdogStatus?.level === 'red' ? 'bg-down/10 text-down border-down/25' : 'bg-warn/10 text-warn border-warn/25'
             }`}>
-              <ShieldAlert className="w-4 h-4 animate-pulse" />
+              <ShieldAlert className="w-3.5 h-3.5" />
               {watchdogStatus?.level === 'red' ? '⚠️ 当前系统已被污染 (高危)' : '⚠️ 插件高危操作已阻断 (警告)'}
             </div>
           )}
 
           {/* Header Input */}
-          <div className="flex items-center px-4 py-4 border-b border-white/10 shrink-0 relative z-10">
-            {isAiMode && (
-              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-transparent pointer-events-none" />
-            )}
-            <Command className={`w-5 h-5 mr-3 transition-colors ${isAiMode ? 'text-cyan-500' : 'opacity-50'}`} />
+          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line-soft shrink-0 relative z-10">
+            <Command className={`w-4 h-4 flex-none transition-colors ${isAiMode ? 'text-primary' : 'text-ink-3'}`} />
             <input
               ref={inputRef}
               type="text"
-              className="w-full bg-transparent border-none outline-none text-lg font-medium placeholder:opacity-40"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[15px] text-ink placeholder:text-ink-3"
               placeholder={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -481,13 +531,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
               autoComplete="off"
             />
             <button
-              className={`p-1.5 rounded-lg transition-colors ml-2 ${isAiMode ? 'bg-cyan-500/20 text-cyan-500' : 'hover:bg-black/5 dark:hover:bg-white/5 opacity-50 hover:opacity-100'}`}
+              className={`flex-none w-[26px] h-[26px] rounded-md grid place-items-center transition-colors ${isAiMode ? 'bg-primary/15 text-primary' : 'text-ink-3 hover:bg-surf hover:text-ink'}`}
               onClick={() => setIsAiMode(!isAiMode)}
               title={t('commandCenter.aiModeToggle', 'Toggle AI Mode')}
             >
               <Sparkles className="w-4 h-4" />
             </button>
-            <div className={`text-[10px] font-mono px-2 py-1 rounded border ml-3 ${isDark ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+            <div className="flex-none font-mono text-[9.5px] px-1.5 py-1 rounded border border-line-soft bg-surf-2 text-ink-3">
               {t('commandCenter.escToClose', 'ESC TO CLOSE')}
             </div>
           </div>
@@ -500,7 +550,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
               activeIndex={activeIndex}
               setActiveIndex={setActiveIndex}
               searchQuery={searchQuery}
-              isDark={isDark}
             />
           ) : (
             <CommandCenterAiChat 
@@ -512,11 +561,11 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           )}
           
           {/* Footer */}
-          <div className={`px-4 py-2 text-[10px] flex items-center justify-between border-t ${isDark ? 'border-white/5 text-white/30' : 'border-black/5 text-slate-400'}`}>
+          <div className="px-4 py-2.5 text-[10.5px] flex items-center justify-between border-t border-line-soft text-ink-3">
             <span>{t('commandCenter.version', 'GETSSH Command Center V2.0')}</span>
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↑</kbd> <kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↓</kbd> {t('commandCenter.navigate', 'Navigate')}</span>
-              <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 bg-white/10 rounded font-mono text-[10px]">↵</kbd> {t('commandCenter.select', 'Select')}</span>
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1"><kbd className="px-1.5 py-px rounded border border-line-soft bg-surf-2 font-mono text-[9.5px]">↑↓</kbd> {t('commandCenter.navigate', 'Navigate')}</span>
+              <span className="flex items-center gap-1"><kbd className="px-1.5 py-px rounded border border-line-soft bg-surf-2 font-mono text-[9.5px]">↵</kbd> {t('commandCenter.select', 'Select')}</span>
             </div>
           </div>
           

@@ -37,9 +37,10 @@ class SSHBridge extends EventEmitter {
     // Ensure the command ends with a newline to execute it
     const finalCommand = command.endsWith('\n') ? command : `${command}\n`;
 
-    // Forward to sshHandler via IPC event or direct method call.
-    // Using ipcMain.emit simulates the renderer sending the message, allowing sshHandler to process it naturally.
-    ipcMain.emit('ssh-write', null, { sessionId, data: finalCommand });
+    // 复用渲染进程那条 'ssh-write' 通道，但 ipcMain.emit 的 event 是 null。
+    // 打上显式标记，让 sshHandler 能区分来源 —— 否则它只能靠形参位置猜，
+    // 任何在那边加 event.sender 校验的改动都会把这条路径打成 TypeError。
+    ipcMain.emit('ssh-write', null, { sessionId, data: finalCommand, __fromBridge: true });
   }
 
   /**

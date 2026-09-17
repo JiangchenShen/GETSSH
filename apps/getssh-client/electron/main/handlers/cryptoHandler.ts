@@ -82,17 +82,26 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
     
     const profilesToSave = (payload as any[]).map((p: any) => {
       return {
-        id: crypto.createHash('md5').update(`${p.host}:${p.username}`).digest('hex'),
+        id: p.id || crypto.randomUUID(),
         workspace_id: workspaceId,
         host: p.host,
         username: p.username,
         password: p.password, // Stored natively in SQLCipher encrypted DB
         privateKeyPath: p.privateKeyPath,
         passphrase: p.passphrase,
-        port: p.port || 22,
+        port: p.port || (p.protocol === 'telnet' ? 23 : 22),
         autoStart: p.autoStart ? 1 : 0,
         alias: p.alias,
-        osType: p.osType
+        osType: p.osType,
+        protocol: p.protocol || 'ssh',
+        groupName: p.group,
+        useKeepAlive: p.useKeepAlive !== false,
+        authType: p.authType || 'password',
+        proxyJump: p.proxyJump,
+        strictHostKeyChecking: p.strictHostKeyChecking === true,
+        initialDirectory: p.initialDirectory,
+        postConnectScript: p.postConnectScript,
+        themeOverride: p.themeOverride
       };
     });
 
@@ -111,13 +120,18 @@ export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.
            throw new Error('Password must be at least 8 characters long');
          }
          try {
-           db.pragma(`rekey = '${masterPassword}'`);
+           const keyBuffer = Buffer.from(masterPassword, 'utf8');
+           try {
+             db.rekey(keyBuffer);
+           } finally {
+             keyBuffer.fill(0);
+           }
          } catch (e: unknown) {
            throw new Error('Workspace DB Encryption failed: ' + String(e));
          }
        } else {
          try {
-           db.pragma(`rekey = ''`);
+           db.rekey(Buffer.alloc(0));
          } catch (e: unknown) {
            console.error('Failed to remove DB encryption', e);
          }

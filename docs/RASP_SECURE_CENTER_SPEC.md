@@ -68,7 +68,7 @@ Watchdog → Node:  LOCKDOWN_TRIGGER:YELLOW:<reason>  (转发给前端)
 ### 🔴 RED — 核心级威胁 (Critical)
 
 **定义：**  
-系统检测到核心内存被篡改、内核 API 被 Hook 劫持，或主进程心跳完全丢失（疑似进程卡死或被注入）。这是系统被攻陷的最高级别信号。Watchdog 将在用户决策超时后**强制物理终止主进程**。
+系统检测到核心内存被篡改、内核 API 被 Hook 劫持，或主进程心跳完全丢失（疑似进程卡死或被注入）。这是系统被攻陷的最高级别信号。Watchdog 将在用户决策超时后**强制终止主进程**。
 
 **触发条件（任一）：**
 - Watchdog 内存扫描线程检测到 `connect` 或 `open` 等内核 API 地址对应的字节码已被篡改（`MEMORY_HOOKED_CONNECT` / `MEMORY_HOOKED_OPEN`）
@@ -218,7 +218,7 @@ Watchdog →[LOCKDOWN_TRIGGER:YELLOW:<reason>]→ Node IPC
 |-----|-----|-----|
 | RASP 拦截层 | `electron/main/services/PluginManager.ts` | 拦截高危 API 调用，调用 `SecureCenter.triggerLockdown` |
 | 安全总线 | `electron/main/security/SecureCenter.ts` | 管理 Watchdog 生命周期，转发 RASP 事件，处理用户决策 |
-| 物理看门狗 | `rust-core/watchdog/src/main.rs` | 心跳监控，内存完整性检查，进程强杀 |
+| 系统看门狗 | `rust-core/watchdog/src/main.rs` | 心跳监控，内存完整性检查，进程强杀 |
 | 安全覆盖层 | `src/components/SecurityOverlay.tsx` | 全屏拦截 UI，展示预警并接受用户操作 |
 | 安全中心面板 | `src/components/SettingsView.tsx` | 安全状态摘要，历史日志 |
 | 指挥中心横幅 | `src/components/CommandCenter.tsx` | 污染状态横幅提示 |

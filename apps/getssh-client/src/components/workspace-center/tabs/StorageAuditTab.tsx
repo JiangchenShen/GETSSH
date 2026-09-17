@@ -33,6 +33,28 @@ export const StorageAuditTab: React.FC = () => {
     }
   };
 
+  const handleExportCSV = () => {
+    if (!logs || logs.length === 0) return;
+    const headers = ['ID', 'Action', 'Target', 'Details', 'Timestamp'];
+    const rows = logs.map(l => [
+      l.id,
+      `"${(l.action || '').replace(/"/g, '""')}"`,
+      `"${(l.target || '').replace(/"/g, '""')}"`,
+      `"${(l.details || '').replace(/"/g, '""')}"`,
+      `"${new Date(l.created_at).toISOString()}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `audit_logs_${activeWorkspaceId}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     fetchStatsAndLogs();
   }, [activeWorkspaceId]);
@@ -127,7 +149,11 @@ export const StorageAuditTab: React.FC = () => {
         </div>
 
         <div className="flex justify-center pt-4 relative z-10">
-          <button className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity text-pink-500">
+          <button 
+            onClick={handleExportCSV}
+            disabled={logs.length === 0}
+            className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-opacity text-pink-500 ${logs.length === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-70 hover:opacity-100 cursor-pointer'}`}
+          >
             <Download className="w-4 h-4"/> {t("workspaceCenter.exportAuditLog", "Export Full Audit Log (CSV)")}
           </button>
         </div>

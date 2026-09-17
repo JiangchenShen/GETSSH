@@ -11,12 +11,17 @@ export interface SSHConnectConfig {
     username: string;
     password?: string;
     privateKeyPath?: string;
+    passphrase?: string;
     keepaliveInterval?: number;
     proxyType?: string;
     proxyHost?: string;
     proxyPort?: number;
     initScript?: string;
     alias?: string;
+    strictHostKeyChecking?: boolean;
+    initialDirectory?: string;
+    postConnectScript?: string;
+    themeOverride?: string;
 }
 
 export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings' } | null;
@@ -65,6 +70,8 @@ export interface FloatingAiContext {
 }
 
 export interface SessionProfile {
+  id?: string;
+  isDraft?: boolean;
   protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   username: string;

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useAiStore } from './aiStore';
 
 export interface AiPrompt {
   id: string;
@@ -42,13 +43,23 @@ export interface AppConfig {
   sftpDownloadPath?: string;
   aiEndpoint?: string;
   aiApiKey?: string;
+  aiDeepSeekApiKey?: string;
+  aiZhipuApiKey?: string;
+  aiKimiApiKey?: string;
   hasAiApiKey?: boolean;
-  aiProvider?: 'openai' | 'gemini' | 'ollama' | 'custom';
+  aiProvider?: 'openai' | 'gemini' | 'claude' | 'ollama' | 'deepseek' | 'zhipu' | 'kimi' | 'custom';
   aiModel?: string;
+  aiThinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   aiEnabled?: boolean;
   aiMode?: 'readonly' | 'assistant' | 'agent_semi' | 'agent_full';
   activePromptId?: string;
   customPrompts?: AiPrompt[];
+  aiMaxTokens: number;
+  aiSearchEnabled?: boolean;
+  aiSearchProvider?: 'hybrid' | 'google' | 'searxng' | 'duckduckgo' | 'bing';
+  aiSearchGoogleApiKey?: string;
+  aiSearchGoogleCx?: string;
+  aiSearchCustomUrl?: string;
 }
 
 const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' : navigator.userAgent.includes('Win');
@@ -77,7 +88,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   initScript: '',
   autoLockTimeout: 0,
   terminalTheme: 'default',
-  pluginSecurityMode: 'normal',
+  pluginSecurityMode: 'safe',
   enableAuditLogging: false,
   antiGlare: false,
   terminalPadding: 8,
@@ -88,10 +99,14 @@ export const DEFAULT_CONFIG: AppConfig = {
   sftpDownloadPath: '',
   aiEndpoint: '',
   hasAiApiKey: false,
-  aiProvider: 'openai',
-  aiModel: 'gpt-3.5-turbo',
-  aiEnabled: false,
+  aiProvider: 'gemini',
+  aiModel: 'gemini-3.7-flash',
+  aiThinkingEffort: 'medium',
+  aiEnabled: true,
   aiMode: 'readonly',
+  aiMaxTokens: 200000,
+  aiSearchEnabled: true,
+  aiSearchProvider: 'hybrid',
 };
 
 export interface ToastMsg {
@@ -177,9 +192,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isAppBootLoading: true,
 
   setAppConfig: (config) => set({ appConfig: config }),
-  updateConfig: (key, val) => set((state) => ({
-    appConfig: { ...state.appConfig, [key]: val }
-  })),
+  updateConfig: (key, val) => {
+    if (String(key).startsWith('ai') || key === 'hasAiApiKey' || key === 'activePromptId' || key === 'customPrompts') {
+      useAiStore.getState().updateAiConfig(key as any, val as any);
+    }
+    set((state) => ({
+      appConfig: { ...state.appConfig, [key]: val }
+    }));
+  },
   setIsDark: (dark) => set({ isDark: dark }),
   setSystemIsDark: (dark) => set({ systemIsDark: dark }),
   setIsAppBlurred: (blurred) => set({ isAppBlurred: blurred }),
@@ -253,14 +273,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
               const dec = await window.electronAPI.decryptConfig(secureData);
               if (dec) {
                 set((state) => ({ appConfig: { ...state.appConfig, ...dec } }));
-                if (window.electronAPI?.updateBackendConfig) {
-                  const currentAppConfig = get().appConfig;
-                  window.electronAPI.updateBackendConfig({ 
-                    confirmQuit: currentAppConfig.confirmQuit, 
-                    globalHotkey: currentAppConfig.globalHotkey,
-                    pluginSecurityMode: currentAppConfig.pluginSecurityMode
-                  });
-                }
               }
             }
           }
@@ -285,8 +297,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!isInitialLoadDone) return;
     const { appConfig, systemIsDark } = get();
     
-    const { initScript, proxyHost, proxyPort, aiEndpoint, aiApiKey, aiProvider, aiModel, ...safeConfig } = appConfig;
-    const sensitive = { initScript, proxyHost, proxyPort, aiEndpoint, aiApiKey, aiProvider, aiModel };
+    const { initScript, proxyHost, proxyPort, ...safeConfig } = appConfig;
+    const sensitive = { initScript, proxyHost, proxyPort, aiEndpoint: appConfig.aiEndpoint, aiApiKey: appConfig.aiApiKey, aiProvider: appConfig.aiProvider, aiModel: appConfig.aiModel };
     
     localStorage.setItem('appConfig', JSON.stringify(safeConfig));
     
@@ -314,10 +326,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
       document.documentElement.classList.remove('dark');
     }
     if (window.electronAPI?.updateBackendConfig) {
-      window.electronAPI.updateBackendConfig({ 
+      const requestedMode = appConfig.pluginSecurityMode;
+      void window.electronAPI.updateBackendConfig({
         confirmQuit: appConfig.confirmQuit, 
         globalHotkey: appConfig.globalHotkey,
-        pluginSecurityMode: appConfig.pluginSecurityMode
+        pluginSecurityMode: requestedMode
+      }).then((result) => {
+        const effectiveMode = result.effectiveConfig.pluginSecurityMode || 'safe';
+        if (!result.success && get().appConfig.pluginSecurityMode === requestedMode) {
+          set((state) => ({
+            appConfig: { ...state.appConfig, pluginSecurityMode: effectiveMode }
+          }));
+        }
+      }).catch((error) => {
+        console.error('Failed to update backend config', error);
       });
     }
   },
