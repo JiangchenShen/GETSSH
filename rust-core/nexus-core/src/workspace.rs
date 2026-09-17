@@ -1,29 +1,42 @@
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn get_getssh_root() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().to_string());
     let mut path = PathBuf::from(home);
     path.push(".getssh");
     path
+}
+
+fn set_permissions_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_mode(mode);
+        fs::set_permissions(path, perms)?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+    Ok(())
 }
 
 pub fn initialize_root() -> std::io::Result<()> {
     let root = get_getssh_root();
     if !root.exists() {
         fs::create_dir_all(&root)?;
-        let mut perms = fs::metadata(&root)?.permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions(&root, perms)?;
+        set_permissions_mode(&root, 0o700)?;
     }
     
     let config_path = root.join("app-config.json");
     if !config_path.exists() {
         fs::write(&config_path, "{}")?;
-        let mut perms = fs::metadata(&config_path)?.permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(&config_path, perms)?;
+        set_permissions_mode(&config_path, 0o600)?;
     }
     
     Ok(())
@@ -37,9 +50,7 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
     
     if !workspaces_dir.exists() {
         fs::create_dir_all(&workspaces_dir)?;
-        let mut perms = fs::metadata(&workspaces_dir)?.permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions(&workspaces_dir, perms)?;
+        set_permissions_mode(&workspaces_dir, 0o700)?;
     }
 
     let ws_path = workspaces_dir.join(workspace_id);
@@ -47,9 +58,7 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
     // 1. Create workspace root dir with 0o700
     if !ws_path.exists() {
         fs::create_dir_all(&ws_path)?;
-        let mut perms = fs::metadata(&ws_path)?.permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions(&ws_path, perms)?;
+        set_permissions_mode(&ws_path, 0o700)?;
     }
     
     // 2. Create subdirs with 0o700
@@ -58,9 +67,7 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
         let dir_path = ws_path.join(dir);
         if !dir_path.exists() {
             fs::create_dir_all(&dir_path)?;
-            let mut perms = fs::metadata(&dir_path)?.permissions();
-            perms.set_mode(0o700);
-            fs::set_permissions(&dir_path, perms)?;
+            set_permissions_mode(&dir_path, 0o700)?;
         }
     }
     
@@ -70,9 +77,7 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
         let file_path = ws_path.join(file);
         if !file_path.exists() {
             fs::write(&file_path, "{}")?;
-            let mut perms = fs::metadata(&file_path)?.permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(&file_path, perms)?;
+            set_permissions_mode(&file_path, 0o600)?;
         }
     }
     

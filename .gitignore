@@ -11,10 +11,12 @@ sftp-mock-plugin.zip
 test-results/
 REFACTORING_PLAN.md
 
-# Test files (run locally, not needed in public repo)
+# Test files (run locally, not needed in public repo except CI security suites)
 **/*.test.ts
 **/*.test.tsx
 **/__tests__/
+!apps/getssh-client/electron/main/services/plugin/PluginProcessSandbox.test.ts
+!apps/getssh-client/electron/main/services/mcp/McpProcessSandbox.test.ts
 mock_userData
 
 # Unwanted directories
