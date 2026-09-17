@@ -150,6 +150,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       term.loadAddon(serializeAddon);
       term.open(element);
 
+      // [Security] Block OSC 52 (remote clipboard access).
+      // A malicious SSH server can emit \e]52;c;<base64>\a to read or write the local
+      // clipboard without user interaction. We consume the sequence and do nothing.
+      // User-initiated copy/paste (right-click context menu) bypasses this path entirely.
+      term.parser.registerOscHandler(52, (_data) => {
+        console.warn('[Terminal][Security] OSC 52 blocked — remote clipboard access denied.');
+        return true; // consumed; xterm will not process further
+      });
+
       // Check for torn buffer (useful for Tear In / Tear Off)
       // Use an interval to handle IPC race conditions (buffer might arrive slightly after tree sync)
       let checkCount = 0;

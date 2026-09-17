@@ -123,6 +123,7 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       backgroundThrottling: false
     },
   };

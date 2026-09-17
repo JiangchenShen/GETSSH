@@ -186,6 +186,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   });
 
   ipcMain.handle('ssh-connect', async (event, config) => {
+    // Sender verification: reject requests from sandboxed iframes or unknown windows
+    if (event.senderFrame && event.senderFrame.parent !== null) {
+      throw new Error('Security Violation: ssh-connect from sandbox sub-frame rejected.');
+    }
+    const senderIsKnownWindow = BrowserWindow.getAllWindows().some(
+      w => !w.isDestroyed() && w.webContents.id === event.sender.id
+    );
+    if (!senderIsKnownWindow) {
+      throw new Error('Security Violation: ssh-connect from unknown WebContents rejected.');
+    }
+
     if (typeof config.host === 'string') {
         // Sanitize host input: remove 'ssh://', 'http://', trailing slashes, and spaces
         config.host = config.host.replace(/^(https?|ssh):\/\//i, '').replace(/[\/\\\s]+$/g, '').trim();
