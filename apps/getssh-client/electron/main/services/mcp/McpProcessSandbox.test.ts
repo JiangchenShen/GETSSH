@@ -59,7 +59,8 @@ describe('McpProcessSandbox', () => {
         id: 'sse-server',
         name: 'SSE Server',
         transport: 'sse',
-        url: 'http://localhost:8000/sse'
+        url: 'http://localhost:8000/sse',
+        enabled: true
       };
 
       expect(() => {
@@ -103,6 +104,7 @@ describe('McpProcessSandbox', () => {
             transport: 'stdio',
             command: process.execPath,
             cwd,
+            enabled: true,
             env: {
               SAFE_VAR: 'hello'
             }
