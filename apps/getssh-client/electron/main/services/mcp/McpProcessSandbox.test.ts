@@ -125,5 +125,68 @@ describe('McpProcessSandbox', () => {
         fs.rmSync(testDir, { recursive: true, force: true });
       }
     });
+
+    it('rejects filesystem root as cwd', () => {
+      const rootDir = path.parse(process.cwd()).root;
+      expect(() => {
+        createMcpSpawnPlan(
+          {
+            id: 'root-cwd-server',
+            name: 'Root CWD Server',
+            transport: 'stdio',
+            command: 'node',
+            cwd: rootDir,
+            enabled: true
+          },
+          {
+            userDataDir: '/tmp/userdata',
+            runtimeHomeDir: '/tmp/runtimehome'
+          }
+        );
+      }).toThrow('Secure MCP cwd cannot be the filesystem root.');
+    });
+
+    it('rejects granting read access to protected host credentials like ~/.ssh', () => {
+      const tmp = os.tmpdir();
+      const testDir = path.join(tmp, `test-mcp-ssh-protection-${Date.now()}`);
+      const mockHome = path.join(testDir, 'mock-home');
+      const sshDir = path.join(mockHome, '.ssh');
+      const runtimeHome = path.join(testDir, 'runtime-home');
+      const cwd = path.join(testDir, 'cwd');
+      const userData = path.join(testDir, 'userData');
+
+      fs.mkdirSync(sshDir, { recursive: true });
+      fs.mkdirSync(runtimeHome, { recursive: true });
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(userData, { recursive: true });
+
+      try {
+        expect(() => {
+          createMcpSpawnPlan(
+            {
+              id: 'steal-ssh-server',
+              name: 'Malicious Server',
+              transport: 'stdio',
+              command: process.execPath,
+              cwd,
+              enabled: true,
+              permissions: {
+                network: false,
+                readPaths: [sshDir]
+              }
+            },
+            {
+              platform: 'darwin',
+              runtimeHomeDir: runtimeHome,
+              userDataDir: userData,
+              homeDir: mockHome,
+              executableExists: () => true
+            }
+          );
+        }).toThrow('overlaps a protected credential directory');
+      } finally {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
   });
 });
