@@ -75,13 +75,37 @@ async function resolvePublicAddress(hostname: string): Promise<{ address: string
     ? hostname.slice(1, -1)
     : hostname;
   const literalFamily = isIP(literal);
-  const addresses = literalFamily
-    ? [{ address: literal, family: literalFamily as 4 | 6 }]
-    : await dns.lookup(hostname, { all: true, verbatim: true });
+
+  let addresses: Array<{ address: string; family: 4 | 6 }>;
+
+  if (literalFamily) {
+    addresses = [{ address: literal, family: literalFamily as 4 | 6 }];
+  } else {
+    // Use dns.resolve4/resolve6 instead of dns.lookup.
+    // dns.lookup() goes through the OS resolver (getaddrinfo), which:
+    //   - reads /etc/hosts FIRST (manipulable locally)
+    //   - uses NSS / mDNS / OS cache (not real-time DNS)
+    // dns.resolve4/resolve6 query the DNS wire protocol directly, bypassing all of that.
+    // This is the correct approach to prevent OS-level DNS poisoning.
+    const [v4Result, v6Result] = await Promise.allSettled([
+      dns.resolve4(hostname),
+      dns.resolve6(hostname),
+    ]);
+    const v4: Array<{ address: string; family: 4 | 6 }> =
+      v4Result.status === 'fulfilled'
+        ? v4Result.value.map(a => ({ address: a, family: 4 as const }))
+        : [];
+    const v6: Array<{ address: string; family: 4 | 6 }> =
+      v6Result.status === 'fulfilled'
+        ? v6Result.value.map(a => ({ address: a, family: 6 as const }))
+        : [];
+    addresses = [...v4, ...v6];
+  }
 
   if (addresses.length === 0) {
     throw new Error(`NetworkError: '${hostname}' did not resolve to an address.`);
   }
+  // Check EVERY resolved address — an attacker may return a mix of public and private IPs.
   for (const candidate of addresses) {
     if (isPrivateNetworkAddress(candidate.address)) {
       throw new Error(`SecurityError: '${hostname}' resolved to blocked address ${candidate.address}.`);
@@ -250,6 +274,36 @@ export async function fetchForPlugin(
         });
       });
       response.on('error', reject);
+    });
+
+    // --- Layer 2: Socket-level post-connection verification ---
+    // Even though we connect to `address` (a pre-checked IP), the OS may still
+    // resolve the hostname internally for certain edge cases (e.g. proxy settings,
+    // transparent proxies, or kernel-level NAT rewrites). We re-check the actual
+    // remote address after the TCP handshake completes to close the TOCTOU window.
+    request.on('socket', (socket) => {
+      socket.once('connect', () => {
+        const raw = socket.remoteAddress ?? '';
+        const remote = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+        if (!remote) {
+          request.destroy(new Error('SecurityError: Could not determine remote socket address.'));
+          return;
+        }
+        if (isPrivateNetworkAddress(remote)) {
+          request.destroy(new Error(`SecurityError: Socket connected to blocked address ${remote}.`));
+          return;
+        }
+        // Ensure the connected IP is exactly the one we pre-checked \u2014
+        // guarding against any OS-level address substitution.
+        const normalizedExpected = address.startsWith('[') && address.endsWith(']')
+          ? address.slice(1, -1)
+          : address;
+        if (remote !== normalizedExpected) {
+          request.destroy(
+            new Error(`SecurityError: Socket connected to unexpected address ${remote} (expected ${normalizedExpected}).`)
+          );
+        }
+      });
     });
 
     request.setTimeout(REQUEST_TIMEOUT_MS, () => {
