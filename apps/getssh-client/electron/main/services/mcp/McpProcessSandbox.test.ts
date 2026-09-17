@@ -28,8 +28,8 @@ describe('McpProcessSandbox', () => {
       expect(normalized.command).toBe('node');
       expect(normalized.args).toEqual(['index.js']);
       expect(normalized.permissions?.network).toBe(false);
-      expect(normalized.permissions?.readPaths).toEqual(['/tmp']);
-      expect(normalized.permissions?.writePaths).toEqual(['/tmp/out']);
+      expect(normalized.permissions?.readPaths).toEqual([path.resolve('/tmp')]);
+      expect(normalized.permissions?.writePaths).toEqual([path.resolve('/tmp/out')]);
     });
 
     it('rejects unsupported transports', () => {
