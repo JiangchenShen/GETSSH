@@ -35,7 +35,7 @@ use windows_sys::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
-use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_UILIMIT_ALL, SE_GROUP_ENABLED};
+use windows_sys::Win32::System::SystemServices::SE_GROUP_ENABLED;
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetCurrentProcess, GetCurrentProcessId,
     GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcess, ResumeThread,
@@ -710,8 +710,12 @@ fn configure_job(max_processes: u32) -> Result<OwnedHandle> {
         return Err(windows_error("cannot set GETSSH sandbox job limits"));
     }
 
+    // Standard UI restrictions supported across all Windows versions (winnt.h definition: 0x000000FF).
+    // Note: windows-sys defines JOB_OBJECT_UILIMIT_ALL as 511 (0x1FF), adding JOB_OBJECT_UILIMIT_IME (0x100)
+    // which is unsupported on Windows Server 2022 / Windows 10 and triggers ERROR_INVALID_PARAMETER (87).
+    const JOB_OBJECT_UILIMIT_STANDARD_ALL: u32 = 0x0000_00FF;
     let ui = JOBOBJECT_BASIC_UI_RESTRICTIONS {
-        UIRestrictionsClass: JOB_OBJECT_UILIMIT_ALL,
+        UIRestrictionsClass: JOB_OBJECT_UILIMIT_STANDARD_ALL,
     };
     let ok = unsafe {
         SetInformationJobObject(
