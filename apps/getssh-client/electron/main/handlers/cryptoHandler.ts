@@ -1,9 +1,9 @@
-import { app, safeStorage, systemPreferences } from 'electron';
+import { app, safeStorage, systemPreferences, type IpcMain, type App } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { join } from 'node:path';
 
-export function registerCryptoHandlers(ipcMain: Electron.IpcMain, app: Electron.App) {
+export function registerCryptoHandlers(ipcMain: IpcMain, app: App) {
   // Dynamic path resolution helper
   const getWorkspacePaths = () => {
     const { getActiveWorkspaceId } = require('./workspaceHandler');

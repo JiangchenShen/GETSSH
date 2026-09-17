@@ -47,6 +47,10 @@ src/DesignLab.tsx
 design-lab.html
 .test-user-data
 vitest.config.ts
-
-# AI Skills
+# AI Agent, Claude, Rules & Skills (local only, do not commit to remote)
 .ai-skills/
+.agents/
+.claude/
+.gemini/
+rules/
+skills/
