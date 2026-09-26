@@ -165,8 +165,12 @@ function buildMacProfile(
   return lines.join('');
 }
 
-function nodePermissionArgs(workerPath: string, runtimeHomeDir: string): string[] {
-  return [
+function nodePermissionArgs(workerPath: string, runtimeHomeDir: string, platform: NodeJS.Platform = process.platform): string[] {
+  const args: string[] = [];
+  if (platform === 'win32') {
+    args.push('--no-stdio-init');
+  }
+  args.push(
     '--permission',
     // The OS sandbox is the malicious-code boundary for reads. Node's
     // permission model is defense in depth for writes, networking, subprocesses,
@@ -176,7 +180,8 @@ function nodePermissionArgs(workerPath: string, runtimeHomeDir: string): string[
     '--allow-fs-read=*',
     `--allow-fs-write=${runtimeHomeDir}`,
     workerPath
-  ];
+  );
+  return args;
 }
 
 export function createPluginSpawnPlan(runtime: PluginSandboxRuntime): PluginSpawnPlan {
@@ -241,7 +246,7 @@ export function createPluginSpawnPlan(runtime: PluginSandboxRuntime): PluginSpaw
         '-p',
         buildMacProfile(executablePath, allowedReadPaths, runtimeHomeDir, deniedReadRoots),
         executablePath,
-        ...nodePermissionArgs(workerPath, runtimeHomeDir)
+        ...nodePermissionArgs(workerPath, runtimeHomeDir, platform)
       ],
       cwd: pluginDir,
       env,
@@ -258,7 +263,7 @@ export function createPluginSpawnPlan(runtime: PluginSandboxRuntime): PluginSpaw
     return {
       ...createWindowsSandboxSpawnPlan({
         command: executablePath,
-        args: nodePermissionArgs(workerPath, runtimeHomeDir),
+        args: nodePermissionArgs(workerPath, runtimeHomeDir, platform),
         cwd: pluginDir,
         env,
         readonlyPaths: allowedReadPaths.filter(candidate => !pathContains(runtimeHomeDir, candidate)),
