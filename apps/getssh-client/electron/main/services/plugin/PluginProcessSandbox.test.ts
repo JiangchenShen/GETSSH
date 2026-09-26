@@ -97,4 +97,47 @@ describe('PluginProcessSandbox', () => {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   });
+
+  it('generates a valid Windows sandbox spawn plan with --preserve-symlinks flags', () => {
+    const tmp = os.tmpdir();
+    const testDir = path.join(tmp, `test-plugin-win-${Date.now()}`);
+    const pluginDir = path.join(testDir, 'plugin');
+    const workerPath = path.join(testDir, 'worker.js');
+    const runtimeHomeDir = path.join(testDir, 'home');
+    const userDataDir = path.join(testDir, 'userData');
+    const launcherPath = path.join(testDir, 'getssh-sandbox.exe');
+
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.mkdirSync(runtimeHomeDir, { recursive: true });
+    fs.mkdirSync(userDataDir, { recursive: true });
+    fs.writeFileSync(workerPath, 'console.log("worker")');
+    fs.writeFileSync(launcherPath, 'mock-launcher');
+
+    try {
+      const plan = createPluginSpawnPlan({
+        pluginDir,
+        workerPath,
+        runtimeHomeDir,
+        userDataDir,
+        executablePath: process.execPath,
+        sandboxLauncherPath: launcherPath,
+        platform: 'win32',
+        executableExists: () => true
+      });
+
+      expect(plan.isolation).toBe('windows-appcontainer');
+      expect(plan.command).toBe(fs.realpathSync.native(launcherPath));
+      expect(plan.args).toHaveLength(1);
+      // The config file passed to getssh-sandbox contains target.args
+      const configPath = plan.args[0];
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(config.args).toContain('--no-stdio-init');
+      expect(config.args).toContain('--preserve-symlinks');
+      expect(config.args).toContain('--preserve-symlinks-main');
+      expect(config.args).toContain(fs.realpathSync.native(workerPath));
+    } finally {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 });
+

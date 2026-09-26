@@ -168,7 +168,11 @@ function buildMacProfile(
 function nodePermissionArgs(workerPath: string, runtimeHomeDir: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   if (platform === 'win32') {
-    args.push('--no-stdio-init');
+    args.push(
+      '--no-stdio-init',
+      '--preserve-symlinks',
+      '--preserve-symlinks-main'
+    );
   }
   args.push(
     '--permission',
