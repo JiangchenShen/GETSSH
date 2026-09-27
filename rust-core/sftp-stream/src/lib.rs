@@ -8,6 +8,9 @@ use std::fs::File;
 use std::io::{Read, Write};
 use tempfile::Builder;
 
+/// Largest single read: the caller allocates this much per call.
+const MAX_CHUNK_SIZE: u32 = 1024 * 1024;
+
 #[napi(object)]
 pub struct FinishResult {
   pub safe_path: String,
@@ -27,11 +30,17 @@ pub struct SftpDownloader {
 impl SftpDownloader {
   #[napi(factory)]
   pub fn create(max_size: i64, target_local_path: Option<String>) -> Result<Self> {
+    if max_size < 0 {
+      return Err(Error::from_reason("max_size must not be negative".to_string()));
+    }
     let mut dir_path = None;
     
-    let (file, safe_path) = if max_size == 0 && target_local_path.is_some() {
+    let (file, safe_path) = if let (0, Some(path)) = (max_size, target_local_path) {
       // Track B: Pure Download Mode
-      let path = target_local_path.unwrap();
+      // File::create follows links; a link planted under the chosen name would redirect the write.
+      if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(Error::from_reason("Refusing to download over a symbolic link".to_string()));
+      }
       let file = File::create(&path).map_err(|e| Error::from_reason(e.to_string()))?;
       (file, path)
     } else {
@@ -44,8 +53,8 @@ impl SftpDownloader {
       let path = temp_dir.path().join("sftp_temp.tmp");
       let file = File::create(&path).map_err(|e| Error::from_reason(e.to_string()))?;
       
-      // Use into_path() and hand over cleanup responsibility to JS
-      let p = temp_dir.into_path();
+      // Use keep() and hand over cleanup responsibility to JS
+      let p = temp_dir.keep();
       dir_path = Some(p.to_string_lossy().to_string());
       
       (file, path.to_string_lossy().to_string())
@@ -102,8 +111,15 @@ impl SftpUploader {
     Ok(Self { file: Some(file) })
   }
 
+  /// Reads up to `chunk_size` bytes (1 byte to 1 MiB); `None` means end of file.
   #[napi]
   pub fn read_chunk(&mut self, chunk_size: u32) -> Result<Option<Buffer>> {
+    if chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE {
+      return Err(Error::from_reason(format!(
+        "chunk_size must be between 1 and {} bytes",
+        MAX_CHUNK_SIZE
+      )));
+    }
     if let Some(ref mut file) = self.file {
       let mut buf = vec![0u8; chunk_size as usize];
       let n = file.read(&mut buf).map_err(|e| Error::from_reason(e.to_string()))?;

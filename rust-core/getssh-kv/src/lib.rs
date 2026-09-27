@@ -64,13 +64,16 @@ pub fn clear_val(db_path: String) -> Result<()> {
     Ok(())
 }
 
+/// Bytes used by the database on disk, including its WAL and shared-memory files (writes sit in the
+/// WAL until a checkpoint). Returned as i64 so databases past 4 GiB are not truncated; JS numbers are
+/// exact far beyond any real database size.
 #[napi]
-pub fn get_storage_size(db_path: String) -> Result<u32> {
-    // Get file size in bytes
-    match fs::metadata(&db_path) {
-        Ok(metadata) => Ok(metadata.len() as u32),
-        Err(_) => Ok(0), // If file doesn't exist, size is 0
-    }
+pub fn get_storage_size(db_path: String) -> Result<i64> {
+    let total: u64 = ["", "-wal", "-shm"]
+        .iter()
+        .map(|suffix| fs::metadata(format!("{}{}", db_path, suffix)).map(|m| m.len()).unwrap_or(0))
+        .fold(0u64, u64::saturating_add);
+    Ok(i64::try_from(total).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]
@@ -200,6 +203,20 @@ mod tests {
         let size_data = get_storage_size(db_path.clone()).unwrap();
         assert!(size_data > size_empty, "Size should increase after adding data");
 
+        cleanup_db(&db_path);
+    }
+
+    #[test]
+    fn test_get_storage_size_beyond_4gib_is_not_truncated() {
+        let db_path = get_temp_db_path("huge");
+        // Sparse file: reports 5 GiB without using the disk space.
+        let file = std::fs::File::create(&db_path).unwrap();
+        file.set_len(5 * 1024 * 1024 * 1024).unwrap();
+        drop(file);
+        assert_eq!(get_storage_size(db_path.clone()).unwrap(), 5 * 1024 * 1024 * 1024);
+        std::fs::write(format!("{}-wal", db_path), vec![0u8; 1000]).unwrap();
+        assert_eq!(get_storage_size(db_path.clone()).unwrap(), 5 * 1024 * 1024 * 1024 + 1000);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
         cleanup_db(&db_path);
     }
 }

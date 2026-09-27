@@ -8,4 +8,9 @@ export declare function getVal(dbPath: string, key: string): string | null
 export declare function setVal(dbPath: string, key: string, value: string): void
 export declare function deleteVal(dbPath: string, key: string): void
 export declare function clearVal(dbPath: string): void
+/**
+ * Bytes used by the database on disk, including its WAL and shared-memory files (writes sit in the
+ * WAL until a checkpoint). Returned as i64 so databases past 4 GiB are not truncated; JS numbers are
+ * exact far beyond any real database size.
+ */
 export declare function getStorageSize(dbPath: string): number

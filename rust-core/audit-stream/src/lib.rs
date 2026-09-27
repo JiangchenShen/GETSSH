@@ -16,6 +16,16 @@ pub enum AuditMessage {
   FlushAndClose,
 }
 
+/// NaN, infinities and times that go backwards would make the line invalid JSON or break playback;
+/// such frames keep the previous time instead.
+fn frame_time(timestamp: f64, last: f64) -> f64 {
+  if timestamp.is_finite() && timestamp >= last {
+    timestamp
+  } else {
+    last
+  }
+}
+
 #[napi]
 pub struct AuditStream {
   tx: Sender<AuditMessage>,
@@ -41,14 +51,16 @@ impl AuditStream {
         let _ = writeln!(encoder, "{}", header_json);
 
         let mut buffer = Vec::with_capacity(4096);
+        let mut last_timestamp = 0.0_f64;
 
         for msg in rx {
           match msg {
             AuditMessage::Data { timestamp, payload } => {
+              last_timestamp = frame_time(timestamp, last_timestamp);
               let payload_str = String::from_utf8_lossy(&payload);
               // Serialize safely using serde_json to handle quotes and escapes
               if let Ok(json_str) = serde_json::to_string(&payload_str) {
-                let json_array = format!("[{}, \"o\", {}]\n", timestamp, json_str);
+                let json_array = format!("[{:.6}, \"o\", {}]\n", last_timestamp, json_str);
                 buffer.extend_from_slice(json_array.as_bytes());
 
                 // Flush if buffer reaches 4KB
@@ -85,5 +97,22 @@ impl AuditStream {
   #[napi]
   pub fn end(&self) {
     let _ = self.tx.send(AuditMessage::FlushAndClose);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn frame_time_is_finite_and_monotonic() {
+    assert_eq!(frame_time(1.5, 0.0), 1.5);
+    assert_eq!(frame_time(f64::NAN, 1.5), 1.5);
+    assert_eq!(frame_time(f64::INFINITY, 1.5), 1.5);
+    assert_eq!(frame_time(f64::NEG_INFINITY, 1.5), 1.5);
+    assert_eq!(frame_time(-5.5, 1.5), 1.5);
+    assert_eq!(frame_time(0.5, 1.5), 1.5);
+    let line = format!("[{:.6}, \"o\", {}]", frame_time(f64::NAN, 0.0), serde_json::to_string("x").unwrap());
+    assert!(serde_json::from_str::<serde_json::Value>(&line).is_ok(), "{}", line);
   }
 }

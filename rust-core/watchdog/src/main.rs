@@ -88,6 +88,17 @@ fn read_remote_memory(pid: u32, addr: usize, size: usize) -> Option<Vec<u8>> {
     }
 }
 
+/// Queued by the read thread when the app's end of the socket closes.
+const PIPE_CLOSED: &str = "\u{0}PIPE_CLOSED";
+
+/// The socket only closes when the app exits (normally, by crash or by force quit) or closes it on
+/// purpose. Either way there is nothing left to supervise: killing the PID later could hit an
+/// unrelated process that reused it, and relaunching would restart an app the user just quit.
+fn exit_on_pipe_closed(pid: u32) -> ! {
+    eprintln!("Watchdog: connection to PID {} closed. Exiting without further action.", pid);
+    std::process::exit(0);
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -95,7 +106,15 @@ fn main() {
         std::process::exit(1);
     }
 
-    let pid: u32 = args[1].parse().expect("Invalid PID");
+    // kill(0, ..) signals our own process group and a value above i32::MAX becomes a negative pid_t
+    // (kill(-1, ..) signals every process of the user), so only accept a real, foreign PID.
+    let pid: u32 = match args[1].parse::<u32>() {
+        Ok(p) if p > 1 && p <= i32::MAX as u32 && p != std::process::id() => p,
+        _ => {
+            eprintln!("Watchdog: refusing invalid target PID '{}'", args[1]);
+            std::process::exit(2);
+        }
+    };
     let pipe_path = &args[2];
     let exec_path = if args.len() > 3 { Some(args[3].clone()) } else { None };
 
@@ -116,7 +135,9 @@ fn main() {
         loop {
             match stream.read(&mut buffer) {
                 Ok(0) => {
-                    // Connection closed
+                    // Connection closed. The main loop must hear about it explicitly: other senders
+                    // (the original `tx`, the Windows scan thread) keep the channel itself open.
+                    let _ = tx_read.send(PIPE_CLOSED.to_string());
                     break;
                 }
                 Ok(n) => {
@@ -137,7 +158,10 @@ fn main() {
                         leftover.clear();
                     }
                 }
-                Err(_) => break,
+                Err(_) => {
+                    let _ = tx_read.send(PIPE_CLOSED.to_string());
+                    break;
+                }
             }
         }
     });
@@ -197,14 +221,14 @@ fn main() {
             // Sleep mode: do nothing, just keep the pipe open so it doesn't crash the JS side
             // Can check if pipe disconnects to eventually exit
             match rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(_) => {} // Ignore all messages
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    std::process::exit(0);
-                }
+                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
+                Ok(_) => {} // Ignore all other messages
+                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
                 Err(mpsc::RecvTimeoutError::Timeout) => {} // Do nothing
             }
         } else if !lockdown_mode {
             match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
                 Ok(msg) => {
                     if msg.starts_with("LOCKDOWN_TRIGGER:") {
                         let mut parts = msg.splitn(3, ':');
@@ -256,12 +280,7 @@ fn main() {
                         }
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    // Pipe closed unexpectedly
-                    eprintln!("Watchdog: Pipe disconnected.");
-                    kill_process(pid);
-                    std::process::exit(1);
-                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
             }
         } else {
             // Lockdown mode: Tick every 1 second
@@ -271,6 +290,7 @@ fn main() {
 
             // Check if any override command came in (wait up to 1 second)
             match rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
                 Ok(msg) => {
                     if msg == "ACTION:RESTART-SAFE" {
                         // User verified and resolved
@@ -322,10 +342,7 @@ fn main() {
                         }
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    kill_process(pid);
-                    std::process::exit(1);
-                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
             }
         }
     }
