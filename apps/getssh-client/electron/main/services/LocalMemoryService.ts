@@ -167,9 +167,10 @@ export function formatLocalMemoryContext(results: LocalMemoryResult[], language?
     const timestamp = Number.isFinite(date.getTime()) ? date.toISOString() : 'unknown-time';
     const label = `${timestamp} ${result.role}`;
     const line = `- ${label}: ${JSON.stringify(excerpt)}`;
-    if (usedChars + line.length > MAX_CONTEXT_CHARS) break;
+    // +1 for the newline that joins it to the previous line.
+    if (usedChars + 1 + line.length > MAX_CONTEXT_CHARS) break;
     lines.push(line);
-    usedChars += line.length;
+    usedChars += 1 + line.length;
   }
   return lines.length > 1 ? lines.join('\n') : '';
 }
@@ -254,6 +255,10 @@ export class LocalMemoryService {
     return ranked.flatMap(candidate => {
       const message = messages.get(candidate.messageId);
       if (!message) return [];
+      // The vector row can disagree with the message row (a message id reused in another session
+      // updates the vector's session but not the message's), so the message itself is checked too.
+      if (options.excludeSessionId && message.session_id === options.excludeSessionId) return [];
+      if (message.role !== 'user' && message.role !== 'assistant') return [];
       return [{
         messageId: message.id,
         sessionId: message.session_id,

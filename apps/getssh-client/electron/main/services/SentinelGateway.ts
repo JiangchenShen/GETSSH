@@ -72,6 +72,15 @@ export interface SentinelSession {
 }
 
 const TOKEN_PATTERN = /^\[([A-Z][A-Z_]*)_(\d+)\]$/;
+const LITERAL_TOKEN_PATTERN = /\[[A-Z][A-Z_]*_\d+\]/g;
+
+/**
+ * Mirrors survives_reparsing() in rust-core/getssh-sentinel: the value stays one inert word however
+ * many times a shell (or a tool's own escape syntax) parses it.
+ */
+function survivesReparsing(value: string): boolean {
+  return value.length > 0 && !/^[!#-]/.test(value) && !/[\s\u0000-\u001f\u007f-\u009f;&|<>()`'"\\{}]/.test(value);
+}
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -142,9 +151,23 @@ export class SentinelGateway {
     return {
       dict,
       sanitize(text: string): string {
-        const { cleanText, mappingDict } = SentinelGateway.sanitize(text);
+        // A bracketed token already in the input ("[SECRET_1]" printed by a remote host) looks exactly
+        // like one sanitize() inserts, and the renaming below would turn it into this session's token
+        // for a real secret: a model repeating it would then get that secret filled in. Such literals
+        // are hidden from both steps and put back unchanged.
+        const shieldTag = randomBytes(6).toString('hex');
+        const literals: string[] = [];
+        const shielded = text.replace(LITERAL_TOKEN_PATTERN, literal => {
+          literals.push(literal);
+          return `\uE000${shieldTag}:${literals.length - 1}\uE001`;
+        });
+        const unshield = (value: string) => literals.length === 0
+          ? value
+          : value.replace(new RegExp(`\uE000${shieldTag}:(\\d+)\uE001`, 'g'), (_match, index) => literals[Number(index)]);
+
+        const { cleanText, mappingDict } = SentinelGateway.sanitize(shielded);
         const localTokens = Object.keys(mappingDict);
-        if (localTokens.length === 0) return cleanText;
+        if (localTokens.length === 0) return unshield(cleanText);
 
         const rename: Record<string, string> = {};
 
@@ -165,7 +188,7 @@ export class SentinelGateway {
           if (globalToken !== localToken) rename[localToken] = globalToken;
         }
 
-        return replaceTokens(cleanText, rename);
+        return unshield(replaceTokens(cleanText, rename));
       }
     };
   }
@@ -213,13 +236,23 @@ export class SentinelGateway {
 
   /**
    * Creates a streaming rehydrator that buffers incomplete tokens across chunks.
+   *
+   * Chunks are rehydrated one at a time, so the native guard never sees the whole command: `eval `
+   * can arrive in one chunk and `"[token]"` in the next. While streaming, only values that survive
+   * re-parsing are restored; the others stay placeholders in the chat text. Tool-call arguments are
+   * rehydrated in one piece (LlmGateway.rehydrateBlock) and keep the full guard.
    */
-  static createStreamRehydrator(mappingDict: Record<string, string>) {
+  static createStreamRehydrator(liveMappingDict: Record<string, string>) {
     let buffer = '';
+    // The session dict is live, so the safe subset is taken at each use.
+    const streamSafe = (): Record<string, string> => Object.fromEntries(
+      Object.entries(liveMappingDict).filter(([, value]) => survivesReparsing(value)),
+    );
+    const rehydrateSafe = (text: string) => SentinelGateway.rehydrate(text, streamSafe());
 
     return {
       processChunk: (chunk: string): string => {
-        if (Object.keys(mappingDict).length === 0) {
+        if (Object.keys(liveMappingDict).length === 0) {
           return chunk;
         }
 
@@ -242,19 +275,19 @@ export class SentinelGateway {
               buffer = potentialToken;
 
               // Rehydrate the ready-to-emit part
-              return SentinelGateway.rehydrate(readyToEmit, mappingDict);
+              return rehydrateSafe(readyToEmit);
             }
           }
         }
 
         // If no partial token at the end, rehydrate everything and clear buffer
-        const rehydrated = SentinelGateway.rehydrate(buffer, mappingDict);
+        const rehydrated = rehydrateSafe(buffer);
         buffer = '';
         return rehydrated;
       },
       flush: (): string => {
         if (!buffer) return '';
-        const rehydrated = SentinelGateway.rehydrate(buffer, mappingDict);
+        const rehydrated = rehydrateSafe(buffer);
         buffer = '';
         return rehydrated;
       }

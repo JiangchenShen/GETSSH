@@ -86,6 +86,26 @@ jobs:
         working-directory: apps/getssh-client
         run: npm run test:plugin-isolation
 
+      - name: Test Sentinel gateway against the native module
+        working-directory: apps/getssh-client
+        run: npm run test:sentinel
+
+      - name: Test plugin network gateway (SSRF and DNS rebinding)
+        working-directory: apps/getssh-client
+        run: npm run test:plugin-network
+
+      - name: Test local semantic memory
+        working-directory: apps/getssh-client
+        run: npm run test:local-memory
+
+      - name: Test secret store and identity checks
+        working-directory: apps/getssh-client
+        run: pnpm exec vitest run electron/main/security --environment node
+
+      - name: Test hardened native modules
+        if: runner.os == 'macOS'
+        run: cargo test -p getssh-unarchive -p getssh-sentinel -p getssh-kv -p audit-stream -p nexus-core
+
       - name: Package unpacked Electron app
         if: runner.os != 'macOS'
         working-directory: apps/getssh-client

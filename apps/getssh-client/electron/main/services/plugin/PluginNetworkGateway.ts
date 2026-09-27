@@ -42,6 +42,31 @@ for (const [network, prefix] of [
   blockedAddresses.addSubnet(network, prefix, 'ipv6');
 }
 
+// IPv6 forms that carry an IPv4 address in their last 32 bits and reach it through a translator:
+// the NAT64 well-known prefix (RFC 6052) and IPv4-translated addresses (RFC 6145). On a NAT64/DNS64
+// network 64:ff9b::a00:1 is 10.0.0.1, so the embedded address is what gets checked.
+const embeddedIpv4Prefixes = new BlockList();
+embeddedIpv4Prefixes.addSubnet('64:ff9b::', 96, 'ipv6');
+embeddedIpv4Prefixes.addSubnet('::ffff:0:0:0', 96, 'ipv6');
+
+/** The eight 16-bit groups of a valid IPv6 address (isIP() === 6), or null. */
+function ipv6Groups(address: string): number[] | null {
+  let text = address.toLowerCase().split('%')[0];
+  const dottedTail = text.match(/^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (dottedTail) {
+    const [a, b, c, d] = dottedTail.slice(2).map(Number);
+    text = `${dottedTail[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (missing < 0) return null;
+  const groups = [...head, ...Array<string>(missing).fill('0'), ...tail].map(group => parseInt(group, 16));
+  return groups.length === 8 && groups.every(group => group >= 0 && group <= 0xffff) ? groups : null;
+}
+
 export interface SerializedPluginFetchOptions {
   method?: string;
   headers?: Array<[string, string]>;
@@ -66,7 +91,13 @@ export function isPrivateNetworkAddress(rawAddress: string): boolean {
   if (mappedIpv4) return isPrivateNetworkAddress(mappedIpv4);
   const family = isIP(address);
   if (family === 4) return blockedAddresses.check(address, 'ipv4');
-  if (family === 6) return blockedAddresses.check(address, 'ipv6');
+  if (family === 6) {
+    if (blockedAddresses.check(address, 'ipv6')) return true;
+    if (!embeddedIpv4Prefixes.check(address, 'ipv6')) return false;
+    const groups = ipv6Groups(address);
+    if (!groups) return true;
+    return isPrivateNetworkAddress(`${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`);
+  }
   return true;
 }
 
@@ -213,7 +244,17 @@ export async function fetchForPlugin(
   if (body) headers['content-length'] = String(body.byteLength);
 
   const transport = url.protocol === 'https:' ? https : http;
-  const result = await new Promise<SerializedPluginFetchResponse>((resolve, reject) => {
+  const result = await new Promise<SerializedPluginFetchResponse>((resolveRequest, rejectRequest) => {
+    // request.setTimeout() below is an idle timeout: a server sending a byte every few seconds never
+    // trips it. This deadline bounds each hop as a whole.
+    let deadline: NodeJS.Timeout | undefined;
+    const settle = () => {
+      if (deadline) clearTimeout(deadline);
+      deadline = undefined;
+    };
+    const resolve = (value: SerializedPluginFetchResponse) => { settle(); resolveRequest(value); };
+    const reject = (error: unknown) => { settle(); rejectRequest(error); };
+
     const request = transport.request({
       protocol: url.protocol,
       hostname: address,
@@ -237,7 +278,16 @@ export async function fetchForPlugin(
           reject(new Error(`NetworkError: exceeded ${MAX_REDIRECTS} redirects.`));
           return;
         }
-        const nextUrl = new URL(location, url);
+        // Inside the response callback a throw would escape as an uncaught exception and leave the
+        // plugin's request pending forever.
+        let nextUrl: URL;
+        try {
+          nextUrl = new URL(location, url);
+        } catch {
+          reject(new Error('NetworkError: invalid redirect location.'));
+          return;
+        }
+        settle();
         const nextHeaders = (options.headers || []).filter(([name]) => {
           if (nextUrl.origin === url.origin) return true;
           const lower = name.toLowerCase();
@@ -250,7 +300,7 @@ export async function fetchForPlugin(
           ...(switchToGet
             ? { method: 'GET', bodyText: undefined, bodyBase64: undefined }
             : {})
-        }, redirectCount + 1).then(resolve, reject);
+        }, redirectCount + 1).then(resolveRequest, rejectRequest);
         return;
       }
 
@@ -309,6 +359,9 @@ export async function fetchForPlugin(
     request.setTimeout(REQUEST_TIMEOUT_MS, () => {
       request.destroy(new Error(`NetworkError: request timed out after ${REQUEST_TIMEOUT_MS}ms.`));
     });
+    deadline = setTimeout(() => {
+      request.destroy(new Error(`NetworkError: request exceeded ${REQUEST_TIMEOUT_MS}ms in total.`));
+    }, REQUEST_TIMEOUT_MS);
     request.on('error', reject);
     if (body) request.write(body);
     request.end();
