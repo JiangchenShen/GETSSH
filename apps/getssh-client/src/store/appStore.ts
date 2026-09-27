@@ -115,13 +115,22 @@ export interface ToastMsg {
   type: 'success' | 'info' | 'warning' | 'error';
 }
 
+export interface HostKeyPrompt {
+  requestId: string;
+  hostname: string;
+  fingerprint: string;
+  isChanged?: boolean;
+  oldFingerprint?: string;
+}
+
 interface AppStore {
   appConfig: AppConfig;
   isDark: boolean;
   systemIsDark: boolean;
   isAppBlurred: boolean;
   updateAvailable: { version: string; url: string } | null;
-  securityPrompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null;
+  // Pending host-key prompts, oldest first. The modal shows the head; a new prompt never replaces an open one.
+  securityPrompts: HostKeyPrompt[];
   isMac: boolean;
   isFullScreen: boolean;
   isCommandCenterOpen: boolean;
@@ -132,9 +141,11 @@ interface AppStore {
   currentTerminalSelection: string;
   workspaces: string[];
   activeWorkspaceId: string;
-  tornPaneId: string | null;
   isAppBootLocked: boolean;
   isAppBootLoading: boolean;
+  // True once the stored config has been applied (main: loadStoredConfig; torn: loadConfigReadOnly).
+  // Until then appConfig holds DEFAULT_CONFIG, which must not be pushed to process-wide state (e.g. setTheme).
+  isConfigLoaded: boolean;
 
   setAppConfig: (config: AppConfig) => void;
   updateConfig: <K extends keyof AppConfig>(key: K, val: AppConfig[K]) => void;
@@ -150,12 +161,12 @@ interface AppStore {
   setCurrentTerminalSelection: (text: string) => void;
   setWorkspaces: (ws: string[]) => void;
   setActiveWorkspaceId: (id: string) => void;
-  setTornPaneId: (id: string | null) => void;
   setIsAppBootLocked: (locked: boolean) => void;
   setIsAppBootLoading: (loading: boolean) => void;
   addToast: (message: string, type?: ToastMsg['type']) => void;
   removeToast: (id: string) => void;
-  setSecurityPrompt: (prompt: { isOpen: boolean; requestId: string; hostname: string; fingerprint: string; isChanged?: boolean; oldFingerprint?: string } | null) => void;
+  enqueueSecurityPrompt: (prompt: HostKeyPrompt) => void;
+  dropSecurityPrompt: (requestId: string) => void;
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   isPolluted: boolean;
   setIsPolluted: (polluted: boolean) => void;
@@ -164,9 +175,47 @@ interface AppStore {
   pollWatchdogStatus: () => void;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
+  // Torn windows only: read the config the main window stored and apply its visuals,
+  // without writing localStorage or touching the backend config.
+  loadConfigReadOnly: () => void;
+  refreshConfigVisuals: () => void;
 }
 
 let isInitialLoadDone = false;
+
+// Applies the config's colors and dark class to the document; returns the effective isDark.
+function applyConfigVisuals(appConfig: AppConfig, systemIsDark: boolean): boolean {
+  const defaultDuoTone = appConfig.duoTone?.colorA === '0 212 255' && appConfig.duoTone.colorB === '44 44 52';
+  const centerAccent = appConfig.duoTone?.colorA ?? appConfig.themeColor;
+  const accentRgb = centerAccent?.trim().split(/\s+/).map(Number);
+  const validAccent = accentRgb?.length === 3 && accentRgb.every(value => Number.isInteger(value) && value >= 0 && value <= 255);
+  if (!defaultDuoTone && centerAccent && validAccent && accentRgb) {
+    document.documentElement.style.setProperty('--center-custom-accent', centerAccent);
+    const [red, green, blue] = accentRgb;
+    const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+    document.documentElement.style.setProperty('--center-custom-accent-ink', brightness > 150 ? '#101815' : '#ffffff');
+  } else {
+    document.documentElement.style.removeProperty('--center-custom-accent');
+    document.documentElement.style.removeProperty('--center-custom-accent-ink');
+  }
+  if (appConfig.duoTone) {
+    document.documentElement.style.setProperty('--color-a', appConfig.duoTone.colorA);
+    document.documentElement.style.setProperty('--color-b', appConfig.duoTone.colorB);
+    document.documentElement.style.setProperty('--primary-color', appConfig.duoTone.colorA);
+  } else if (appConfig.themeColor) {
+    document.documentElement.style.setProperty('--color-a', appConfig.themeColor);
+    document.documentElement.style.setProperty('--color-b', appConfig.themeColor);
+    document.documentElement.style.setProperty('--primary-color', appConfig.themeColor);
+  }
+
+  const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';
+  if (dark) {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+  return dark;
+}
 
 export const useAppStore = create<AppStore>((set, get) => ({
   appConfig: DEFAULT_CONFIG,
@@ -174,7 +223,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   systemIsDark: true,
   isAppBlurred: false,
   updateAvailable: null,
-  securityPrompt: null,
+  securityPrompts: [],
   isMac: window.electronAPI?.getEnvInfo ? window.electronAPI.getEnvInfo().platform === 'darwin' : false,
   isFullScreen: false,
   isCommandCenterOpen: false,
@@ -187,9 +236,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeWorkspaceId: 'default',
   isPolluted: false,
   watchdogStatus: null,
-  tornPaneId: null,
   isAppBootLocked: false,
   isAppBootLoading: true,
+  isConfigLoaded: false,
 
   setAppConfig: (config) => set({ appConfig: config }),
   updateConfig: (key, val) => {
@@ -212,7 +261,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setCurrentTerminalSelection: (text) => set({ currentTerminalSelection: text }),
   setWorkspaces: (ws) => set({ workspaces: ws }),
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
-  setTornPaneId: (id) => set({ tornPaneId: id }),
   setIsAppBootLocked: (locked) => set({ isAppBootLocked: locked }),
   setIsAppBootLoading: (loading) => set({ isAppBootLoading: loading }),
   
@@ -227,9 +275,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
   removeToast: (id) => set(state => ({ toasts: state.toasts.filter(t => t.id !== id) })),
 
   setIsPolluted: (polluted) => set({ isPolluted: polluted }),
-  setSecurityPrompt: (prompt) => set({ securityPrompt: prompt }),
+  enqueueSecurityPrompt: (prompt) => set(state => (
+    state.securityPrompts.some(p => p.requestId === prompt.requestId)
+      ? state
+      : { securityPrompts: [...state.securityPrompts, prompt] }
+  )),
+  dropSecurityPrompt: (requestId) => set(state => (
+    state.securityPrompts.some(p => p.requestId === requestId)
+      ? { securityPrompts: state.securityPrompts.filter(p => p.requestId !== requestId) }
+      : state
+  )),
   resolveSecurityPrompt: (result) => {
-    const { securityPrompt } = get();
+    const [securityPrompt] = get().securityPrompts;
     if (securityPrompt && window.electronAPI?.sendHostVerificationResult) {
       window.electronAPI.sendHostVerificationResult({
         requestId: securityPrompt.requestId,
@@ -237,7 +294,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         hostname: securityPrompt.hostname,
         fingerprint: securityPrompt.fingerprint,
       });
-      set({ securityPrompt: null });
+      set(state => ({ securityPrompts: state.securityPrompts.filter(p => p.requestId !== securityPrompt.requestId) }));
     }
   },
   
@@ -289,6 +346,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       console.error('Failed to load stored config:', error);
     } finally {
       isInitialLoadDone = true;
+      set({ isConfigLoaded: true });
       get().syncConfigEffects();
     }
   },
@@ -308,23 +366,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }
 
-    if (appConfig.duoTone) {
-      document.documentElement.style.setProperty('--color-a', appConfig.duoTone.colorA);
-      document.documentElement.style.setProperty('--color-b', appConfig.duoTone.colorB);
-      document.documentElement.style.setProperty('--primary-color', appConfig.duoTone.colorA);
-    } else if (appConfig.themeColor) {
-      document.documentElement.style.setProperty('--color-a', appConfig.themeColor);
-      document.documentElement.style.setProperty('--color-b', appConfig.themeColor);
-      document.documentElement.style.setProperty('--primary-color', appConfig.themeColor);
-    }
-
-    const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';
-    set({ isDark: dark });
-    if (dark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    set({ isDark: applyConfigVisuals(appConfig, systemIsDark) });
     if (window.electronAPI?.updateBackendConfig) {
       const requestedMode = appConfig.pluginSecurityMode;
       void window.electronAPI.updateBackendConfig({
@@ -342,5 +384,30 @@ export const useAppStore = create<AppStore>((set, get) => ({
         console.error('Failed to update backend config', error);
       });
     }
+  },
+
+  loadConfigReadOnly: () => {
+    // Secure fields (init script, proxy, AI keys) are not decrypted here: a torn window never needs them.
+    let appConfig: AppConfig = { ...DEFAULT_CONFIG };
+    try {
+      const storedConf = localStorage.getItem('appConfig');
+      const parsed = storedConf ? JSON.parse(storedConf) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        appConfig = { ...DEFAULT_CONFIG, ...parsed };
+      } else if (!storedConf) {
+        const legacyTheme = localStorage.getItem('themePref');
+        if (legacyTheme === 'system' || legacyTheme === 'light' || legacyTheme === 'dark') {
+          appConfig.theme = legacyTheme;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load stored config:', error);
+    }
+    set({ appConfig, isDark: applyConfigVisuals(appConfig, get().systemIsDark), isConfigLoaded: true });
+  },
+
+  refreshConfigVisuals: () => {
+    const { appConfig, systemIsDark } = get();
+    set({ isDark: applyConfigVisuals(appConfig, systemIsDark) });
   },
 }));

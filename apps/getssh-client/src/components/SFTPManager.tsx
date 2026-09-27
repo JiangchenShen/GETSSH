@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock, Download } from 'lucide-react';
+import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock, Download, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSessionStore, PaneNode } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
+import { usePanelStore } from '../store/panelStore';
 
 export interface SFTPFile {
   name: string;
@@ -11,6 +12,21 @@ export interface SFTPFile {
   type: 'd' | '-' | 'l';
   size: number;
   mtime: number;
+}
+
+export const SFTP_PANEL_ID = 'sftp';
+
+/** Registers the SFTP panel in this window's panel host (main window and torn windows each have one). */
+export function registerSftpPanel() {
+  usePanelStore.getState().registerPanel({
+    id: SFTP_PANEL_ID,
+    title: 'SFTP Manager',
+    component: SFTPManager,
+    position: 'bottom',
+    defaultSize: 280,
+    minSize: 180,
+    maxSize: 520,
+  });
 }
 
 export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: boolean }) => {
@@ -27,11 +43,10 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
 
   const sftpDownloadPath = useAppStore(s => s.appConfig.sftpDownloadPath);
   const tabs = useSessionStore(s => s.tabs);
+  // A session can live in any pane of any tab (splits, tear-off), so look for its leaf everywhere
+  // instead of assuming the tab id equals the session id.
   const isDisconnected = React.useMemo(() => {
     if (!sessionId) return true;
-    const tab = tabs.find(t => t.id === sessionId);
-    if (!tab) return true;
-    if (!tab.paneTree) return false; 
     let connected = false;
     const checkTree = (node: PaneNode) => {
       if (node.type === 'leaf') {
@@ -41,7 +56,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
         checkTree(node.children[1]);
       }
     };
-    checkTree(tab.paneTree);
+    tabs.forEach(tab => { if (tab.paneTree) checkTree(tab.paneTree); });
     return !connected;
   }, [tabs, sessionId]);
 
@@ -186,6 +201,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
           <button disabled={isDisconnected} onClick={handleAddFile} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New File"}><FilePlus className="w-4 h-4 opacity-80" /></button>
           <button disabled={isDisconnected} onClick={handleAddFolder} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New Folder"}><FolderPlus className="w-4 h-4 opacity-80" /></button>
           <button disabled={isDisconnected} onClick={() => fetchFiles(currentPath)} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "Refresh"}><RefreshCw className={`w-4 h-4 opacity-80 ${loading ? 'animate-spin' : ''}`} /></button>
+          <button onClick={() => usePanelStore.getState().togglePanel(SFTP_PANEL_ID)} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={t('common.close', 'Close')}><X className="w-4 h-4 opacity-80" /></button>
         </div>
       </div>
       

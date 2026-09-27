@@ -1,4 +1,5 @@
-import { app, safeStorage } from 'electron';
+import { app } from 'electron';
+import { isSecretStoreAvailable, readSecretFile } from '../../security/secretStore';
 import fs from 'fs';
 import path from 'path';
 import { McpSamplingParams, McpSamplingResult } from './mcpTypes';
@@ -65,9 +66,8 @@ export class McpSamplingBridge {
       if (!fs.existsSync(vaultPath)) {
         vaultPath = path.join(app.getPath('userData'), 'ai_vault.enc');
       }
-      if (fs.existsSync(vaultPath) && safeStorage.isEncryptionAvailable()) {
-        const encrypted = fs.readFileSync(vaultPath);
-        apiKey = safeStorage.decryptString(encrypted);
+      if (fs.existsSync(vaultPath) && isSecretStoreAvailable()) {
+        apiKey = readSecretFile(vaultPath);
       }
     } catch (e: any) {
       console.warn('[McpSamplingBridge] Failed to read AI vault:', e.message);

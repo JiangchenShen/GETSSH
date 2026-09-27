@@ -1,11 +1,19 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSessionStore, PaneNode } from '../store/sessionStore';
+import { callNexus, useSessionStore, PaneNode, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
-import { Runbook } from '../store/workspaceStore';
+import { Runbook, useWorkspaceStore } from '../store/workspaceStore';
 import { findLeaf, findWelcomePane, updateLeafInTree } from '../utils/paneHelpers';
+import { stripConnectionSecrets } from '../utils/connectionProfile';
+import { detectProtocol } from '../utils/protocolParser';
 
 import { useAiChatStore } from '../store/aiChatStore';
+
+const findCenterPane = (node: PaneNode, centerType: string): PaneLeaf | null => {
+  if (node.type !== 'leaf') return findCenterPane(node.children[0], centerType) ?? findCenterPane(node.children[1], centerType);
+  if (node.paneType !== 'center' || !node.config || !('centerType' in node.config)) return null;
+  return node.config.centerType === centerType || (centerType === 'settings' && node.config.centerType === 'secure') ? node : null;
+};
 
 export const useCoreAppEvents = (
   setPendingHighRiskRunbook: (runbook: Runbook | null) => void,
@@ -17,14 +25,33 @@ export const useCoreAppEvents = (
   useEffect(() => {
     const handleCreateSession = (e: CustomEvent) => {
       const { sessions, setSessions, setSelectedSessionIndex, setActiveTabId } = useSessionStore.getState();
+      const address = typeof e.detail === 'string' ? e.detail.trim() : '';
+      const parsed = address ? detectProtocol(address) : null;
+      const host = parsed?.protocol === 'local' ? '' : (parsed?.parsedHost ?? address);
+      const makeDraft = (id: string = crypto.randomUUID()): SessionProfile => ({
+        id,
+        isDraft: true,
+        isQuickConnect: Boolean(address),
+        host,
+        username: parsed?.parsedUser ?? '',
+        port: parsed?.parsedPort,
+        password: '',
+        privateKeyPath: '',
+        autoStart: false,
+        protocol: parsed?.protocol ?? 'auto',
+      });
       const existingDraftIndex = sessions.findIndex(session => session.isDraft);
       if (existingDraftIndex >= 0) {
+        if (sessions[existingDraftIndex].isQuickConnect) {
+          setSessions(sessions.map((session, index) => index === existingDraftIndex
+            ? makeDraft(session.id)
+            : session));
+        }
         setSelectedSessionIndex(existingDraftIndex);
         setActiveTabId(null);
         return;
       }
-      const newSession = { id: crypto.randomUUID(), isDraft: true, host: e.detail, username: '', password: '', privateKeyPath: '', autoStart: false, protocol: 'auto' };
-      const updated = [...sessions, newSession as any];
+      const updated = [...sessions, makeDraft()];
       setSessions(updated);
       setSelectedSessionIndex(updated.length - 1);
       setActiveTabId(null);
@@ -70,15 +97,38 @@ export const useCoreAppEvents = (
       }
     };
 
-    const handleOpenCenter = (e: CustomEvent<{ type: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings', title: string }>) => {
-      const centerType = e.detail.type;
-      const tabTitle = e.detail.title;
+    const handleOpenCenter = (e: CustomEvent<{ type: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings', title: string, settingsTab?: string, workspacePage?: string }>) => {
+      // Security is now a Settings category. Keep old callers and restored tabs usable.
+      const centerType = e.detail.type === 'secure' ? 'settings' : e.detail.type;
+      const settingsTab = e.detail.type === 'secure' ? 'Security' : e.detail.settingsTab;
+      const centerConfig = { centerType, ...(settingsTab ? { settingsTab } : {}), ...(e.detail.workspacePage ? { workspacePage: e.detail.workspacePage } : {}) };
+      const tabTitle = centerType === 'settings' ? t('statusBar.settings') : e.detail.title;
       const { tabs, activeTabId, setTabs, setActiveTabId, setSelectedSessionIndex } = useSessionStore.getState();
+      const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
-      const existingTab = tabs.find(t => t.config && (t.config as any).centerType === centerType);
+      const existingTab = tabs.find(tab => (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId
+        && ((tab.config && 'centerType' in tab.config
+          && (tab.config.centerType === centerType || (centerType === 'settings' && tab.config.centerType === 'secure')))
+          || (tab.paneTree && findCenterPane(tab.paneTree, centerType))));
       if (existingTab) {
+        const existingPane = existingTab.paneTree && findCenterPane(existingTab.paneTree, centerType);
+        if (settingsTab || e.detail.workspacePage) {
+          setTabs(tabs.map(tab => tab.id === existingTab.id ? {
+            ...tab,
+            title: centerType === 'settings' && tab.config && 'centerType' in tab.config ? tabTitle : tab.title,
+            config: tab.config && 'centerType' in tab.config ? centerConfig : tab.config,
+            paneTree: existingPane && tab.paneTree
+              ? updateLeafInTree(tab.paneTree, existingPane.paneId, { config: centerConfig })
+              : tab.paneTree,
+          } : tab));
+          if (existingPane) {
+            void callNexus('update center destination', window.electronAPI.nexusReplacePane(existingPane.paneId, 'center', null, JSON.stringify(centerConfig)));
+          }
+        }
         setActiveTabId(existingTab.id);
         setSelectedSessionIndex(null);
+        if (settingsTab) window.dispatchEvent(new CustomEvent('app:settings-tab', { detail: settingsTab }));
+        if (e.detail.workspacePage) window.dispatchEvent(new CustomEvent('app:workspace-page', { detail: e.detail.workspacePage }));
         return;
       }
 
@@ -99,26 +149,29 @@ export const useCoreAppEvents = (
       if (targetPaneId) {
         setTabs(tabs.map(t => {
           if (t.id !== activeTabId || !t.paneTree) return t;
-          return { ...t, paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'center', sessionId: null, config: { centerType } }) };
+          return {
+            ...t,
+            title: t.paneTree.type === 'leaf' ? tabTitle : t.title,
+            config: t.paneTree.type === 'leaf' ? centerConfig : t.config,
+            workspaceId: activeWorkspaceId,
+            paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'center', sessionId: null, config: centerConfig }),
+          };
         }));
         setSelectedSessionIndex(null);
-        window.electronAPI.nexusReplacePane(targetPaneId, 'center', null, JSON.stringify({ centerType })).catch(e => {
-          console.error('[Stateless UI] Failed to replace pane to center in Rust:', e);
-        });
+        void callNexus('replace pane with center', window.electronAPI.nexusReplacePane(targetPaneId, 'center', null, JSON.stringify(stripConnectionSecrets(centerConfig))));
       } else {
         const newTabId = `cmd-${Date.now()}`;
         const newPaneId = `pane-${Date.now()}`;
         setTabs([...tabs, {
           id: newTabId,
           title: tabTitle,
-          config: { centerType },
-          paneTree: { type: 'leaf', paneId: newPaneId, paneType: 'center', sessionId: null, config: { centerType } }
+          config: centerConfig,
+          workspaceId: activeWorkspaceId,
+          paneTree: { type: 'leaf', paneId: newPaneId, paneType: 'center', sessionId: null, config: centerConfig }
         }]);
         setActiveTabId(newTabId);
         setSelectedSessionIndex(null);
-        window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'center', JSON.stringify({ centerType }), tabTitle).catch(e => {
-          console.error('[Stateless UI] Failed to register center tab in Rust:', e);
-        });
+        void callNexus('register center tab', window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'center', JSON.stringify(stripConnectionSecrets(centerConfig)), tabTitle, activeWorkspaceId));
       }
     };
 

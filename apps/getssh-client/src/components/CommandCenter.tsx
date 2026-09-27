@@ -1,15 +1,14 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Server, Terminal as TerminalIcon, Command, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles, BookOpen, Database } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, Search, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles, BookOpen, Database } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import Fuse from 'fuse.js';
 
-import { PluginDetailsModal } from './command-center/PluginDetailsModal';
 import { CommandCenterList } from './command-center/CommandCenterList';
 import { ActionDrawer, ActionDrawerItem } from './command-center/ActionDrawer';
 import { CommandCenterAiChat } from './command-center/CommandCenterAiChat';
@@ -37,8 +36,10 @@ export interface UnifiedItem {
   onSelect: () => void;
 }
 
-export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, onConnect, onOpenPlugin, onDeleteSession, isDark, sessions }) => {
-  const { t } = useTranslation();
+export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, onConnect, onOpenPlugin, onDeleteSession, isDark, appConfig, sessions }) => {
+  const { t, i18n } = useTranslation();
+  const zh = i18n.language.startsWith('zh');
+  const reduceMotion = useReducedMotion();
   const installedPlugins = usePluginStore(state => state.installedPlugins);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const masterPassword = useCryptoStore(state => state.masterPassword);
@@ -51,7 +52,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [activeDrawerIndex, setActiveDrawerIndex] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [inspectingPlugin, setInspectingPlugin] = useState<any | null>(null);
   const [isAiMode, setIsAiMode] = useState(false);
   const [mcpPrompts, setMcpPrompts] = useState<any[]>([]);
   const [mcpResources, setMcpResources] = useState<any[]>([]);
@@ -86,7 +86,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       setIsActionMenuOpen(false);
       setActiveDrawerIndex(0);
       setDeleteConfirmId(null);
-      setInspectingPlugin(null);
       setIsAiMode(false);
       
     }
@@ -168,12 +167,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         if (onOpenPlugin) {
           onOpenPlugin(p);
         } else {
-          // Fallback if not provided
-          useAppStore.setState(state => {
-            const settingsBtn = document.querySelector('button[title="Settings"], button[title="设置"]') as HTMLButtonElement | null;
-            if (settingsBtn) settingsBtn.click();
-            return state;
-          });
+          window.dispatchEvent(new CustomEvent('app:open-center', {
+            detail: { type: 'plugin', title: t('statusBar.plugins', 'Plugins') },
+          }));
         }
       }
     })));
@@ -184,7 +180,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       type: 'runbook' as UnifiedItemType,
       title: r.name,
       subtitle: r.description,
-      icon: <Command className={`w-4 h-4 ${r.dangerLevel === 'high' ? 'text-warn' : 'text-ink-3'}`} />,
+        icon: <TerminalIcon className={`w-4 h-4 ${r.dangerLevel === 'high' ? 'text-warn' : 'text-ink-3'}`} />,
       data: r,
       onSelect: () => {
         onClose();
@@ -322,10 +318,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        if (inspectingPlugin) {
-          setInspectingPlugin(null);
-          inputRef.current?.focus();
-        } else if (isActionMenuOpen) {
+        if (isActionMenuOpen) {
           setIsActionMenuOpen(false);
           inputRef.current?.focus();
         } else {
@@ -338,7 +331,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         e.stopPropagation();
-        if (unifiedItems.length > 0) {
+        if (!isAiMode && unifiedItems.length > 0) {
           setIsActionMenuOpen(prev => !prev);
         }
         return;
@@ -375,20 +368,18 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         setActiveIndex(prev => Math.max(prev - 1, 0));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (unifiedItems.length > 0 && !isAiMode) {
+        if (isAiMode && searchQuery.trim()) {
+          window.dispatchEvent(new CustomEvent('command-center:ai-submit', { detail: searchQuery.trim() }));
+          setSearchQuery('');
+        } else if (!isAiMode && unifiedItems.length > 0) {
           unifiedItems[activeIndex].onSelect();
         } else if (searchQuery.trim().length > 0 && !isAiMode) {
           onClose();
           const event = new CustomEvent('app:create-session', { detail: searchQuery.trim() });
           window.dispatchEvent(event);
-        } else if (isAiMode && searchQuery.trim().length > 0) {
-          // Trigger AI Request in AiChat component (which will listen to custom event or via ref)
-          const event = new CustomEvent('command-center:ai-submit', { detail: searchQuery.trim() });
-          window.dispatchEvent(event);
-          setSearchQuery('');
         }
       } else if (e.key === 'ArrowRight') {
-        if (unifiedItems.length > 0) {
+        if (!isAiMode && unifiedItems.length > 0) {
           e.preventDefault();
           setIsActionMenuOpen(true);
         }
@@ -397,7 +388,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [unifiedItems, activeIndex, isActionMenuOpen, onClose, activeDrawerIndex, inspectingPlugin]);
+  }, [unifiedItems, activeIndex, isActionMenuOpen, onClose, activeDrawerIndex, isAiMode, searchQuery]);
 
   // Handle outside click
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -466,17 +457,20 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
     if (activeItem.type === 'plugin') {
       items.push({
-        label: t('commandCenter.pluginParameters', 'Plugin Parameters'),
+        label: zh ? '在插件中心管理' : 'Manage in Plugin Center',
         icon: <Settings className="w-4 h-4" />,
         action: () => {
-          setInspectingPlugin(activeItem.data);
+          onClose();
           setIsActionMenuOpen(false);
+          window.dispatchEvent(new CustomEvent('app:open-center', {
+            detail: { type: 'plugin', title: t('statusBar.plugins', 'Plugins') },
+          }));
         }
       });
     }
 
     return items;
-  }, [activeItem, deleteConfirmId, onDeleteSession, sessions, onClose]);
+  }, [activeItem, deleteConfirmId, onDeleteSession, sessions, onClose, t, zh]);
 
   // Adjust activeDrawerIndex if it goes out of bounds
   useEffect(() => {
@@ -487,43 +481,53 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
+      initial={reduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[9999] flex items-start pt-[12vh] justify-center bg-scrim"
+      exit={reduceMotion ? undefined : { opacity: 0 }}
+      transition={{ duration: 0.16 }}
+      className="center-workbench fixed inset-0 z-[9999] flex items-start justify-center bg-scrim pt-[10vh]"
+      data-glass={appConfig?.enableGlassmorphism ? 'true' : 'false'}
       onClick={handleBackdropClick}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
-      <div className="relative flex items-start justify-center w-full max-w-5xl px-4 pointer-events-none">
-        
-        {/* Main Command Center Panel */}
+      <div className="pointer-events-none relative flex w-full max-w-5xl items-start justify-center px-4">
         <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.98, y: -10 }}
-          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          className={`relative w-[560px] max-w-[86vw] shrink-0 pointer-events-auto rounded-xl flex flex-col
-                      border bg-panel text-ink overflow-hidden transition-colors
-                      ${isAiMode ? 'border-primary/60' : 'border-line'}`}
+          initial={reduceMotion ? false : { opacity: 0, y: 7 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -5 }}
+          transition={{ duration: 0.16 }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('statusBar.commandCenter', 'Command Center')}
+          className={`pointer-events-auto relative flex max-h-[82vh] w-[620px] max-w-[calc(100vw-32px)] shrink-0 flex-col overflow-hidden rounded-[14px] border bg-surf text-ink shadow-[0_24px_70px_rgba(0,0,0,0.28)] ${isAiMode ? 'border-primary/60' : 'border-line'}`}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Alert Banner */}
+          <div className="flex items-center justify-between border-b border-line-soft bg-panel/60 px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-ink-2">
+              <TerminalIcon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+              {t('statusBar.commandCenter', 'Command Center')}
+            </div>
+            <span className="text-[11px] text-ink-3">{isAiMode ? (zh ? 'AI 调度' : 'AI dispatch') : (zh ? '搜索与执行' : 'Search and execute')}</span>
+          </div>
+
           {isPolluted && (
-            <div className={`w-full px-4 py-2.5 flex items-center justify-center gap-2 border-b text-[12.5px] font-medium ${
+            <div className={`flex w-full items-center gap-2 border-b px-4 py-2 text-xs font-medium ${
               watchdogStatus?.level === 'red' ? 'bg-down/10 text-down border-down/25' : 'bg-warn/10 text-warn border-warn/25'
             }`}>
-              <ShieldAlert className="w-3.5 h-3.5" />
-              {watchdogStatus?.level === 'red' ? '⚠️ 当前系统已被污染 (高危)' : '⚠️ 插件高危操作已阻断 (警告)'}
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {watchdogStatus?.level === 'red'
+                ? (zh ? 'Watchdog 报告高危系统状态' : 'Watchdog reports a high-risk system state')
+                : (zh ? 'Watchdog 已阻断插件高危操作' : 'Watchdog blocked a high-risk plugin operation')}
             </div>
           )}
 
-          {/* Header Input */}
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line-soft shrink-0 relative z-10">
-            <Command className={`w-4 h-4 flex-none transition-colors ${isAiMode ? 'text-primary' : 'text-ink-3'}`} />
+          <div className="relative z-10 flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
+            {isAiMode ? <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />}
             <input
               ref={inputRef}
               type="text"
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[15px] text-ink placeholder:text-ink-3"
+              aria-label={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
+              className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
               placeholder={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -531,15 +535,15 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
               autoComplete="off"
             />
             <button
-              className={`flex-none w-[26px] h-[26px] rounded-md grid place-items-center transition-colors ${isAiMode ? 'bg-primary/15 text-primary' : 'text-ink-3 hover:bg-surf hover:text-ink'}`}
-              onClick={() => setIsAiMode(!isAiMode)}
-              title={t('commandCenter.aiModeToggle', 'Toggle AI Mode')}
+              type="button"
+              className="flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-primary/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              onClick={() => { setIsAiMode(!isAiMode); setIsActionMenuOpen(false); inputRef.current?.focus(); }}
+              aria-label={t('commandCenter.aiModeToggle', 'Toggle AI Mode')}
+              aria-pressed={isAiMode}
             >
-              <Sparkles className="w-4 h-4" />
+              {isAiMode ? <Search className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {isAiMode ? (zh ? '搜索' : 'Search') : 'AI'}
             </button>
-            <div className="flex-none font-mono text-[9.5px] px-1.5 py-1 rounded border border-line-soft bg-surf-2 text-ink-3">
-              {t('commandCenter.escToClose', 'ESC TO CLOSE')}
-            </div>
           </div>
 
           {/* List Area */}
@@ -560,37 +564,21 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
             />
           )}
           
-          {/* Footer */}
-          <div className="px-4 py-2.5 text-[10.5px] flex items-center justify-between border-t border-line-soft text-ink-3">
-            <span>{t('commandCenter.version', 'GETSSH Command Center V2.0')}</span>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1"><kbd className="px-1.5 py-px rounded border border-line-soft bg-surf-2 font-mono text-[9.5px]">↑↓</kbd> {t('commandCenter.navigate', 'Navigate')}</span>
-              <span className="flex items-center gap-1"><kbd className="px-1.5 py-px rounded border border-line-soft bg-surf-2 font-mono text-[9.5px]">↵</kbd> {t('commandCenter.select', 'Select')}</span>
+          <div className="flex items-center justify-between gap-3 border-t border-line bg-panel/60 px-4 py-2.5 text-[11px] text-ink-3">
+            <span>{isAiMode ? (zh ? 'AI 权限遵循智能体模式设置' : 'AI access follows your agent mode') : (zh ? '主机 · 操作 · 插件 · Runbook' : 'Hosts · Actions · Plugins · Runbooks')}</span>
+            <div className="flex shrink-0 items-center gap-3">
+              {!isAiMode && <span className="hidden items-center gap-1 sm:flex"><kbd className="rounded border border-line px-1 font-mono">↑↓</kbd>{t('commandCenter.navigate', 'Navigate')}</span>}
+              <span className="flex items-center gap-1"><kbd className="rounded border border-line px-1 font-mono">↵</kbd>{isAiMode ? (zh ? '发送' : 'Send') : t('commandCenter.select', 'Select')}</span>
+              <span className="hidden items-center gap-1 sm:flex"><kbd className="rounded border border-line px-1 font-mono">Esc</kbd>{zh ? '关闭' : 'Close'}</span>
             </div>
           </div>
-          
-          {/* Plugin Details Modal Overlay */}
-          <AnimatePresence>
-            {inspectingPlugin && (
-              <PluginDetailsModal 
-                plugin={inspectingPlugin} 
-                isDark={isDark} 
-                onClose={() => { setInspectingPlugin(null); inputRef.current?.focus(); }} 
-              />
-            )}
-          </AnimatePresence>
+          <ActionDrawer
+            isOpen={isActionMenuOpen}
+            drawerItems={drawerItems}
+            activeDrawerIndex={activeDrawerIndex}
+            activeItemId={activeItem?.id || null}
+          />
         </motion.div>
-
-        {/* Action Drawer */}
-        <ActionDrawer
-          isOpen={isActionMenuOpen}
-          isDark={isDark}
-          drawerItems={drawerItems}
-          activeDrawerIndex={activeDrawerIndex}
-          activeItemId={activeItem?.id || null}
-          deleteConfirmId={deleteConfirmId}
-        />
-        
       </div>
     </motion.div>
   );

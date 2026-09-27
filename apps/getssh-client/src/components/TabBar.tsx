@@ -1,8 +1,23 @@
 import React from 'react';
 import { X, Home, Columns2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Tab, collectSessionIds } from '../store/sessionStore';
-import { getTerminalBuffer } from './Terminal';
+import { Tab, PaneNode } from '../store/sessionStore';
+import { useAppStore } from '../store/appStore';
+
+// Private drag type: other apps (Finder, editors, terminals) must not accept a dragged tab as text.
+const TAB_DRAG_MIME = 'application/x-getssh-tab';
+
+// Only trees made entirely of terminal panes can live in a torn-off window.
+function isAllTerminal(node: PaneNode): boolean {
+  if (node.type === 'leaf') return node.paneType === 'terminal';
+  return isAllTerminal(node.children[0]) && isAllTerminal(node.children[1]);
+}
+
+// The drag was released outside this window (screen coordinates vs. the window's outer bounds).
+function isOutsideWindow(screenX: number, screenY: number): boolean {
+  return screenX < window.screenX || screenX > window.screenX + window.outerWidth
+    || screenY < window.screenY || screenY > window.screenY + window.outerHeight;
+}
 
 /**
  * 标签条。
@@ -51,38 +66,33 @@ export const TabBar: React.FC<TabBarProps> = ({
         const isActive = activeTabId === tab.id;
         // 中心页（AI / 安全 / 工作区 / 插件 / 设置）不是会话，别给它画「在线」绿点
         const isCenter = !!tab.config && typeof tab.config === 'object' && 'centerType' in tab.config;
+        const canTearOff = !!tab.paneTree && isAllTerminal(tab.paneTree);
         return (
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
-            draggable
+            draggable={canTearOff}
             onDragStart={(e) => {
-              window.electronAPI.windowTearArm();
               e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData('text/plain', tab.id);
+              e.dataTransfer.setData(TAB_DRAG_MIME, tab.id);
             }}
             onDragEnd={(e) => {
-              if (e.clientY > 60 || e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth) {
-                const rootPaneId = tab.paneTree?.paneId;
-                if (rootPaneId) {
-                  const sessionIds = collectSessionIds(tab.paneTree!);
-                  const terminalBuffers: Record<string, string> = {};
-                  sessionIds.forEach(sid => {
-                    const buf = getTerminalBuffer(sid);
-                    if (buf) terminalBuffers[sid] = buf;
-                  });
-
-                  window.electronAPI.windowTearExecute({
-                    screenX: e.screenX,
-                    screenY: e.screenY,
-                    width: Math.max(800, window.outerWidth * 0.8),
-                    height: Math.max(600, window.outerHeight * 0.8),
-                    paneId: rootPaneId,
-                    terminalBuffers,
-                    tornTitle: tab.title
-                  });
-                }
-              }
+              // Tear off only when the tab was dropped outside the window and nothing accepted the drop
+              // (a cancelled drag, e.g. Esc, also reports 'none' but ends inside the window).
+              if (e.dataTransfer.dropEffect !== 'none' || !isOutsideWindow(e.screenX, e.screenY)) return;
+              const tree = tab.paneTree;
+              if (!tree || !canTearOff) return;
+              window.electronAPI.windowTearOff({
+                paneId: tree.paneId,
+                screenX: e.screenX,
+                screenY: e.screenY,
+                width: Math.max(800, window.outerWidth * 0.8),
+                height: Math.max(600, window.outerHeight * 0.8),
+              }).then((res) => {
+                if (!res.success) throw new Error(res.error || 'unknown');
+              }).catch((err: any) => {
+                useAppStore.getState().addToast(`${t('tabs.tearOffFailed', 'Could not open the tab in a new window')}: ${err?.message || err}`, 'error');
+              });
             }}
             title={tab.title}
             className={`no-drag-region group flex-none flex items-center gap-[7px] h-[27px] pl-2.5 pr-1.5

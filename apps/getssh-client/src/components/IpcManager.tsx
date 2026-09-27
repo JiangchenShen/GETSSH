@@ -1,85 +1,77 @@
 import React, { useEffect } from 'react';
 import { useAppStore } from '../store/appStore';
-import { useSessionStore } from '../store/sessionStore';
+import { savedProfiles, useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { usePluginStore } from '../store/pluginStore';
 import { useCryptoStore } from '../store/cryptoStore';
+import { findLeaf } from '../utils/paneHelpers';
 
 /**
- * IpcManager handles all window.electronAPI IPC event subscriptions.
+ * IpcManager handles all window.electronAPI IPC event subscriptions of the MAIN window.
  * It is a non-rendering component that acts as a bridge between Electron IPC and Zustand stores.
+ * Torn-off windows do not mount it; TornWindowApp keeps its own, much smaller set of subscriptions.
  */
 export const IpcManager: React.FC = () => {
   const setUpdateAvailable = useAppStore(state => state.setUpdateAvailable);
   const setIsFullScreen = useAppStore(state => state.setIsFullScreen);
   const setPendingAgentProposal = useWorkspaceStore(state => state.setPendingAgentProposal);
   const updateSessionOsType = useSessionStore(state => state.updateSessionOsType);
-  const setTornPaneId = useAppStore(state => state.setTornPaneId);
-  const setSecurityPrompt = useAppStore(state => state.setSecurityPrompt);
+  const enqueueSecurityPrompt = useAppStore(state => state.enqueueSecurityPrompt);
 
   // --------------------------------------------------------------------------
-  // Hollow Window / Tear-out IPC
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    if (!window.electronAPI?.windowGetHijackIdentity) return;
-    
-    // Actively request hijack identity once React has mounted.
-    // This avoids race conditions where the main process sends the identity before the renderer is listening.
-    window.electronAPI.windowGetHijackIdentity().then((payload) => {
-      if (payload) {
-        setTornPaneId(payload.paneId);
-        if (payload.terminalBuffers) {
-           (window as any).__tornBuffers = payload.terminalBuffers;
-        }
-        if (payload.tornTitle) {
-           (window as any).__tornTitle = payload.tornTitle;
-        }
-      }
-    });
-  }, [setTornPaneId]);
-
-  useEffect(() => {
-    if (!window.electronAPI?.onWindowReceiveTornBuffers) return;
-    const cleanup = window.electronAPI.onWindowReceiveTornBuffers((payload) => {
-      // Hollow windows should NEVER process Tear In buffers, because they are the ones sending it!
-      // This prevents reused Hollow Windows in the pool from accidentally accumulating stale buffers.
-      if (new URLSearchParams(window.location.search).get('isHollow') === 'true') {
-        return;
-      }
-      if (!(window as any).__tornTerminalBuffers) {
-         (window as any).__tornTerminalBuffers = {};
-      }
-      (window as any).__tornTerminalBuffers = { ...(window as any).__tornTerminalBuffers, ...payload };
-    });
-    return cleanup;
-  }, []);
-
-  // --------------------------------------------------------------------------
-  // Nexus Core Sync (State, Trees, Patches)
+  // Nexus Core Sync (rev-ordered tab snapshots from the Rust core)
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!window.electronAPI?.onNexusSyncTree) return;
-    const cleanup = window.electronAPI.onNexusSyncTree((tabId: string, title: string, tree: any, isTornOff: boolean) => {
-      useSessionStore.getState().syncNexusTree(tabId, title, tree, isTornOff);
+    const cleanup = window.electronAPI.onNexusSyncTree((payload) => {
+      useSessionStore.getState().syncNexusTree(payload);
     });
     return cleanup;
   }, []);
 
+  // Focus request after a torn window was attached back (the pane may have been re-docked into another tab).
   useEffect(() => {
-    if (!window.electronAPI?.onNexusPatchLeaf) return;
-    const cleanup = window.electronAPI.onNexusPatchLeaf((paneId: string, updates: any) => {
-      useSessionStore.getState().patchNexusLeaf(paneId, updates);
+    if (!window.electronAPI?.onNexusFocusPane) return;
+    return window.electronAPI.onNexusFocusPane(async ({ tabId, paneId }) => {
+      const findTab = () => useSessionStore.getState().tabs.find(t => t.id === tabId);
+      const initial = findTab();
+      if (!initial?.paneTree || !findLeaf(initial.paneTree, paneId)) {
+        // The focus request can overtake the sync broadcast; pull the tab so the pane exists first.
+        const snapshot = await window.electronAPI.nexusGetTab(tabId).catch(() => null);
+        if (snapshot) useSessionStore.getState().syncNexusTree(snapshot);
+      }
+      const tab = findTab();
+      const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+      if (!tab || tab.isTornOff || (tab.workspaceId ?? activeWorkspaceId) !== activeWorkspaceId) return;
+      const state = useSessionStore.getState();
+      state.setActiveTabId(tabId);
+      state.setSelectedSessionIndex(null);
+      if (tab.paneTree && findLeaf(tab.paneTree, paneId)) state.setActivePaneId(paneId);
     });
-    return cleanup;
   }, []);
 
   // --------------------------------------------------------------------------
-  // Host Key Verification
+  // Plugin UI extensions / settings schemas: pull the current state once; the broadcasts
+  // (subscribed in initPluginBridge) keep it fresh afterwards.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    let disposed = false;
+    window.electronAPI?.getPluginUiExtensions?.()
+      .then(payload => { if (!disposed && payload) usePluginStore.getState().setUIExtensions(payload); })
+      .catch(() => {});
+    window.electronAPI?.getPluginSettingsSchemas?.()
+      .then(payload => { if (!disposed && payload) usePluginStore.getState().setSettingsSchemas(payload); })
+      .catch(() => {});
+    return () => { disposed = true; };
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // Host Key Verification (queued: a second prompt must not replace the first)
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!window.electronAPI?.onPromptHostVerification) return;
     const cleanup = window.electronAPI.onPromptHostVerification((data) => {
-      setSecurityPrompt({
-        isOpen: true,
+      enqueueSecurityPrompt({
         requestId: data.requestId,
         hostname: data.hostname,
         fingerprint: data.fingerprint,
@@ -88,7 +80,14 @@ export const IpcManager: React.FC = () => {
       });
     });
     return cleanup;
-  }, [setSecurityPrompt]);
+  }, [enqueueSecurityPrompt]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onHostVerificationCancelled) return;
+    return window.electronAPI.onHostVerificationCancelled((requestId) => {
+      useAppStore.getState().dropSecurityPrompt(requestId);
+    });
+  }, []);
 
   // --------------------------------------------------------------------------
   // OS Fingerprinting
@@ -100,12 +99,17 @@ export const IpcManager: React.FC = () => {
       const matched = currentSessions.find(s => s.host.replace(/[/\s]+$/g, '') === host && s.username === username);
       if (matched) {
         updateSessionOsType(matched.host, username, osType as any);
-        // Persist the updated osType to disk so it doesn't revert to a question mark on restart
+        // Persist the updated osType to disk so it doesn't revert to a question mark on restart.
+        // The list belongs to this workspace: skip the save if the workspace changed meanwhile.
+        const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
         setTimeout(() => {
+           if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
            const sessions = useSessionStore.getState().sessions;
            const { masterPassword, encryptionDisabled } = useCryptoStore.getState();
            if (masterPassword || encryptionDisabled) {
-              window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: sessions });
+              // Main refuses the write if the workspace changed meanwhile; the osType is re-detected next connect.
+              window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: savedProfiles(sessions), workspaceId })
+                .catch((err) => console.warn('[IpcManager] Skipped persisting detected OS type:', err));
            }
         }, 50);
       }

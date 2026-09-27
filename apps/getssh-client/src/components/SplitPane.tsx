@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { usePanelStore } from '../store/panelStore';
-import { useSessionStore, PaneNode } from '../store/sessionStore';
+import { useSessionStore, PaneNode, PaneLeaf, isSSHConfig } from '../store/sessionStore';
 
 /**
  * SplitPane - A dynamic, resizable split panel engine.
@@ -11,6 +11,12 @@ import { useSessionStore, PaneNode } from '../store/sessionStore';
  *  - isDark: current theme
  *  - activeTabId: current active tab (passed from parent to avoid store dependency)
  */
+/** SFTP runs over the SSH connection, so local shells and telnet panes have none. */
+export function isSftpCapable(node: PaneLeaf): boolean {
+  if (node.paneType !== 'terminal' || !node.sessionId || !isSSHConfig(node.config)) return false;
+  return node.config.protocol !== 'local' && node.config.protocol !== 'telnet';
+}
+
 interface SplitPaneProps {
   children: React.ReactNode;
   isDark: boolean;
@@ -23,18 +29,19 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
   const panelSizes = usePanelStore(s => s.panelSizes);
   const setPanelSize = usePanelStore(s => s.setPanelSize);
 
+  // Session of the active pane when it is an SSH terminal ('' otherwise). Tab ids are not session ids.
   const activeSessionId = useSessionStore(
     React.useCallback(
       (s) => {
-        if (!activeTabId || activeTabId === 'settings') return activeTabId;
+        if (!activeTabId || activeTabId === 'settings') return '';
         const tab = s.tabs.find(t => t.id === activeTabId);
-        if (!tab || !tab.paneTree) return activeTabId;
+        if (!tab || !tab.paneTree) return '';
 
-        let foundSessionId = activeTabId;
+        let foundSessionId = '';
         const findPane = (node: PaneNode) => {
           if (node.type === 'leaf') {
-            if (node.paneId === s.activePaneId) {
-              foundSessionId = node.sessionId || activeTabId;
+            if (node.paneId === s.activePaneId && node.paneType === 'terminal' && isSftpCapable(node)) {
+              foundSessionId = node.sessionId || '';
             }
           } else {
             findPane(node.children[0]);

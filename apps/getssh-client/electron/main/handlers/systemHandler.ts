@@ -4,6 +4,7 @@ import https from 'node:https';
 import { join } from 'node:path';
 import type { BackendConfig } from '../../../src/types/ipc';
 import { getRustCorePath } from '../utils/rustCorePath';
+import { isMainWebContents } from '../windowRegistry';
 
 let sysprobe: any = null;
 try {
@@ -177,7 +178,15 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   // Background config and hotkeys
-  ipcMain.handle('update-backend-config', async (_event, requestedConfig: BackendConfig, authToken?: string) => {
+  ipcMain.handle('update-backend-config', async (event, requestedConfig: BackendConfig, authToken?: string) => {
+    // Global backend config is owned by the main window's settings (torn windows only read config).
+    if (!isMainWebContents(event.sender)) {
+      return {
+        success: false,
+        effectiveConfig: { ...backendConfig },
+        error: 'Unauthorized sender.'
+      };
+    }
     if (!requestedConfig || typeof requestedConfig !== 'object' || Array.isArray(requestedConfig)) {
       return {
         success: false,
@@ -205,44 +214,15 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     if (config.pluginSecurityMode && config.pluginSecurityMode !== backendConfig.pluginSecurityMode) {
       if (config.pluginSecurityMode !== 'safe') {
         try {
-          const { systemPreferences, safeStorage } = require('electron');
-          const { getActiveWorkspaceId } = require('./workspaceHandler');
-          const vaultKeyPath = join(
-            app.getPath('home'),
-            '.getssh',
-            'workspaces',
-            getActiveWorkspaceId(),
-            'vault.key'
+          const { verifyOwner } = require('../security/userPresence');
+          const { activeWorkspaceOwnerDeps } = require('../security/workspaceVault');
+          // A master password supplied by the settings flow, or Touch ID; a workspace without a
+          // stored password has no identity secret to verify.
+          const outcome = await verifyOwner(
+            { password: typeof authToken === 'string' ? authToken : undefined, reason: 'enable backend plugins' },
+            activeWorkspaceOwnerDeps(),
           );
-
-          let verified = false;
-          if (fs.existsSync(vaultKeyPath)) {
-            // 1. Check master-password fallback supplied by the trusted settings flow.
-            if (authToken && safeStorage.isEncryptionAvailable()) {
-              try {
-                const encryptedKey = await fs.promises.readFile(vaultKeyPath);
-                const masterPassword = safeStorage.decryptString(encryptedKey);
-                if (authToken === masterPassword) {
-                  verified = true;
-                }
-              } catch (e) {
-                console.warn('Failed to decrypt master password for plugin-mode verification', e);
-              }
-            }
-
-            // 2. Check biometric authentication.
-            if (!verified && process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
-              try {
-                await systemPreferences.promptTouchID('Verify identity to enable backend plugins');
-                verified = true;
-              } catch {
-                verified = false;
-              }
-            }
-          } else {
-            // Without an encryption key there is no configured identity secret to verify.
-            verified = true;
-          }
+          const verified = outcome === 'verified';
 
           if (!verified) {
             console.warn(`[Security] Blocked unauthorized attempt to change pluginSecurityMode to ${config.pluginSecurityMode}`);
@@ -354,7 +334,11 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
 
   // Import DB
-  ipcMain.handle('import-database', async () => {
+  // The file the user picked in the import dialog and still has to confirm. 'import-database-confirm'
+  // only accepts this path, so a renderer cannot have main copy an arbitrary file over getssh.db.
+  let pendingImportSourcePath: string | null = null;
+  ipcMain.handle('import-database', async (event) => {
+    if (!isMainWebContents(event.sender)) return { success: false, error: 'Unauthorized sender' };
     const win = getWin();
     if (!win) return { success: false, error: 'No active window' };
     try {
@@ -387,6 +371,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
             extDb.close();
 
             if (hasMain) {
+              pendingImportSourcePath = sourcePath;
               return { success: true, requiresConfirmation: true, sourcePath };
             }
             
@@ -441,6 +426,12 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   }
 
   ipcMain.handle('import-database-confirm', async (event, sourcePath: string, strategy: 'overwrite' | 'merge') => {
+    if (!isMainWebContents(event.sender)) return { success: false, error: 'Unauthorized sender' };
+    if (typeof sourcePath !== 'string' || sourcePath !== pendingImportSourcePath) {
+      return { success: false, error: 'Import source was not selected in the import dialog' };
+    }
+    if (strategy !== 'overwrite' && strategy !== 'merge') return { success: false, error: 'Invalid import strategy' };
+    pendingImportSourcePath = null;
     try {
       const { app } = require('electron');
       const fs = require('node:fs');
@@ -463,21 +454,23 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   // Config Encryption
   ipcMain.handle('encrypt-config', async (_e, data: any) => {
     try {
-      const { safeStorage } = require('electron');
-      if (safeStorage.isEncryptionAvailable()) {
-        return safeStorage.encryptString(JSON.stringify(data)).toString('base64');
+      const { encryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
+      if (isSecretStoreAvailable()) {
+        return encryptSecret(JSON.stringify(data)).toString('base64');
       }
     } catch (err) {}
     // Fallback to base64 if no encryption available
     return Buffer.from(JSON.stringify(data)).toString('base64');
   });
 
+  // Blobs from the mock-keychain era still decrypt; the renderer re-encrypts the config right after
+  // loading it, which upgrades them.
   ipcMain.handle('decrypt-config', async (_e, base64: string) => {
     try {
-      const { safeStorage } = require('electron');
+      const { decryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
       const buf = Buffer.from(base64, 'base64');
-      if (safeStorage.isEncryptionAvailable()) {
-        return JSON.parse(safeStorage.decryptString(buf));
+      if (isSecretStoreAvailable()) {
+        return JSON.parse(decryptSecret(buf).value);
       }
       return JSON.parse(buf.toString('utf-8'));
     } catch (err) {

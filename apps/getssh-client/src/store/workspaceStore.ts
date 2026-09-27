@@ -125,11 +125,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     // Zero-Trust: clear sessions from memory immediately before switching
     useSessionStore.getState().setSessions([]);
+    const leaveWorkspace = () => {
+      const sessionState = useSessionStore.getState();
+      sessionState.setTabs(sessionState.tabs.map(tab => tab.workspaceId
+        ? tab
+        : { ...tab, workspaceId: activeWorkspaceId }));
+      sessionState.setActiveTabId(null);
+      sessionState.setActivePaneId(null);
+      sessionState.setSelectedSessionIndex(null);
+    };
 
     try {
       if (window.electronAPI?.workspace?.switchWorkspace) {
         const res = await window.electronAPI.workspace.switchWorkspace(targetId);
         if (res && res.success) {
+          // Keep open tabs scoped to the workspace that created them. Older tabs
+          // may predate workspace metadata, so bind them before changing context.
+          leaveWorkspace();
           set({ activeWorkspaceId: targetId, runbooks: res.visualMeta?.runbooks || (res as any).runbooks || [] });
           
           // Try to update theme color + check vault lock using a single lookup
@@ -175,6 +187,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       } else {
         // Fallback for development if IPC is not fully ready
         console.warn('IPC switchWorkspace not available, mocking switch.');
+        leaveWorkspace();
         set({ activeWorkspaceId: targetId });
         return true;
       }

@@ -13,13 +13,19 @@ export function useAppEvents() {
   // Global Shortcut for Command Center
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
       const isAltSpace = e.altKey && e.code === 'Space';
+      const isCmdK = e.metaKey && !e.ctrlKey && key === 'k';
+      const isCtrlShiftK = e.ctrlKey && e.shiftKey && !e.metaKey && key === 'k';
+      // Ctrl+K (readline kill-line) and Ctrl+Space (set-mark) belong to the shell while a terminal has focus.
+      const inTerminal = e.target instanceof Element && !!e.target.closest('.xterm');
+      const isCtrlK = e.ctrlKey && !e.shiftKey && !e.metaKey && key === 'k';
       const isCtrlSpace = e.ctrlKey && e.code === 'Space';
-      const isCmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
-      
-      if (isAltSpace || isCtrlSpace || isCmdK) {
+
+      if (isAltSpace || isCmdK || isCtrlShiftK || (!inTerminal && (isCtrlK || isCtrlSpace))) {
+        // Consume the key: xterm ignores defaultPrevented, so it must not reach the terminal at all.
         e.preventDefault();
-        useAppStore.getState().addToast('Command Center Shortcut Fired: ' + (!isCommandCenterOpen ? 'Open' : 'Close'));
+        e.stopPropagation();
         setIsCommandCenterOpen(!isCommandCenterOpen);
       }
     };

@@ -30,3 +30,15 @@ export const buildConnectionConfig = (session: Partial<SessionProfile>, appConfi
     themeOverride: session.themeOverride,
   };
 };
+
+/**
+ * Pane configs go to nexus-core, which keeps them in global state and broadcasts them to every window.
+ * They must never carry credentials: use this for every nexusRegisterTab / nexusReplacePane configJson
+ * and for local paneTree leaf configs. Credentials stay in the vault and in the main process.
+ */
+export const stripConnectionSecrets = <T extends object | null>(config: T): T => {
+  if (!config || typeof config !== 'object') return config;
+  if (!('password' in config) && !('passphrase' in config)) return config;
+  const { password: _password, passphrase: _passphrase, ...rest } = config as T & { password?: unknown; passphrase?: unknown };
+  return rest as T;
+};

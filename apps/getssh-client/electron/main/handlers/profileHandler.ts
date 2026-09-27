@@ -1,6 +1,7 @@
 import { dialog } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { isMainWebContents } from '../windowRegistry';
 
 
 export interface ExportedProfile {
@@ -105,7 +106,7 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
             host: p.host ?? '',
             port: p.port ?? 22,
             username: '', // SCRUBBED
-            groupId: p.groupId ?? null,
+            groupId: p.group ?? p.groupId ?? null,
             autoStart: (p as any).autoStart ?? false,
             useKeepAlive: (p as any).useKeepAlive ?? false,
             protocol: p.protocol ?? 'ssh',
@@ -135,7 +136,8 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
    * V1 JSON: Maps to 'default' workspace. Decrypts credentials if necessary.
    * V2 JSON: Maps to provided workspaceId. Creates workspace if missing.
    */
-  ipcMain.handle('import-profiles', async (_event, { masterPassword }) => {
+  ipcMain.handle('import-profiles', async (event, { masterPassword }) => {
+    if (!isMainWebContents(event.sender)) return { success: false, reason: 'unauthorized' };
     const { filePaths, canceled } = await dialog.showOpenDialog({
       title: 'Import Profiles',
       filters: [{ name: 'GETSSH Profile', extensions: ['json'] }],

@@ -1,10 +1,11 @@
-import { dialog, Menu, BrowserWindow, shell, app } from 'electron';
+import { dialog, Menu, BrowserWindow, shell, app, nativeTheme } from 'electron';
 import os from 'os';
+import { windowForSender } from '../windowRegistry';
 
 export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
-  // File Selection Handler
-  ipcMain.handle('select-file', async () => {
-    const win = getWin();
+  // File Selection Handler (parented to the window that asked, torn windows included)
+  ipcMain.handle('select-file', async (event) => {
+    const win = windowForSender(event.sender) ?? getWin();
     if (!win) return null;
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Select Private Key',
@@ -17,8 +18,8 @@ export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => 
   });
 
   // Folder Selection Handler
-  ipcMain.handle('select-folder', async () => {
-    const win = getWin();
+  ipcMain.handle('select-folder', async (event) => {
+    const win = windowForSender(event.sender) ?? getWin();
     if (!win) return null;
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Select Download Folder',
@@ -85,6 +86,43 @@ function getNativeGlassSupport(): 'vibrancy' | 'mica' | 'acrylic' | 'none' {
 }
 
 /**
+ * Windows caption-button overlay. The glyph color follows the effective theme so the buttons stay visible
+ * on the light background.
+ */
+export function getTitleBarOverlay(): Electron.TitleBarOverlay {
+  return {
+    color: '#00000000',
+    symbolColor: nativeTheme.shouldUseDarkColors ? '#ffffff' : '#18181b',
+    height: 32
+  };
+}
+
+/**
+ * Solid window background for windows that cannot be transparent, matching the renderer's base colour
+ * for the effective theme (dark #09090b / light #f4f4f5).
+ */
+export function getOpaqueBackgroundColor(): string {
+  return nativeTheme.shouldUseDarkColors ? '#09090b' : '#f4f4f5';
+}
+
+/**
+ * Options for a torn-off window: the shared options, but resizable. On Windows, Electron cannot resize
+ * transparent windows, so torn windows there are opaque; mica/acrylic would be hidden behind the opaque
+ * background (alpha is ignored without `transparent`), so the material is dropped too.
+ */
+export function getTornWindowOptions(preloadPath: string): Electron.BrowserWindowConstructorOptions {
+  const options = getBrowserWindowOptions(preloadPath);
+  options.resizable = true;
+  options.maximizable = true;
+  if (process.platform === 'win32') {
+    options.transparent = false;
+    options.backgroundMaterial = undefined;
+    options.backgroundColor = getOpaqueBackgroundColor();
+  }
+  return options;
+}
+
+/**
  * Extracted BrowserWindow options for cleaner index.ts
  */
 export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWindowConstructorOptions {
@@ -114,11 +152,7 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
     titleBarStyle: 'hidden',
     frame: process.platform === 'darwin',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
-    titleBarOverlay: process.platform === 'win32' ? {
-      color: '#00000000',
-      symbolColor: '#ffffff',
-      height: 32
-    } : false,
+    titleBarOverlay: process.platform === 'win32' ? getTitleBarOverlay() : false,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -183,35 +217,18 @@ export function setupSecurityPolicies(webContents: Electron.WebContents, devServ
 }
 
 /**
- * Bind non-IPC window lifecycle events to the BrowserWindow instance.
+ * Bind non-IPC window lifecycle events to the BrowserWindow instance (main and torn windows).
+ * The confirm-quit prompt is not here: it runs once per quit in the app's 'before-quit' handler.
  */
-export function bindWindowEvents(win: BrowserWindow, confirmQuitProvider: () => boolean) {
-  // Prevent Quit Logic Map
-  win.on('close', (e) => {
-    if (confirmQuitProvider()) {
-      const selection = dialog.showMessageBoxSync(win, {
-        type: 'question',
-        buttons: ['Cancel', 'Quit'],
-        defaultId: 1,
-        cancelId: 0,
-        title: 'Confirm Quit',
-        message: 'Are you sure you want to quit GETSSH?',
-        detail: 'All active SSH terminal connections and running tasks will be disconnected immediately.'
-      });
-      
-      if (selection === 0) {
-        e.preventDefault();
-      }
-    }
-  });
-
+export function bindWindowEvents(win: BrowserWindow) {
   // Fullscreen State Tracking
-  win.on('enter-full-screen', () => {
-    win.webContents.send('fullscreen-state', true);
-  });
-  win.on('leave-full-screen', () => {
-    win.webContents.send('fullscreen-state', false);
-  });
+  const sendFullscreenState = (isFullscreen: boolean) => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('fullscreen-state', isFullscreen);
+    }
+  };
+  win.on('enter-full-screen', () => sendFullscreenState(true));
+  win.on('leave-full-screen', () => sendFullscreenState(false));
   
   // Capture console logs from the renderer
   win.webContents.on('console-message', (event, level, message, line, sourceId) => {

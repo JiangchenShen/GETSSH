@@ -8,6 +8,8 @@ export const SecurityOverlay: React.FC = () => {
 
   const [pwdPrompt, setPwdPrompt] = useState(false);
   const [pwdInput, setPwdInput] = useState('');
+  const [pwdError, setPwdError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     if (window.electronAPI?.onSecurityLockdown) {
@@ -16,6 +18,17 @@ export const SecurityOverlay: React.FC = () => {
       });
       return remove;
     }
+  }, []);
+
+  // The main process reports when the lockdown ended (any window resolved it, or the watchdog did).
+  useEffect(() => {
+    if (!window.electronAPI?.onSecurityLockdownResolved) return;
+    return window.electronAPI.onSecurityLockdownResolved(() => {
+      setLockdownInfo(null);
+      setPwdPrompt(false);
+      setPwdInput('');
+      setPwdError(null);
+    });
   }, []);
 
   useEffect(() => {
@@ -42,31 +55,33 @@ export const SecurityOverlay: React.FC = () => {
     setLockdownInfo(null);
   };
 
-  const submitIgnore = () => {
-    window.electronAPI.resolveSecurityLockdown('ignore');
-    setIsPolluted(true);
-    setLockdownInfo(null);
-    setPwdPrompt(false);
-  };
-
-  const handleIgnore = async () => {
-    if (window.electronAPI?.promptBiometricUnlock) {
-      const res = await window.electronAPI.promptBiometricUnlock();
-      if (!res.success) {
-        if (res.reason === 'unsupported' || res.reason === 'no_key') {
-           setPwdPrompt(true);
-           return;
-        } else {
-           return;
-        }
+  // The main process verifies the owner before ignoring: Touch ID, or the master password when
+  // Touch ID is unavailable or was cancelled. A workspace without a master password is not asked.
+  const requestIgnore = async (masterPassword?: string) => {
+    if (verifying) return;
+    setVerifying(true);
+    try {
+      const res = await window.electronAPI.resolveSecurityLockdown('ignore', masterPassword);
+      if (res?.ok) {
+        setIsPolluted(true);
+        setLockdownInfo(null);
+        setPwdPrompt(false);
+        setPwdInput('');
+        setPwdError(null);
+        return;
       }
-    } else {
-      setPwdPrompt(true);
-      return;
+      if (masterPassword === undefined) {
+        if (res?.reason === 'password_required' || res?.reason === 'denied') setPwdPrompt(true);
+        return;
+      }
+      setPwdError('Incorrect master password.');
+    } finally {
+      setVerifying(false);
     }
-
-    submitIgnore();
   };
+
+  const handleIgnore = () => requestIgnore();
+  const submitIgnore = () => requestIgnore(pwdInput);
 
   if (!lockdownInfo) return null;
 
@@ -157,7 +172,7 @@ export const SecurityOverlay: React.FC = () => {
                 <Key className={`w-6 h-6 ${accentColor}`} />
                 <h3 className="text-lg font-bold text-white tracking-wide">Identity Verification Required</h3>
               </div>
-              <p className="text-sm text-white/50 font-medium">Please enter your Master Password to override this security lockdown. Leave blank if no password is set.</p>
+              <p className="text-sm text-white/50 font-medium">Please enter your Master Password to override this security lockdown.</p>
               
               <div className="flex gap-4">
                 <input 
@@ -169,13 +184,14 @@ export const SecurityOverlay: React.FC = () => {
                   autoFocus 
                   onKeyDown={(e) => e.key === 'Enter' && submitIgnore()}
                 />
-                <button onClick={submitIgnore} className={`px-8 rounded-xl font-black uppercase tracking-widest transition-all ${btnPrimary}`}>
+                <button onClick={submitIgnore} disabled={verifying} className={`px-8 rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50 ${btnPrimary}`}>
                   <Unlock className="w-5 h-5 inline-block mr-2" /> Verify
                 </button>
-                <button onClick={() => setPwdPrompt(false)} className="px-8 rounded-xl font-bold border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/80">
+                <button onClick={() => { setPwdPrompt(false); setPwdInput(''); setPwdError(null); }} className="px-8 rounded-xl font-bold border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-white/80">
                   Cancel
                 </button>
               </div>
+              {pwdError && <p role="alert" className="text-sm font-medium text-red-400">{pwdError}</p>}
             </div>
           ) : isRed ? (
             <>

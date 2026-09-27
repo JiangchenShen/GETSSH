@@ -19,6 +19,7 @@
     "test:plugin-network": "vitest run electron/main/services/plugin/PluginNetworkGateway.test.ts --environment node",
     "test:plugin-sandbox": "vitest run electron/main/services/plugin/PluginProcessSandbox.test.ts --environment node",
     "test:database-encryption": "electron scripts/security/database-key-smoke.cjs",
+    "test:asset-folders": "electron scripts/security/asset-folders-smoke.cjs",
     "test:local-memory": "vitest run electron/main/services/LocalMemoryService.test.ts --environment node",
     "test:sentinel": "vitest run electron/main/services/SentinelGateway.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
     "test:mcp-sandbox": "vitest run electron/main/services/mcp/McpProcessSandbox.test.ts --environment node",

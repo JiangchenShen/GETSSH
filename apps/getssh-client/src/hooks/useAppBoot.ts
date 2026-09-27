@@ -2,9 +2,8 @@ import { useEffect } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
-import { usePanelStore } from '../store/panelStore';
 import { initPluginBridge, bootSandboxedPlugins } from '../plugins/PluginBridge';
-import { SFTPManager } from '../components/SFTPManager';
+import { registerSftpPanel } from '../components/SFTPManager';
 
 export function useAppBoot() {
   const initWorkspaces = useWorkspaceStore(state => state.initWorkspaces);
@@ -62,15 +61,7 @@ export function useAppBoot() {
     bootSandboxedPlugins().catch(e => console.error('Failed to boot plugins:', e));
 
     // Register core panels in the dynamic panel engine
-    usePanelStore.getState().registerPanel({
-      id: 'sftp',
-      title: 'SFTP Manager',
-      component: SFTPManager,
-      position: 'bottom',
-      defaultSize: 280,
-      minSize: 180,
-      maxSize: 520,
-    });
+    registerSftpPanel();
 
     // Init Theme Sync & Window Blur
     let unsubTheme: (() => void) | undefined;

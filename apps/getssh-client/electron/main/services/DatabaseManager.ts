@@ -40,6 +40,11 @@ export interface ProfileRow {
   themeOverride?: string | null;
 }
 
+export interface AssetFolderSnapshot {
+  folders: string[];
+  memberships: { id: string; group: string | null }[];
+}
+
 export interface AiMemoryVectorRow {
   workspace_id: string;
   message_id: string;
@@ -62,6 +67,7 @@ export interface AiMemoryMessageRow {
 export class DatabaseManager {
   private static mainDb: Database.Database | null = null;
   private static workspaceDbs: Map<string, Database.Database> = new Map();
+  private static assetFolderUnlocks = new Set<string>();
   private static baseDir: string = '';
   private static mainDbEncrypted = false;
 
@@ -204,8 +210,9 @@ export class DatabaseManager {
     }
 
     const wsDbPath = path.join(this.baseDir, `workspace_${workspaceId}.db`);
+    let db: Database.Database | null = null;
     try {
-      const db = new Database(wsDbPath);
+      db = new Database(wsDbPath);
       
       if (password) {
         db.pragma(`cipher = 'sqlcipher'`);
@@ -230,12 +237,14 @@ export class DatabaseManager {
       this.workspaceDbs.set(workspaceId, db);
       return true;
     } catch (e: any) {
+      try { db?.close(); } catch {}
       console.error(`[DatabaseManager] Failed to mount workspace ${workspaceId}:`, e.message);
       return false;
     }
   }
 
   public static unmountWorkspace(workspaceId: string) {
+    this.assetFolderUnlocks.delete(workspaceId);
     const db = this.workspaceDbs.get(workspaceId);
     if (db) {
       db.close();
@@ -250,6 +259,26 @@ export class DatabaseManager {
       if (!success) return null;
     }
     return this.workspaceDbs.get(workspaceId) || null;
+  }
+
+  /** Folder operations must never auto-mount a locked workspace without its key. */
+  private static requireMountedWorkspaceDb(workspaceId: string): Database.Database {
+    const workspace = this.mainDb?.prepare('SELECT hasPassword FROM workspaces WHERE id = ?').get(workspaceId) as { hasPassword: number } | undefined;
+    if (!workspace || (workspace.hasPassword && !this.assetFolderUnlocks.has(workspaceId))) {
+      throw new Error('Workspace is locked. Unlock it first.');
+    }
+    const db = workspace.hasPassword ? this.workspaceDbs.get(workspaceId) : this.getWorkspaceDb(workspaceId);
+    if (!db || !db.open) throw new Error('Workspace is locked. Unlock it first.');
+    return db;
+  }
+
+  public static resetAssetFolderUnlocks(): void {
+    this.assetFolderUnlocks.clear();
+  }
+
+  public static markAssetFolderWorkspaceUnlocked(workspaceId: string): void {
+    if (!this.workspaceDbs.has(workspaceId)) throw new Error('Workspace is not mounted');
+    this.assetFolderUnlocks.add(workspaceId);
   }
 
   private static performFissionMigration(legacyPath: string, mainPath: string, appKeyBuffer: Buffer | null) {
@@ -518,6 +547,11 @@ export class DatabaseManager {
         themeOverride TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS asset_folders (
+        path TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS runbooks (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -693,6 +727,147 @@ export class DatabaseManager {
       }
     });
     transaction();
+  }
+
+  // --- Asset folders (same workspace SQLCipher database as profiles) ---
+
+  private static assertFolderPath(value: unknown): asserts value is string {
+    if (typeof value !== 'string' || value.length === 0 || value.length > 512 ||
+        value.split('/').some(part => part.length > 128 || !part.trim() || part === '.' || part === '..' || /[\x00-\x1f\x7f]/.test(part))) {
+      throw new Error('Invalid folder path');
+    }
+  }
+
+  private static assertFolderName(value: unknown): asserts value is string {
+    if (typeof value !== 'string' || value.includes('/')) throw new Error('Invalid folder name');
+    this.assertFolderPath(value);
+  }
+
+  private static folderPaths(db: Database.Database, workspaceId: string): string[] {
+    const paths = new Set<string>();
+    const includeParents = (path: string) => {
+      const segments = path.split('/');
+      for (let i = 1; i <= segments.length; i++) paths.add(segments.slice(0, i).join('/'));
+    };
+    const explicit = db.prepare('SELECT path FROM asset_folders').all() as { path: string }[];
+    const grouped = db.prepare('SELECT DISTINCT groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { groupName: string }[];
+    for (const { path } of explicit) {
+      try { this.assertFolderPath(path); includeParents(path); } catch { /* Ignore malformed legacy rows. */ }
+    }
+    for (const { groupName } of grouped) {
+      try { this.assertFolderPath(groupName); includeParents(groupName); } catch { /* Legacy labels remain on their profiles. */ }
+    }
+    return [...paths].sort((a, b) => a.localeCompare(b));
+  }
+
+  public static getAssetFolders(workspaceId: string): string[] {
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    return this.folderPaths(db, workspaceId);
+  }
+
+  private static getAssetFolderSnapshot(workspaceId: string, changedIds: string[] = []): AssetFolderSnapshot {
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    const select = db.prepare('SELECT id, groupName FROM profiles WHERE id = ? AND workspace_id = ?');
+    const rows = changedIds.map(id => select.get(id, workspaceId) as { id: string; groupName: string | null });
+    return { folders: this.folderPaths(db, workspaceId), memberships: rows.map(row => ({ id: row.id, group: row.groupName })) };
+  }
+
+  public static createAssetFolder(workspaceId: string, folderPath: string): AssetFolderSnapshot {
+    this.assertFolderPath(folderPath);
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    db.transaction(() => {
+      const insert = db.prepare('INSERT OR IGNORE INTO asset_folders (path, created_at) VALUES (?, ?)');
+      const parts = folderPath.split('/');
+      const now = Date.now();
+      for (let i = 1; i <= parts.length; i++) insert.run(parts.slice(0, i).join('/'), now);
+    })();
+    return this.getAssetFolderSnapshot(workspaceId);
+  }
+
+  public static renameAssetFolder(workspaceId: string, folderPath: string, newName: string): AssetFolderSnapshot {
+    this.assertFolderPath(folderPath);
+    this.assertFolderName(newName);
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    const nextPath = [...folderPath.split('/').slice(0, -1), newName].join('/');
+    this.assertFolderPath(nextPath);
+    const changedIds: string[] = [];
+    db.transaction(() => {
+      const all = this.folderPaths(db, workspaceId);
+      if (!all.includes(folderPath)) throw new Error('Folder does not exist');
+      if (nextPath === folderPath) return;
+      const source = all.filter(path => path === folderPath || path.startsWith(`${folderPath}/`));
+      const sourceSet = new Set(source);
+      const target = source.map(path => nextPath + path.slice(folderPath.length));
+      for (const path of target) this.assertFolderPath(path);
+      if (target.some(path => all.includes(path) && !sourceSet.has(path))) throw new Error('Destination folder already exists');
+
+      const explicit = db.prepare('SELECT path, created_at FROM asset_folders').all() as { path: string; created_at: number }[];
+      const deleteFolder = db.prepare('DELETE FROM asset_folders WHERE path = ?');
+      const insertFolder = db.prepare('INSERT INTO asset_folders (path, created_at) VALUES (?, ?)');
+      const movedExplicit = explicit.filter(({ path }) => path === folderPath || path.startsWith(`${folderPath}/`));
+      for (const { path } of movedExplicit) deleteFolder.run(path);
+      for (const { path, created_at } of movedExplicit) insertFolder.run(nextPath + path.slice(folderPath.length), created_at);
+
+      const grouped = db.prepare('SELECT id, groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { id: string; groupName: string }[];
+      const updateProfile = db.prepare('UPDATE profiles SET groupName = ? WHERE id = ? AND workspace_id = ?');
+      for (const { id, groupName } of grouped) {
+        if (groupName === folderPath || groupName.startsWith(`${folderPath}/`)) {
+          updateProfile.run(nextPath + groupName.slice(folderPath.length), id, workspaceId);
+          changedIds.push(id);
+        }
+      }
+    })();
+    return this.getAssetFolderSnapshot(workspaceId, changedIds);
+  }
+
+  public static removeAssetFolder(workspaceId: string, folderPath: string): AssetFolderSnapshot {
+    this.assertFolderPath(folderPath);
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    db.transaction(() => {
+      const all = this.folderPaths(db, workspaceId);
+      if (!all.includes(folderPath)) throw new Error('Folder does not exist');
+      if (all.some(path => path.startsWith(`${folderPath}/`))) throw new Error('Move child folders first');
+      const profiles = db.prepare('SELECT groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { groupName: string }[];
+      if (profiles.some(({ groupName }) => groupName === folderPath || groupName.startsWith(`${folderPath}/`))) {
+        throw new Error('Move hosts out of this folder first');
+      }
+      db.prepare('DELETE FROM asset_folders WHERE path = ?').run(folderPath);
+    })();
+    return this.getAssetFolderSnapshot(workspaceId);
+  }
+
+  public static moveProfileToAssetFolder(workspaceId: string, profileId: string, folderPath: string | null): AssetFolderSnapshot {
+    return this.moveProfilesToAssetFolder(workspaceId, [profileId], folderPath);
+  }
+
+  public static moveProfilesToAssetFolder(workspaceId: string, profileIds: string[], folderPath: string | null): AssetFolderSnapshot {
+    if (!Array.isArray(profileIds) || profileIds.length < 1 || profileIds.length > 500 ||
+        profileIds.some(id => typeof id !== 'string' || !id || id.length > 256 || /[\x00-\x1f\x7f]/.test(id)) ||
+        new Set(profileIds).size !== profileIds.length) {
+      throw new Error('Invalid profile IDs');
+    }
+    if (folderPath !== null) this.assertFolderPath(folderPath);
+    const db = this.requireMountedWorkspaceDb(workspaceId);
+    const changedIds: string[] = [];
+    db.transaction(() => {
+      if (folderPath !== null && !this.folderPaths(db, workspaceId).includes(folderPath)) {
+        throw new Error('Destination folder does not exist');
+      }
+      const exists = db.prepare('SELECT groupName FROM profiles WHERE id = ? AND workspace_id = ?');
+      const rows = profileIds.map(id => exists.get(id, workspaceId) as { groupName: string | null } | undefined);
+      if (rows.some(row => !row)) throw new Error('Saved host does not exist in this workspace');
+      const update = db.prepare('UPDATE profiles SET groupName = ? WHERE id = ? AND workspace_id = ?');
+      for (let i = 0; i < profileIds.length; i++) {
+        if (rows[i]!.groupName !== folderPath) {
+          update.run(folderPath, profileIds[i], workspaceId);
+          changedIds.push(profileIds[i]);
+        }
+      }
+      if (folderPath !== null) {
+        db.prepare('INSERT OR IGNORE INTO asset_folders (path, created_at) VALUES (?, ?)').run(folderPath, Date.now());
+      }
+    })();
+    return this.getAssetFolderSnapshot(workspaceId, changedIds);
   }
 
   // --- Runbooks (Sub DB) ---

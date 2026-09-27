@@ -42,7 +42,35 @@ pub fn initialize_root() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Workspace ids are used as directory names under ~/.getssh/workspaces, so an id such as ".." or
+/// "../.." must never reach `join`. Mirrors apps/getssh-client/electron/main/utils/workspaceId.ts:
+/// no path separators, reserved or control characters, no leading/trailing dot or whitespace, and no
+/// Windows device names. CJK names and inner spaces stay valid.
+pub fn is_valid_workspace_id(id: &str) -> bool {
+    if id.is_empty() || id.chars().count() > 128 {
+        return false;
+    }
+    if id != id.trim() || id.starts_with('.') || id.ends_with('.') {
+        return false;
+    }
+    if id
+        .chars()
+        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
+    {
+        return false;
+    }
+    let stem = id.split('.').next().unwrap_or("").to_ascii_lowercase();
+    let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || ((stem.starts_with("com") || stem.starts_with("lpt"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    !reserved
+}
+
 pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
+    if !is_valid_workspace_id(workspace_id) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid workspace id"));
+    }
     initialize_root()?;
     
     let getssh_root = get_getssh_root();
@@ -54,6 +82,10 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
     }
 
     let ws_path = workspaces_dir.join(workspace_id);
+    // Defence in depth: the workspace must be a direct child of the workspaces directory.
+    if ws_path.parent() != Some(workspaces_dir.as_path()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid workspace id"));
+    }
     
     // 1. Create workspace root dir with 0o700
     if !ws_path.exists() {
@@ -84,4 +116,28 @@ pub fn create_workspace(workspace_id: &str) -> std::io::Result<()> {
     println!("[Nexus Core] Workspace sandbox '{}' securely bootstrapped at {:?}", workspace_id, ws_path);
     
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_workspace_id;
+
+    #[test]
+    fn accepts_ordinary_names() {
+        for id in ["default", "prod-db", "生产环境", "team a", "v1.2", "COM10", "console"] {
+            assert!(is_valid_workspace_id(id), "{id} should be valid");
+        }
+    }
+
+    #[test]
+    fn rejects_traversal_and_unportable_names() {
+        for id in [
+            "", ".", "..", "../..", "../x", "..\\x", "a/b", "a\\b", "/abs", ".hidden", "trailing.",
+            " padded", "padded ", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b", "a\u{0}b", "a\nb",
+            "con", "CON", "nul.txt", "com1", "LPT9",
+        ] {
+            assert!(!is_valid_workspace_id(id), "{id:?} should be rejected");
+        }
+        assert!(!is_valid_workspace_id(&"x".repeat(129)));
+    }
 }

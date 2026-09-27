@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::state::reason;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -23,15 +24,25 @@ pub enum PaneNode {
         #[serde(rename = "paneId")]
         pane_id: String,
         children: Box<[PaneNode; 2]>,
-        sizes: [u8; 2],
+        sizes: [f64; 2],
     },
     #[serde(rename = "vsplit")]
     VSplit {
         #[serde(rename = "paneId")]
         pane_id: String,
         children: Box<[PaneNode; 2]>,
-        sizes: [u8; 2],
+        sizes: [f64; 2],
     },
+}
+
+// Divider sizes from the renderer: exactly two finite numbers. The first is clamped to [10, 90] and the
+// second is derived from it, so the pair always sums to 100.
+pub fn normalize_sizes(sizes: &[f64]) -> Option<[f64; 2]> {
+    if sizes.len() != 2 || !sizes.iter().all(|s| s.is_finite()) {
+        return None;
+    }
+    let first = sizes[0].clamp(10.0, 90.0);
+    Some([first, 100.0 - first])
 }
 
 impl PaneNode {
@@ -43,6 +54,10 @@ impl PaneNode {
         }
     }
 
+    pub fn is_leaf(&self) -> bool {
+        matches!(self, PaneNode::Leaf { .. })
+    }
+
     pub fn count_leaves(&self) -> usize {
         match self {
             PaneNode::Leaf { .. } => 1,
@@ -52,194 +67,185 @@ impl PaneNode {
         }
     }
 
-    // Attempt to split this node if it's a leaf
-    pub fn split_pane(&mut self, target_pane_id: &str, direction: &str, new_pane_id: String, parent_type: Option<&str>) -> bool {
+    pub fn leaves(&self) -> Vec<&PaneNode> {
+        match self {
+            PaneNode::Leaf { .. } => vec![self],
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
+                children.iter().flat_map(|c| c.leaves()).collect()
+            }
+        }
+    }
+
+    fn for_each_leaf_mut(&mut self, f: &mut dyn FnMut(&mut PaneNode)) {
+        match self {
+            PaneNode::Leaf { .. } => f(self),
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
+                for child in children.iter_mut() {
+                    child.for_each_leaf_mut(f);
+                }
+            }
+        }
+    }
+
+    // True when every leaf of this subtree is a terminal pane (the only kind a torn window can host)
+    pub fn all_terminal(&self) -> bool {
+        self.leaves().iter().all(|leaf| matches!(leaf, PaneNode::Leaf { pane_type, .. } if pane_type == "terminal"))
+    }
+
+    // Session ids held by the leaves of this subtree, in tree order, without duplicates or empty ids
+    pub fn session_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for leaf in self.leaves() {
+            if let PaneNode::Leaf { session_id: Some(id), .. } = leaf {
+                if !id.is_empty() && !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+        }
+        ids
+    }
+
+    // "hsplit" / "vsplit" for a split node, None for a leaf
+    pub fn split_kind(&self) -> Option<&'static str> {
+        match self {
+            PaneNode::HSplit { .. } => Some("hsplit"),
+            PaneNode::VSplit { .. } => Some("vsplit"),
+            PaneNode::Leaf { .. } => None,
+        }
+    }
+
+    pub fn first_leaf_id(&self) -> &str {
+        match self {
+            PaneNode::Leaf { pane_id, .. } => pane_id,
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => children[0].first_leaf_id(),
+        }
+    }
+
+    // The split directly holding `target_pane_id` and the target's index in it (0 or 1).
+    // None when the target is this node itself or is not in this subtree.
+    pub fn find_parent(&self, target_pane_id: &str) -> Option<(&PaneNode, usize)> {
+        match self {
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
+                if let Some(position) = children.iter().position(|c| c.pane_id() == target_pane_id) {
+                    return Some((self, position));
+                }
+                children.iter().find_map(|c| c.find_parent(target_pane_id))
+            }
+            PaneNode::Leaf { .. } => None,
+        }
+    }
+
+    // Flags every leaf showing `target_session_id` as disconnected and returns how many there were
+    pub fn mark_session_disconnected(&mut self, target_session_id: &str) -> usize {
+        let mut count = 0;
+        self.for_each_leaf_mut(&mut |leaf| {
+            if let PaneNode::Leaf { session_id: Some(id), is_disconnected, .. } = leaf {
+                if id == target_session_id {
+                    *is_disconnected = Some(true);
+                    count += 1;
+                }
+            }
+        });
+        count
+    }
+
+    pub fn contains(&self, target_pane_id: &str) -> bool {
+        self.find_node(target_pane_id).is_some()
+    }
+
+    pub fn find_node(&self, target_pane_id: &str) -> Option<&PaneNode> {
         if self.pane_id() == target_pane_id {
+            return Some(self);
+        }
+        match self {
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
+                children.iter().find_map(|c| c.find_node(target_pane_id))
+            }
+            PaneNode::Leaf { .. } => None,
+        }
+    }
+
+    pub fn find_node_mut(&mut self, target_pane_id: &str) -> Option<&mut PaneNode> {
+        if self.pane_id() == target_pane_id {
+            return Some(self);
+        }
+        match self {
+            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
+                children.iter_mut().find_map(|c| c.find_node_mut(target_pane_id))
+            }
+            PaneNode::Leaf { .. } => None,
+        }
+    }
+
+    // Split the leaf `target_pane_id` into a split node holding the original leaf and a new welcome leaf.
+    // Ok(false) means the target is not in this subtree.
+    pub fn split_pane(&mut self, target_pane_id: &str, direction: &str, new_pane_id: &str, split_id: &str, parent_type: Option<&str>) -> Result<bool, &'static str> {
+        if self.pane_id() == target_pane_id {
+            if !self.is_leaf() {
+                return Err(reason::NOT_LEAF);
+            }
             // Enforce alternating splits (2x2 grid max, prevent 4 columns or 4 rows)
             if let Some(pt) = parent_type {
-                if pt == "hsplit" && direction == "horizontal" { return false; }
-                if pt == "vsplit" && direction == "vertical" { return false; }
+                if pt == "hsplit" && direction == "horizontal" { return Err(reason::DIRECTION_NOT_ALLOWED); }
+                if pt == "vsplit" && direction == "vertical" { return Err(reason::DIRECTION_NOT_ALLOWED); }
             }
-            // We found the node. We can only split a leaf node currently
-            if let PaneNode::Leaf { pane_id, pane_type, session_id, config, .. } = self {
-                let original_leaf = PaneNode::Leaf {
-                    pane_id: pane_id.clone(),
-                    pane_type: pane_type.clone(),
-                    session_id: session_id.clone(),
-                    config: config.clone(),
-                    is_disconnected: None,
-                    is_zoomed: None,
-                };
-                let new_leaf = PaneNode::Leaf {
-                    pane_id: new_pane_id,
-                    pane_type: "welcome".to_string(),
-                    session_id: None,
-                    config: serde_json::json!({}),
-                    is_disconnected: None,
-                    is_zoomed: None,
-                };
-                
-                let children = Box::new([original_leaf, new_leaf]);
-                let sizes = [50, 50];
-                let split_id = format!("split-{}", pane_id);
-                
-                if direction == "horizontal" {
-                    *self = PaneNode::HSplit {
-                        pane_id: split_id,
-                        children,
-                        sizes,
-                    };
-                } else {
-                    *self = PaneNode::VSplit {
-                        pane_id: split_id,
-                        children,
-                        sizes,
-                    };
-                }
-                return true;
+            // The original leaf keeps its flags (a dead session must keep its disconnected overlay)
+            let original_leaf = std::mem::replace(self, PaneNode::Leaf {
+                pane_id: String::new(),
+                pane_type: String::new(),
+                session_id: None,
+                config: serde_json::Value::Null,
+                is_disconnected: None,
+                is_zoomed: None,
+            });
+            let new_leaf = PaneNode::Leaf {
+                pane_id: new_pane_id.to_string(),
+                pane_type: "welcome".to_string(),
+                session_id: None,
+                config: serde_json::json!({}),
+                is_disconnected: None,
+                is_zoomed: None,
+            };
+
+            let children = Box::new([original_leaf, new_leaf]);
+            let sizes = [50.0, 50.0];
+            let pane_id = split_id.to_string();
+
+            if direction == "horizontal" {
+                *self = PaneNode::HSplit { pane_id, children, sizes };
+            } else {
+                *self = PaneNode::VSplit { pane_id, children, sizes };
             }
-            return false;
+            return Ok(true);
         }
 
         // Search recursively
-        match self {
-            PaneNode::HSplit { children, .. } => {
-                if children[0].split_pane(target_pane_id, direction, new_pane_id.clone(), Some("hsplit")) {
-                    return true;
-                }
-                if children[1].split_pane(target_pane_id, direction, new_pane_id, Some("hsplit")) {
-                    return true;
-                }
-            }
-            PaneNode::VSplit { children, .. } => {
-                if children[0].split_pane(target_pane_id, direction, new_pane_id.clone(), Some("vsplit")) {
-                    return true;
-                }
-                if children[1].split_pane(target_pane_id, direction, new_pane_id, Some("vsplit")) {
-                    return true;
+        let child_parent = match self {
+            PaneNode::HSplit { .. } => "hsplit",
+            PaneNode::VSplit { .. } => "vsplit",
+            PaneNode::Leaf { .. } => return Ok(false),
+        };
+        if let PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } = self {
+            for child in children.iter_mut() {
+                if child.split_pane(target_pane_id, direction, new_pane_id, split_id, Some(child_parent))? {
+                    return Ok(true);
                 }
             }
-            _ => {}
         }
-        false
+        Ok(false)
     }
 
-    pub fn replace_pane(&mut self, target_pane_id: &str, new_pane_type: String, new_session_id: Option<String>, new_config: serde_json::Value) -> bool {
-        if self.pane_id() == target_pane_id {
-            if let PaneNode::Leaf { pane_type, session_id, config, .. } = self {
-                *pane_type = new_pane_type;
-                *session_id = new_session_id;
-                *config = new_config;
-                return true;
+    // Zoom is exclusive within a tree: every leaf is un-zoomed, then the target is zoomed when `zoom` is set
+    pub fn set_zoom_exclusive(&mut self, target_pane_id: &str, zoom: bool) {
+        self.for_each_leaf_mut(&mut |leaf| {
+            if let PaneNode::Leaf { pane_id, is_zoomed, .. } = leaf {
+                *is_zoomed = if zoom && pane_id == target_pane_id { Some(true) } else { None };
             }
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if children[0].replace_pane(target_pane_id, new_pane_type.clone(), new_session_id.clone(), new_config.clone()) {
-                    return true;
-                }
-                if children[1].replace_pane(target_pane_id, new_pane_type, new_session_id, new_config) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-        false
+        });
     }
 
-    // Toggle zoom on a leaf
-    pub fn toggle_zoom(&mut self, target_pane_id: &str) -> bool {
-        if self.pane_id() == target_pane_id {
-            if let PaneNode::Leaf { is_zoomed, .. } = self {
-                let current = is_zoomed.unwrap_or(false);
-                *is_zoomed = Some(!current);
-                return true;
-            }
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if children[0].toggle_zoom(target_pane_id) {
-                    return true;
-                }
-                if children[1].toggle_zoom(target_pane_id) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-        false
-    }
-
-    pub fn update_sizes(&mut self, target_pane_id: &str, new_sizes: [u8; 2]) -> bool {
-        if self.pane_id() == target_pane_id {
-            if let PaneNode::HSplit { ref mut sizes, .. } | PaneNode::VSplit { ref mut sizes, .. } = self {
-                *sizes = new_sizes;
-                return true;
-            }
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if children[0].update_sizes(target_pane_id, new_sizes) { return true; }
-                if children[1].update_sizes(target_pane_id, new_sizes) { return true; }
-            }
-            _ => {}
-        }
-        false
-    }
-
-    pub fn set_disconnected(&mut self, target_pane_id: &str, disconnected: bool) -> bool {
-        if self.pane_id() == target_pane_id {
-            if let PaneNode::Leaf { is_disconnected, .. } = self {
-                *is_disconnected = Some(disconnected);
-                return true;
-            }
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if children[0].set_disconnected(target_pane_id, disconnected) { return true; }
-                if children[1].set_disconnected(target_pane_id, disconnected) { return true; }
-            }
-            _ => {}
-        }
-        false
-    }
-
-    pub fn find_leaf(&self, target_pane_id: &str) -> Option<PaneNode> {
-        if self.pane_id() == target_pane_id {
-            if let PaneNode::Leaf { .. } = self {
-                return Some(self.clone());
-            }
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if let Some(leaf) = children[0].find_leaf(target_pane_id) {
-                    return Some(leaf);
-                }
-                if let Some(leaf) = children[1].find_leaf(target_pane_id) {
-                    return Some(leaf);
-                }
-            }
-            _ => {}
-        }
-        None
-    }
-
-    pub fn find_node(&self, target_pane_id: &str) -> Option<PaneNode> {
-        if self.pane_id() == target_pane_id {
-            return Some(self.clone());
-        }
-        match self {
-            PaneNode::HSplit { children, .. } | PaneNode::VSplit { children, .. } => {
-                if let Some(node) = children[0].find_node(target_pane_id) {
-                    return Some(node);
-                }
-                if let Some(node) = children[1].find_node(target_pane_id) {
-                    return Some(node);
-                }
-            }
-            _ => {}
-        }
-        None
+    pub fn clear_zoom(&mut self) {
+        self.set_zoom_exclusive("", false);
     }
 
     // Returns a PaneNode if it should replace itself (e.g., when a child is deleted)

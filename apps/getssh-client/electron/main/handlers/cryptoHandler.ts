@@ -1,40 +1,30 @@
-import { app, safeStorage, systemPreferences, type IpcMain, type App } from 'electron';
+import { type IpcMain, type App } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { join } from 'node:path';
+import { isMainWebContents } from '../windowRegistry';
+import { isSecretStoreAvailable } from '../security/secretStore';
+import { unlockWithBiometrics, verifyUserPresence } from '../security/userPresence';
+import { hasWorkspaceVault, readWorkspaceVault, workspaceVaultPath, writeWorkspaceVault } from '../security/workspaceVault';
 
-export function registerCryptoHandlers(ipcMain: IpcMain, app: App) {
-  // Dynamic path resolution helper
-  const getWorkspacePaths = () => {
+export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
+  // The master password leaves the main process only after the OS verified the user (Touch ID),
+  // for a workspace that opted in to biometric unlock, and only to the main window.
+  ipcMain.handle('prompt-biometric-unlock', async (event) => {
     const { getActiveWorkspaceId } = require('./workspaceHandler');
-    const wsId = getActiveWorkspaceId();
-    const wsPath = join(app.getPath('home'), '.getssh', 'workspaces', wsId);
-    return {
-      wsId,
-      wsPath,
-      PROFILES_KEY_PATH: join(wsPath, 'vault.key'),
-    };
-  };
-
-  ipcMain.handle('prompt-biometric-unlock', async () => {
-    try {
-      const { PROFILES_KEY_PATH } = getWorkspacePaths();
-      if (!fs.existsSync(PROFILES_KEY_PATH)) return { success: false, reason: 'no_key' };
-      
-      // Note: Actual biometric/FIDO presence is now verified by the frontend
-      // via WebAuthn (navigator.credentials.create) BEFORE calling this IPC.
-      // This allows cross-platform support (Windows Hello, TouchID, FIDO).
-      // We only need to retrieve the key from safeStorage.
-
-      const encryptedKey = await fs.promises.readFile(PROFILES_KEY_PATH);
-      if (safeStorage.isEncryptionAvailable()) {
-        const masterPassword = safeStorage.decryptString(encryptedKey);
-        return { success: true, masterPassword };
-      }
-      return { success: false, reason: 'safeStorage_unavailable' };
-    } catch (e: unknown) {
-      return { success: false, reason: (e instanceof Error ? e.message : String(e)) };
-    }
+    const { DatabaseManager } = require('../services/DatabaseManager');
+    return unlockWithBiometrics({
+      isMainSender: isMainWebContents(event.sender),
+      getActiveWorkspaceId,
+      getWorkspace: (workspaceId: string) => {
+        const row = DatabaseManager.mainDb
+          ?.prepare('SELECT name, biometric_enabled FROM workspaces WHERE id = ?')
+          .get(workspaceId) as { name?: string; biometric_enabled?: number } | undefined;
+        return row ? { name: row.name || workspaceId, biometricEnabled: row.biometric_enabled === 1 } : null;
+      },
+      hasStoredPassword: hasWorkspaceVault,
+      readStoredPassword: readWorkspaceVault,
+      presence: verifyUserPresence,
+    });
   });
 
   // check-profiles determines whether the initial workspace is plain or encrypted
@@ -61,9 +51,13 @@ export function registerCryptoHandlers(ipcMain: IpcMain, app: App) {
   });
 
   ipcMain.handle('unlock-profiles', async (event, masterPassword) => {
+    // Only the main window mounts workspaces and holds the profile list (torn windows never need it).
+    if (!isMainWebContents(event.sender)) throw new Error('Unauthorized sender');
     const { getActiveWorkspaceId } = require('./workspaceHandler');
     const { DatabaseManager } = require('../services/DatabaseManager');
     const workspaceId = getActiveWorkspaceId();
+    const workspace = DatabaseManager.getWorkspaces().find((entry: { id: string }) => entry.id === workspaceId);
+    if (workspace?.hasPassword) DatabaseManager.unmountWorkspace(workspaceId);
     
     // Mount the workspace DB via SQLCipher
     const success = DatabaseManager.mountWorkspace(workspaceId, masterPassword);
@@ -72,13 +66,19 @@ export function registerCryptoHandlers(ipcMain: IpcMain, app: App) {
     }
 
     const profiles = DatabaseManager.getProfiles(workspaceId);
+    DatabaseManager.markAssetFolderWorkspaceUnlocked(workspaceId);
     return profiles;
   });
 
-  ipcMain.handle('save-profiles', async (event, { masterPassword, payload }) => {
+  ipcMain.handle('save-profiles', async (event, { masterPassword, payload, workspaceId: requestedWorkspaceId }) => {
+    if (!isMainWebContents(event.sender)) throw new Error('Unauthorized sender');
     const { getActiveWorkspaceId } = require('./workspaceHandler');
     const { DatabaseManager } = require('../services/DatabaseManager');
     const workspaceId = getActiveWorkspaceId();
+    // The list was built for another workspace (the active one changed meanwhile): never write it here.
+    if (typeof requestedWorkspaceId === 'string' && requestedWorkspaceId && requestedWorkspaceId !== workspaceId) {
+      throw new Error('workspace_changed');
+    }
     
     const profilesToSave = (payload as any[]).map((p: any) => {
       return {
@@ -152,25 +152,17 @@ export function registerCryptoHandlers(ipcMain: IpcMain, app: App) {
     }
     
     // Save master password for biometric unlock
-    const { PROFILES_KEY_PATH } = getWorkspacePaths();
-    if (masterPassword && safeStorage.isEncryptionAvailable()) {
+    const vaultPath = workspaceVaultPath(workspaceId);
+    if (masterPassword && isSecretStoreAvailable()) {
       try {
-        const encryptedKey = safeStorage.encryptString(masterPassword);
-        
-        // Ensure workspace directory exists before saving vault.key
-        const wsPath = join(app.getPath('home'), '.getssh', 'workspaces', workspaceId);
-        if (!fs.existsSync(wsPath)) {
-          fs.mkdirSync(wsPath, { recursive: true });
-        }
-        
-        await fs.promises.writeFile(PROFILES_KEY_PATH, encryptedKey);
+        writeWorkspaceVault(workspaceId, masterPassword);
       } catch (err: unknown) {
         console.error('Failed to securely store master password:', err);
       }
-    } else if (!masterPassword && fs.existsSync(PROFILES_KEY_PATH)) {
+    } else if (!masterPassword && fs.existsSync(vaultPath)) {
       // Remove vault.key if password is removed
       try {
-        fs.unlinkSync(PROFILES_KEY_PATH);
+        fs.unlinkSync(vaultPath);
       } catch (e) {}
     }
     

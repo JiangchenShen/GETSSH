@@ -56,8 +56,31 @@ function normalizeRemotePath(p: string): string | null {
   return normalized;
 }
 
+/** A single path component that names a file: not empty, "." or "..", and without separators. */
+function isPlainFileName(name: string): boolean {
+  return !!name && name !== '.' && name !== '..' && !/[\\/\u0000]/.test(name);
+}
+
+const SFTP_DISABLED = 'SFTP is disabled for this workspace (Secure Center → Isolation Rules)';
+
+/** Workspace isolation rule "Disable SFTP File Transfers"; the UI hides SFTP, this enforces it. */
+function isSftpDisabledByWorkspace(): boolean {
+  try {
+    const { getActiveWorkspaceId } = require('./workspaceHandler');
+    const { DatabaseManager } = require('../services/DatabaseManager');
+    const workspaceId = getActiveWorkspaceId();
+    const workspace = DatabaseManager.getWorkspaces().find((w: { id: string }) => w.id === workspaceId);
+    const preferences = workspace?.preferences ? JSON.parse(workspace.preferences) : {};
+    return preferences?.isolationRules?.disableSftp === true;
+  } catch (e) {
+    console.warn('[SFTP] Could not read workspace isolation rules:', e);
+    return false;
+  }
+}
+
 export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
+    if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
     return new Promise((resolve) => {
       remotePath = normalizeRemotePath(remotePath) as string;
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
@@ -89,6 +112,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-mkdir', (event, sessionId: string, remotePath: string) => {
+    if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
     return new Promise((resolve) => {
       remotePath = normalizeRemotePath(remotePath) as string;
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
@@ -102,6 +126,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-delete', (event, sessionId: string, remotePath: string, isDir: boolean) => {
+    if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
     return new Promise((resolve) => {
       remotePath = normalizeRemotePath(remotePath) as string;
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
@@ -122,6 +147,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-read-file', (event, sessionId: string, remotePath: string) => {
+    if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
     return new Promise((resolve) => {
       remotePath = normalizeRemotePath(remotePath) as string;
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
@@ -149,6 +175,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-write-file', (event, sessionId: string, remotePath: string, data: string) => {
+    if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
     return new Promise((resolve) => {
       remotePath = normalizeRemotePath(remotePath) as string;
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
@@ -162,10 +189,13 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-edit-sync', async (event, sessionId: string, remoteFilePath: string) => {
+    if (isSftpDisabledByWorkspace()) throw new Error(SFTP_DISABLED);
     const session = connectionManager.sessions.get(sessionId); 
     if (!session || !session.sftp) throw new Error('SFTP session not available');
 
     const fileName = require('node:path').basename(remoteFilePath);
+    // basename('dir/..') is '..': joined below it would name the parent directory, not a file inside ours.
+    if (!isPlainFileName(fileName)) throw new Error('Invalid remote file name');
     
     // 1. Safe Download using Rust N-API (max 5MB, Track A: Edit Mode)
     // [L-01] Security Fix: Enforce 5MB limit on SFTP edit-sync to prevent local editor crashes
@@ -255,7 +285,12 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     });
 
     const watchId = `${sessionId}_${remoteFilePath}`;
-    connectionManager.activeSftpWatchers[watchId] = { watcher, tempPath: dirPath! };
+    connectionManager.activeSftpWatchers[watchId] = {
+      watcher,
+      tempPath: dirPath!,
+      // A debounced upload must not fire after the watcher is stopped and its temp dir removed.
+      dispose: () => { clearTimeout(timeoutId); pendingUpload = false; },
+    };
 
     return { success: true, watchId };
   });
@@ -264,6 +299,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     const active = connectionManager.activeSftpWatchers[watchId];
     if (active) {
       active.watcher.close();
+      active.dispose?.();
       try {
         await fs.promises.rm(active.tempPath, { recursive: true, force: true });
       } catch (e: any) {
@@ -275,10 +311,12 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-download-file', async (event, sessionId: string, remoteFilePath: string, providedLocalDir?: string) => {
+    if (isSftpDisabledByWorkspace()) return { success: false, error: SFTP_DISABLED };
     const session = connectionManager.sessions.get(sessionId); 
     if (!session || !session.sftp) return { success: false, error: 'SFTP session not available' };
 
     const fileName = require('node:path').basename(remoteFilePath);
+    if (!isPlainFileName(fileName)) return { success: false, error: 'Invalid remote file name' };
     
     let targetFilePath = '';
     
@@ -286,23 +324,26 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       // [Security Fix] prevent arbitrary file write via strict path bounds check in sftpHandler
       // Use path.relative to securely ensure the provided download directory falls strictly under 
       // the OS Downloads or Desktop folders, mitigating potential directory traversal.
+      // Compared after resolving links: a link inside Downloads must not lead the write elsewhere.
       const path = require('node:path');
-      const downloadsPath = require('electron').app.getPath('downloads');
-      const desktopPath = require('electron').app.getPath('desktop');
-      const resolvedDir = path.resolve(providedLocalDir);
-      
-      const relToDownloads = path.relative(downloadsPath, resolvedDir);
-      const isUnderDownloads = !relToDownloads.startsWith('..') && !path.isAbsolute(relToDownloads);
-      
-      const relToDesktop = path.relative(desktopPath, resolvedDir);
-      const isUnderDesktop = !relToDesktop.startsWith('..') && !path.isAbsolute(relToDesktop);
-      
-      if (!isUnderDownloads && !isUnderDesktop) {
-        console.warn(`[Security] sftp-download-file rejected suspicious providedLocalDir: ${resolvedDir}`);
+      const realOrNull = (p: string) => fs.promises.realpath(p).catch(() => null);
+      const [resolvedDir, downloadsPath, desktopPath] = await Promise.all([
+        realOrNull(path.resolve(providedLocalDir)),
+        realOrNull(app.getPath('downloads')),
+        realOrNull(app.getPath('desktop')),
+      ]);
+      const isInside = (base: string | null) => {
+        if (!base || !resolvedDir) return false;
+        const rel = path.relative(base, resolvedDir);
+        return !rel.startsWith('..') && !path.isAbsolute(rel);
+      };
+
+      if (!isInside(downloadsPath) && !isInside(desktopPath)) {
+        console.warn(`[Security] sftp-download-file rejected suspicious providedLocalDir: ${providedLocalDir}`);
         return { success: false, error: 'Security: Automatic downloads are only permitted strictly within the Downloads or Desktop folders.' };
       }
       
-      targetFilePath = join(providedLocalDir, fileName);
+      targetFilePath = join(resolvedDir!, fileName);
     } else {
       const result = await dialog.showSaveDialog({
         defaultPath: require('electron').app.getPath('downloads') + '/' + fileName,

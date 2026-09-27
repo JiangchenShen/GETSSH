@@ -16,7 +16,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh-write', { sessionId, data }),
   sshResize: (sessionId: string, rows: number, cols: number) => ipcRenderer.send('ssh-resize', { sessionId, rows, cols }),
   sshDisconnect: (sessionId: string) => ipcRenderer.send('ssh-disconnect', sessionId),
-  
+  sshGetScrollback: (sessionId: string, fromOffset?: number) => ipcRenderer.invoke('ssh-get-scrollback', sessionId, fromOffset),
+  // Reconnects with the credentials the main process kept for this session (they never come back to the renderer).
+  sshReconnect: (sessionId: string) => ipcRenderer.invoke('ssh-reconnect', sessionId),
+
   // SFTP
   sftpList: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp-list', sessionId, remotePath),
   sftpMkdir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp-mkdir', sessionId, remotePath),
@@ -26,8 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sftpEditSync: (sessionId: string, remoteFilePath: string) => ipcRenderer.invoke('sftp-edit-sync', sessionId, remoteFilePath),
   sftpEditStop: (watchId: string) => ipcRenderer.invoke('sftp-edit-stop', watchId),
   sftpDownloadFile: (sessionId: string, remoteFilePath: string, providedLocalDir?: string) => ipcRenderer.invoke('sftp-download-file', sessionId, remoteFilePath, providedLocalDir),
-  onSshData: (sessionId: string, callback: (data: string) => void) => {
-    const listener = (_event: IpcRendererEvent, data: string) => callback(data)
+  onSshData: (sessionId: string, callback: (data: string, endOffset?: number) => void) => {
+    const listener = (_event: IpcRendererEvent, data: string, endOffset?: number) => callback(data, endOffset)
     ipcRenderer.on(`ssh-data-${sessionId}`, listener)
     return () => ipcRenderer.removeListener(`ssh-data-${sessionId}`, listener)
   },
@@ -41,7 +44,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bridgeFetchProfiles: (sourceWorkspaceId: string) => ipcRenderer.invoke('workspace:bridge:fetchProfiles', sourceWorkspaceId),
   bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => ipcRenderer.invoke('workspace:bridge:importProfiles', targetWorkspaceId, profiles, runbooks),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
-  saveProfiles: (payload: { masterPassword?: string; payload: unknown[] }) => ipcRenderer.invoke('save-profiles', payload),
+  saveProfiles: (payload: { masterPassword?: string; payload: unknown[]; workspaceId?: string }) => ipcRenderer.invoke('save-profiles', payload),
+  assetFolders: {
+    list: (workspaceId: string) => ipcRenderer.invoke('asset-folders:list', workspaceId),
+    create: (workspaceId: string, path: string) => ipcRenderer.invoke('asset-folders:create', workspaceId, path),
+    rename: (workspaceId: string, path: string, newName: string) => ipcRenderer.invoke('asset-folders:rename', workspaceId, path, newName),
+    remove: (workspaceId: string, path: string) => ipcRenderer.invoke('asset-folders:remove', workspaceId, path),
+    moveProfile: (workspaceId: string, profileId: string, path: string | null) => ipcRenderer.invoke('asset-folders:move-profile', workspaceId, profileId, path),
+    moveProfiles: (workspaceId: string, profileIds: string[], path: string | null) => ipcRenderer.invoke('asset-folders:move-profiles', workspaceId, profileIds, path),
+  },
   onAppBlur: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('app-blur', listener)
@@ -95,6 +106,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => 
     ipcRenderer.send('host-verification-result', payload),
+  onHostVerificationCancelled: (callback: (requestId: string) => void) => {
+    const listener = (_event: IpcRendererEvent, requestId: string) => callback(requestId);
+    ipcRenderer.on('host-verification-cancelled', listener);
+    return () => ipcRenderer.removeListener('host-verification-cancelled', listener);
+  },
   getKnownHosts: () => ipcRenderer.invoke('get-known-hosts'),
   deleteKnownHost: (host: string, port: number) => ipcRenderer.invoke('delete-known-host', host, port),
   getConnectionLogs: () => ipcRenderer.invoke('get-connection-logs'),
@@ -123,12 +139,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('security-lockdown', listener);
     return () => ipcRenderer.removeListener('security-lockdown', listener);
   },
-  resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore') => ipcRenderer.invoke('resolve-security-lockdown', action),
+  resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore', masterPassword?: string) => ipcRenderer.invoke('resolve-security-lockdown', action, masterPassword),
+  onSecurityLockdownResolved: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('security-lockdown-resolved', listener);
+    return () => ipcRenderer.removeListener('security-lockdown-resolved', listener);
+  },
   onSyncPluginUIExtensions: (callback: (payload: { terminal: any[], sftp: any[] }) => void) => {
     const listener = (_event: IpcRendererEvent, payload: { terminal: any[], sftp: any[] }) => callback(payload);
     ipcRenderer.on('sync-plugin-ui-extensions', listener);
     return () => ipcRenderer.removeListener('sync-plugin-ui-extensions', listener);
   },
+  getPluginUiExtensions: () => ipcRenderer.invoke('get-plugin-ui-extensions'),
+  getPluginSettingsSchemas: () => ipcRenderer.invoke('get-plugin-settings-schemas'),
   triggerPluginAction: (pluginId: string, actionId: string, contextData: any) => 
     ipcRenderer.send('trigger-plugin-action', { pluginId, actionId, contextData }),
   pluginRpcInvoke: (pluginId: string, method: string, payload: any) => ipcRenderer.invoke('plugin-rpc-invoke', pluginId, method, payload),
@@ -149,58 +172,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   encryptConfig: (data: any) => ipcRenderer.invoke('encrypt-config', data),
   decryptConfig: (base64: string) => ipcRenderer.invoke('decrypt-config', base64),
-  windowSelfClose: () => ipcRenderer.send('window:self-close'),
-  
-  // Nexus Core API
+  // Nexus Core API — Rust nexus-core owns the tab/pane layout; the main process owns session lifetime.
   nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => ipcRenderer.invoke('nexus:split', { targetPaneId, direction }),
-  nexusTearOff: (paneId: string) => ipcRenderer.invoke('nexus:tear-off', { paneId }),
   nexusClosePane: (paneId: string) => ipcRenderer.invoke('nexus:close', { paneId }),
   nexusToggleZoom: (paneId: string) => ipcRenderer.invoke('nexus:toggle-zoom', { paneId }),
   nexusUpdateSizes: (paneId: string, sizes: number[]) => ipcRenderer.invoke('nexus:update-sizes', { paneId, sizes }),
   nexusSetDisconnected: (paneId: string, disconnected: boolean) => ipcRenderer.invoke('nexus:set-disconnected', { paneId, disconnected }),
   nexusCloseTab: (tabId: string) => ipcRenderer.invoke('nexus:close-tab', { tabId }),
   nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => ipcRenderer.invoke('nexus:replace-pane', { paneId, paneType, sessionId, configJson }),
-  onNexusPtyData: (paneId: string, callback: (data: Uint8Array) => void) => {
-    const listener = (_event: IpcRendererEvent, data: Uint8Array) => callback(data);
-    ipcRenderer.on(`pty:data:${paneId}`, listener);
-    return () => ipcRenderer.removeListener(`pty:data:${paneId}`, listener);
-  },
-  onNexusPatchLeaf: (callback: (paneId: string, updates: any) => void) => {
-    const listener = (_event: IpcRendererEvent, payload: { paneId: string, updates: any }) => callback(payload.paneId, payload.updates);
-    ipcRenderer.on('nexus:patch-leaf', listener);
-    return () => ipcRenderer.removeListener('nexus:patch-leaf', listener);
-  },
-  nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => ipcRenderer.invoke('nexus:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title }),
-  onNexusSyncTree: (callback: (tabId: string, title: string, tree: any, isTornOff: boolean) => void) => {
-    const handler = (_event: any, tabId: string, title: string, tree: any, isTornOff: boolean) => callback(tabId, title, tree, isTornOff);
+  nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => ipcRenderer.invoke('nexus:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title, workspaceId: workspaceId ?? null }),
+  nexusGetTab: (tabId: string) => ipcRenderer.invoke('nexus:get-tab', { tabId }),
+  onNexusSyncTree: (callback: (payload: any) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: any) => callback(payload);
     ipcRenderer.on('nexus:sync-tree', handler);
     return () => ipcRenderer.removeListener('nexus:sync-tree', handler);
   },
-  onReceiveTornBuffers: (callback: (buffers: Record<string, string>) => void) => {
-    const listener = (_event: IpcRendererEvent, buffers: Record<string, string>) => callback(buffers);
-    ipcRenderer.on('window:receive-torn-buffers', listener);
-    return () => ipcRenderer.removeListener('window:receive-torn-buffers', listener);
+  // Main process asks the main window to focus a pane (e.g. after a torn pane was docked back into its tab).
+  onNexusFocusPane: (callback: (payload: { tabId: string, paneId: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { tabId: string, paneId: string }) => callback(payload);
+    ipcRenderer.on('nexus:focus-pane', listener);
+    return () => ipcRenderer.removeListener('nexus:focus-pane', listener);
   },
-  
-  // Window Multi-Window Tear-off
-  windowTearArm: () => ipcRenderer.sendSync('window:tear-arm'),
-  windowTearExecute: (payload: { screenX: number, screenY: number, width: number, height: number, paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => 
-    ipcRenderer.send('window:tear-execute', payload),
-  windowTearIn: (payload: { paneId: string, terminalBuffers?: Record<string, string> }) => 
-    ipcRenderer.send('window:tear-in', payload),
-  onWindowHijackIdentity: (callback: (payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => void) => {
-    const listener = (_event: IpcRendererEvent, payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => callback(payload);
-    ipcRenderer.on('window:hijack-identity', listener);
-    return () => ipcRenderer.removeListener('window:hijack-identity', listener);
-  },
-  windowGetHijackIdentity: () => ipcRenderer.invoke('window:get-hijack-identity'),
-  onWindowReceiveTornBuffers: (callback: (payload: Record<string, string>) => void) => {
-    const listener = (_event: IpcRendererEvent, payload: Record<string, string>) => callback(payload);
-    ipcRenderer.on('window:receive-torn-buffers', listener);
-    return () => ipcRenderer.removeListener('window:receive-torn-buffers', listener);
-  },
-  hollowLog: (...args: any[]) => ipcRenderer.send('hollow-log', ...args),
-  
+
+  // Tear-off windows: the main process performs the layout change and owns the window ↔ tab mapping.
+  windowTearOff: (payload: { paneId: string, screenX: number, screenY: number, width: number, height: number }) =>
+    ipcRenderer.invoke('window:tear-off', payload),
+  windowGetTornIdentity: () => ipcRenderer.invoke('window:get-torn-identity'),
+  windowTearIn: () => ipcRenderer.invoke('window:tear-in'),
+
   // AI Center Gateway
   ai: {
     invokePrivileged: (payload: any) => ipcRenderer.invoke('ai-privileged-invoke', payload),
@@ -213,8 +212,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(`ai-stream-chunk-${requestId}`, listener);
       return () => ipcRenderer.removeListener(`ai-stream-chunk-${requestId}`, listener);
     },
-    onAgentApprovalRequest: (callback: (payload: { requestId: string, command: string }) => void) => {
-      const listener = (_event: IpcRendererEvent, payload: { requestId: string, command: string }) => callback(payload);
+    onAgentApprovalRequest: (callback: (payload: { requestId: string, streamRequestId: string, command: string }) => void) => {
+      const listener = (_event: IpcRendererEvent, payload: { requestId: string, streamRequestId: string, command: string }) => callback(payload);
       ipcRenderer.on(`ai-agent-approval-request`, listener);
       return () => ipcRenderer.removeListener(`ai-agent-approval-request`, listener);
     },
@@ -235,7 +234,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Workspace 2.0 API
   workspace: {
     getWorkspaces: () => ipcRenderer.invoke('workspace:list'),
-    createWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:create', workspaceId),
+    createWorkspace: (workspaceId: string, visualMeta?: any) => ipcRenderer.invoke('workspace:create', workspaceId, visualMeta),
     switchWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:switch', workspaceId)
   },
   

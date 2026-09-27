@@ -1,20 +1,19 @@
-import React, { useState } from 'react';
-import { SettingsView } from './SettingsView';
+import React, { useEffect, useState } from 'react';
+import { SETTINGS_TABS, SettingsView, type SettingsTab } from './SettingsView';
 
-export const SettingsPane: React.FC = () => {
-  const [settingsActiveTab, setSettingsActiveTab] = useState<'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit'>('Appearance');
-  
-  // Note: encryptionDisabled isn't actually in AppStore normally but SettingsView wants it.
-  // We can pass false or get it from wherever it was fetched in App.tsx
-  const encryptionDisabled = false; 
+export const SettingsPane: React.FC<{ initialTab?: SettingsTab }> = ({ initialTab = 'System' }) => {
+  const [settingsActiveTab, setSettingsActiveTab] = useState<SettingsTab>(initialTab);
 
-  return (
-    <div className="w-full h-full flex overflow-hidden">
-      <SettingsView 
-        settingsActiveTab={settingsActiveTab}
-        setSettingsActiveTab={setSettingsActiveTab}
-        encryptionDisabled={encryptionDisabled}
-      />
-    </div>
-  );
+  useEffect(() => setSettingsActiveTab(initialTab), [initialTab]);
+
+  useEffect(() => {
+    const selectTab = (event: Event) => {
+      const tab = (event as CustomEvent<SettingsTab>).detail;
+      if (SETTINGS_TABS.includes(tab)) setSettingsActiveTab(tab);
+    };
+    window.addEventListener('app:settings-tab', selectTab);
+    return () => window.removeEventListener('app:settings-tab', selectTab);
+  }, []);
+
+  return <SettingsView settingsActiveTab={settingsActiveTab} setSettingsActiveTab={setSettingsActiveTab} />;
 };

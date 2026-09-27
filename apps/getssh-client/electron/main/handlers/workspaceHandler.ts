@@ -1,4 +1,4 @@
-import { ipcMain, safeStorage } from 'electron';
+import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -6,6 +6,15 @@ import { nexusBridge } from '../nexus/nexusBridge';
 import { vaultManager } from '../services/vaultManager';
 import { ChatStorageManager } from '../services/chatStorageManager';
 import { DatabaseManager } from '../services/DatabaseManager';
+import { isMainWebContents } from '../windowRegistry';
+import { isValidWorkspaceId, resolveWorkspaceDir } from '../utils/workspaceId';
+import { hasWorkspaceVault, readWorkspaceVault } from '../security/workspaceVault';
+import { verifyUserPresence } from '../security/userPresence';
+
+/** Workspace state is only changed by the main window; torn windows never need these handlers. */
+const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
+/** Workspace ids become directory names; see utils/workspaceId.ts. */
+const INVALID_WORKSPACE_ID = { success: false, error: 'Invalid workspace id' };
 
 export function setupWorkspaceHandlers() {
   ipcMain.handle('workspace:list', async () => {
@@ -29,6 +38,8 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:create', async (event, workspaceId: string, visualMeta?: any) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     console.log(`[Workspace IPC] Creating new workspace: ${workspaceId}`);
     try {
       const res = await nexusBridge.bootstrapWorkspace(workspaceId);
@@ -52,6 +63,8 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:setMain', async (event, workspaceId: string) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
       DatabaseManager.setMainWorkspace(workspaceId);
       return { success: true };
@@ -62,10 +75,18 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:toggleBiometric', async (event, workspaceId: string, enabled: boolean) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
+    // Turning it on lets Touch ID release this workspace's master password, so the OS prompt runs
+    // here rather than in the renderer. Turning it off needs no check.
+    if (enabled === true) {
+      const outcome = await verifyUserPresence(`turn on Touch ID unlock for the workspace "${workspaceId}"`);
+      if (outcome !== 'verified') return { success: false, error: outcome };
+    }
     try {
       const db = DatabaseManager.getDb();
       if (db) {
-        db.prepare('UPDATE workspaces SET biometric_enabled = ? WHERE id = ?').run(enabled ? 1 : 0, workspaceId);
+        db.prepare('UPDATE workspaces SET biometric_enabled = ? WHERE id = ?').run(enabled === true ? 1 : 0, workspaceId);
       }
       return { success: true };
     } catch (e) {
@@ -75,6 +96,8 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:updatePreferences', async (event, workspaceId: string, preferencesStr: string) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
       const db = DatabaseManager.getDb();
       if (db) {
@@ -88,6 +111,7 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:getStats', async (event, workspaceId: string) => {
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
       return { success: true, stats: DatabaseManager.getWorkspaceStats(workspaceId) };
     } catch (e) {
@@ -97,6 +121,7 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:getAuditLogs', async (event, workspaceId: string) => {
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
       return { success: true, logs: DatabaseManager.getAuditLogs(workspaceId) };
     } catch (e) {
@@ -106,11 +131,9 @@ export function setupWorkspaceHandlers() {
   });
 
   async function getWorkspacePassword(wsId: string): Promise<string | undefined> {
-    const vaultPath = path.join(os.homedir(), '.getssh', 'workspaces', wsId, 'vault.key');
-    if (fs.existsSync(vaultPath) && safeStorage.isEncryptionAvailable()) {
+    if (hasWorkspaceVault(wsId)) {
       try {
-        const encryptedKey = await fs.promises.readFile(vaultPath);
-        return safeStorage.decryptString(encryptedKey);
+        return await readWorkspaceVault(wsId);
       } catch (e) {
         console.error(`Failed to decrypt vault for ${wsId}`, e);
       }
@@ -119,6 +142,9 @@ export function setupWorkspaceHandlers() {
   }
 
   ipcMain.handle('workspace:bridge:fetchProfiles', async (event, sourceWorkspaceId: string) => {
+    // Returns decrypted profile rows (credentials included): main window only.
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(sourceWorkspaceId)) return INVALID_WORKSPACE_ID;
     try {
       const pwd = await getWorkspacePassword(sourceWorkspaceId);
       let db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
@@ -141,6 +167,8 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:bridge:importProfiles', async (event, targetWorkspaceId: string, profilesToImport: any[], runbooksToImport: any[]) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
+    if (!isValidWorkspaceId(targetWorkspaceId)) return INVALID_WORKSPACE_ID;
     try {
       const pwd = await getWorkspacePassword(targetWorkspaceId);
       let db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
@@ -189,14 +217,16 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:delete', async (event, workspaceId: string) => {
+    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (workspaceId === 'default') {
       return { success: false, error: 'Cannot delete default workspace' };
     }
+    // The directory below is removed recursively: an unchecked id like "../.." would resolve to the home directory.
+    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
+      const wsPath = resolveWorkspaceDir(workspaceId);
       DatabaseManager.deleteWorkspace(workspaceId);
       // We could also delete the vault file in ~/.getssh/workspaces/<workspaceId> if it still exists
-      const getsshRoot = path.join(os.homedir(), '.getssh');
-      const wsPath = path.join(getsshRoot, 'workspaces', workspaceId);
       try {
         await fs.promises.rm(wsPath, { recursive: true, force: true });
       } catch (e) {
@@ -210,12 +240,15 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:switch', async (event, targetWorkspaceId: string) => {
+    if (!isMainWebContents(event.sender)) throw new Error('Workspace Transition Failed: Unauthorized sender');
+    if (!isValidWorkspaceId(targetWorkspaceId)) throw new Error('Workspace Transition Failed: Invalid workspace id');
     console.log(`[Workspace IPC] Initiating quantum leap to workspace: ${targetWorkspaceId}`);
+    const previousWorkspaceId = getActiveWorkspaceId();
     
     // We must ensure atomic safety during the transition to prevent partial tearing.
     try {
       const getsshRoot = path.join(os.homedir(), '.getssh');
-      const wsPath = path.join(getsshRoot, 'workspaces', targetWorkspaceId);
+      const wsPath = resolveWorkspaceDir(targetWorkspaceId);
 
       // Check if target exists
       try {
@@ -248,6 +281,7 @@ export function setupWorkspaceHandlers() {
       // ==========================================
       const workspaces = DatabaseManager.getWorkspaces();
       const wsRow = workspaces.find(w => w.id === targetWorkspaceId);
+      if (wsRow?.hasPassword) DatabaseManager.unmountWorkspace(targetWorkspaceId);
       
       let visualMeta = { themeColor: '#1e293b', hasPassword: false, biometricEnabled: false, name: targetWorkspaceId };
       if (wsRow) {
@@ -303,6 +337,10 @@ export function setupWorkspaceHandlers() {
 
       config.active_workspace = targetWorkspaceId;
       await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+      DatabaseManager.resetAssetFolderUnlocks();
+      if (previousWorkspaceId !== targetWorkspaceId && workspaces.find(w => w.id === previousWorkspaceId)?.hasPassword) {
+        DatabaseManager.unmountWorkspace(previousWorkspaceId);
+      }
       console.log(`[Workspace IPC] Successfully committed leap to ${targetWorkspaceId}. Global config updated.`);
 
       return payload;

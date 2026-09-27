@@ -7,6 +7,7 @@ import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../..
 import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
+import { broadcastToAllWindows, isKnownTopLevelSender } from './windowRegistry';
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
@@ -47,9 +48,17 @@ export class PluginManager {
 
   private settingsSchemas: Map<string, PluginSettingsSchema[]> = new Map();
   private _previewSourceDirCache: Record<string, string> = {};
+  /** Settles when the boot-time plugin scan is over; IPC is registered before it so early callers wait. */
+  private initialLoad: Promise<void>;
+  private finishInitialLoad!: () => void;
 
   constructor() {
     this.pluginsPath = path.join(app.getPath('userData'), 'plugins');
+    this.initialLoad = new Promise<void>((resolve) => { this.finishInitialLoad = resolve; });
+  }
+
+  public markInitialLoadDone() {
+    this.finishInitialLoad();
   }
 
   private getSecurePluginPath(pluginName: string): string {
@@ -62,18 +71,26 @@ export class PluginManager {
     return targetPath;
   }
 
-  private syncUIExtensions() {
-    const allWindows = BrowserWindow.getAllWindows();
-    if (allWindows.length > 0) {
-      allWindows[0].webContents.send('sync-plugin-ui-extensions', {
-        terminal: this.uiExtensions.terminal.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'terminal' })),
-        sftp: this.uiExtensions.sftp.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'sftp' }))
-      });
+  /** Renderer view of the UI extensions (no handlers): the 'sync-plugin-ui-extensions' payload. */
+  private getUiExtensionsSnapshot() {
+    return {
+      terminal: this.uiExtensions.terminal.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'terminal' })),
+      sftp: this.uiExtensions.sftp.map(ext => ({ pluginId: ext.pluginId, actionId: ext.actionId, label: ext.label, target: 'sftp' }))
+    };
+  }
 
-      const schemasObj = Object.create(null) as Record<string, PluginSettingsSchema[]>;
-      this.settingsSchemas.forEach((schema, id) => { schemasObj[id] = schema; });
-      allWindows[0].webContents.send('sync-plugin-settings-schemas', schemasObj);
-    }
+  /** The 'sync-plugin-settings-schemas' payload. */
+  private getSettingsSchemasSnapshot() {
+    const schemasObj = Object.create(null) as Record<string, PluginSettingsSchema[]>;
+    this.settingsSchemas.forEach((schema, id) => { schemasObj[id] = schema; });
+    return schemasObj;
+  }
+
+  // Every window gets these (getAllWindows()[0] is the newest window, often a torn one, not the main window).
+  // Windows created later pull the current state with 'get-plugin-ui-extensions' / 'get-plugin-settings-schemas'.
+  private syncUIExtensions() {
+    broadcastToAllWindows('sync-plugin-ui-extensions', this.getUiExtensionsSnapshot());
+    broadcastToAllWindows('sync-plugin-settings-schemas', this.getSettingsSchemasSnapshot());
   }
 
   private createMainContext(manifest: PluginManifest): MainContextAPI {
@@ -184,10 +201,8 @@ export class PluginManager {
         }
       },
       sendToFrontend: (payload: any) => {
-        const allWindows = BrowserWindow.getAllWindows();
-        if (allWindows.length > 0) {
-          allWindows[0].webContents.send('plugin-rpc-message', manifest.name, payload);
-        }
+        // Every PluginPane filters by plugin id, in whichever window it lives.
+        broadcastToAllWindows('plugin-rpc-message', manifest.name, payload);
       }
     });
 
@@ -470,8 +485,7 @@ export class PluginManager {
         return null;
       }
       case 'rpc.sendToFrontend': {
-        const allWindows = BrowserWindow.getAllWindows();
-        allWindows[0]?.webContents.send('plugin-rpc-message', pluginId, args[0]);
+        broadcastToAllWindows('plugin-rpc-message', pluginId, args[0]);
         return null;
       }
       case 'host.notify': {
@@ -848,7 +862,21 @@ export class PluginManager {
   }
 
   public setupIPC() {
-    ipcMain.handle('get-plugin-list', () => this.installedPlugins);
+    ipcMain.handle('get-plugin-list', async () => {
+      await this.initialLoad;
+      return this.installedPlugins;
+    });
+
+    // Pull counterparts of the sync broadcasts, for windows that mount after a broadcast (torn windows, reloads).
+    ipcMain.handle('get-plugin-ui-extensions', (event) => {
+      if (!isKnownTopLevelSender(event)) return { terminal: [], sftp: [] };
+      return this.getUiExtensionsSnapshot();
+    });
+
+    ipcMain.handle('get-plugin-settings-schemas', (event) => {
+      if (!isKnownTopLevelSender(event)) return {};
+      return this.getSettingsSchemasSnapshot();
+    });
 
     ipcMain.on('trigger-plugin-action', (event, { pluginId, actionId, contextData }) => {
       let ext = this.uiExtensions.terminal.find(e => e.pluginId === pluginId && e.actionId === actionId);
@@ -935,8 +963,9 @@ export class PluginManager {
     });
 
     ipcMain.handle('preview-plugin', async (event, zipPath: string) => {
+      let tempDir: string | undefined;
       try {
-        const tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'getssh-plugin-preview-'));
+        tempDir = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'getssh-plugin-preview-'));
         const resolvedTempDir = path.resolve(tempDir);
 
         const addonPath = getRustCorePath('getssh-unarchive');
@@ -982,6 +1011,8 @@ export class PluginManager {
 
         return { success: true, manifest, sourceDir, tempDir };
       } catch (err: unknown) {
+        // Only the directory this call created; a failed preview is never committed, so nothing else needs it.
+        if (tempDir) await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
@@ -1054,6 +1085,7 @@ export class PluginManager {
     });
 
     ipcMain.handle('get-plugin-renderers', async () => {
+      await this.initialLoad;
       return Promise.all(
         this.installedPlugins
           .filter((p) => !!p.renderer)

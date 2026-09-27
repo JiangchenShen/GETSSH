@@ -1,18 +1,21 @@
 use napi::bindgen_prelude::Result;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, ErrorStrategy};
 use lazy_static::lazy_static;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use crate::state::PaneNode;
-use crate::core::globals::GLOBAL_WORKSPACE;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use crate::state::NexusWorkspace;
 
 lazy_static! {
-    pub static ref SYNC_TREE_TSFN: Arc<Mutex<Option<ThreadsafeFunction<String, ErrorStrategy::CalleeHandled>>>> = Arc::new(Mutex::new(None));
+    // A plain std mutex so registration is stored synchronously, before any later emit can run
+    pub static ref SYNC_TREE_TSFN: Mutex<Option<ThreadsafeFunction<String, ErrorStrategy::CalleeHandled>>> = Mutex::new(None);
 }
+
+// Global payload revision: starts at 1 and is bumped once per emitted payload
+static NEXT_REV: AtomicU64 = AtomicU64::new(1);
 
 #[napi]
 pub fn register_sync_tree_callback(
-    #[napi(ts_arg_type = "(err: Error | null, treeJson: string, tabId: string) => void")]
+    #[napi(ts_arg_type = "(err: Error | null, payloadJson: string) => void")]
     callback: napi::JsFunction,
 ) -> Result<()> {
     let tsfn: ThreadsafeFunction<String, ErrorStrategy::CalleeHandled> = callback
@@ -20,56 +23,31 @@ pub fn register_sync_tree_callback(
             0,
             |ctx| Ok(vec![ctx.value]),
         )?;
-    
-    let tsfn_arc = SYNC_TREE_TSFN.clone();
-    tokio::spawn(async move {
-        let mut guard = tsfn_arc.lock().await;
-        *guard = Some(tsfn);
-        println!("[Nexus Core] State broadcasting channel registered.");
-    });
+
+    let mut guard = SYNC_TREE_TSFN.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = Some(tsfn);
+    println!("[Nexus Core] State broadcasting channel registered.");
 
     Ok(())
 }
 
-pub async fn broadcast_tree(tab_id: String, new_tree: PaneNode, is_torn_off: bool) {
-    let mut title = String::new();
-    {
-        let workspace_ref = GLOBAL_WORKSPACE.clone();
-        let ws = workspace_ref.lock().await;
-        for window in ws.windows.values() {
-            if let Some(tab) = window.tabs.iter().find(|t| t.tab_id == tab_id) {
-                title = tab.title.clone();
-                break;
-            }
-        }
-    }
-
-    let tsfn_arc = SYNC_TREE_TSFN.clone();
-    let guard = tsfn_arc.lock().await;
-    if let Some(tsfn) = &*guard {
-        let payload = serde_json::json!({
-            "tabId": tab_id,
-            "title": title,
-            "tree": new_tree,
-            "is_torn_off": is_torn_off
-        });
-        tsfn.call(Ok(payload.to_string()), ThreadsafeFunctionCallMode::NonBlocking);
-    }
+// The rev of the last emitted payload (0 before the first emit). Read it under the workspace lock.
+pub fn current_rev() -> u64 {
+    NEXT_REV.load(Ordering::SeqCst) - 1
 }
 
-pub async fn broadcast_state() {
-    let mut trees = Vec::new();
-    {
-        let workspace_ref = GLOBAL_WORKSPACE.clone();
-        let ws = workspace_ref.lock().await;
-        for (_, win) in ws.windows.iter() {
-            for tab in win.tabs.iter() {
-                trees.push((tab.tab_id.clone(), tab.pane_tree.clone(), tab.is_torn_off));
+// Emits one sync payload per tab id and returns the payloads. Taking `&NexusWorkspace` means the caller
+// holds the workspace lock, so revs and delivery order follow mutation order.
+pub fn emit_tabs(ws: &NexusWorkspace, tab_ids: &[&str]) -> Vec<serde_json::Value> {
+    let guard = SYNC_TREE_TSFN.lock().unwrap_or_else(|e| e.into_inner());
+    tab_ids
+        .iter()
+        .map(|tab_id| {
+            let payload = ws.tab_payload(tab_id, NEXT_REV.fetch_add(1, Ordering::SeqCst));
+            if let Some(tsfn) = &*guard {
+                tsfn.call(Ok(payload.to_string()), ThreadsafeFunctionCallMode::NonBlocking);
             }
-        }
-    }
-
-    for (tab_id, tree, is_torn_off) in trees {
-        broadcast_tree(tab_id, tree, is_torn_off).await;
-    }
+            payload
+        })
+        .collect()
 }

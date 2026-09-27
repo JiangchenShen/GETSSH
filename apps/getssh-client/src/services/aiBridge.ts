@@ -78,8 +78,9 @@ export class AiBridge {
       }
 
       if (onApprovalRequest && window.electronAPI.ai.onAgentApprovalRequest) {
-        unsubscribeApproval = window.electronAPI.ai.onAgentApprovalRequest((payload: { requestId: string, command: string }) => {
-          if (payload.requestId === request.requestId) {
+        // payload.requestId is the per-command approval id; payload.streamRequestId names the stream it belongs to.
+        unsubscribeApproval = window.electronAPI.ai.onAgentApprovalRequest((payload) => {
+          if (payload.streamRequestId === request.requestId) {
              onApprovalRequest(payload.command, payload.requestId);
           }
         });

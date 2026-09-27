@@ -33,17 +33,56 @@ app.commandLine.appendSwitch('enable-zero-copy')
 app.commandLine.appendSwitch('disable-software-rasterizer')
 
 // [M-11] Security Fix: Enforce senderFrame validation globally for all IPC channels
-const originalIpcOn = ipcMain.on.bind(ipcMain);
-ipcMain.on = (channel, listener) => {
-  return originalIpcOn(channel, (event, ...args) => {
-    // Only allow IPC messages from the top-level frame (the main GETSSH UI)
-    // If event is null/undefined (e.g., emitted internally by main process), skip this check
-    if (event && event.senderFrame && event.senderFrame.parent !== null) {
-      console.warn(`[Security] Blocked unauthorized IPC 'on' message from subframe to channel: ${channel}`);
+// Only allow IPC messages from the top-level frame (the GETSSH UI).
+// If event is null/undefined (e.g., emitted internally by main process), skip this check
+const isSubframeIpcEvent = (event: any) => !!(event && event.senderFrame && event.senderFrame.parent !== null);
+
+type IpcListener = (event: any, ...args: any[]) => void;
+// The guard wraps every listener, so keep original listener -> wrappers (per channel) for removeListener/off.
+const ipcListenerWrappers = new WeakMap<Function, Map<string | symbol, Function[]>>();
+
+function wrapIpcListener(kind: string, channel: string | symbol, listener: Function, run: IpcListener): IpcListener {
+  const wrapper: IpcListener = (event, ...args) => {
+    if (isSubframeIpcEvent(event)) {
+      console.warn(`[Security] Blocked unauthorized IPC '${kind}' message from subframe to channel: ${String(channel)}`);
       return;
     }
-    listener(event, ...args);
-  });
+    run(event, ...args);
+  };
+  let byChannel = ipcListenerWrappers.get(listener);
+  if (!byChannel) {
+    byChannel = new Map();
+    ipcListenerWrappers.set(listener, byChannel);
+  }
+  const wrappers = byChannel.get(channel) ?? [];
+  wrappers.push(wrapper);
+  byChannel.set(channel, wrappers);
+  return wrapper;
+}
+
+/** The registered wrapper for `listener` (the given one, else the most recent), forgotten from the map. */
+function takeIpcListenerWrapper(channel: string | symbol, listener: Function, exact?: Function): (...args: any[]) => void {
+  const byChannel = ipcListenerWrappers.get(listener);
+  const wrappers = byChannel?.get(channel);
+  if (!byChannel || !wrappers || wrappers.length === 0) return listener as (...args: any[]) => void;
+  const index = exact ? wrappers.lastIndexOf(exact) : wrappers.length - 1;
+  if (index < 0) return listener as (...args: any[]) => void;
+  const [wrapper] = wrappers.splice(index, 1);
+  if (wrappers.length === 0) byChannel.delete(channel);
+  return wrapper as (...args: any[]) => void;
+}
+
+const originalIpcOn = ipcMain.on.bind(ipcMain);
+ipcMain.on = (channel, listener) => {
+  return originalIpcOn(channel, wrapIpcListener('on', channel, listener, listener));
+};
+
+const originalIpcRemoveListener = ipcMain.removeListener.bind(ipcMain);
+ipcMain.removeListener = (channel, listener) => {
+  return originalIpcRemoveListener(channel, takeIpcListenerWrapper(channel, listener));
+};
+ipcMain.off = (channel, listener) => {
+  return originalIpcRemoveListener(channel, takeIpcListenerWrapper(channel, listener));
 };
 
 const originalIpcHandle = ipcMain.handle.bind(ipcMain);
@@ -57,15 +96,14 @@ ipcMain.handle = (channel, listener) => {
   });
 };
 
-const originalIpcOnce = ipcMain.once.bind(ipcMain);
+// once/prependOnceListener are built on the guarded wrapper (not EventEmitter's own once wrapper), so a
+// blocked subframe message does not consume them and removeListener(channel, listener) still finds them.
 ipcMain.once = (channel, listener) => {
-  return originalIpcOnce(channel, (event, ...args) => {
-    if (event && event.senderFrame && event.senderFrame.parent !== null) {
-      console.warn(`[Security] Blocked unauthorized IPC 'once' message from subframe to channel: ${channel}`);
-      return;
-    }
+  const wrapper: IpcListener = wrapIpcListener('once', channel, listener, (event, ...args) => {
+    originalIpcRemoveListener(channel, takeIpcListenerWrapper(channel, listener, wrapper));
     listener(event, ...args);
   });
+  return originalIpcOn(channel, wrapper);
 };
 
 const originalIpcHandleOnce = ipcMain.handleOnce.bind(ipcMain);
@@ -81,22 +119,25 @@ ipcMain.handleOnce = (channel, listener) => {
 
 const originalIpcAddListener = ipcMain.addListener.bind(ipcMain);
 ipcMain.addListener = (channel, listener) => {
-  return originalIpcAddListener(channel, (event, ...args) => {
-    if (event && event.senderFrame && event.senderFrame.parent !== null) {
-      console.warn(`[Security] Blocked unauthorized IPC 'addListener' message from subframe to channel: ${channel}`);
-      return;
-    }
-    listener(event, ...args);
-  });
+  return originalIpcAddListener(channel, wrapIpcListener('addListener', channel, listener, listener));
 };
 
-// Chromium's os_crypt tries to store a key in the macOS keychain.
-// Because the app signature is absent (identity: null for small builds), macOS prompts the user. 
-// We use a mock keychain to prevent this annoying popup that blocks the main thread.
-// Since we use our own Vault for sensitive data, mock keychain is perfectly safe here.
-if (process.platform === 'darwin') {
-  app.commandLine.appendSwitch('use-mock-keychain')
-}
+const originalIpcPrependListener = ipcMain.prependListener.bind(ipcMain);
+ipcMain.prependListener = (channel, listener) => {
+  return originalIpcPrependListener(channel, wrapIpcListener('prependListener', channel, listener, listener));
+};
+ipcMain.prependOnceListener = (channel, listener) => {
+  const wrapper: IpcListener = wrapIpcListener('prependOnceListener', channel, listener, (event, ...args) => {
+    originalIpcRemoveListener(channel as string, takeIpcListenerWrapper(channel, listener, wrapper));
+    listener(event, ...args);
+  });
+  return originalIpcPrependListener(channel, wrapper);
+};
+
+// macOS: safeStorage keys live in the real Keychain. The --use-mock-keychain switch used before 3.0
+// derived every key from a public constant, so anyone with the files could decrypt the app key and
+// saved master passwords. Blobs written that way are upgraded on first read (security/secretStore).
+// An unsigned build is asked for Keychain access again after each update.
 
 process.on('uncaughtException', (err) => {
   console.error("Critical Uncaught Exception: ", err)
@@ -108,7 +149,6 @@ process.env.VITE_PUBLIC = process.env.VITE_DEV_SERVER_URL
   ? join(process.env.DIST_ELECTRON, '../public')
   : process.env.DIST
 
-let win: BrowserWindow | null = null
 const preload = join(__dirname, '../preload/index.js')
 const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
@@ -116,14 +156,26 @@ const indexHtml = join(process.env.DIST, 'index.html')
 function createWindow() {
   const options = getBrowserWindowOptions(preload);
   options.show = false;
-  win = new BrowserWindow(options);
+  const win = new BrowserWindow(options);
+  setMainWindow(win);
   
   win.once('ready-to-show', () => {
-    win?.show();
+    if (!win.isDestroyed()) win.show();
+  });
+
+  // Closing the main window quits the app (torn windows close with it), through the same
+  // confirm-quit / teardown flow as Cmd+Q.
+  win.on('close', (e) => {
+    if (quitConfirmed) return;
+    e.preventDefault();
+    setImmediate(() => app.quit());
+  });
+  win.on('closed', () => {
+    setMainWindow(null);
   });
   
   setupSecurityPolicies(win.webContents, process.env.VITE_DEV_SERVER_URL, indexHtml);
-  bindWindowEvents(win, () => getBackendConfig().confirmQuit ?? false);
+  bindWindowEvents(win);
 
   if (app.isPackaged) {
     win.loadFile(join(__dirname, '../../dist/index.html'))
@@ -198,6 +250,8 @@ function createWindow() {
 import { SecureCenter } from './security/SecureCenter'
 import { nexusBridge } from './nexus/nexusBridge'
 import { TornWindowManager } from './windowManager'
+import { broadcastToAllWindows, getMainWindow, setMainWindow } from './windowRegistry'
+import { killAllSessions } from './handlers/sshHandler'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { DatabaseManager } from './services/DatabaseManager'
 import { mcpManager } from './services/mcp/McpManager'
@@ -235,18 +289,22 @@ app.whenReady().then(async () => {
 
   Menu.setApplicationMenu(null);
 
-  // Setup IPC Handlers before window creation to ensure early IPC works
-  registerAllIpcHandlers(ipcMain, app, () => win);
+  // Setup IPC Handlers before window creation to ensure early IPC works.
+  // None of these depend on the database; plugins are only loaded after bootstrap below.
+  registerAllIpcHandlers(ipcMain, app, () => getMainWindow());
   nexusBridge.setupIpcHandlers();
+  nexusBridge.setupStateBroadcaster();
+  TornWindowManager.getInstance().init();
+
+  const pluginManager = new PluginManager();
+  pluginManager.setupIPC();
+  SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
   
   // Show UI instantly without waiting for heavy async operations
   createWindow();
-  if (win) {
-    nexusBridge.setupStateBroadcaster();
-  }
   
   // Init GETSSH Secure Center (RASP)
-  SecureCenter.getInstance().start(() => win);
+  SecureCenter.getInstance().start();
 
   // Init Model Context Protocol (MCP) Manager
   mcpManager.init().catch(err => {
@@ -260,16 +318,14 @@ app.whenReady().then(async () => {
     const appKeyPathPlain = join(appDataDir, 'app_key.txt');
     const fs = require('fs');
     const crypto = require('crypto');
-    const { safeStorage } = require('electron');
+    const { isSecretStoreAvailable, readSecretFile, writeSecretFile } = require('./security/secretStore');
 
     fs.mkdirSync(appDataDir, { recursive: true, mode: 0o700 });
 
     if (fs.existsSync(appKeyPathEnc)) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('OS secure storage is unavailable for the existing encrypted app key');
-      }
-      const encryptedKey = fs.readFileSync(appKeyPathEnc);
-      const appKeyStr = safeStorage.decryptString(encryptedKey);
+      // The key is 64 hex characters; anything else means the wrong key decrypted the file, and the
+      // file is then neither used nor rewritten.
+      const appKeyStr: string = readSecretFile(appKeyPathEnc, (value: string) => /^[0-9a-f]{64}$/i.test(value));
       appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
     } else if (fs.existsSync(appKeyPathPlain)) {
       const appKeyStr = fs.readFileSync(appKeyPathPlain, 'utf8');
@@ -277,9 +333,8 @@ app.whenReady().then(async () => {
     } else {
       // First boot: generate key
       const newKey = crypto.randomBytes(32).toString('hex');
-      if (safeStorage.isEncryptionAvailable()) {
-        const encryptedKey = safeStorage.encryptString(newKey);
-        fs.writeFileSync(appKeyPathEnc, encryptedKey, { mode: 0o600 });
+      if (isSecretStoreAvailable()) {
+        writeSecretFile(appKeyPathEnc, newKey);
       } else {
         fs.writeFileSync(appKeyPathPlain, newKey, { mode: 0o600 });
       }
@@ -293,7 +348,10 @@ app.whenReady().then(async () => {
     console.error('Failed to initialize or retrieve global app key', e);
     dialog.showErrorBox(
       'GETSSH secure storage error',
-      'GETSSH could not initialize its encrypted database key. The application will close without opening the database.'
+      'GETSSH could not initialize its encrypted database key. The application will close without opening the database.' +
+        (process.platform === 'darwin'
+          ? '\n\nIf macOS asked whether GETSSH may use its "Safe Storage" Keychain item, reopen GETSSH and choose "Always Allow".'
+          : '')
     );
     app.exit(1);
     return;
@@ -316,16 +374,10 @@ app.whenReady().then(async () => {
     appKeyBuffer = null;
   }
   
-  // Background asynchronous heavy initialization (workspaces, plugins, hollow windows)
+  // Background asynchronous heavy initialization (workspaces, plugins)
   bootstrapAppWorkspace().then(async () => {
-    TornWindowManager.getInstance().init();
-    
-    const pluginManager = new PluginManager();
-    pluginManager.setupIPC();
     await pluginManager.loadPlugins();
-    
-    SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
-  }).catch(console.error);
+  }).catch(console.error).finally(() => pluginManager.markInitialLoadDone());
   
   protocol.handle('getssh-plugin', (request) => {
     try {
@@ -465,45 +517,107 @@ app.whenReady().then(async () => {
   });
 })
 
-app.on('browser-window-created', (e, window) => {
-  window.on('close', () => {
-    // Trigger quit if this is the last visible window (ignoring background hollow windows)
-    const visibleWindows = BrowserWindow.getAllWindows().filter(w => w.isVisible() && w !== window);
-    if (visibleWindows.length === 0) {
-      app.quit();
-    }
+// Quit flow (Cmd+Q, closing the main window, window-all-closed):
+// 1. 'before-quit' asks once when Confirm Quit is on. Cancel prevents the quit and nothing is torn down.
+// 2. Electron closes every window (torn windows do not close their tabs while quitting).
+// 3. 'will-quit' runs the teardown once and waits for it (bounded) before the app really quits.
+let quitConfirmed = false
+let quitPromptOpen = false
+let quitTeardownStarted = false
+let quitTeardownDone = false
+const QUIT_TEARDOWN_TIMEOUT_MS = 3000
+
+app.on('before-quit', (e) => {
+  if (!quitConfirmed && (getBackendConfig().confirmQuit ?? false)) {
+    e.preventDefault();
+    if (quitPromptOpen) return;
+    quitPromptOpen = true;
+    const options: Electron.MessageBoxOptions = {
+      type: 'question',
+      buttons: ['Cancel', 'Quit'],
+      defaultId: 1,
+      cancelId: 0,
+      title: 'Confirm Quit',
+      message: 'Are you sure you want to quit GETSSH?',
+      detail: 'All active SSH terminal connections and running tasks will be disconnected immediately.'
+    };
+    const parent = BrowserWindow.getFocusedWindow() ?? getMainWindow();
+    (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options))
+      .then(({ response }) => {
+        quitPromptOpen = false;
+        if (response !== 1) return;
+        quitConfirmed = true;
+        app.quit();
+      })
+      .catch((err) => {
+        quitPromptOpen = false;
+        console.error('[Main] Confirm-quit dialog failed:', err);
+      });
+    return;
+  }
+  quitConfirmed = true;
+  TornWindowManager.getInstance().prepareForQuit();
+})
+
+async function runQuitTeardown() {
+  // Gracefully deactivate all plugins and release the watchdog before the process exits
+  try {
+    SecureCenter.getInstance().gracefulShutdown();
+  } catch (err) {
+    console.error('[Main] Secure Center shutdown failed:', err);
+  }
+  // Clean up all sessions (PTY/SSH/Telnet) so audit records are flushed and no zombie processes remain
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[Main] Session teardown still running after ${QUIT_TEARDOWN_TIMEOUT_MS} ms; quitting anyway.`);
+      resolve();
+    }, QUIT_TEARDOWN_TIMEOUT_MS);
   });
-});
+  const sessions = Promise.resolve()
+    .then(() => killAllSessions(app))
+    .catch((err) => console.error('[Main] Session teardown failed:', err));
+  await Promise.race([sessions, timeout]);
+  clearTimeout(timer);
+}
+
+app.on('will-quit', (e) => {
+  if (quitTeardownDone) return;
+  e.preventDefault();
+  if (quitTeardownStarted) return;
+  quitTeardownStarted = true;
+  runQuitTeardown().finally(() => {
+    quitTeardownDone = true;
+    app.quit();
+  });
+})
 
 app.on('window-all-closed', () => {
-  win = null
-  // Clean up all sessions (PTY/SSH/Telnet) to prevent zombie processes
-  import('./handlers/sshHandler').then(({ killAllSessions }) => {
-    killAllSessions(app).catch(console.error);
-  });
+  // Normally the main window's close already started the quit. If the windows went away some other
+  // way there is no UI left to cancel from, so quit without asking.
+  quitConfirmed = true
   app.quit()
 })
 
-app.on('before-quit', () => {
-  // Gracefully deactivate all plugins before the process exits
-  SecureCenter.getInstance().gracefulShutdown();
-  import('./handlers/sshHandler').then(({ killAllSessions }) => {
-    killAllSessions(app).catch(console.error);
-  });
-})
-
 app.on('activate', () => {
-  if (win === null) createWindow()
+  if (quitConfirmed) return
+  const main = getMainWindow()
+  if (!main) {
+    createWindow()
+    return
+  }
+  // Bring back a main window that was minimized or hidden by the global hotkey.
+  if (main.isMinimized()) main.restore()
+  if (!main.isVisible()) main.show()
 })
 
+// Privacy blur is app-level: moving focus between GETSSH windows is not a blur.
 app.on('browser-window-blur', () => {
-  if (win && !win.isDestroyed()) {
-    try { win.webContents.send('app-blur'); } catch (e) {}
-  }
+  setTimeout(() => {
+    if (!BrowserWindow.getFocusedWindow()) broadcastToAllWindows('app-blur');
+  }, 50);
 })
 
 app.on('browser-window-focus', () => {
-  if (win && !win.isDestroyed()) {
-    try { win.webContents.send('app-focus'); } catch (e) {}
-  }
+  broadcastToAllWindows('app-focus');
 })

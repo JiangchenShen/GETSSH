@@ -116,7 +116,8 @@ export const InputArea: React.FC<{
   setPrompt: React.Dispatch<React.SetStateAction<string>>;
   isGenerating: boolean;
   onSubmit: (e: React.FormEvent) => void;
-}> = ({ prompt, setPrompt, isGenerating, onSubmit }) => {
+  formId?: string;
+}> = ({ prompt, setPrompt, isGenerating, onSubmit, formId = 'ai-chat-form' }) => {
   const isDark = useAppStore(state => state.isDark);
   const appConfig = useAppStore(state => state.appConfig);
   const updateConfig = useAppStore(state => state.updateConfig);
@@ -331,7 +332,7 @@ export const InputArea: React.FC<{
                 <button 
                   onClick={() => {
                     setActiveMenu(null);
-                    window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'ai', title: 'AI CENTER' } }));
+                    window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: '设置', settingsTab: 'AI' } }));
                   }}
                   className={`text-[10px] font-semibold flex items-center gap-0.5 ${isDark ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'}`}
                   title="切换 API Key 或绑定其他提供商"
@@ -516,7 +517,7 @@ export const InputArea: React.FC<{
       </AnimatePresence>
 
       {/* ── Input Form ── */}
-      <form id="ai-chat-form" onSubmit={onSubmit} className="flex flex-col gap-2 relative">
+      <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-2 relative">
         <textarea
           value={prompt}
           onChange={e => setPrompt(e.target.value)}

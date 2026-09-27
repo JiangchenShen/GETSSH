@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { Settings, Plus, Sparkles, Home } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 /**
  * 工作区导轨。
@@ -15,27 +15,7 @@ import { Settings, Plus, Sparkles, Home } from 'lucide-react';
  * 所以这里保持透明，让根容器的底色（以及开了毛玻璃时的透射）透上来。
  */
 
-interface GlobalWorkspaceBarProps {
-  onHomeClick: () => void;
-}
-
-const RailIcon: React.FC<{
-  onClick: () => void;
-  title: string;
-  children: React.ReactNode;
-}> = ({ onClick, title, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    title={title}
-    className="w-[34px] h-[34px] rounded-[9px] grid place-items-center text-ink-3
-               transition-colors hover:bg-surf hover:text-ink-2"
-  >
-    {children}
-  </button>
-);
-
-export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeClick }) => {
+export const GlobalWorkspaceBar: React.FC = () => {
   const { t } = useTranslation();
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const isMac = useAppStore(state => state.isMac);
@@ -44,7 +24,6 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
   const setIsCreateModalOpen = useWorkspaceStore(state => state.setIsCreateModalOpen);
-  const setIsAiCenterOpen = useAppStore(state => state.setIsAiCenterOpen);
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -74,7 +53,7 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
 
   return (
     <div className={`drag-region h-full w-full flex flex-col items-center gap-2 pb-3.5 ${topPad}
-                     border-r border-line-soft`}>
+                     workspace-rail-divider ${isMac && !isFullScreen ? 'workspace-rail-divider-titlebar' : ''}`}>
 
       {/* 工作区 */}
       <div className="no-drag-region flex-1 min-h-0 w-full flex flex-col items-center gap-2 overflow-y-auto">
@@ -101,7 +80,8 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
               <button
                 type="button"
                 onClick={() => handleWorkspaceSwitch(wsId)}
-                title={name}
+                title={isActive ? `${name} · ${t('statusBar.workspace')}` : name}
+                aria-label={isActive ? `${name} · ${t('statusBar.workspace')}` : name}
                 style={isActive ? activeStyle : undefined}
                 className={`w-[34px] h-[34px] rounded-[9px] grid place-items-center border
                             text-[13px] font-semibold transition-colors ${
@@ -127,23 +107,6 @@ export const GlobalWorkspaceBar: React.FC<GlobalWorkspaceBarProps> = ({ onHomeCl
         </button>
       </div>
 
-      {/* 主页 / AI / 设置 */}
-      <div className="no-drag-region flex flex-col items-center gap-1.5">
-        <RailIcon onClick={onHomeClick} title={t('tabs.home')}>
-          <Home className="w-[17px] h-[17px]" />
-        </RailIcon>
-        <RailIcon onClick={() => setIsAiCenterOpen(true)} title={t('statusBar.aiAssistant')}>
-          <Sparkles className="w-[17px] h-[17px]" />
-        </RailIcon>
-        <RailIcon
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
-            detail: { type: 'settings', title: t('statusBar.settings') }
-          }))}
-          title={t('statusBar.settings')}
-        >
-          <Settings className="w-[17px] h-[17px]" />
-        </RailIcon>
-      </div>
     </div>
   );
 };

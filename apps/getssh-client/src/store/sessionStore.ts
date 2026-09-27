@@ -1,10 +1,15 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+// Only read inside actions: workspaceStore imports this module too.
+import { useWorkspaceStore } from './workspaceStore';
+import { stripConnectionSecrets } from '../utils/connectionProfile';
 
 // ── Pane Layout Tree ──────────────────────────────────────────────────────
 
 export interface SSHConnectConfig {
     pluginUrl?: string;
+    profileId?: string;
+    workspaceId?: string;
     protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
     host: string;
     port: number;
@@ -24,7 +29,7 @@ export interface SSHConnectConfig {
     themeOverride?: string;
 }
 
-export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings' } | null;
+export type PaneConfig = SSHConnectConfig | { pluginUrl: string } | { pluginId: string } | { isSettings: true } | { centerType: 'ai' | 'plugin' | 'secure' | 'workspace' | 'settings'; settingsTab?: string; workspacePage?: string } | null;
 
 export const isSSHConfig = (config: PaneConfig): config is SSHConnectConfig => {
   return config !== null && typeof config === 'object' && !('isSettings' in config) && !('pluginUrl' in config) && !('pluginId' in config) && !('centerType' in config);
@@ -55,6 +60,7 @@ export interface Tab {
   id: string;
   title: string;
   config: PaneConfig;
+  workspaceId?: string;
   paneTree?: PaneNode;
   isTornOff?: boolean;
 }
@@ -72,6 +78,7 @@ export interface FloatingAiContext {
 export interface SessionProfile {
   id?: string;
   isDraft?: boolean;
+  isQuickConnect?: boolean; // Temporary connection; never persist as a saved profile.
   protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   username: string;
@@ -98,6 +105,8 @@ export interface SessionProfile {
   // Appearance
   themeOverride?: string;
 }
+
+export const savedProfiles = (sessions: SessionProfile[]) => sessions.filter(session => !session.isDraft && !session.isQuickConnect);
 
 // ── Store ─────────────────────────────────────────────────────────────────
 
@@ -132,9 +141,10 @@ interface SessionStore {
   switchWorkspace: (targetWorkspaceId: string) => Promise<boolean>;
 
   // ⚡ NEXUS CORE SYNC RECEIVERS (Dumb terminal architecture)
-  syncNexusTree: (tabId: string, title: string, tree: PaneNode | null, isTornOff?: boolean) => void;
+  syncNexusTree: (payload: NexusTabSync) => void;
   patchNexusLeaf: (paneId: string, updates: Partial<PaneLeaf>) => void;
-  patchNexusSizes: (tabId: string, splitPaneId: string, sizes: [number, number]) => void;
+  /** Local-only while dragging; pass `commit` once (pointerup) to persist the sizes in nexus-core. */
+  patchNexusSizes: (tabId: string, splitPaneId: string, sizes: [number, number], commit?: boolean) => void;
   
   // Internal Legacy overrides (for compat)
   closeTab: (tabId: string) => void;
@@ -152,6 +162,60 @@ export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] 
     collectSessionIds(node.children[1], acc);
   }
   return acc;
+}
+
+export function treeHasPane(node: PaneNode, paneId: string): boolean {
+  if (node.paneId === paneId) return true;
+  return node.type !== 'leaf' && (treeHasPane(node.children[0], paneId) || treeHasPane(node.children[1], paneId));
+}
+
+export function firstLeafId(node: PaneNode): string {
+  return node.type === 'leaf' ? node.paneId : firstLeafId(node.children[0]);
+}
+
+/**
+ * nexus:* handlers resolve to `{ success:false, error }` instead of throwing (e.g. native module missing).
+ * Normalise both failure shapes and log them so a failed layout call is never silent.
+ */
+export async function callNexus<T extends { success: boolean; error?: string }>(
+  action: string,
+  call: Promise<T> | undefined,
+): Promise<Partial<T> & { success: boolean; error?: string }> {
+  try {
+    const res = await call;
+    if (res?.success) return res;
+    console.error(`[Nexus] ${action} failed:`, res?.error ?? 'no result');
+    return { ...res, success: false, error: res?.error ?? 'no_result' } as Partial<T> & { success: boolean; error?: string };
+  } catch (e: any) {
+    console.error(`[Nexus] ${action} failed:`, e);
+    return { success: false, error: e?.message || String(e) } as Partial<T> & { success: boolean; error?: string };
+  }
+}
+
+// Highest applied sync revision per tab; payloads can arrive out of order across IPC paths.
+const lastNexusRev = new Map<string, number>();
+// Last pane the user focused in each tab, restored when the tab is re-selected.
+const lastPaneByTab = new Map<string, string>();
+
+type SessionDraft = { tabs: Tab[]; activeTabId: string | null; activePaneId: string | null };
+
+// Replacement for a closed/hidden active tab: last non-torn tab of the ACTIVE workspace (App renders only those).
+function pickReplacementTab(state: SessionDraft): string | null {
+  const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+  const candidates = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff && (t.workspaceId ?? workspaceId) === workspaceId);
+  return candidates.length > 0 ? candidates[candidates.length - 1].id : null;
+}
+
+// Keep activePaneId inside the active tab: remembered pane, else the first leaf.
+function reconcileActivePane(state: SessionDraft) {
+  const tab = state.activeTabId ? state.tabs.find(t => t.id === state.activeTabId) : undefined;
+  if (!tab?.paneTree) {
+    state.activePaneId = null;
+    return;
+  }
+  if (state.activePaneId && treeHasPane(tab.paneTree, state.activePaneId)) return;
+  const remembered = lastPaneByTab.get(tab.id);
+  state.activePaneId = remembered && treeHasPane(tab.paneTree, remembered) ? remembered : firstLeafId(tab.paneTree);
 }
 
 // Immer mutators for deep tree patches
@@ -198,8 +262,16 @@ export const useSessionStore = create<SessionStore>()(
     setSessions: (sessions) => set(state => { state.sessions = sessions; }),
     setExpandedGroups: (expandedGroups) => set(state => { state.expandedGroups = expandedGroups; }),
     setTabs: (tabs) => set(state => { state.tabs = tabs; }),
-    setActiveTabId: (id) => set(state => { state.activeTabId = id }),
-    setActivePaneId: (id) => set(state => { state.activePaneId = id }),
+    setActiveTabId: (id) => set(state => {
+      state.activeTabId = id;
+      reconcileActivePane(state);
+    }),
+    setActivePaneId: (id) => set(state => {
+      state.activePaneId = id;
+      if (!id) return;
+      const owner = state.tabs.find(t => t.paneTree && treeHasPane(t.paneTree, id));
+      if (owner) lastPaneByTab.set(owner.id, id);
+    }),
     setSelectedSessionIndex: (idx) => set(state => { state.selectedSessionIndex = idx }),
     setFloatingAiContext: (ctx) => set(state => { state.floatingAiContext = ctx }),
     setConnecting: (val) => set(state => { state.connecting = val }),
@@ -255,67 +327,55 @@ export const useSessionStore = create<SessionStore>()(
     },
 
     // ⚡ NEXUS RECEIVERS
-    syncNexusTree: (tabId: string, title: string, tree: any, isTornOff?: boolean) => set(state => {
+    syncNexusTree: (payload) => set(state => {
+      const { tabId, rev, tree, title, isTornOff, workspaceId } = payload;
+      if (typeof rev === 'number') {
+        if (rev <= (lastNexusRev.get(tabId) ?? 0)) return;
+        lastNexusRev.set(tabId, rev);
+      }
       const tabIndex = state.tabs.findIndex(t => t.id === tabId);
-      
-      // If tree is null, we are deleting the tab (pane closed)
-      if (!tree && tabIndex >= 0) {
+
+      // tree === null: the tab no longer exists. Unknown tabs are ignored (no phantom tabs).
+      if (!tree) {
+        if (tabIndex < 0) return;
         state.tabs.splice(tabIndex, 1);
-        if (state.activeTabId === tabId) {
-          const sshTabs = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
-          state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
-          state.activePaneId = null;
-        }
-        if (new URLSearchParams(window.location.search).get('isHollow') === 'true') {
-          setTimeout(() => {
-            window.electronAPI?.windowSelfClose();
-          }, 50);
-        }
+        lastPaneByTab.delete(tabId);
+        if (state.activeTabId === tabId) state.activeTabId = pickReplacementTab(state);
+        reconcileActivePane(state);
         return;
       }
 
-      const tab = state.tabs.find(t => t.id === tabId);
+      const tab = tabIndex >= 0 ? state.tabs[tabIndex] : undefined;
       if (tab) {
+        const wasTornOff = !!tab.isTornOff;
         tab.paneTree = tree;
-        if (tab.title !== title && title !== "") tab.title = title;
-        if (tab.isTornOff && !isTornOff) {
+        if (title && tab.title !== title) tab.title = title;
+        if (workspaceId) tab.workspaceId = workspaceId;
+        tab.isTornOff = !!isTornOff;
+        if (wasTornOff && !tab.isTornOff) {
+          // Torn back in: only bring it forward when it belongs to the workspace on screen.
+          const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+          if ((tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId) {
             state.activeTabId = tabId;
-            let firstLeafId: string | null = null;
-            const traverse = (n: any) => {
-              if (n.type === 'leaf') {
-                if (!firstLeafId) firstLeafId = n.paneId;
-              } else if (n.children) {
-                if (n.children[0]) traverse(n.children[0]);
-                if (n.children[1] && !firstLeafId) traverse(n.children[1]);
-              }
-            };
-            if (tree) traverse(tree);
-            if (firstLeafId) state.activePaneId = firstLeafId;
-        }
-        tab.isTornOff = isTornOff || false;
-      } else {
-        let finalTitle = title;
-        try {
-          finalTitle = finalTitle || (window as any).__tornTitle || 'Torn Tab';
-          if (finalTitle === 'Torn Tab' && tree.type === 'leaf') {
-            if (tree.paneType === 'plugin') finalTitle = 'Torn Plugin';
-            if (tree.paneType === 'terminal') finalTitle = 'Torn Terminal';
+            state.activePaneId = firstLeafId(tree);
           }
-          delete (window as any).__tornTitle;
-          
-          state.tabs.push({
-            id: tabId,
-            title: finalTitle,
-            config: null as any,
-            paneTree: tree,
-            isTornOff: isTornOff || false,
-          });
-        } catch (err: any) {
-          console.error('[SessionStore] syncNexusTree PUSH CRASHED!', err?.message);
+        } else if (!wasTornOff && tab.isTornOff && state.activeTabId === tabId) {
+          // The whole tab moved to its own window; the main view shows another tab of this workspace.
+          state.activeTabId = pickReplacementTab(state);
         }
-        // We DO NOT auto-switch activeTabId here. 
-        // The Hollow window explicit renders it via tornPaneId, and the main window shouldn't focus it.
+      } else {
+        // Tabs first seen through sync (tear-off subtree, other windows). Never auto-focused here.
+        const rootConfig = tree.type === 'leaf' ? tree.config : null;
+        state.tabs.push({
+          id: tabId,
+          title: title || (tree.type === 'leaf' && tree.paneType === 'plugin' ? 'Plugin' : 'Terminal'),
+          config: rootConfig ?? null,
+          workspaceId: workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId,
+          paneTree: tree,
+          isTornOff: !!isTornOff,
+        });
       }
+      reconcileActivePane(state);
     }),
 
     patchNexusLeaf: (paneId, updates) => set(state => {
@@ -326,36 +386,33 @@ export const useSessionStore = create<SessionStore>()(
         }
       });
       if (patched && updates.isDisconnected !== undefined) {
-          window.electronAPI.nexusSetDisconnected(paneId, updates.isDisconnected).catch(console.error);
+          void callNexus('set-disconnected', window.electronAPI.nexusSetDisconnected(paneId, updates.isDisconnected));
       }
     }),
 
-    patchNexusSizes: (tabId, splitPaneId, sizes) => set(state => {
-      const tab = state.tabs.find(t => t.id === tabId);
-      if (tab?.paneTree) {
-        mutateSizesInTree(tab.paneTree, splitPaneId, sizes);
-        window.electronAPI.nexusUpdateSizes(splitPaneId, sizes).catch(console.error);
-      }
-    }),
+    patchNexusSizes: (tabId, splitPaneId, sizes, commit = false) => {
+      set(state => {
+        const tab = state.tabs.find(t => t.id === tabId);
+        if (tab?.paneTree) mutateSizesInTree(tab.paneTree, splitPaneId, sizes);
+      });
+      if (commit) void callNexus('update-sizes', window.electronAPI.nexusUpdateSizes(splitPaneId, sizes));
+    },
 
     closeTab: (tabId) => {
-      const { activeTabId } = get();
+      const tab = get().tabs.find(t => t.id === tabId);
+      // Session ids come from the tree only: a tab id may equal a session that now lives in another tab.
+      const sessionIds = tab?.paneTree ? collectSessionIds(tab.paneTree) : [];
       set((state) => {
-        const tab = state.tabs.find(t => t.id === tabId);
-        if (tab?.paneTree) {
-          collectSessionIds(tab.paneTree).forEach(sid => {
-            if (sid !== tabId) window.electronAPI.sshDisconnect(sid);
-          });
-        }
         state.tabs = state.tabs.filter(t => t.id !== tabId);
-        if (activeTabId === tabId) {
-          const sshTabs = state.tabs.filter(t => t.id !== 'settings' && !t.isTornOff);
-          state.activeTabId = sshTabs.length > 0 ? sshTabs[sshTabs.length - 1].id : null;
-          state.activePaneId = null;
-        }
+        lastPaneByTab.delete(tabId);
+        if (state.activeTabId === tabId) state.activeTabId = pickReplacementTab(state);
+        reconcileActivePane(state);
       });
-      window.electronAPI.sshDisconnect(tabId);
-      window.electronAPI.nexusCloseTab(tabId).catch(console.error);
+      // nexus-core closes the tab and the main process disconnects its sessions.
+      // Disconnect here only when that path is unavailable.
+      void callNexus('close-tab', window.electronAPI.nexusCloseTab(tabId)).then(res => {
+        if (!res.success) sessionIds.forEach(sid => window.electronAPI.sshDisconnect(sid));
+      });
     },
 
     registerPluginPanel: (pluginId, panelId, title, renderUrl) => set(state => {
@@ -366,27 +423,33 @@ export const useSessionStore = create<SessionStore>()(
       const { registeredPanels } = get();
       const panel = registeredPanels[panelId];
       if (!panel) return;
-      const tabId = `panel-${pluginId}-${panelId}`;
+      const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+      // Tab ids are global in nexus-core, so one panel tab per workspace.
+      const tabId = `panel-${workspaceId}-${pluginId}-${panelId}`;
+      const paneId = `${tabId}-pane`;
+      if (get().tabs.some(t => t.id === tabId)) {
+        get().setActiveTabId(tabId);
+        return;
+      }
       set(state => {
-        if (state.tabs.find(t => t.id === tabId)) {
-          state.activeTabId = tabId;
-          return;
-        }
         state.tabs.push({
           id: tabId,
           title: panel.title,
           config: { pluginUrl: panel.renderUrl },
+          workspaceId,
           paneTree: {
             type: 'leaf',
-            paneId: tabId,
+            paneId,
             paneType: 'plugin',
             sessionId: null,
             config: { pluginUrl: panel.renderUrl }
           }
         });
         state.activeTabId = tabId;
-        state.activePaneId = tabId;
+        state.activePaneId = paneId;
       });
+      // Registered like every other tab so the pane's close/zoom buttons reach nexus-core.
+      void callNexus('register plugin panel tab', window.electronAPI.nexusRegisterTab(tabId, paneId, '', 'plugin', JSON.stringify(stripConnectionSecrets({ pluginUrl: panel.renderUrl })), panel.title, workspaceId));
     }
   }))
 );

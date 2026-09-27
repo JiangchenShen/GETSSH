@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { SecureCenter } from '../security/SecureCenter';
+import { getMainWindow } from '../windowRegistry';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -60,9 +61,9 @@ export function registerAgentHandlers(ipcMain: Electron.IpcMain) {
         return { success: false, error: result.reason };
      }
 
-     // If allowed, dispatch to active window for Human-in-the-loop review
-     const win = require('electron').BrowserWindow.getAllWindows()[0];
-     if (win && !win.isDestroyed()) {
+     // If allowed, dispatch to the main window for Human-in-the-loop review
+     const win = getMainWindow();
+     if (win) {
         win.webContents.send('app:agent-propose', {
            id: Date.now().toString(),
            intent: payload.intent || 'Autonomous Execution',

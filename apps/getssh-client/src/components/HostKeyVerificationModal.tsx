@@ -4,14 +4,18 @@ import { ShieldAlert, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 
 export const HostKeyVerificationModal: React.FC = () => {
-  const securityPrompt = useAppStore(state => state.securityPrompt);
+  // Prompts are queued; show the oldest one. The next one appears once this is answered.
+  const securityPrompt = useAppStore(state => state.securityPrompts[0]);
+  const pendingCount = useAppStore(state => state.securityPrompts.length);
   const resolveSecurityPrompt = useAppStore(state => state.resolveSecurityPrompt);
   const isDark = useAppStore(state => state.isDark);
   const { t } = useTranslation();
-  const [mitmAcknowledged, setMitmAcknowledged] = useState(false);
+  // The MITM acknowledgement belongs to one request; it must not carry over to the next queued prompt.
+  const [acknowledgedRequestId, setAcknowledgedRequestId] = useState<string | null>(null);
 
-  if (!securityPrompt || !securityPrompt.isOpen) return null;
+  if (!securityPrompt) return null;
 
+  const mitmAcknowledged = acknowledgedRequestId === securityPrompt.requestId;
   const isMitm = securityPrompt.isChanged;
   const canAccept = !isMitm || mitmAcknowledged;
 
@@ -33,6 +37,9 @@ export const HostKeyVerificationModal: React.FC = () => {
           <h2 className="text-xl font-bold">
             {isMitm ? t('hostKey.mitmTitle', 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!') : t('hostKey.title')}
           </h2>
+          {pendingCount > 1 && (
+            <span className="ml-auto shrink-0 text-xs font-medium opacity-70">1 / {pendingCount}</span>
+          )}
         </div>
 
         <div className="flex flex-col gap-3">
@@ -82,7 +89,7 @@ export const HostKeyVerificationModal: React.FC = () => {
               type="checkbox" 
               className="mt-0.5 accent-red-500"
               checked={mitmAcknowledged}
-              onChange={(e) => setMitmAcknowledged(e.target.checked)}
+              onChange={(e) => setAcknowledgedRequestId(e.target.checked ? securityPrompt.requestId : null)}
             />
             <span className="text-sm font-medium">
               {t('hostKey.mitmAck', 'I understand the risks and want to update the known host fingerprint.')}

@@ -1,4 +1,5 @@
-import { IpcMainInvokeEvent, BrowserWindow, app, safeStorage } from 'electron';
+import { IpcMainInvokeEvent, BrowserWindow, app } from 'electron';
+import { isSecretStoreAvailable, readSecretFile, writeSecretFile } from '../security/secretStore';
 import { streamLLM, fetchAvailableModels } from '../services/llmService';
 import { AgentEngine } from '../services/AgentEngine';
 import { MicroContextAssembler } from '../services/MicroContextAssembler';
@@ -29,9 +30,8 @@ function getSecureApiKey(provider = 'default'): string {
   }
   if (!fs.existsSync(vaultPath)) return '';
   try {
-    const encrypted = fs.readFileSync(vaultPath);
-    if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString(encrypted);
+    if (isSecretStoreAvailable()) {
+      return readSecretFile(vaultPath);
     }
   } catch (e) {
     console.error('[AI Gateway] Failed to decrypt AI API Key:', e);
@@ -55,9 +55,8 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     }
     if (!apiKey) return { success: false };
     try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(apiKey);
-        fs.writeFileSync(getAiVaultPath(provider), encrypted);
+      if (isSecretStoreAvailable()) {
+        writeSecretFile(getAiVaultPath(provider), apiKey);
         return { success: true };
       }
       return { success: false, error: 'OS Keychain encryption unavailable' };
@@ -217,7 +216,9 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
           ipcMain.on('ai-agent-approve', listener);
           requestSender.once('destroyed', senderDestroyed);
           if (!requestSender.isDestroyed()) {
-            requestSender.send('ai-agent-approval-request', { requestId: approvalId, command });
+            // streamRequestId only routes the card to the right conversation; the reply is still
+            // accepted solely for this fresh approvalId from the originating top-level WebContents.
+            requestSender.send('ai-agent-approval-request', { requestId: approvalId, streamRequestId: requestId, command });
           } else {
             finish(false);
           }

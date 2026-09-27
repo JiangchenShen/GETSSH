@@ -159,7 +159,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { registerSyncTreeCallback, requestSplit, requestReplacePane, requestClosePane, requestToggleZoom, requestUpdateSizes, requestPatchLeaf, requestTearOff, requestTearIn, requestCloseTab, registerTab, initNexusCore, bootstrapWorkspace, applyWorkspaceNetwork, clearNetworkTopology, subscribePtyStream } = nativeBinding
+const { registerSyncTreeCallback, requestSplit, requestReplacePane, requestClosePane, requestToggleZoom, requestUpdateSizes, requestPatchLeaf, requestTearOff, requestTearIn, requestMarkSessionDisconnected, requestCloseTab, registerTab, getTabSnapshot, initNexusCore, bootstrapWorkspace, applyWorkspaceNetwork, clearNetworkTopology } = nativeBinding
 
 module.exports.registerSyncTreeCallback = registerSyncTreeCallback
 module.exports.requestSplit = requestSplit
@@ -170,10 +170,11 @@ module.exports.requestUpdateSizes = requestUpdateSizes
 module.exports.requestPatchLeaf = requestPatchLeaf
 module.exports.requestTearOff = requestTearOff
 module.exports.requestTearIn = requestTearIn
+module.exports.requestMarkSessionDisconnected = requestMarkSessionDisconnected
 module.exports.requestCloseTab = requestCloseTab
 module.exports.registerTab = registerTab
+module.exports.getTabSnapshot = getTabSnapshot
 module.exports.initNexusCore = initNexusCore
 module.exports.bootstrapWorkspace = bootstrapWorkspace
 module.exports.applyWorkspaceNetwork = applyWorkspaceNetwork
 module.exports.clearNetworkTopology = clearNetworkTopology
-module.exports.subscribePtyStream = subscribePtyStream

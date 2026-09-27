@@ -1,106 +1,76 @@
-import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Check, X, ShieldOff } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppStore } from '../../../store/appStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
+
+const defaultRules = {
+  disableSftp: false,
+  disableTelnet: true,
+  strictHostKeyChecking: false,
+  preventDataExport: false,
+};
+
+type RuleKey = keyof typeof defaultRules;
 
 export const IsolationRulesTab: React.FC = () => {
   const { t } = useTranslation();
-  const isDark = useAppStore(state => state.isDark);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  const workspaces = useWorkspaceStore(state => state.workspaces);
-  const activeWs = workspaces.find(w => w.id === activeWorkspaceId);
-  
-  const [rules, setRules] = useState({
-    disableSftp: false,
-    disableTelnet: true,
-    strictHostKeyChecking: false,
-    preventDataExport: false
-  });
+  const activeWorkspace = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeWorkspaceId));
+  const [rules, setRules] = useState(defaultRules);
+  const [savingKey, setSavingKey] = useState<RuleKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeWs?.preferences?.isolationRules) {
-      setRules(prev => ({ ...prev, ...activeWs.preferences.isolationRules }));
-    }
-  }, [activeWs?.preferences]);
+    setRules({ ...defaultRules, ...activeWorkspace?.preferences?.isolationRules });
+    setError(null);
+  }, [activeWorkspaceId, activeWorkspace?.preferences?.isolationRules]);
 
-  const toggleRule = async (key: keyof typeof rules) => {
-    const newRules = { ...rules, [key]: !rules[key] };
-    setRules(newRules);
-
-    if (activeWorkspaceId && window.electronAPI?.updateWorkspacePreferences) {
-      const prefs = {
-        ...(activeWs?.preferences || {}),
-        isolationRules: newRules
-      };
-      await window.electronAPI.updateWorkspacePreferences(activeWorkspaceId, JSON.stringify(prefs));
+  const toggleRule = async (key: RuleKey) => {
+    if (!activeWorkspaceId || !window.electronAPI?.updateWorkspacePreferences || savingKey) return;
+    const nextRules = { ...rules, [key]: !rules[key] };
+    setSavingKey(key);
+    setError(null);
+    try {
+      const result = await window.electronAPI.updateWorkspacePreferences(activeWorkspaceId, JSON.stringify({
+        ...(activeWorkspace?.preferences || {}),
+        isolationRules: nextRules,
+      }));
+      if (!result.success) throw new Error(result.error || 'Could not save isolation rules.');
+      setRules(nextRules);
       await useWorkspaceStore.getState().initWorkspaces();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSavingKey(null);
     }
   };
 
-  const RuleItem = ({ id, icon: Icon, title, desc, danger = false }: any) => {
-    const isActive = rules[id as keyof typeof rules];
-    return (
-      <div className={`p-5 rounded-2xl border transition-all ${isDark ? 'bg-black/40 border-white/5 hover:border-white/10' : 'bg-white/40 border-black/5 hover:border-black/10'} flex items-center justify-between`}>
-        <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-xl ${danger && isActive ? 'bg-red-500/10 text-red-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
-            <Icon className="w-5 h-5" />
-          </div>
-          <div>
-            <h5 className="text-sm font-bold tracking-tight">{title}</h5>
-            <p className={`text-xs mt-0.5 ${isDark ? 'text-white/50' : 'text-black/50'}`}>{desc}</p>
-          </div>
-        </div>
-        <button 
-          onClick={() => toggleRule(id as any)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isActive ? (danger ? 'bg-red-500' : 'bg-indigo-500') : isDark ? 'bg-white/20' : 'bg-black/20'}`}
-        >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isActive ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
-      </div>
-    );
-  };
+  const items: { key: RuleKey; title: string; description: string }[] = [
+    { key: 'disableSftp', title: t('workspaceCenter.disableSftp', 'Disable SFTP File Transfers'), description: t('workspaceCenter.disableSftpDesc', 'Block file uploads and downloads for this workspace.') },
+    { key: 'disableTelnet', title: t('workspaceCenter.disableTelnet', 'Block Plaintext Protocols'), description: t('workspaceCenter.disableTelnetDesc', 'Prevent unencrypted protocols such as Telnet.') },
+    { key: 'strictHostKeyChecking', title: t('workspaceCenter.strictHostKeyChecking', 'Strict Host Key Checking'), description: t('workspaceCenter.strictHostKeyCheckingDesc', 'Reject a connection if its host key changes.') },
+    { key: 'preventDataExport', title: t('workspaceCenter.preventDataExport', 'Prevent Data Export'), description: t('workspaceCenter.preventDataExportDesc', 'Block profile exports from this workspace.') },
+  ];
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center gap-4">
-        <h4 className="text-4xl font-black tracking-tight flex items-center gap-4 text-white"><ShieldAlert className="w-10 h-10 text-indigo-500"/> {t("workspaceCenter.isolationRulesTitle", "Isolation Rules")}</h4>
-      </div>
-      
-      <div className="relative overflow-hidden p-8 bg-black/40 border border-indigo-500/20 flex flex-col gap-4 rounded-[32px] shadow-2xl backdrop-blur-xl">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-50 pointer-events-none" />
-        
-        <p className={`text-sm mb-4 relative z-10 ${isDark ? 'text-white/60' : 'text-black/60'}`}>
-          {t("workspaceCenter.isolationRulesDesc", "Configure strict security boundaries for this workspace. These rules apply to all connections within this database.")}
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
-          <RuleItem 
-            id="disableSftp" 
-            icon={ShieldOff} 
-            title={t("workspaceCenter.disableSftp", "Disable SFTP File Transfers")} 
-            desc={t("workspaceCenter.disableSftpDesc", "Block all file uploads and downloads for this workspace.")} 
-            danger 
-          />
-          <RuleItem 
-            id="disableTelnet" 
-            icon={ShieldAlert} 
-            title={t("workspaceCenter.disableTelnet", "Block Plaintext Protocols")} 
-            desc={t("workspaceCenter.disableTelnetDesc", "Prevent usage of unencrypted protocols like Telnet.")} 
-          />
-          <RuleItem 
-            id="strictHostKeyChecking" 
-            icon={Check} 
-            title={t("workspaceCenter.strictHostKeyChecking", "Strict Host Key Checking")} 
-            desc={t("workspaceCenter.strictHostKeyCheckingDesc", "Automatically reject connections if host key changes.")} 
-          />
-          <RuleItem 
-            id="preventDataExport" 
-            icon={X} 
-            title={t("workspaceCenter.preventDataExport", "Prevent Data Export")} 
-            desc={t("workspaceCenter.preventDataExportDesc", "Disable the ability to export profiles from this workspace.")} 
-          />
-        </div>
+    <div className="max-w-2xl">
+      <p className="mb-5 text-sm leading-6 text-ink-2">
+        {t('workspaceCenter.isolationRulesDesc', 'These rules apply to connections in the current workspace.')}
+      </p>
+      {error && <p role="alert" className="mb-4 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
+      <div className="border-y border-line">
+        {items.map(item => (
+          <div key={item.key} className="flex min-h-17 items-center justify-between gap-4 border-b border-line-soft py-4 last:border-0">
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium">{item.title}</h3>
+              <p className="mt-1 text-xs leading-5 text-ink-2">{item.description}</p>
+            </div>
+            <button type="button" role="switch" aria-checked={rules[item.key]} aria-label={item.title}
+              onClick={() => toggleRule(item.key)} disabled={!!savingKey}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--center-accent)] disabled:opacity-50 ${rules[item.key] ? 'bg-[var(--center-accent)]' : 'bg-line'}`}>
+              <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform ${rules[item.key] ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

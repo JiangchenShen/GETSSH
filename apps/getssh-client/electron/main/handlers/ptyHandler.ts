@@ -6,15 +6,17 @@
  *   - 'telnet' → raw net.Socket with Telnet NVT negotiation (vt100 termType for network gear)
  * 
  * Data path (both protocols):
- *   Main → Renderer: webContents.send(`ssh-data-${sessionId}`, str)
+ *   Main → Renderer: emitSessionData → every window gets (`ssh-data-${sessionId}`, str, endOffset)
  *   Main ← Renderer: ipcMain.on('ssh-write', { sessionId, data })   [reuses SSH write channel]
  *   Main ← Renderer: ipcMain.handle('ssh-connect', config)          [reuses SSH connect IPC]
  */
 
-import { BrowserWindow } from 'electron';
 import net from 'node:net';
+import { StringDecoder } from 'node:string_decoder';
 import { connectionManager } from '../services/ConnectionManager';
 import { sshBridge } from '../services/SSHBridge';
+import { emitSessionData } from '../services/SessionOutputBuffer';
+import { broadcastToAllWindows } from '../windowRegistry';
 
 // Lazy-load node-pty to avoid issues when native module not present
 let pty: typeof import('node-pty') | null = null;
@@ -33,6 +35,27 @@ function getPty() {
 const localPtyProcesses = new Map<string, import('node-pty').IPty>();
 // Track telnet sockets
 const telnetSockets = new Map<string, net.Socket>();
+
+/** Called when a local/telnet session ends, whether it was killed or ended on its own. */
+export type SessionEndedHandler = (sessionId: string) => void | Promise<void>;
+
+function emitOutput(sessionId: string, data: string) {
+  emitSessionData(sessionId, data);
+  sshBridge.broadcastData(sessionId, data);
+}
+
+/** Bookkeeping shared by every way a local/telnet session can end. Safe to run more than once. */
+async function finishSession(sessionId: string, onEnded: SessionEndedHandler) {
+  sessionProtocols.delete(sessionId);
+  sshBridge.cleanupSession(sessionId);
+  await connectionManager.removeSession(sessionId);
+  broadcastToAllWindows(`ssh-closed-${sessionId}`);
+  try {
+    await onEnded(sessionId);
+  } catch (e) {
+    console.error('[ptyHandler] session end handler failed', e);
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // LOCAL TERMINAL
@@ -73,7 +96,7 @@ export function getSafeShell(): string {
 export async function spawnLocalTerminal(
   config: any,
   sessionId: string,
-  getWindow: () => BrowserWindow | null
+  onEnded: SessionEndedHandler
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
   try {
     const ptyLib = getPty();
@@ -108,33 +131,24 @@ export async function spawnLocalTerminal(
 
     localPtyProcesses.set(sessionId, ptyProcess);
 
-    // Pipe PTY output → Renderer
+    // Pipe PTY output → every window (through the session output ring)
     ptyProcess.onData((data: string) => {
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        try { win.webContents.send(`ssh-data-${sessionId}`, data); } catch(e) {}
-      }
-      sshBridge.broadcastData(sessionId, data);
+      emitOutput(sessionId, data);
     });
 
+    // Fires both when the shell exits on its own and after killLocalPty
     ptyProcess.onExit(async () => {
-      localPtyProcesses.delete(sessionId);
-      await connectionManager.removeSession(sessionId);
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
-      }
+      if (localPtyProcesses.get(sessionId) === ptyProcess) localPtyProcesses.delete(sessionId);
+      await finishSession(sessionId, onEnded);
     });
 
     // Instant local OS fingerprint from process.platform
     const localOs = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'generic';
-    const win = getWindow();
-    if (win && !win.isDestroyed()) {
-      try { win.webContents.send('os-fingerprint', { host: 'localhost', username: '', osType: localOs, sessionId }); } catch(e) {}
-    }
+    broadcastToAllWindows('os-fingerprint', { host: 'localhost', username: '', osType: localOs, sessionId });
 
     // Register a dummy session so connectionManager tracks it
     connectionManager.sessions.set(sessionId, { client: null as any, stream: null });
+    connectionManager.updatePowerSaveBlocker();
 
     return { success: true, sessionId };
   } catch (err: unknown) {
@@ -187,84 +201,142 @@ const OPT_ECHO       = 0x01;
 const OPT_SGA        = 0x03;  // Suppress Go-Ahead
 const OPT_TERMINAL   = 0x18;  // Terminal Type
 
+/** Per-connection telnet parser state. */
+interface TelnetStreamState {
+  /** Start of an IAC sequence cut at the end of the previous packet. */
+  pending: Buffer | null;
+  /** Payload bytes are UTF-8; a character split across packets is completed by the next one. */
+  decoder: StringDecoder;
+}
+
+// A sub-negotiation that never terminates must not grow the carry-over forever.
+const TELNET_MAX_PENDING = 64 * 1024;
+
 /**
  * Respond to Telnet option negotiation and strip IAC sequences from data.
- * Returns cleaned printable text.
+ * Returns decoded text. An IAC sequence cut at the end of a packet is kept in
+ * `state.pending` and finished with the next packet instead of leaking into the text.
  */
-function processTelnetData(raw: Buffer, socket: net.Socket): string {
-  let out = '';
+function processTelnetData(raw: Buffer, socket: net.Socket, state: TelnetStreamState): string {
+  const buf = state.pending ? Buffer.concat([state.pending, raw]) : raw;
+  state.pending = null;
+
+  const payload: Buffer[] = [];
+  let runStart = 0;
   let i = 0;
-  while (i < raw.length) {
-    if (raw[i] === TELNET_IAC) {
-      if (i + 2 >= raw.length) break;
-      const cmd = raw[i + 1];
-      const opt = raw[i + 2];
-      if (cmd === TELNET_DO) {
-        if (opt === OPT_TERMINAL) {
-          // Respond: WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE
-          socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_TERMINAL]));
-          const termName = Buffer.from('vt100');
-          socket.write(Buffer.from([
-            TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
-            ...termName,
-            TELNET_IAC, TELNET_SE
-          ]));
-        } else if (opt === OPT_SGA) {
-          socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_SGA]));
-        } else {
-          socket.write(Buffer.from([TELNET_IAC, TELNET_WONT, opt]));
-        }
-        i += 3;
-      } else if (cmd === TELNET_WILL) {
-        if (opt === OPT_ECHO) {
-          socket.write(Buffer.from([TELNET_IAC, TELNET_DO, OPT_ECHO]));
-        } else {
-          socket.write(Buffer.from([TELNET_IAC, TELNET_DONT, opt]));
-        }
-        i += 3;
-      } else if (cmd === TELNET_SB) {
-        // Skip sub-negotiation until SE
-        while (i < raw.length && !(raw[i] === TELNET_IAC && raw[i + 1] === TELNET_SE)) i++;
-        i += 2;
-      } else {
-        i += 2;
-      }
-    } else {
-      out += String.fromCharCode(raw[i]);
+  while (i < buf.length) {
+    if (buf[i] !== TELNET_IAC) {
       i++;
+      continue;
     }
+    if (i > runStart) payload.push(buf.subarray(runStart, i));
+
+    const seqStart = i;
+    let incomplete = false;
+    const cmd = i + 1 < buf.length ? buf[i + 1] : -1;
+    if (cmd === -1) {
+      incomplete = true;
+    } else if (cmd === TELNET_IAC) {
+      // IAC IAC is an escaped 0xFF data byte
+      payload.push(buf.subarray(i + 1, i + 2));
+      i += 2;
+    } else if (cmd === TELNET_DO || cmd === TELNET_DONT || cmd === TELNET_WILL || cmd === TELNET_WONT) {
+      if (i + 2 >= buf.length) {
+        incomplete = true;
+      } else {
+        const opt = buf[i + 2];
+        if (cmd === TELNET_DO) {
+          if (opt === OPT_TERMINAL) {
+            // Respond: WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE
+            socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_TERMINAL]));
+            const termName = Buffer.from('vt100');
+            socket.write(Buffer.from([
+              TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
+              ...termName,
+              TELNET_IAC, TELNET_SE
+            ]));
+          } else if (opt === OPT_SGA) {
+            socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_SGA]));
+          } else {
+            socket.write(Buffer.from([TELNET_IAC, TELNET_WONT, opt]));
+          }
+        } else if (cmd === TELNET_WILL) {
+          if (opt === OPT_ECHO) {
+            socket.write(Buffer.from([TELNET_IAC, TELNET_DO, OPT_ECHO]));
+          } else {
+            socket.write(Buffer.from([TELNET_IAC, TELNET_DONT, opt]));
+          }
+        }
+        // DONT / WONT need no answer, but their option byte is part of the command
+        i += 3;
+      }
+    } else if (cmd === TELNET_SB) {
+      // Skip sub-negotiation until IAC SE
+      let j = i + 2;
+      while (j + 1 < buf.length && !(buf[j] === TELNET_IAC && buf[j + 1] === TELNET_SE)) j++;
+      if (j + 1 >= buf.length) incomplete = true;
+      else i = j + 2;
+    } else {
+      // Two-byte commands (NOP, GA, ...)
+      i += 2;
+    }
+
+    if (incomplete) {
+      const rest = buf.subarray(seqStart);
+      state.pending = rest.length <= TELNET_MAX_PENDING ? Buffer.from(rest) : null;
+      runStart = buf.length;
+      break;
+    }
+    runStart = i;
   }
-  return out;
+  if (runStart < buf.length) payload.push(buf.subarray(runStart));
+
+  if (payload.length === 0) return '';
+  return state.decoder.write(payload.length === 1 ? payload[0] : Buffer.concat(payload));
 }
 
 export async function spawnTelnetSession(
   config: any,
   sessionId: string,
-  getWindow: () => BrowserWindow | null
+  onEnded: SessionEndedHandler
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
   return new Promise((resolve) => {
     const host = config.host;
     const port = config.port || 23;
 
+    let connected = false;
+    let settled = false;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (result: { success: boolean; sessionId?: string; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      resolve(result);
+    };
+
     const socket = net.createConnection({ host, port }, () => {
+      if (settled) {
+        // The connect attempt was already given up on (timeout); do not bring up a session nobody owns.
+        socket.destroy();
+        return;
+      }
+      connected = true;
       telnetSockets.set(sessionId, socket);
       connectionManager.sessions.set(sessionId, { client: null as any, stream: null });
+      connectionManager.updatePowerSaveBlocker();
 
       // Announce initial capabilities
       socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_SGA]));
 
-      resolve({ success: true, sessionId });
+      settle({ success: true, sessionId });
     });
 
+    const streamState: TelnetStreamState = { pending: null, decoder: new StringDecoder('utf8') };
     let bannerFingerprinted = false;
     socket.on('data', (raw: Buffer) => {
-      const text = processTelnetData(raw, socket);
+      const text = processTelnetData(raw, socket, streamState);
       if (text) {
-        const win = getWindow();
-        if (win && !win.isDestroyed()) {
-          try { win.webContents.send(`ssh-data-${sessionId}`, text); } catch(e) {}
-        }
-        sshBridge.broadcastData(sessionId, text);
+        emitOutput(sessionId, text);
         // Fingerprint from welcome banner (first packet only)
         if (!bannerFingerprinted) {
           bannerFingerprinted = true;
@@ -273,35 +345,31 @@ export async function spawnTelnetSession(
           let osType: OsType = 'generic';
           if (lower.includes('cisco') || lower.includes('ios') || lower.includes('catalyst')) osType = 'cisco';
           else if (lower.includes('huawei') || lower.includes('vrp') || lower.includes('quidway')) osType = 'huawei';
-          if (win && !win.isDestroyed()) {
-            try { win.webContents.send('os-fingerprint', { host, username: config?.username || '', osType, sessionId }); } catch(e) {}
-          }
+          broadcastToAllWindows('os-fingerprint', { host, username: config?.username || '', osType, sessionId });
         }
       }
     });
 
+    // 'close' follows 'error', and also fires after killTelnetSocket: the single place a session ends.
     socket.on('close', async () => {
-      telnetSockets.delete(sessionId);
-      await connectionManager.removeSession(sessionId);
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
+      if (telnetSockets.get(sessionId) === socket) telnetSockets.delete(sessionId);
+      if (!connected) {
+        settle({ success: false, error: `Telnet connection to ${host}:${port} closed` });
+        return;
       }
+      const tail = streamState.decoder.end();
+      if (tail) emitOutput(sessionId, tail);
+      await finishSession(sessionId, onEnded);
     });
 
-    socket.on('error', async (err) => {
-      telnetSockets.delete(sessionId);
-      await connectionManager.removeSession(sessionId);
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        try { win.webContents.send(`ssh-closed-${sessionId}`); } catch(e) {}
-      }
-      resolve({ success: false, error: err.message });
+    socket.on('error', (err) => {
+      settle({ success: false, error: err.message });
     });
 
-    setTimeout(() => {
-      if (!telnetSockets.has(sessionId)) {
-        resolve({ success: false, error: `Telnet connection to ${host}:${port} timed out` });
+    connectTimer = setTimeout(() => {
+      if (!connected) {
+        settle({ success: false, error: `Telnet connection to ${host}:${port} timed out` });
+        socket.destroy();
       }
     }, 10000);
   });

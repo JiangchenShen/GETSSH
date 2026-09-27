@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity,
@@ -19,6 +19,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { AppConfig } from '../store/appStore';
 import type { SessionProfile } from '../store/sessionStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { detectProtocol } from '../utils/protocolParser';
 import { TERMINAL_THEMES } from '../utils/themes';
 
@@ -49,29 +50,77 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   onUpdateSession,
 }) => {
   const { t } = useTranslation();
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
+  const isSwitching = useWorkspaceStore(state => state.isSwitching);
   const [displayProtocol, setDisplayProtocol] = useState<DisplayProtocol>('auto');
   const [isAutoLocked, setIsAutoLocked] = useState(false);
   const [autoFlash, setAutoFlash] = useState(false);
   const [showProtocolHelp, setShowProtocolHelp] = useState(false);
   const [localSession, setLocalSession] = useState(session);
+  const [folders, setFolders] = useState<string[]>([]);
+  const folderListId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localSessionRef = useRef(session);
+  const lastSubmittedGroupRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let active = true;
+    setFolders([]);
+    if (isVaultLocked || isSwitching) return () => { active = false; };
+    void window.electronAPI.assetFolders.list(activeWorkspaceId).then(result => {
+      const workspace = useWorkspaceStore.getState();
+      if (active && result.success && workspace.activeWorkspaceId === activeWorkspaceId && !workspace.isSwitching && !workspace.isVaultLocked) {
+        setFolders(result.folders || []);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [activeWorkspaceId, isVaultLocked, isSwitching]);
+
+  useEffect(() => {
+    localSessionRef.current = session;
+    lastSubmittedGroupRef.current = null;
     setLocalSession(session);
     const isSaved = !session.isDraft && Boolean(session.host || session.protocol === 'local');
     setIsAutoLocked(isSaved);
-    setDisplayProtocol(isSaved ? (session.protocol || 'ssh') : 'auto');
+    setDisplayProtocol(isSaved ? (session.protocol || 'ssh') : (session.protocol || 'auto'));
   }, [index, session.id]);
+
+  useEffect(() => {
+    const incomingGroup = session.group || '';
+    if (lastSubmittedGroupRef.current === incomingGroup) {
+      lastSubmittedGroupRef.current = null;
+      return;
+    }
+    if ((localSessionRef.current.group || '') === incomingGroup) return;
+
+    const updated = { ...localSessionRef.current, group: session.group };
+    localSessionRef.current = updated;
+    setLocalSession(updated);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        lastSubmittedGroupRef.current = updated.group || '';
+        onUpdateSession(index, updated);
+      }, 400);
+    }
+  }, [session.group]);
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
   const handleUpdate = (updates: Partial<ConnectFormSession>) => {
-    const updated = { ...localSession, ...updates };
+    const updated = { ...localSessionRef.current, ...updates };
+    localSessionRef.current = updated;
     setLocalSession(updated);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onUpdateSession(index, updated), 400);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      lastSubmittedGroupRef.current = updated.group || '';
+      onUpdateSession(index, updated);
+    }, 400);
   };
 
   const effectiveProtocol: Exclude<DisplayProtocol, 'auto'> = displayProtocol === 'auto' ? 'ssh' : displayProtocol;
@@ -122,7 +171,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const submit = () => {
     if (!canConnect) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const readySession = { ...localSession, isDraft: false, protocol: effectiveProtocol };
+    debounceRef.current = null;
+    const readySession = { ...localSession, isDraft: Boolean(localSession.isQuickConnect), protocol: effectiveProtocol };
+    lastSubmittedGroupRef.current = readySession.group || '';
     onUpdateSession(index, readySession);
     onConnect(readySession);
   };
@@ -207,7 +258,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label><span className={labelClass}>{t('connection.alias')}</span><input value={localSession.alias || (localSession as { name?: string }).name || ''} onChange={(event) => handleUpdate({ alias: event.target.value })} className={inputClass} placeholder={t('connection.placeholder.alias')} /></label>
-                  <label><span className={labelClass}>{t('connection.group')}</span><input value={localSession.group || ''} onChange={(event) => handleUpdate({ group: event.target.value })} className={inputClass} placeholder={t('connection.placeholder.group')} /></label>
+                  <label><span className={labelClass}>{t('connection.group')}</span><input value={localSession.group || ''} onChange={(event) => handleUpdate({ group: event.target.value })} onFocus={() => { const workspace = useWorkspaceStore.getState(); if (workspace.isSwitching || workspace.isVaultLocked) return; void window.electronAPI.assetFolders.list(activeWorkspaceId).then(result => { const current = useWorkspaceStore.getState(); if (result.success && current.activeWorkspaceId === activeWorkspaceId && !current.isSwitching && !current.isVaultLocked) setFolders(result.folders || []); }).catch(() => {}); }} className={inputClass} placeholder={t('connection.placeholder.group')} list={folderListId} /><datalist id={folderListId}>{folders.map(folder => <option key={folder} value={folder} />)}</datalist><span className="mt-1.5 block text-[10px] leading-relaxed text-ink-3">{t('connection.folderPathHint')}</span></label>
                   {!isLocal && <>
                     <label><span className={labelClass}>{t('connection.username')}</span><input value={localSession.username || ''} onChange={(event) => handleUpdate({ username: event.target.value })} className={inputClass} placeholder={isTelnet ? 'admin' : 'root'} autoComplete="username" /></label>
                     <label><span className={labelClass}>{t('connection.port')}</span><input value={localSession.port || ''} onChange={(event) => handleUpdate({ port: Number(event.target.value) || undefined })} className={`${inputClass} font-mono`} type="number" min="1" max="65535" placeholder={String(defaultPort)} /></label>

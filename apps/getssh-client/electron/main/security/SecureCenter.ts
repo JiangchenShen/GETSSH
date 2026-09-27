@@ -1,15 +1,15 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import child_process from 'child_process';
 import net from 'net';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { getBackendConfig } from '../handlers/systemHandler';
+import { broadcastToAllWindows, isKnownTopLevelSender } from '../windowRegistry';
 
 export class SecureCenter {
   private static instance: SecureCenter;
   private monitorInterval: NodeJS.Timeout | null = null;
-  private getWin: (() => BrowserWindow | null) | null = null;
   private isPolluted: boolean = false;
   private socket: net.Socket | null = null;
   private server: net.Server | null = null;
@@ -58,9 +58,7 @@ export class SecureCenter {
     return true;
   }
 
-  public start(getWin: () => BrowserWindow | null) {
-    this.getWin = getWin;
-    
+  public start() {
     // Check for Safe Mode
     if (process.argv.includes('--safe-mode')) {
         console.warn('[SecureCenter] Booting in SAFE MODE due to Watchdog recovery.');
@@ -71,8 +69,22 @@ export class SecureCenter {
 
     
     // Register IPC
-    ipcMain.handle('resolve-security-lockdown', async (event, action: 'restart-safe' | 'save-15s' | 'ignore') => {
+    ipcMain.handle('resolve-security-lockdown', async (event, action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue', masterPassword?: unknown) => {
+      if (!isKnownTopLevelSender(event)) return { ok: false, reason: 'unauthorized' };
+      if (!['restart-safe', 'save-15s', 'ignore', 'deactivate-plugin', 'continue'].includes(action)) return { ok: false, reason: 'invalid_action' };
+      // Ignoring keeps a compromised process running with the watchdog off, so the owner must prove
+      // who they are here: the renderer's own prompt could simply be skipped.
+      if (action === 'ignore') {
+        const { verifyOwner } = require('./userPresence');
+        const { activeWorkspaceOwnerDeps } = require('./workspaceVault');
+        const outcome = await verifyOwner(
+          { password: typeof masterPassword === 'string' ? masterPassword : undefined, reason: 'ignore a security lockdown' },
+          activeWorkspaceOwnerDeps(),
+        );
+        if (outcome !== 'verified') return { ok: false, reason: outcome };
+      }
       this.handleAction(action);
+      return { ok: true };
     });
 
     ipcMain.handle('get-watchdog-status', () => {
@@ -124,24 +136,18 @@ export class SecureCenter {
             this.lastLockdownLevel = level;
             this.lockdownMode = true;
             this.isPolluted = true;
-            const win = this.getWin?.();
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('security-lockdown', {
-                reason: this.lastLockdownReason,
-                countdown: 60,
-                level: this.lastLockdownLevel
-              });
-            }
+            broadcastToAllWindows('security-lockdown', {
+              reason: this.lastLockdownReason,
+              countdown: 60,
+              level: this.lastLockdownLevel
+            });
           } else if (line.startsWith('TICK:')) {
             const tick = parseInt(line.split(':')[1]);
-            const win = this.getWin?.();
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('security-lockdown', { 
-                reason: this.lastLockdownReason, 
-                countdown: tick,
-                level: this.lastLockdownLevel
-              });
-            }
+            broadcastToAllWindows('security-lockdown', {
+              reason: this.lastLockdownReason,
+              countdown: tick,
+              level: this.lastLockdownLevel
+            });
           } else if (line.includes('RESOLVED')) {
             this.lockdownMode = false;
             // Note: If action was ignore, we keep isPolluted true.
@@ -149,10 +155,7 @@ export class SecureCenter {
             if (!this.watchdogDisabled) {
                 this.isPolluted = false;
             }
-            const win = this.getWin?.();
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('security-lockdown-resolved');
-            }
+            broadcastToAllWindows('security-lockdown-resolved');
           }
         }
       });
@@ -236,19 +239,22 @@ export class SecureCenter {
       // Fallback: If watchdog is dead/missing, send alert manually immediately
       this.lastLockdownReason = `【Fallback防御】${reason}`;
       this.lastLockdownLevel = level;
-      const win = this.getWin?.();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('security-lockdown', {
-          reason: this.lastLockdownReason,
-          countdown: 60,
-          level: this.lastLockdownLevel
-        });
-      }
+      broadcastToAllWindows('security-lockdown', {
+        reason: this.lastLockdownReason,
+        countdown: 60,
+        level: this.lastLockdownLevel
+      });
     }
   }
 
   private handleAction(action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue') {
-    if (!this.socket) return;
+    // The local consequences of the user's choice must happen even when the watchdog is missing
+    // (the fallback lockdown path); only the acknowledgement to the watchdog depends on the socket.
+    const watchdogAlive = !!this.socket && !this.socket.destroyed;
+    const tellWatchdog = (message: string) => {
+      if (!watchdogAlive) return;
+      try { this.socket!.write(message); } catch (e) { console.error('[SecureCenter] Watchdog write failed:', e); }
+    };
 
     switch (action) {
       case 'restart-safe':
@@ -256,7 +262,7 @@ export class SecureCenter {
         // Gracefully deactivate all plugins before RASP kills the process
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown on restart-safe:', e); }
         // Tell watchdog we resolved it so it doesn't kill us while restarting
-        this.socket.write('ACTION:RESTART-SAFE\n');
+        tellWatchdog('ACTION:RESTART-SAFE\n');
         setTimeout(() => {
           if (!process.env.VITE_DEV_SERVER_URL) {
              app.relaunch();
@@ -268,26 +274,32 @@ export class SecureCenter {
         break;
 
       case 'save-15s':
-        this.socket.write('ACTION:SAVE-15S\n');
+        tellWatchdog('ACTION:SAVE-15S\n');
         break;
 
       case 'ignore':
         this.isPolluted = true;
         this.watchdogDisabled = true;
-        this.socket.write('ACTION:IGNORE\n');
+        tellWatchdog('ACTION:IGNORE\n');
         console.warn(`[SecureCenter] Risk ignored by user. System running in polluted state.`);
         break;
 
       case 'deactivate-plugin':
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown:', e); }
         this.isPolluted = false;
-        this.socket.write('ACTION:CONTINUE\n');
+        tellWatchdog('ACTION:CONTINUE\n');
         break;
 
       case 'continue':
         this.isPolluted = false;
-        this.socket.write('ACTION:CONTINUE\n');
+        tellWatchdog('ACTION:CONTINUE\n');
         break;
+    }
+
+    // Without a watchdog nobody will answer RESOLVED, so settle the lockdown state here.
+    if (!watchdogAlive && action !== 'restart-safe') {
+      this.lockdownMode = false;
+      broadcastToAllWindows('security-lockdown-resolved');
     }
   }
 }

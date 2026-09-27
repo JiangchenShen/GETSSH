@@ -1,14 +1,14 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useMemo, type ErrorInfo, type ReactNode } from 'react';
 import { TerminalSquare, AlertTriangle, RefreshCw } from 'lucide-react';
-import { isSSHConfig, PaneLeaf } from '../store/sessionStore';
+import { callNexus, isSSHConfig, PaneLeaf } from '../store/sessionStore';
 import { Terminal as TerminalComponent } from '../components/Terminal';
 import { RecBadge } from '../components/RecBadge';
 import { PluginPane } from '../components/PluginPane';
-import { WorkspaceCenter } from '../components/WorkspaceCenter';
+import { WORKSPACE_PAGES, WorkspaceCenter, type WorkspacePage } from '../components/WorkspaceCenter';
 import { AiSettingsModal as AiSettingsPane } from '../components/AiSettingsModal';
 import { PluginCenterModal as PluginCenterPane } from '../components/PluginCenterModal';
-import { SecureCenter } from '../components/SecureCenter';
 import { SettingsPane } from '../components/SettingsPane';
+import { SETTINGS_TABS, type SettingsTab } from '../components/SettingsView';
 
 interface ErrorBoundaryProps {
   paneId: string;
@@ -67,7 +67,7 @@ class PaneErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
             <button
               onClick={() => {
                 if (window.electronAPI?.nexusClosePane) {
-                  window.electronAPI.nexusClosePane(this.props.paneId).catch(console.error);
+                  void callNexus('close crashed pane', window.electronAPI.nexusClosePane(this.props.paneId));
                 }
               }}
               className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-semibold transition-all border border-red-500/30"
@@ -95,6 +95,33 @@ export interface PaneRenderContext {
 }
 
 export type PaneRenderer = (ctx: PaneRenderContext) => ReactNode;
+
+// A component (not a bare render function) so the terminal config can be memoized: a fresh object on
+// every LeafPane render would re-run Terminal's config effect (theme repaint, fit, ssh-resize).
+function TerminalPaneView({ ctx }: { ctx: PaneRenderContext }) {
+  const { node, appConfig, isDark, isTabActive, isActive, onDisconnectedChange, onClosePane, onReconnect } = ctx;
+  const terminalTheme = isSSHConfig(node.config) && node.config.themeOverride
+    ? node.config.themeOverride
+    : appConfig.terminalTheme;
+  const config = useMemo(() => ({ ...appConfig, terminalTheme }), [appConfig, terminalTheme]);
+  if (!node.sessionId) return null;
+
+  return (
+    <>
+      <TerminalComponent
+        sessionId={node.sessionId}
+        isDisconnected={node.isDisconnected ?? false}
+        onDisconnectedChange={onDisconnectedChange}
+        onDisconnected={onClosePane}
+        onReconnect={onReconnect}
+        config={config}
+        isDark={isDark}
+        isActive={isTabActive && isActive}
+      />
+      <RecBadge isRecording={appConfig.enableAuditLogging || false} />
+    </>
+  );
+}
 
 /**
  * Pluggable Component Registry for Split Panes
@@ -142,29 +169,7 @@ class PaneRegistry {
 
   private registerDefaults() {
     // 1. Terminal Pane
-    this.register('terminal', (ctx) => {
-      const { node, appConfig, isDark, isTabActive, isActive, onDisconnectedChange, onClosePane, onReconnect } = ctx;
-      if (!node.sessionId) return null;
-      const terminalTheme = isSSHConfig(node.config) && node.config.themeOverride
-        ? node.config.themeOverride
-        : appConfig.terminalTheme;
-
-      return (
-        <>
-          <TerminalComponent
-            sessionId={node.sessionId}
-            isDisconnected={node.isDisconnected ?? false}
-            onDisconnectedChange={onDisconnectedChange}
-            onDisconnected={onClosePane}
-            onReconnect={onReconnect}
-            config={{ ...appConfig, terminalTheme }}
-            isDark={isDark}
-            isActive={isTabActive && isActive}
-          />
-          <RecBadge isRecording={appConfig.enableAuditLogging || false} />
-        </>
-      );
-    });
+    this.register('terminal', (ctx) => <TerminalPaneView ctx={ctx} />);
 
     // 2. Plugin Pane
     this.register('plugin', (ctx) => {
@@ -191,11 +196,17 @@ class PaneRegistry {
     ));
 
     // 4. Center Panes (Blade Modules)
-    this.register('center:workspace', () => <WorkspaceCenter />);
+    this.register('center:workspace', ({ node }) => {
+      const requested = node.config && 'centerType' in node.config ? node.config.workspacePage : undefined;
+      return <WorkspaceCenter initialPage={requested && WORKSPACE_PAGES.includes(requested as WorkspacePage) ? requested as WorkspacePage : undefined} />;
+    });
     this.register('center:ai', () => <AiSettingsPane />);
     this.register('center:plugin', () => <PluginCenterPane />);
-    this.register('center:secure', () => <SecureCenter />);
-    this.register('center:settings', () => <SettingsPane />);
+    this.register('center:secure', () => <SettingsPane initialTab="Security" />);
+    this.register('center:settings', ({ node }) => {
+      const requested = node.config && 'centerType' in node.config ? node.config.settingsTab : undefined;
+      return <SettingsPane initialTab={requested && SETTINGS_TABS.includes(requested as SettingsTab) ? requested as SettingsTab : undefined} />;
+    });
   }
 }
 

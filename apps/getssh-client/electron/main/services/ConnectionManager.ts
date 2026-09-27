@@ -12,7 +12,7 @@ export interface SessionData {
 export class ConnectionManager {
   sessions = new Map<string, SessionData>();
   powerSaveBlockerId: number | null = null;
-  activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string }> = {};
+  activeSftpWatchers: Record<string, { watcher: fs.FSWatcher, tempPath: string, dispose?: () => void }> = {};
 
   generateSessionId() {
     // [M-12] Security Fix: Use cryptographically secure random UUIDs instead of predictable incremental integers
@@ -34,14 +34,14 @@ export class ConnectionManager {
     for (const [watchId, active] of Object.entries(this.activeSftpWatchers)) {
       if (watchId.startsWith(`${sessionId}_`)) {
         active.watcher.close();
+        active.dispose?.();
 
         const cleanup = (async () => {
           try {
-            await fs.promises.unlink(active.tempPath);
+            // tempPath is the per-edit temp directory holding the downloaded file (same as sftp-edit-stop)
+            await fs.promises.rm(active.tempPath, { recursive: true, force: true });
           } catch (e: any) {
-            if (e.code !== 'ENOENT') {
-              console.error('[SFTP Sync] Cleanup failed', e);
-            }
+            console.error('[SFTP Sync] Cleanup failed', e);
           }
         })();
 

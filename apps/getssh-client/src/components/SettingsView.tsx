@@ -1,154 +1,104 @@
-import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, X, Monitor, Terminal as TerminalIcon, Network, Command, Info, Archive, Settings as SettingsIcon } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Archive, ChevronLeft, ChevronRight, Info, Monitor, Network, Settings2, ShieldCheck, Sparkles, TerminalSquare, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
-
 import { AppearanceTab } from './settings/tabs/AppearanceTab';
 import { TerminalTab } from './settings/tabs/TerminalTab';
 import { SSHTab } from './settings/tabs/SSHTab';
 import { SystemTab } from './settings/tabs/SystemTab';
 import { AuditTab } from './settings/tabs/AuditTab';
 import { AboutTab } from './settings/tabs/AboutTab';
+import { SecurityTab } from './settings/tabs/SecurityTab';
+import { AiIntegrationsTab } from './settings/tabs/AiIntegrationsTab';
+
+export type SettingsTab = 'System' | 'Appearance' | 'Terminal' | 'SSH' | 'AI' | 'Security' | 'Audit' | 'About';
+
+export const SETTINGS_TABS: readonly SettingsTab[] = ['System', 'Appearance', 'Terminal', 'SSH', 'AI', 'Security', 'Audit', 'About'];
 
 interface SettingsViewProps {
-  settingsActiveTab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit';
-  setSettingsActiveTab: (tab: 'Appearance'|'Terminal'|'SSH'|'System'|'About'|'Audit') => void;
-  encryptionDisabled: boolean;
+  settingsActiveTab: SettingsTab;
+  setSettingsActiveTab: (tab: SettingsTab) => void;
   onClose?: () => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({
-  settingsActiveTab,
-  setSettingsActiveTab,
-  encryptionDisabled,
-  onClose
-}) => {
-  const { t } = useTranslation();
-  const isDark = useAppStore(state => state.isDark);
-
-  // History Stack for Navigation
-  const [history, setHistory] = useState<string[]>([settingsActiveTab]);
+export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, setSettingsActiveTab, onClose }) => {
+  const { i18n } = useTranslation();
+  const glass = useAppStore(state => state.appConfig.enableGlassmorphism);
+  const zh = i18n.language.startsWith('zh');
+  const label = (cn: string, en: string) => zh ? cn : en;
+  const history = useRef<SettingsTab[]>([settingsActiveTab]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
-  React.useEffect(() => {
-    if (history[historyIndex] !== settingsActiveTab) {
-      const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(settingsActiveTab);
-      setHistory(newHistory);
-      setHistoryIndex(newHistory.length - 1);
-    }
-  }, [settingsActiveTab]);
+  useEffect(() => {
+    if (history.current[historyIndex] === settingsActiveTab) return;
+    history.current = [...history.current.slice(0, historyIndex + 1), settingsActiveTab];
+    setHistoryIndex(history.current.length - 1);
+  }, [settingsActiveTab, historyIndex]);
 
-  const goBack = () => {
-    if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      setSettingsActiveTab(prev as any);
-    }
+  const navigateHistory = (nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= history.current.length) return;
+    setHistoryIndex(nextIndex);
+    setSettingsActiveTab(history.current[nextIndex]);
   };
 
-  const goForward = () => {
-    if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      setSettingsActiveTab(next as any);
-    }
-  };
+  const nav = [
+    { id: 'System' as const, title: label('通用', 'General'), icon: Settings2, group: label('应用', 'App'), intro: label('语言、快捷键与应用行为。', 'Language, shortcuts and app behavior.') },
+    { id: 'Appearance' as const, title: label('外观', 'Appearance'), icon: Monitor, group: '', intro: label('界面主题、强调色与侧栏质感。', 'Theme, colors and sidebar material.') },
+    { id: 'Terminal' as const, title: label('终端', 'Terminal'), icon: TerminalSquare, group: '', intro: label('字体、配色与输入行为。', 'Typography, colors and input behavior.') },
+    { id: 'SSH' as const, title: label('连接与传输', 'Connections & Transfer'), icon: Network, group: '', intro: label('SSH 默认值、代理、传输与初始化脚本。', 'SSH defaults, proxy, transfers and connection scripts.') },
+    { id: 'AI' as const, title: label('AI 与集成', 'AI & Integrations'), icon: Sparkles, group: label('能力', 'Capabilities'), intro: label('模型连接、网页搜索与 MCP。', 'Model connections, web search and MCP.') },
+    { id: 'Security' as const, title: label('安全与隐私', 'Security & Privacy'), icon: ShieldCheck, group: '', intro: label('应用保护、工作区保险库与连接信任。', 'App protection, workspace vault and host trust.') },
+    { id: 'Audit' as const, title: label('数据与日志', 'Data & Logs'), icon: Archive, group: '', intro: label('会话记录、录屏与导出。', 'Session records, recordings and export.') },
+    { id: 'About' as const, title: label('关于', 'About'), icon: Info, group: label('其他', 'Other'), intro: label('版本、更新与法律信息。', 'Version, updates and legal information.') },
+  ];
+  const page = nav.find(item => item.id === settingsActiveTab) ?? nav[0];
 
   return (
-    <div className={`flex-1 flex overflow-hidden bg-transparent ${isDark ? 'text-white' : 'text-slate-800'}`}>
-      
-      {/* Background Ambient Glow */}
-      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className={`absolute -top-[20%] -left-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[150px] opacity-20 bg-cyan-600 transition-colors duration-1000`} />
-        <div className={`absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] rounded-full mix-blend-screen filter blur-[150px] opacity-20 bg-teal-500 transition-colors duration-1000`} />
-      </div>
-
-      {/* Left Sidebar */}
-      <div className={`w-64 p-6 flex flex-col gap-6 shrink-0 border-r ${isDark ? 'border-white/5 bg-[#0a0a0a]/50' : 'border-black/5 bg-slate-50/50'} backdrop-blur-xl relative z-20 shadow-[10px_0_30px_rgba(0,0,0,0.2)] overflow-hidden`}>
-        {/* Header Widget */}
-        <div className={`w-full p-6 flex flex-col items-center justify-center gap-4 border rounded-[32px] relative overflow-hidden shadow-lg ${isDark ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-cyan-50 border-cyan-100'}`}>
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-transparent opacity-50 pointer-events-none" />
-          <div className="relative z-10 w-16 h-16 flex items-center justify-center rounded-3xl bg-gradient-to-br from-cyan-400 to-teal-500 shadow-xl shadow-cyan-500/30">
-            <SettingsIcon className="w-8 h-8 text-white" />
-          </div>
-          <div className="relative z-10 text-center">
-            <h2 className="text-xl font-black tracking-tight">{t('settings.title', 'Settings')}</h2>
-            <p className="text-[10px] font-bold uppercase tracking-widest mt-1 opacity-60">Global Config</p>
-          </div>
-        </div>
-
-        {/* Navigation Menu */}
-        <nav className="flex flex-col gap-1 overflow-y-auto pb-4">
-          {(() => {
-            const activeItemClass = isDark ? 'bg-cyan-500/10 text-cyan-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_10px_rgba(6,182,212,0.1)]' : 'bg-cyan-500/10 text-cyan-700 shadow-sm';
-            const inactiveItemClass = isDark ? 'text-white/50 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-black/5';
-            const baseItemClass = 'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all text-left font-bold border border-transparent';
-            
-            return (
-              <>
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('settings.category.personalization', 'Personalization')}</div>
-                <button onClick={() => setSettingsActiveTab('Appearance')} className={`${baseItemClass} ${settingsActiveTab === 'Appearance' ? activeItemClass : inactiveItemClass}`}><Monitor className="w-4 h-4"/>{t('settings.appearance', 'Appearance')}</button>
-                <button onClick={() => setSettingsActiveTab('Terminal')} className={`${baseItemClass} ${settingsActiveTab === 'Terminal' ? activeItemClass : inactiveItemClass}`}><TerminalIcon className="w-4 h-4"/>{t('settings.terminal', 'Terminal')}</button>
-                
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('settings.category.core', 'Core & Connections')}</div>
-                <button onClick={() => setSettingsActiveTab('System')} className={`${baseItemClass} ${settingsActiveTab === 'System' ? activeItemClass : inactiveItemClass}`}><Command className="w-4 h-4"/>{t('settings.general', 'System')}</button>
-                <button onClick={() => setSettingsActiveTab('SSH')} className={`${baseItemClass} ${settingsActiveTab === 'SSH' ? activeItemClass : inactiveItemClass}`}><Network className="w-4 h-4"/>{t('settings.ssh', 'SSH')}</button>
-                
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1 mt-4 px-4">{t('settings.category.information', 'Information')}</div>
-                <button onClick={() => setSettingsActiveTab('Audit')} className={`${baseItemClass} ${settingsActiveTab === 'Audit' ? activeItemClass : inactiveItemClass}`}><Archive className="w-4 h-4"/>{t('settings.auditLogs', 'Audit Logs')}</button>
-                <button onClick={() => setSettingsActiveTab('About')} className={`${baseItemClass} ${settingsActiveTab === 'About' ? activeItemClass : inactiveItemClass}`}><Info className="w-4 h-4"/>{t('settings.about', 'About')}</button>
-              </>
-            );
-          })()}
+    <div className="center-workbench flex h-full min-h-0 w-full min-w-0 bg-bg text-ink" data-glass={glass ? 'true' : 'false'}>
+      <aside className="center-side-nav sidebar-material flex w-[176px] shrink-0 flex-col border-r border-line px-2 py-5 max-[690px]:w-[148px]" aria-label={label('设置导航', 'Settings navigation')}>
+        <h2 className="mb-4 px-3 text-base font-semibold text-ink">{label('设置', 'Settings')}</h2>
+        <nav className="min-h-0 space-y-0.5 overflow-y-auto" aria-label={label('设置分类', 'Settings categories')}>
+          {nav.map(({ id, title, icon: Icon, group }) => (
+            <React.Fragment key={id}>
+              {group && <div className="px-3 pb-1 pt-4 text-[10px] font-medium tracking-wide text-ink-3 first:pt-0">{group}</div>}
+              <button
+                type="button"
+                onClick={() => setSettingsActiveTab(id)}
+                aria-current={settingsActiveTab === id ? 'page' : undefined}
+                className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${settingsActiveTab === id ? 'bg-primary/10 font-medium text-primary' : 'text-ink-2 hover:bg-surf hover:text-ink'}`}
+              >
+                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 truncate">{title}</span>
+              </button>
+            </React.Fragment>
+          ))}
         </nav>
-      </div>
+      </aside>
 
-      {/* Right Payload Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden relative z-10">
-        
-        {/* Navigation & Close Buttons */}
-        <div className="absolute right-8 top-8 z-30 flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button
-            onClick={goBack}
-            disabled={historyIndex === 0}
-            className={`p-2.5 rounded-xl transition-all border backdrop-blur-md ${isDark ? 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] disabled:opacity-20 disabled:hover:bg-white/5' : 'border-black/5 bg-black/5 text-black/70 hover:bg-black/10 hover:text-black shadow-sm disabled:opacity-20 disabled:hover:bg-black/5'}`}
-            title="Go Back"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={goForward}
-            disabled={historyIndex === history.length - 1}
-            className={`p-2.5 rounded-xl transition-all border backdrop-blur-md ${isDark ? 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] disabled:opacity-20 disabled:hover:bg-white/5' : 'border-black/5 bg-black/5 text-black/70 hover:bg-black/10 hover:text-black shadow-sm disabled:opacity-20 disabled:hover:bg-black/5'}`}
-            title="Go Forward"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          {onClose && (
-            <div className={`w-[1px] h-6 mx-2 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className={`p-2.5 rounded-xl transition-all border backdrop-blur-md ${isDark ? 'border-white/10 bg-white/5 text-white/70 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'border-black/5 bg-black/5 text-black/70 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 shadow-sm'}`}
-              title="Close Settings"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+      <main className="min-w-0 flex-1 overflow-y-auto" aria-label={page.title}>
+        <div className="mx-auto w-full max-w-[1060px] px-6 pb-12 pt-6 max-[690px]:px-4">
+          <header className="mb-6 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-[22px] font-semibold tracking-tight text-ink">{page.title}</h1>
+              <p className="mt-1 text-xs leading-relaxed text-ink-2">{page.intro}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" onClick={() => navigateHistory(historyIndex - 1)} disabled={historyIndex === 0} aria-label={label('后退', 'Back')} className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+              <button type="button" onClick={() => navigateHistory(historyIndex + 1)} disabled={historyIndex >= history.current.length - 1} aria-label={label('前进', 'Forward')} className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+              {onClose && <button type="button" onClick={onClose} aria-label={label('关闭设置', 'Close settings')} className="ml-1 grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><X className="h-4 w-4" /></button>}
+            </div>
+          </header>
 
-        {/* Content Box */}
-        <div className="w-full max-w-5xl mx-auto p-6 md:p-10 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 min-h-full flex flex-col">
+          {settingsActiveTab === 'System' && <SystemTab />}
           {settingsActiveTab === 'Appearance' && <AppearanceTab />}
           {settingsActiveTab === 'Terminal' && <TerminalTab />}
           {settingsActiveTab === 'SSH' && <SSHTab />}
-          {settingsActiveTab === 'System' && <SystemTab encryptionDisabled={encryptionDisabled} />}
+          {settingsActiveTab === 'AI' && <AiIntegrationsTab />}
+          {settingsActiveTab === 'Security' && <SecurityTab />}
           {settingsActiveTab === 'Audit' && <AuditTab />}
           {settingsActiveTab === 'About' && <AboutTab />}
         </div>
-      </div>
+      </main>
     </div>
   );
 };

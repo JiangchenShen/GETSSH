@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import TornWindowApp from './TornWindowApp.tsx'
 import './index.css'
 import './i18n'
 
@@ -31,8 +32,12 @@ class ErrorBoundary extends React.Component<any, { hasError: boolean, error: Err
   }
 }
 
+// A torn-off window is loaded with ?isHollow=true and gets its own lightweight root:
+// none of the main window's boot hooks (crypto, auto-start, workspace init, plugins) may run there.
+const isTornWindow = new URLSearchParams(window.location.search).get('isHollow') === 'true';
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
-    <App />
+    {isTornWindow ? <TornWindowApp /> : <App />}
   </ErrorBoundary>
 )

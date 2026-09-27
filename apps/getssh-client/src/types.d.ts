@@ -26,6 +26,21 @@ declare global {
     themeOverride?: string;
   }
 
+  interface NexusResult {
+    success: boolean;
+    error?: string;
+  }
+
+  /** One tab's layout as broadcast by nexus-core. `tree === null` means the tab no longer exists. */
+  interface NexusTabSync {
+    tabId: string;
+    rev: number;
+    tree: import('./store/sessionStore').PaneNode | null;
+    title: string;
+    isTornOff: boolean;
+    workspaceId: string | null;
+  }
+
   interface Window {
     electronAPI: {
       getTheme: () => Promise<boolean>;
@@ -35,7 +50,12 @@ declare global {
       sshWrite: (sessionId: string, data: string) => void;
       sshResize: (sessionId: string, rows: number, cols: number) => void;
       sshDisconnect: (sessionId: string) => void;
-      onSshData: (sessionId: string, cb: (data: string) => void) => (() => void);
+      /** Session output kept by the main process; `reset` means the caller must clear its terminal before writing `data`. */
+      sshGetScrollback: (sessionId: string, fromOffset?: number) => Promise<{ data: string; endOffset: number; reset: boolean }>;
+      /** Reconnect with the credentials kept in the main process for `sessionId`; `error: 'unknown_session'` when none are kept. */
+      sshReconnect: (sessionId: string) => Promise<{ success: boolean; sessionId?: string; error?: string }>;
+      /** `endOffset` is the session output offset right after `data` (absent for legacy senders). */
+      onSshData: (sessionId: string, cb: (data: string, endOffset?: number) => void) => (() => void);
       onSshClosed: (sessionId: string, cb: () => void) => (() => void);
       updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => Promise<import('./types/ipc').BackendConfigUpdateResult>;
       selectFile: () => Promise<string | null>;
@@ -44,7 +64,16 @@ declare global {
       bridgeFetchProfiles: (sourceWorkspaceId: string) => Promise<{ success: boolean; profiles?: any[]; runbooks?: any[]; error?: string }>;
       bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => Promise<{ success: boolean; error?: string }>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
-      saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[] }) => Promise<boolean>;
+      /** `workspaceId`: the workspace the renderer believes is active; main refuses the write if it differs. */
+      saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[], workspaceId?: string }) => Promise<boolean>;
+      assetFolders: {
+        list: (workspaceId: string) => Promise<{ success: boolean; folders?: string[]; error?: string }>;
+        create: (workspaceId: string, path: string) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
+        rename: (workspaceId: string, path: string, newName: string) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
+        remove: (workspaceId: string, path: string) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
+        moveProfile: (workspaceId: string, profileId: string, path: string | null) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
+        moveProfiles: (workspaceId: string, profileIds: string[], path: string | null) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
+      };
       onAppBlur: (cb: () => void) => (() => void);
       onAppFocus: (cb: () => void) => (() => void);
       getPluginsList: () => Promise<import('./types/plugin').PluginManifest[]>;
@@ -72,6 +101,8 @@ declare global {
       onSysmonData: (cb: (data: any) => void) => (() => void);
       onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string, isChanged?: boolean, oldFingerprint?: string }) => void) => (() => void);
       sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => void;
+      /** Main process gave up on a prompt (timeout, connection error, window gone); drop it from the queue. */
+      onHostVerificationCancelled: (cb: (requestId: string) => void) => (() => void);
       getKnownHosts: () => Promise<{host: string, port: number, fingerprint: string, trustedAt: number}[]>;
       deleteKnownHost: (host: string, port: number) => Promise<boolean>;
       getConnectionLogs: () => Promise<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>;
@@ -82,7 +113,9 @@ declare global {
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
       onOsFingerprint: (cb: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => (() => void);
       onSecurityLockdown: (cb: (data: { reason: string, countdown: number }) => void) => (() => void);
-      resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue') => void;
+      /** 'ignore' is verified in the main process: Touch ID, or the master password when Touch ID is unavailable. */
+      resolveSecurityLockdown: (action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue', masterPassword?: string) => Promise<{ ok: boolean; reason?: 'unauthorized' | 'invalid_action' | 'password_required' | 'denied' } | undefined>;
+      onSecurityLockdownResolved: (cb: () => void) => (() => void);
       invoke: (channel: string, data?: any) => Promise<any>;
       pluginRpcInvoke: (pluginId: string, action: string, data?: any) => Promise<any>;
       onPluginRpcMessage: (pluginId: string, cb: (payload: { pluginId: string, action: string, data: any }) => void) => (() => void);
@@ -92,6 +125,9 @@ declare global {
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);
       onSyncPluginSettingsSchemas: (cb: (payload: any) => void) => (() => void);
+      /** Current plugin UI extensions / settings schemas, for windows created after the last broadcast. */
+      getPluginUiExtensions: () => Promise<{ terminal: any[]; sftp: any[] }>;
+      getPluginSettingsSchemas: () => Promise<Record<string, any[]>>;
       exportDatabaseAll: () => Promise<{ success: boolean; path?: string; error?: string }>;
       exportDatabaseWorkspace: () => Promise<{ success: boolean; path?: string; error?: string }>;
       importDatabase: () => Promise<{ success: boolean; requiresConfirmation?: boolean; sourcePath?: string; merged?: boolean; error?: string }>;
@@ -107,26 +143,20 @@ declare global {
       updateWorkspacePreferences: (id: string, preferencesStr: string) => Promise<{ success: boolean; error?: string }>;
       encryptConfig: (data: any) => Promise<string>;
       decryptConfig: (base64: string) => Promise<any>;
-      nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<any>;
-      nexusTearOff: (paneId: string) => Promise<any>;
-      nexusClosePane: (paneId: string) => Promise<any>;
-      nexusToggleZoom: (paneId: string) => Promise<any>;
-      nexusUpdateSizes: (paneId: string, sizes: number[]) => Promise<any>;
-      nexusSetDisconnected: (paneId: string, disconnected: boolean) => Promise<any>;
-      nexusCloseTab: (tabId: string) => Promise<any>;
-      nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<any>;
-      onNexusPtyData: (paneId: string, cb: (data: Uint8Array) => void) => (() => void);
-      onNexusPatchLeaf: (callback: (paneId: string, updates: any) => void) => () => void;
-      nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string) => Promise<any>;
-      onNexusSyncTree: (callback: (tabId: string, title: string, tree: any, isTornOff: boolean) => void) => () => void;
-      onWindowHijackIdentity: (callback: (payload: { paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => void) => () => void;
-      windowGetHijackIdentity: () => Promise<{ paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string } | null>;
-      windowTearArm: () => number | null;
-      windowTearExecute: (payload: { screenX: number; screenY: number; width: number; height: number; paneId: string; terminalBuffers?: Record<string, string>; tornTitle?: string }) => void;
-      windowTearIn: (payload: { paneId: string; terminalBuffers?: Record<string, string> }) => void;
-      onWindowReceiveTornBuffers: (cb: (payload: Record<string, string>) => void) => (() => void);
-      windowSelfClose: () => void;
-      hollowLog: (...args: any[]) => void;
+      nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<NexusResult & { newPaneId?: string; tabId?: string }>;
+      nexusClosePane: (paneId: string) => Promise<NexusResult & { tabClosed?: boolean }>;
+      nexusToggleZoom: (paneId: string) => Promise<NexusResult>;
+      nexusUpdateSizes: (paneId: string, sizes: number[]) => Promise<NexusResult>;
+      nexusSetDisconnected: (paneId: string, disconnected: boolean) => Promise<NexusResult>;
+      nexusCloseTab: (tabId: string) => Promise<NexusResult>;
+      nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<NexusResult>;
+      nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => Promise<NexusResult>;
+      nexusGetTab: (tabId: string) => Promise<NexusTabSync | null>;
+      onNexusSyncTree: (callback: (payload: NexusTabSync) => void) => () => void;
+      onNexusFocusPane: (callback: (payload: { tabId: string; paneId: string }) => void) => () => void;
+      windowTearOff: (payload: { paneId: string; screenX: number; screenY: number; width: number; height: number }) => Promise<NexusResult>;
+      windowGetTornIdentity: () => Promise<{ tabId: string; snapshot: NexusTabSync | null } | null>;
+      windowTearIn: () => Promise<NexusResult>;
       
       workspace: {
         getWorkspaces: () => Promise<any[]>;
@@ -145,7 +175,7 @@ declare global {
         saveMessage: (msg: any) => Promise<{ success: boolean }>;
         deleteSession: (id: string) => Promise<{ success: boolean }>;
         updateSessionTitle: (id: string, title: string) => Promise<{ success: boolean }>;
-        onAgentApprovalRequest: (cb: (payload: { requestId: string; command: string }) => void) => () => void;
+        onAgentApprovalRequest: (cb: (payload: { requestId: string; streamRequestId: string; command: string }) => void) => () => void;
         onAgentGlobalAction: (cb: (payload: { type: string; target: string; execute?: string }) => void) => () => void;
         approveAgentAction: (requestId: string, approved: boolean) => void;
         testSearch: (config: any) => Promise<{ success: boolean; count?: number; error?: string }>;

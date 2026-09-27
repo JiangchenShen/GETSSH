@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 export interface ActionDrawerItem {
@@ -12,60 +12,48 @@ export interface ActionDrawerItem {
 
 interface ActionDrawerProps {
   isOpen: boolean;
-  isDark: boolean;
   drawerItems: ActionDrawerItem[];
   activeDrawerIndex: number;
   activeItemId: string | null;
-  deleteConfirmId: string | null;
 }
 
 export const ActionDrawer: React.FC<ActionDrawerProps> = ({
   isOpen,
-  isDark,
   drawerItems,
   activeDrawerIndex,
-  activeItemId,
-  deleteConfirmId
+  activeItemId
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
 
   return (
     <AnimatePresence>
       {isOpen && activeItemId && (
         <motion.div
-          initial={{ x: -20, opacity: 0, scale: 0.95 }}
-          animate={{ x: 16, opacity: 1, scale: 1 }}
-          exit={{ x: -10, opacity: 0, scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-          className={`relative pointer-events-auto shrink-0 w-[240px] shadow-2xl rounded-2xl border flex flex-col p-2 ${
-            isDark ? 'bg-[#151515]/90 border-white/10 water-glass text-white' : 'bg-white/95 border-black/10 text-slate-900 backdrop-blur-xl'
-          }`}
+          initial={reduceMotion ? false : { y: -4, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={reduceMotion ? undefined : { y: -4, opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="absolute right-3 top-[88px] z-30 flex w-[226px] flex-col rounded-lg border border-line bg-surf p-1.5 text-ink shadow-[0_12px_36px_rgba(0,0,0,0.22)]"
         >
-          <div className="px-3 py-2 text-xs font-bold uppercase opacity-50 border-b mb-2 pb-2 border-current/10 flex justify-between items-center">
-            {t('commandCenter.actions', 'ACTIONS')}
+          <div className="mb-1 border-b border-line-soft px-2.5 py-2 text-xs font-medium text-ink-2">
+            {t('commandCenter.actions', 'Actions')}
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {drawerItems.map((item, i) => {
               const isActive = activeDrawerIndex === i;
               return (
-                <button 
+                <button
+                  type="button"
                   key={i}
                   id={`drawer-btn-${i}`}
                   onClick={() => item.action()}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between group transition-colors relative ${
-                    isActive 
-                      ? (item.isDestructive && deleteConfirmId === activeItemId 
-                          ? 'bg-red-500/20 text-red-500' 
-                          : isDark ? 'bg-white/10' : 'bg-black/5')
-                      : (item.isDestructive && deleteConfirmId === activeItemId 
-                          ? 'text-red-500'
-                          : isDark ? 'hover:bg-white/10' : 'hover:bg-black/5')
-                  }`}
+                  className={`flex min-h-9 w-full items-center justify-between rounded-md px-2.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isActive ? 'bg-primary/10 text-primary' : 'text-ink-2 hover:bg-panel hover:text-ink'} ${item.isDestructive ? 'text-down' : ''}`}
                 >
-                  <span className={`flex items-center gap-2 ${item.isDestructive ? 'text-red-500' : ''}`}>
+                  <span className="flex min-w-0 items-center gap-2">
                     {item.icon} {item.label}
                   </span>
-                  {item.shortcut && <kbd className="text-[10px] opacity-40">{item.shortcut}</kbd>}
+                  {item.shortcut && <kbd className="font-mono text-[10px] text-ink-3">{item.shortcut}</kbd>}
                 </button>
               );
             })}

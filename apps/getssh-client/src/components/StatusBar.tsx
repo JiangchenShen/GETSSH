@@ -1,13 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal, Shield, Globe, Sparkles, Blocks, Settings, Sun, Moon } from 'lucide-react';
+import { Terminal, Sparkles, Blocks, Settings } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
 /**
  * 底部状态条。
  *
- * 六个中心从主屏的等重卡片挪到这里 —— 它们是导航，不是内容。导航常驻底部，
- * 主屏那块地留给「接着干」的东西。
+ * 底栏只保留跨工作区的常用目的地。当前工作区由左侧导轨管理，
+ * 安全设置归入设置页；Watchdog 在右侧报告实际状态。
  *
  * 右侧只放真有数据源的东西：Watchdog 取 appStore.watchdogStatus。
  * 原型里画的「Rust Core 运行中」现在没有对应信号，不编。
@@ -30,12 +30,12 @@ const BItem: React.FC<{
     title={title || label}
     className="group flex-none flex items-center gap-[7px] h-[26px] px-[9px] rounded-md
                text-xs text-ink-2 whitespace-nowrap transition-colors
-               hover:bg-surf hover:text-ink"
+               hover:bg-surf hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
   >
     <span className="flex-none text-ink-3 transition-colors group-hover:text-primary">{icon}</span>
     {label}
     {hint && (
-      <kbd className="font-mono text-[9.5px] px-[5px] py-px rounded border border-line-soft bg-surf-2 text-ink-3">
+      <kbd className="hidden min-[980px]:inline font-mono text-[9.5px] px-[5px] py-px rounded border border-line-soft bg-surf-2 text-ink-3">
         {hint}
       </kbd>
     )}
@@ -45,8 +45,6 @@ const BItem: React.FC<{
 export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
   const isMac = useAppStore(state => state.isMac);
-  const isDark = useAppStore(state => state.isDark);
-  const updateConfig = useAppStore(state => state.updateConfig);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
 
@@ -66,19 +64,9 @@ export const StatusBar: React.FC = () => {
         onClick={() => setIsCommandCenterOpen(true)}
       />
       <BItem
-        icon={<Shield className={ico} />}
-        label={t('statusBar.secure')}
-        onClick={() => openCenter('secure', t('statusBar.secure'))}
-      />
-      <BItem
-        icon={<Globe className={ico} />}
-        label={t('statusBar.workspace')}
-        onClick={() => openCenter('workspace', t('statusBar.workspace'))}
-      />
-      <BItem
         icon={<Sparkles className={ico} />}
         label={t('statusBar.ai')}
-        onClick={() => openCenter('ai', 'AI CENTER')}
+        onClick={() => openCenter('ai', t('statusBar.ai'))}
       />
       <BItem
         icon={<Blocks className={ico} />}
@@ -94,19 +82,20 @@ export const StatusBar: React.FC = () => {
       <div className="flex-1 min-w-[8px]" />
 
       {wd && (
-        <div className="flex-none flex items-center gap-[7px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap">
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
+            detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'Security' },
+          }))}
+          className="flex-none flex items-center gap-[7px] max-w-[190px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap rounded-md hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          aria-label={`${t('statusBar.secure')} · Watchdog`}
+        >
           <span className={`w-1.5 h-1.5 rounded-full flex-none ${wdOk ? 'bg-ok' : 'bg-warn'}`} />
-          Watchdog · {wdOk
-            ? t('statusBar.wdOk')
-            : (wd.reason || t('statusBar.wdBad'))}
-        </div>
+          <span className="truncate" title={wdOk ? t('statusBar.wdOk') : (wd.reason || t('statusBar.wdBad'))}>
+            Watchdog · {wdOk ? t('statusBar.wdOk') : (wd.reason || t('statusBar.wdBad'))}
+          </span>
+        </button>
       )}
-
-      <BItem
-        icon={isDark ? <Sun className={ico} /> : <Moon className={ico} />}
-        label={t('statusBar.theme')}
-        onClick={() => updateConfig('theme', isDark ? 'light' : 'dark')}
-      />
     </div>
   );
 };

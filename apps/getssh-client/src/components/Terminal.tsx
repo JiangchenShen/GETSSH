@@ -23,9 +23,39 @@ interface TerminalProps {
   isActive?: boolean;
 }
 
-// Global cache to preserve xterm instances and DOM nodes across React unmounts
-const xtermCache = new Map<string, { term: XTerm; fitAddon: FitAddon; serializeAddon: SerializeAddon; webglAddon?: WebglAddon; canvasAddon?: CanvasAddon; ligaturesAddon?: LigaturesAddon; element: HTMLDivElement; }>();
+interface XtermCacheEntry {
+  term: XTerm;
+  fitAddon: FitAddon;
+  serializeAddon: SerializeAddon;
+  webglAddon?: WebglAddon;
+  canvasAddon?: CanvasAddon;
+  ligaturesAddon?: LigaturesAddon;
+  element: HTMLDivElement;
+  /** Session output offset (main-process ring) already written into `term`. */
+  lastOffset?: number;
+  /** ssh-closed arrived; kept per entry so it is not lost while the pane is unmounted. */
+  closed?: boolean;
+  notifyClosed?: () => void;
+  unsubClosed?: () => void;
+}
 
+// Global cache to preserve xterm instances and DOM nodes across React unmounts
+const xtermCache = new Map<string, XtermCacheEntry>();
+
+function disposeXtermEntry(sessionId: string) {
+  const entry = xtermCache.get(sessionId);
+  if (!entry) return;
+  xtermCache.delete(sessionId);
+  entry.unsubClosed?.();
+  entry.webglAddon?.dispose();
+  entry.canvasAddon?.dispose();
+  entry.ligaturesAddon?.dispose();
+  entry.serializeAddon.dispose();
+  entry.fitAddon.dispose();
+  entry.term.dispose();
+}
+
+// Read-only text snapshot for AI context (services/contextService.ts).
 export function getTerminalBuffer(sessionId: string): string | undefined {
   const cache = xtermCache.get(sessionId);
   if (!cache) return undefined;
@@ -40,6 +70,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   const isDisconnectedRef = useRef(isDisconnected);
   const overlayRef = useRef<HTMLDivElement>(null);
   const configRef = useRef(config);
+  const lastSentDimsRef = useRef<{ cols: number; rows: number } | null>(null);
   const [visualBell, setVisualBell] = useState(false);
 
   useEffect(() => {
@@ -109,10 +140,27 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     onDisconnectedChangeRef.current = onDisconnectedChange;
   }, [onDisconnected, onReconnect, onDisconnectedChange]);
 
+  // Fit to the container and tell the PTY. Hidden terminals (inactive tab, display:none, zero size) are left
+  // alone: fitting them yields ~10x6, which re-wraps and trims scrollback and sends a bogus SIGWINCH.
+  const fitAndResize = () => {
+    const el = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    const term = xtermRef.current;
+    if (!el || !fitAddon || !term) return;
+    if (!el.isConnected || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+    fitAddon.fit();
+    const { cols, rows } = term;
+    const last = lastSentDimsRef.current;
+    if (last && last.cols === cols && last.rows === rows) return;
+    lastSentDimsRef.current = { cols, rows };
+    window.electronAPI.sshResize(sessionId, rows, cols);
+  };
+
   useEffect(() => {
     if (!terminalRef.current) return;
 
     let cache = xtermCache.get(sessionId);
+    const created = !cache;
     if (!cache) {
       const element = document.createElement('div');
       element.className = `w-full h-full overflow-hidden ${isDark ? 'text-white' : 'text-black'}`;
@@ -139,13 +187,6 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
 
-      // Hollow window tear-in recovery
-      const tornBuf = (window as any).__tornTerminalBuffers?.[sessionId];
-      if (tornBuf) {
-        console.log('[Terminal] Recovered torn buffer for', sessionId);
-        term.write(tornBuf);
-        delete (window as any).__tornTerminalBuffers[sessionId];
-      }
       const serializeAddon = new SerializeAddon();
       term.loadAddon(serializeAddon);
       term.open(element);
@@ -158,27 +199,6 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         console.warn('[Terminal][Security] OSC 52 blocked — remote clipboard access denied.');
         return true; // consumed; xterm will not process further
       });
-
-      // Check for torn buffer (useful for Tear In / Tear Off)
-      // Use an interval to handle IPC race conditions (buffer might arrive slightly after tree sync)
-      let checkCount = 0;
-      const checkInterval = setInterval(() => {
-        if ((window as any).__tornBuffers) {
-          const tornBuf = (window as any).__tornBuffers?.[sessionId];
-          if (tornBuf) {
-            (window as any).electronAPI?.hollowLog?.('Terminal Mount! Reading tornBuf from window:', 'FOUND, len=' + tornBuf.length);
-            term.write(tornBuf);
-            delete (window as any).__tornBuffers[sessionId];
-            (window as any).electronAPI?.hollowLog?.('Terminal Wrote Buffer & Removed from window');
-            clearInterval(checkInterval);
-            return;
-          }
-        }
-        checkCount++;
-        if (checkCount >= 20) {
-          clearInterval(checkInterval); // Give up after 1 second
-        }
-      }, 50);
 
       let ligaturesAddon: LigaturesAddon | undefined;
       // Load Ligatures Addon (Geek visual enhancement)
@@ -220,28 +240,33 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         loadCanvasAddon();
       }
       
-      cache = { term, fitAddon, serializeAddon, webglAddon, canvasAddon, ligaturesAddon, element };
+      const entry: XtermCacheEntry = { term, fitAddon, serializeAddon, webglAddon, canvasAddon, ligaturesAddon, element };
+      // Lives with the cached xterm, not the mount: a close while this pane is unmounted still marks it.
+      entry.unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
+        entry.closed = true;
+        term.writeln('\r\n\x1b[31m[SSH Connection Closed]\x1b[0m\r\n');
+        entry.notifyClosed?.();
+      });
+      cache = entry;
       xtermCache.set(sessionId, cache);
     }
 
-    const { term, fitAddon, element } = cache;
+    const entry = cache;
+    const { term, fitAddon, element } = entry;
     terminalRef.current.appendChild(element);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
+    lastSentDimsRef.current = null; // always report the size once per mount (another window may have resized the PTY)
 
     // Handle Resize via ResizeObserver (Debounced for Stability)
     let resizeRaf: number | null = null;
     const handleResize = () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeRaf = requestAnimationFrame(() => {
-        if (!fitAddonRef.current || !xtermRef.current) return;
+        resizeRaf = null;
         try {
-          fitAddonRef.current.fit();
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims) {
-            window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
-          }
+          fitAndResize();
         } catch (e) {
           console.warn('[Terminal] Resize error:', e);
         }
@@ -249,27 +274,65 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     };
     
     // Initial fit
-    setTimeout(handleResize, 50);
+    const initialFitTimer = setTimeout(handleResize, 50);
     
     const resizeObserver = new ResizeObserver(() => handleResize());
     resizeObserver.observe(terminalRef.current);
 
-    // IPC Handlers
-    const unsubData = window.electronAPI.onSshData(sessionId, (data: string) => {
+    // Output: subscribe first and queue, then catch up from the main-process ring starting at what this xterm
+    // already shows, then flush the queue. Offsets make remounts, other windows and tear-off/in lossless.
+    let cancelled = false;
+    let caughtUp = false;
+    const pending: Array<{ data: string; endOffset: number }> = [];
+    const writeFrom = (data: string, endOffset: number) => {
+      const last = entry.lastOffset;
+      if (last !== undefined) {
+        if (endOffset <= last) return; // already on screen
+        const fresh = endOffset - last;
+        if (fresh < data.length) data = data.slice(data.length - fresh);
+      }
       term.write(data);
+      entry.lastOffset = endOffset;
+    };
+    const unsubData = window.electronAPI.onSshData(sessionId, (data: string, endOffset?: number) => {
+      if (typeof endOffset !== 'number') {
+        term.write(data);
+      } else if (caughtUp) {
+        writeFrom(data, endOffset);
+      } else {
+        pending.push({ data, endOffset });
+      }
     });
-    
-    // 🔥 NEXUS CORE HIGH-THROUGHPUT PTY STREAM 🔥
-    const unsubNexusData = window.electronAPI.onNexusPtyData ? window.electronAPI.onNexusPtyData(sessionId, (data: Uint8Array) => {
-      term.write(data);
-    }) : undefined;
+    const flushPending = () => {
+      caughtUp = true;
+      for (const item of pending.splice(0)) writeFrom(item.data, item.endOffset);
+    };
+    Promise.resolve()
+      .then(() => window.electronAPI.sshGetScrollback(sessionId, entry.lastOffset))
+      .then(res => {
+        if (cancelled) return;
+        // An empty reset at offset 0 means main no longer has this session (it ended): keep what is on screen.
+        const sessionGone = !!res?.reset && !res.data && res.endOffset === 0;
+        if (res && typeof res.endOffset === 'number' && !sessionGone) {
+          if (res.reset && !created) term.reset();
+          if (res.data) term.write(res.data);
+          entry.lastOffset = res.endOffset;
+        }
+        flushPending();
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.warn('[Terminal] Scrollback catch-up failed:', err);
+        flushPending();
+      });
 
-    const unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
+    const notifyClosed = () => {
       isDisconnectedRef.current = true;
       // Persist state in Zustand so it survives layout re-renders
       if (onDisconnectedChangeRef.current) onDisconnectedChangeRef.current(true);
-      term.writeln('\r\n\x1b[31m[SSH Connection Closed]\x1b[0m\r\n');
-    });
+    };
+    entry.notifyClosed = notifyClosed;
+    if (entry.closed && !isDisconnectedRef.current) notifyClosed();
 
     // Write input to SSH
     // When disconnected, xterm still receives data events — but we only handle
@@ -323,12 +386,13 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     element.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
+      cancelled = true;
+      clearTimeout(initialFitTimer);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeObserver.disconnect();
       dataDisp.dispose(); // Unbind data listener
       if (unsubData) unsubData();
-      if (unsubNexusData) unsubNexusData();
-      if (unsubClosed) unsubClosed();
+      if (entry.notifyClosed === notifyClosed) entry.notifyClosed = undefined;
       element.removeEventListener('contextmenu', handleContextMenu);
       
       // Preserve the element in cache, just remove it from the React container
@@ -336,20 +400,13 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         terminalRef.current.removeChild(element);
       }
       
-      // Strict Garbage Collection for Active Destruction
+      // Strict Garbage Collection for Active Destruction.
+      // Liveness comes from pane trees only: a tab id can equal a session that moved elsewhere.
       const { tabs } = useSessionStore.getState();
-      const isAlive = tabs.some(t => t.id === sessionId || (t.paneTree && collectSessionIds(t.paneTree).includes(sessionId)));
-      if (!isAlive) {
-        const cacheToKill = xtermCache.get(sessionId);
-        if (cacheToKill) {
-          cacheToKill.webglAddon?.dispose();
-          cacheToKill.canvasAddon?.dispose();
-          cacheToKill.fitAddon.dispose();
-          cacheToKill.serializeAddon.dispose();
-          cacheToKill.term.dispose();
-          xtermCache.delete(sessionId);
-          console.debug(`[Terminal] Active destruction detected. Session ${sessionId} GC complete.`);
-        }
+      const isAlive = tabs.some(t => t.paneTree && collectSessionIds(t.paneTree).includes(sessionId));
+      if (!isAlive && xtermCache.has(sessionId)) {
+        disposeXtermEntry(sessionId);
+        console.debug(`[Terminal] Active destruction detected. Session ${sessionId} GC complete.`);
       }
     };
   }, [sessionId]); // ONLY mount/dismount on SessionID change
@@ -411,31 +468,16 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       }
     }
 
-    if (fitAddonRef.current) {
-        // Request animation frame ensures DOM padding updates have applied before refitting
-        requestAnimationFrame(() => {
-          if (!fitAddonRef.current || !xtermRef.current) return;
-          fitAddonRef.current.fit();
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims) {
-            window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
-          }
-        });
-    }
+    // Request animation frame ensures DOM padding updates have applied before refitting
+    const frame = requestAnimationFrame(() => fitAndResize());
+    return () => cancelAnimationFrame(frame);
   }, [config, isDark]);
 
   // Re-fit when tab becomes active (restores canvas after display:none hide)
   useEffect(() => {
     if (!isActive || !fitAddonRef.current) return;
     // Small delay ensures the container is fully visible before fitting
-    const timer = setTimeout(() => {
-      if (!fitAddonRef.current || !xtermRef.current) return;
-      fitAddonRef.current.fit();
-      const dims = fitAddonRef.current.proposeDimensions();
-      if (dims) {
-        window.electronAPI.sshResize(sessionId, dims.rows, dims.cols);
-      }
-    }, 50);
+    const timer = setTimeout(() => fitAndResize(), 50);
     return () => clearTimeout(timer);
   }, [isActive, sessionId]);
 
@@ -488,13 +530,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       const cacheEntry = xtermCache.get(sessionId);
       if (cacheEntry) {
         cacheEntry.term.writeln('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
-        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
-        if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
-        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
-        cacheEntry.serializeAddon.dispose();
-        cacheEntry.fitAddon.dispose();
-        xtermCache.delete(sessionId);
-        cacheEntry.term.dispose();
+        disposeXtermEntry(sessionId);
       }
       if (onReconnectRef.current) onReconnectRef.current();
     } else if (e.key === 'Escape') {
@@ -502,16 +538,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       e.stopPropagation();
       if (onDisconnectedChange) onDisconnectedChange(false);
       isDisconnectedRef.current = false;
-      const cacheEntry = xtermCache.get(sessionId);
-      if (cacheEntry) {
-        if (cacheEntry.webglAddon) cacheEntry.webglAddon.dispose();
-        if (cacheEntry.canvasAddon) cacheEntry.canvasAddon.dispose();
-        if (cacheEntry.ligaturesAddon) cacheEntry.ligaturesAddon.dispose();
-        cacheEntry.serializeAddon.dispose();
-        cacheEntry.fitAddon.dispose();
-        xtermCache.delete(sessionId);
-        cacheEntry.term.dispose();
-      }
+      disposeXtermEntry(sessionId);
       if (onDisconnectedRef.current) onDisconnectedRef.current();
     }
   };

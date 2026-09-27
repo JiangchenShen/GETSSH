@@ -1,164 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import { Database, HardDrive, RefreshCw, AlertTriangle, FileText, Download } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { RefreshCw, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useAppStore } from '../../../store/appStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
+
+type AuditRecord = { id: string | number; action: string; target: string; details: string; created_at: string | number };
 
 export const StorageAuditTab: React.FC = () => {
   const { t } = useTranslation();
-  const isDark = useAppStore(state => state.isDark);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  
-  const [stats, setStats] = useState<{size: number, profileCount: number, runbookCount: number} | null>(null);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [stats, setStats] = useState<{ size: number; profileCount: number; runbookCount: number } | null>(null);
+  const [logs, setLogs] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const fetchStatsAndLogs = async () => {
+  const refresh = async () => {
     if (!activeWorkspaceId) return;
-    setLoading(true);
+    setLoading(true); setError('');
     try {
-      const statsRes = await window.electronAPI.getWorkspaceStats(activeWorkspaceId);
-      if (statsRes && statsRes.success && statsRes.stats) {
-        setStats(statsRes.stats);
-      }
-      
-      const logsRes = await window.electronAPI.getWorkspaceAuditLogs(activeWorkspaceId);
-      if (logsRes && logsRes.success && logsRes.logs) {
-        setLogs(logsRes.logs);
-      }
-    } catch (e) {
-      console.error('Failed to fetch storage & audit data', e);
-    } finally {
-      setLoading(false);
-    }
+      const [statsResult, logsResult] = await Promise.all([
+        window.electronAPI.getWorkspaceStats(activeWorkspaceId),
+        window.electronAPI.getWorkspaceAuditLogs(activeWorkspaceId),
+      ]);
+      if (!statsResult?.success || !logsResult?.success) throw new Error('Workspace audit data unavailable');
+      setStats(statsResult.stats || null);
+      setLogs(logsResult.logs || []);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Workspace audit data unavailable'); }
+    finally { setLoading(false); }
   };
+  useEffect(() => { void refresh(); }, [activeWorkspaceId]);
 
-  const handleExportCSV = () => {
-    if (!logs || logs.length === 0) return;
-    const headers = ['ID', 'Action', 'Target', 'Details', 'Timestamp'];
-    const rows = logs.map(l => [
-      l.id,
-      `"${(l.action || '').replace(/"/g, '""')}"`,
-      `"${(l.target || '').replace(/"/g, '""')}"`,
-      `"${(l.details || '').replace(/"/g, '""')}"`,
-      `"${new Date(l.created_at).toISOString()}"`
-    ]);
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const exportCsv = () => {
+    if (!logs.length) return;
+    const field = (value: unknown) => {
+      const raw = String(value ?? '');
+      // Spreadsheet apps may evaluate formulas even when the CSV field is quoted.
+      const safe = /^[\s\u0000-\u001f]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+    const rows = [['ID', 'Action', 'Target', 'Details', 'Timestamp'], ...logs.map(log => [log.id, log.action, log.target, log.details, new Date(log.created_at).toISOString()])];
+    const blob = new Blob([rows.map(row => row.map(field).join(',')).join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `audit_logs_${activeWorkspaceId}_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    link.href = url; link.download = `audit_logs_${activeWorkspaceId}_${Date.now()}.csv`;
+    link.click(); URL.revokeObjectURL(url);
   };
 
-  useEffect(() => {
-    fetchStatsAndLogs();
-  }, [activeWorkspaceId]);
-
-  return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between gap-4">
-        <h4 className="text-4xl font-black tracking-tight flex items-center gap-4 text-white">
-          <Database className="w-10 h-10 text-pink-500"/> 
-          {t("workspaceCenter.sidebar.storageAudit", "Storage & Audit")}
-        </h4>
-        <button 
-          onClick={fetchStatsAndLogs}
-          disabled={loading}
-          className={`p-3 rounded-xl transition-all ${loading ? 'animate-spin opacity-50' : isDark ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-black/5 hover:bg-black/10 text-black'}`}
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
+  return <div className="space-y-7">
+    <div className="flex items-center justify-end"><button type="button" onClick={() => void refresh()} disabled={loading} className="flex min-h-8 items-center gap-1.5 rounded-md border border-line px-3 text-xs text-ink-2 hover:bg-surf-2 disabled:opacity-50"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} />{t('common.refresh', '刷新')}</button></div>
+    {error && <p role="alert" className="border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
+    <section className="grid grid-cols-3 gap-4 border-y border-line py-4 max-[700px]:grid-cols-1">
+      {[
+        [t('workspaceCenter.dbSizeTitle', 'Database size'), stats && `${stats.size} MB`],
+        [t('workspaceCenter.savedProfilesTitle', 'Saved profiles'), stats && String(stats.profileCount)],
+        [t('workspaceCenter.runbooksTitle', 'Runbooks'), stats && String(stats.runbookCount)],
+      ].map(([label, value]) => <div key={label} className="min-w-0"><div className="text-xs text-ink-3">{label}</div><div className="mt-2 font-mono text-lg text-ink">{loading ? '…' : value || '—'}</div></div>)}
+    </section>
+    <section><div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-sm font-medium">{t('workspaceCenter.recentAuditLogTitle', 'Recent audit log')}</h3><button type="button" onClick={exportCsv} disabled={!logs.length} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-primary disabled:opacity-40"><Download size={13} />{t('workspaceCenter.exportAuditLog', 'Export CSV')}</button></div>
+      <div className="max-h-80 overflow-y-auto border-y border-line">
+        {!loading && logs.length === 0 && <p className="py-7 text-center text-xs text-ink-3">{t('workspaceCenter.noAuditLogs', 'No audit logs found for this workspace.')}</p>}
+        {logs.map(log => <div key={log.id} className="flex items-start justify-between gap-4 border-b border-line-soft py-3 last:border-b-0"><div className="min-w-0"><p className={`text-sm ${/fail|error/i.test(log.action) ? 'text-down' : 'text-ink'}`}>{log.action}: {log.target}</p><p className="mt-1 break-all font-mono text-xs text-ink-3">{log.details}</p></div><time className="shrink-0 text-xs text-ink-3">{new Date(log.created_at).toLocaleString()}</time></div>)}
       </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Storage Size Card */}
-        <div className="relative overflow-hidden p-6 bg-black/40 border border-pink-500/20 flex flex-col gap-2 rounded-[24px] shadow-lg backdrop-blur-xl group">
-          <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-          <div className="flex items-center gap-3 opacity-60 mb-2 text-xs font-black uppercase tracking-widest text-pink-500">
-            <HardDrive className="w-4 h-4"/> {t("workspaceCenter.dbSizeTitle", "Database Size")}
-          </div>
-          {loading ? (
-            <div className="h-10 w-24 bg-white/10 animate-pulse rounded-lg" />
-          ) : (
-            <div className="text-4xl font-black text-white">{stats?.size || 0} <span className="text-xl opacity-50">MB</span></div>
-          )}
-          <p className="text-xs opacity-40 font-medium">{t("workspaceCenter.dbSizeDesc", "Physical SQLite file size on disk")}</p>
-        </div>
-
-        {/* Profiles Card */}
-        <div className="relative overflow-hidden p-6 bg-black/40 border border-pink-500/20 flex flex-col gap-2 rounded-[24px] shadow-lg backdrop-blur-xl group">
-          <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-          <div className="flex items-center gap-3 opacity-60 mb-2 text-xs font-black uppercase tracking-widest text-pink-500">
-            <FileText className="w-4 h-4"/> {t("workspaceCenter.savedProfilesTitle", "Saved Profiles")}
-          </div>
-          {loading ? (
-            <div className="h-10 w-16 bg-white/10 animate-pulse rounded-lg" />
-          ) : (
-            <div className="text-4xl font-black text-white">{stats?.profileCount || 0}</div>
-          )}
-          <p className="text-xs opacity-40 font-medium">{t("workspaceCenter.savedProfilesDesc", "Encrypted connection profiles")}</p>
-        </div>
-
-        {/* Runbooks Card */}
-        <div className="relative overflow-hidden p-6 bg-black/40 border border-pink-500/20 flex flex-col gap-2 rounded-[24px] shadow-lg backdrop-blur-xl group">
-          <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-          <div className="flex items-center gap-3 opacity-60 mb-2 text-xs font-black uppercase tracking-widest text-pink-500">
-            <FileText className="w-4 h-4"/> {t("workspaceCenter.runbooksTitle", "Runbooks")}
-          </div>
-          {loading ? (
-            <div className="h-10 w-16 bg-white/10 animate-pulse rounded-lg" />
-          ) : (
-            <div className="text-4xl font-black text-white">{stats?.runbookCount || 0}</div>
-          )}
-          <p className="text-xs opacity-40 font-medium">{t("workspaceCenter.runbooksDesc", "Automated scripts and tasks")}</p>
-        </div>
-
-      </div>
-
-      <div className="relative overflow-hidden p-8 bg-black/40 border border-pink-500/20 flex flex-col gap-6 rounded-[32px] shadow-2xl backdrop-blur-xl">
-        <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-transparent opacity-50 pointer-events-none" />
-        
-        <h5 className="relative z-10 flex items-center gap-3 text-sm font-black uppercase tracking-widest text-white/80">
-          <AlertTriangle className="w-5 h-5 text-pink-500"/> {t("workspaceCenter.recentAuditLogTitle", "Recent Audit Log")}
-        </h5>
-
-        <div className="space-y-4 relative z-10 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
-          {logs.length === 0 && !loading && (
-             <div className="text-xs text-white/40 uppercase tracking-widest font-bold">{t("workspaceCenter.noAuditLogs", "No audit logs found for this workspace.")}</div>
-          )}
-          {logs.map((log) => {
-             const isError = log.action.toLowerCase().includes('fail') || log.action.toLowerCase().includes('error');
-             return (
-               <div key={log.id} className={`p-4 rounded-xl border ${isError ? 'border-red-500/20 bg-red-500/10' : isDark ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'} flex justify-between items-center`}>
-                 <div>
-                   <div className={`text-sm font-bold ${isError ? 'text-red-400' : 'text-white'}`}>{log.action}: {log.target}</div>
-                   <div className={`text-xs font-mono mt-1 ${isError ? 'text-red-400/50' : 'opacity-50'}`}>{log.details}</div>
-                 </div>
-                 <div className={`text-[10px] uppercase font-bold tracking-widest ${isError ? 'text-red-500 opacity-60' : 'opacity-40'}`}>
-                   {new Date(log.created_at).toLocaleString()}
-                 </div>
-               </div>
-             );
-          })}
-        </div>
-
-        <div className="flex justify-center pt-4 relative z-10">
-          <button 
-            onClick={handleExportCSV}
-            disabled={logs.length === 0}
-            className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-opacity text-pink-500 ${logs.length === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-70 hover:opacity-100 cursor-pointer'}`}
-          >
-            <Download className="w-4 h-4"/> {t("workspaceCenter.exportAuditLog", "Export Full Audit Log (CSV)")}
-          </button>
-        </div>
-
-      </div>
-    </div>
-  );
+    </section>
+  </div>;
 };

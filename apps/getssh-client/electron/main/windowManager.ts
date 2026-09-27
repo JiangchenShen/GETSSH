@@ -1,12 +1,46 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { join } from 'path';
-import { getBrowserWindowOptions, setupSecurityPolicies } from './handlers/windowHandler';
-import { nexusBridge } from './nexus/nexusBridge';
+import { bindWindowEvents, getTornWindowOptions, setupSecurityPolicies } from './handlers/windowHandler';
+import { nexusBridge, NexusTabSync } from './nexus/nexusBridge';
+import { getMainWindow, isMainWebContents, sendToMainWindow } from './windowRegistry';
 
+const TORN_MIN_WIDTH = 480;
+const TORN_MIN_HEIGHT = 320;
+
+interface TornIdentity {
+  tabId: string;
+  snapshot: NexusTabSync | null;
+}
+
+interface TearOffRequest {
+  paneId: string;
+  screenX: number;
+  screenY: number;
+  width: number;
+  height: number;
+}
+
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
+
+/**
+ * Owns torn-off windows. Each torn window belongs to exactly one Rust tab:
+ * - the window is created only after Rust has moved the pane into that tab;
+ * - it is closed (without touching the tab) when the tab disappears or is torn back in;
+ * - closing it as a user closes the tab, which disconnects its sessions.
+ */
 export class TornWindowManager {
   private static instance: TornWindowManager;
+  private initialized = false;
+  private appQuitting = false;
+  /** Panes with a tear-off request in flight; released when that request finishes. */
   private tearingPanes = new Set<string>();
-  private tearingIdentities = new Map<number, any>();
+  /** webContents id -> identity. Kept until the window closes so a renderer reload can pull it again. */
+  private tornIdentities = new Map<number, TornIdentity>();
+  /** tabId -> torn window */
+  private tabWindows = new Map<string, BrowserWindow>();
+  /** Windows we close ourselves (tab torn in / gone / renderer failed): their 'closed' must not close the tab. */
+  private releasedWindows = new WeakSet<BrowserWindow>();
 
   private preload: string;
   private devServerUrl?: string;
@@ -27,122 +61,206 @@ export class TornWindowManager {
 
   /**
    * Initializes the manager and registers IPC channels.
+   * Must run before the main window is created; it does not depend on the database.
    */
   public init() {
+    if (this.initialized) return;
+    this.initialized = true;
     this.setupIpc();
+    nexusBridge.on('tab-sync', (payload: NexusTabSync) => this.handleTabSync(payload));
   }
 
-  /**
-   * Registers the Tear-off IPC state machine.
-   */
+  /** The app is really quitting: torn windows now close with it and must not close their tabs. */
+  public prepareForQuit() {
+    this.appQuitting = true;
+  }
+
   private setupIpc() {
-    // 0. Provide hijack identity to mounting React instances safely
-    ipcMain.handle('window:get-hijack-identity', (event) => {
-      const identity = this.tearingIdentities.get(event.sender.id);
-      if (identity) {
-        // Now that the renderer is ready and pulled its identity, we can show it
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (win) {
-          win.show();
-          win.focus();
-        }
-        
-        // Inform Rust state engine to detach pane
-        nexusBridge.requestTearOff(identity.paneId).catch((err: any) => {
-          console.error('[TornWindowManager] Failed to request tear-off in rust:', err);
-        });
-        
-        // Remove from map to prevent memory leaks
-        this.tearingIdentities.delete(event.sender.id);
-        return identity;
+    // Tear-off: only the main window may request it. Rust moves the pane first; the window follows.
+    ipcMain.handle('window:tear-off', async (event, payload: TearOffRequest) => {
+      if (!isMainWebContents(event.sender)) return { success: false, error: 'unauthorized' };
+      if (!payload || typeof payload.paneId !== 'string' || !payload.paneId
+        || !isFiniteNumber(payload.screenX) || !isFiniteNumber(payload.screenY)
+        || !isFiniteNumber(payload.width) || !isFiniteNumber(payload.height)) {
+        return { success: false, error: 'invalid_arguments' };
       }
-      return null;
-    });
+      if (this.appQuitting) return { success: false, error: 'app_quitting' };
+      if (this.tearingPanes.has(payload.paneId)) return { success: false, error: 'tear_off_in_progress' };
 
-    // Phase 1: Pre-arm. Triggered when the drag starts on the frontend.
-    ipcMain.on('window:tear-arm', (event) => {
-      // Hollow window pool removed: simply ack the arming instantly.
-      event.returnValue = true;
-    });
-
-    // Phase 2: Execute "Hijack". Triggered when the user drops the pane outside the bounds.
-    ipcMain.on('window:tear-execute', (event, payload: { screenX: number, screenY: number, width: number, height: number, paneId: string, terminalBuffers?: Record<string, string>, tornTitle?: string }) => {
-      if (this.tearingPanes.has(payload.paneId)) {
-        console.warn(`[TornWindowManager] Tear-off ignored: ${payload.paneId} is already tearing.`);
-        return;
-      }
       this.tearingPanes.add(payload.paneId);
-      setTimeout(() => this.tearingPanes.delete(payload.paneId), 1500);
-
-      console.log(`[TornWindowManager] Tear-off EXECUTED for pane ${payload.paneId} at (${payload.screenX}, ${payload.screenY})`);
-
-      // On-the-fly Window Creation
-      const options = getBrowserWindowOptions(this.preload);
-      options.x = Math.round(payload.screenX);
-      options.y = Math.round(payload.screenY);
-      options.width = Math.round(payload.width);
-      options.height = Math.round(payload.height);
-      options.show = false; // Keep hidden until loaded to prevent visual flash
-      
-      const win = new BrowserWindow(options);
-      setupSecurityPolicies(win.webContents, this.devServerUrl, this.indexHtml);
-
-      // Save the identity payload to be pulled by the renderer when it mounts
-      this.tearingIdentities.set(win.webContents.id, {
-        paneId: payload.paneId,
-        terminalBuffers: payload.terminalBuffers,
-        tornTitle: payload.tornTitle
-      });
-
-      if (app.isPackaged) {
-        win.loadFile(join(__dirname, '../../dist/index.html'), { query: { isHollow: 'true' } });
-      } else if (this.devServerUrl) {
-        win.loadURL(`${this.devServerUrl}?isHollow=true`);
-      } else {
-        win.loadFile(this.indexHtml, { query: { isHollow: 'true' } });
-      }
-
-      // Cleanup pane when window is closed by the OS
-      win.on('closed', () => {
-        if (!(win as any).isTearingIn) {
-           nexusBridge.requestClosePane(payload.paneId).catch((err: any) => {
-             console.error('[TornWindowManager] Failed to request close pane in rust:', err);
-           });
+      try {
+        const res = await nexusBridge.requestTearOff(payload.paneId);
+        if (!res.success || typeof res.tabId !== 'string') {
+          return { success: false, error: res.error || 'tear_off_failed' };
         }
-      });
-    });
-
-    ipcMain.on('window:self-close', (event) => {
-      const senderWin = BrowserWindow.fromWebContents(event.sender);
-      if (senderWin) {
-        senderWin.close();
-      }
-    });
-
-    // Phase 3: Tear-in. Triggered when the user clicks Attach in the hollow window.
-    ipcMain.on('window:tear-in', (event, payload: { paneId: string, terminalBuffers?: Record<string, string> }) => {
-      console.log(`[TornWindowManager] Tear-in EXECUTED for pane ${payload.paneId}`);
-      
-      // 1. Broadcast the torn buffers back to the main window
-      if (payload.terminalBuffers) {
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.webContents.isDestroyed()) {
-             win.webContents.send('window:receive-torn-buffers', payload.terminalBuffers);
-          }
+        const tabId = res.tabId;
+        try {
+          this.createTornWindow(tabId, (res.snapshot as NexusTabSync | null) ?? null, payload);
+        } catch (err: any) {
+          console.error('[TornWindowManager] Failed to create torn window:', err);
+          await this.restoreOrphanTab(tabId);
+          return { success: false, error: err?.message || 'window_create_failed' };
         }
-      }
-
-      // 2. Inform Rust state engine to attach pane
-      nexusBridge.requestTearIn(payload.paneId).catch(err => {
-        console.error('[TornWindowManager] Failed to request tear-in in rust:', err);
-      });
-
-      // 3. Close the hollow window that initiated the tear-in
-      const senderWin = BrowserWindow.fromWebContents(event.sender);
-      if (senderWin) {
-        (senderWin as any).isTearingIn = true;
-        senderWin.close();
+        return { success: true };
+      } finally {
+        this.tearingPanes.delete(payload.paneId);
       }
     });
+
+    // Identity of the calling torn window. Not consumed on read: a reloaded renderer pulls it again.
+    ipcMain.handle('window:get-torn-identity', async (event) => {
+      const identity = this.tornIdentities.get(event.sender.id);
+      if (!identity) return null;
+      const fresh = await nexusBridge.getTabSnapshot(identity.tabId);
+      if (fresh.success) {
+        const snapshot = fresh.snapshot;
+        if (!snapshot || !snapshot.isTornOff || snapshot.tree === null) {
+          // The tab is gone or no longer torn: this window has nothing left to show.
+          const win = BrowserWindow.fromWebContents(event.sender);
+          if (win) this.releaseWindow(win, identity.tabId);
+          return null;
+        }
+        if (!identity.snapshot || snapshot.rev >= identity.snapshot.rev) identity.snapshot = snapshot;
+      }
+      return { tabId: identity.tabId, snapshot: identity.snapshot };
+    });
+
+    // Tear-in: the tab id comes from the sender's identity, never from the renderer.
+    ipcMain.handle('window:tear-in', async (event) => {
+      const identity = this.tornIdentities.get(event.sender.id);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!identity || !win) return { success: false, error: 'not_a_torn_window' };
+      if (this.releasedWindows.has(win)) return { success: true };
+
+      const res = await nexusBridge.requestTearIn(identity.tabId);
+      if (!res.success) return { success: false, error: res.error || 'tear_in_failed' };
+
+      this.releaseWindow(win, identity.tabId);
+      // Only for a user tear-in (not orphan restores). Rust emits the new layout under its lock before it
+      // replies, so the sync reaches the main window ahead of this message.
+      if (typeof res.targetTabId === 'string' && res.targetTabId && typeof res.paneId === 'string' && res.paneId) {
+        sendToMainWindow('nexus:focus-pane', { tabId: res.targetTabId, paneId: res.paneId });
+      }
+      const main = getMainWindow();
+      if (main) {
+        if (main.isMinimized()) main.restore();
+        main.show();
+        main.focus();
+      }
+      return { success: true };
+    });
+  }
+
+  private createTornWindow(tabId: string, snapshot: NexusTabSync | null, request: TearOffRequest) {
+    // Clamp to the work area of the display the pane was dropped on.
+    const { workArea } = screen.getDisplayNearestPoint({ x: Math.round(request.screenX), y: Math.round(request.screenY) });
+    const width = clamp(Math.round(request.width), Math.min(TORN_MIN_WIDTH, workArea.width), workArea.width);
+    const height = clamp(Math.round(request.height), Math.min(TORN_MIN_HEIGHT, workArea.height), workArea.height);
+    const x = clamp(Math.round(request.screenX), workArea.x, workArea.x + workArea.width - width);
+    const y = clamp(Math.round(request.screenY), workArea.y, workArea.y + workArea.height - height);
+
+    const options = getTornWindowOptions(this.preload); // resizable; opaque on Windows (F23)
+    options.x = x;
+    options.y = y;
+    options.width = width;
+    options.height = height;
+    options.minWidth = TORN_MIN_WIDTH;
+    options.minHeight = TORN_MIN_HEIGHT;
+    options.show = false; // Keep hidden until loaded to prevent visual flash
+
+    const win = new BrowserWindow(options);
+    const webContentsId = win.webContents.id;
+    let closing = false;
+
+    this.tornIdentities.set(webContentsId, { tabId, snapshot });
+    this.tabWindows.set(tabId, win);
+
+    setupSecurityPolicies(win.webContents, this.devServerUrl, this.indexHtml);
+    bindWindowEvents(win);
+
+    win.once('ready-to-show', () => {
+      if (!win.isDestroyed()) {
+        win.show();
+        win.focus();
+      }
+    });
+
+    // A torn window that cannot render must not hold its tab hostage: put the tab back into the main window.
+    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3 /* ERR_ABORTED: superseded navigation */) return;
+      console.error(`[TornWindowManager] Torn window failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+      void this.tearBackIn(win, tabId);
+    });
+    win.webContents.on('render-process-gone', (_event, details) => {
+      if (closing) return;
+      console.error(`[TornWindowManager] Torn window renderer gone (${details.reason}); tearing tab ${tabId} back in.`);
+      void this.tearBackIn(win, tabId);
+    });
+
+    win.on('close', () => {
+      closing = true;
+    });
+
+    win.on('closed', () => {
+      this.tornIdentities.delete(webContentsId);
+      if (this.tabWindows.get(tabId) === win) this.tabWindows.delete(tabId);
+      if (this.releasedWindows.has(win) || this.appQuitting) return;
+      // The user closed the window: the tab goes with it (the bridge disconnects its sessions).
+      nexusBridge.closeTab(tabId).then((res) => {
+        if (!res.success) console.error(`[TornWindowManager] Failed to close torn tab ${tabId}:`, res.error);
+      });
+    });
+
+    if (app.isPackaged) {
+      win.loadFile(join(__dirname, '../../dist/index.html'), { query: { isHollow: 'true' } });
+    } else if (this.devServerUrl) {
+      win.loadURL(`${this.devServerUrl}?isHollow=true`);
+    } else {
+      win.loadFile(this.indexHtml, { query: { isHollow: 'true' } });
+    }
+  }
+
+  /** Rust sync for any tab: close a torn window whose tab disappeared or was torn back in. */
+  private handleTabSync(payload: NexusTabSync) {
+    const win = this.tabWindows.get(payload.tabId);
+    if (!win) return;
+    if (win.isDestroyed()) {
+      this.tabWindows.delete(payload.tabId);
+      return;
+    }
+    const identity = this.tornIdentities.get(win.webContents.id);
+    // Ignore payloads emitted before this window's snapshot (delivery can interleave with the tear-off reply).
+    if (identity?.snapshot && payload.rev > 0 && payload.rev <= identity.snapshot.rev) return;
+
+    if (payload.tree === null || !payload.isTornOff) {
+      this.releaseWindow(win, payload.tabId);
+      return;
+    }
+    if (identity) identity.snapshot = payload;
+  }
+
+  /** Closes a torn window without closing its tab. */
+  private releaseWindow(win: BrowserWindow, tabId: string) {
+    this.releasedWindows.add(win);
+    if (this.tabWindows.get(tabId) === win) this.tabWindows.delete(tabId);
+    if (!win.isDestroyed()) win.close();
+  }
+
+  /** The torn renderer failed: move the tab back to the main window, then drop the window. */
+  private async tearBackIn(win: BrowserWindow, tabId: string) {
+    if (this.releasedWindows.has(win) || this.appQuitting) return;
+    this.releasedWindows.add(win);
+    if (this.tabWindows.get(tabId) === win) this.tabWindows.delete(tabId);
+    await this.restoreOrphanTab(tabId);
+    if (!win.isDestroyed()) win.destroy();
+  }
+
+  /** A torn tab without a window: tear it back in, or close it (disconnecting its sessions) if that fails. */
+  private async restoreOrphanTab(tabId: string) {
+    const res = await nexusBridge.requestTearIn(tabId);
+    if (res.success) return;
+    console.error(`[TornWindowManager] Tear-in of orphaned tab ${tabId} failed (${res.error}); closing it.`);
+    const closed = await nexusBridge.closeTab(tabId);
+    if (!closed.success) console.error(`[TornWindowManager] Failed to close orphaned tab ${tabId}:`, closed.error);
   }
 }

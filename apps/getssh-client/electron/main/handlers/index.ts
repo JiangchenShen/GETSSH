@@ -11,6 +11,7 @@ import { setupWorkspaceHandlers } from './workspaceHandler';
 import { registerAgentHandlers } from '../services/AgentExecutor';
 import { registerAppHandlers } from './appHandler';
 import { registerMcpHandlers } from './mcpHandler';
+import { registerAssetFolderHandlers } from './assetFolderHandler';
 
 /**
  * Central Registry for all Main Process IPC handlers.
@@ -26,6 +27,7 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
   
   // Storage Handlers
   registerProfileHandlers(ipcMain);
+  registerAssetFolderHandlers(ipcMain, getWin);
   
   // System/App Lifecycle Handlers
   registerSystemHandlers(ipcMain, app, getWin);
