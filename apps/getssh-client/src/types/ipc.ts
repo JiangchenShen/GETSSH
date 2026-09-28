@@ -28,6 +28,8 @@ export interface BackendConfigUpdateResult {
   success: boolean;
   effectiveConfig: BackendConfig;
   error?: string;
+  /** Why a plugin-mode change was refused: no Touch ID, so the master password is needed; or the check failed. */
+  verification?: 'password_required' | 'denied';
 }
 
 export interface ExportPayload {

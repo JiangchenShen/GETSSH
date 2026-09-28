@@ -12,11 +12,21 @@ import path from 'node:path';
  * anyone holding the file. Those legacy blobs are still read here and rewritten with the real
  * Keychain key the first time they are loaded.
  *
- * New blobs carry FORMAT_MAGIC. The prefix is what tells the two apart: AES-CBC decryption with
- * the wrong key succeeds by chance about once in 256 tries and would return garbage, so "try one
- * key, then the other" cannot be relied on.
+ * New blobs carry a prefix. It is what tells the two apart: AES-CBC decryption with the wrong key
+ * succeeds by chance about once in 256 tries and would return garbage, so "try one key, then the
+ * other" cannot be relied on. The prefix also separates purposes: renderer-held config blobs
+ * ('config') can neither be decrypted as nor pass for the files that hold identity secrets.
  */
-const FORMAT_MAGIC = Buffer.from('GETSSH-SS1:', 'ascii');
+export type SecretPurpose = 'secret' | 'config';
+
+const FORMAT_MAGIC: Record<SecretPurpose, Buffer> = {
+  secret: Buffer.from('GETSSH-SS1:', 'ascii'),
+  config: Buffer.from('GETSSH-CF1:', 'ascii'),
+};
+
+function hasPrefix(blob: Buffer, prefix: Buffer): boolean {
+  return blob.length >= prefix.length && blob.subarray(0, prefix.length).equals(prefix);
+}
 
 const LEGACY_PREFIX = Buffer.from('v10', 'ascii');
 // Chromium os_crypt on macOS: PBKDF2-SHA1(keychain password, "saltysalt", 1003) -> AES-128-CBC, IV of spaces.
@@ -40,9 +50,9 @@ export function isSecretStoreAvailable(): boolean {
   return safeStorage.isEncryptionAvailable();
 }
 
-export function encryptSecret(value: string): Buffer {
+export function encryptSecret(value: string, purpose: SecretPurpose = 'secret'): Buffer {
   if (!safeStorage.isEncryptionAvailable()) throw new SecretStoreUnavailableError();
-  return Buffer.concat([FORMAT_MAGIC, safeStorage.encryptString(value)]);
+  return Buffer.concat([FORMAT_MAGIC[purpose], safeStorage.encryptString(value)]);
 }
 
 /** Checks a decrypted value's expected shape; a failing value is never returned or migrated. */
@@ -55,10 +65,14 @@ function accepted(value: string, validate: SecretValidator): string {
   return value;
 }
 
-export function decryptSecret(blob: Buffer, validate: SecretValidator = acceptAny): DecryptedSecret {
-  if (blob.length >= FORMAT_MAGIC.length && blob.subarray(0, FORMAT_MAGIC.length).equals(FORMAT_MAGIC)) {
+export function decryptSecret(blob: Buffer, validate: SecretValidator = acceptAny, purpose: SecretPurpose = 'secret'): DecryptedSecret {
+  const own = FORMAT_MAGIC[purpose];
+  if (hasPrefix(blob, own)) {
     if (!safeStorage.isEncryptionAvailable()) throw new SecretStoreUnavailableError();
-    return { value: accepted(safeStorage.decryptString(blob.subarray(FORMAT_MAGIC.length)), validate), legacy: false };
+    return { value: accepted(safeStorage.decryptString(blob.subarray(own.length)), validate), legacy: false };
+  }
+  if ((Object.keys(FORMAT_MAGIC) as SecretPurpose[]).some(other => other !== purpose && hasPrefix(blob, FORMAT_MAGIC[other]))) {
+    throw new Error(`Blob was not written as ${purpose} data`);
   }
   if (process.platform === 'darwin') {
     const value = decryptLegacyMockKeychainBlob(blob);

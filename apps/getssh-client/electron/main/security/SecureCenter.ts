@@ -72,14 +72,21 @@ export class SecureCenter {
     ipcMain.handle('resolve-security-lockdown', async (event, action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue', masterPassword?: unknown) => {
       if (!isKnownTopLevelSender(event)) return { ok: false, reason: 'unauthorized' };
       if (!['restart-safe', 'save-15s', 'ignore', 'deactivate-plugin', 'continue'].includes(action)) return { ok: false, reason: 'invalid_action' };
+      // A red lockdown (core memory tampering) ends only by restarting, a 15 s save, or a verified
+      // "ignore"; the yellow-only actions would otherwise end it without any check.
+      if ((action === 'continue' || action === 'deactivate-plugin') && this.lastLockdownLevel === 'red') {
+        return { ok: false, reason: 'invalid_action' };
+      }
       // Ignoring keeps a compromised process running with the watchdog off, so the owner must prove
-      // who they are here: the renderer's own prompt could simply be skipped.
+      // who they are here: the renderer's own prompt could simply be skipped. Outside a lockdown
+      // there is nothing to ignore, and the check is not offered as a password oracle.
       if (action === 'ignore') {
+        if (!this.lockdownMode) return { ok: false, reason: 'invalid_action' };
         const { verifyOwner } = require('./userPresence');
-        const { activeWorkspaceOwnerDeps } = require('./workspaceVault');
+        const { appOwnerDeps } = require('./workspaceVault');
         const outcome = await verifyOwner(
           { password: typeof masterPassword === 'string' ? masterPassword : undefined, reason: 'ignore a security lockdown' },
-          activeWorkspaceOwnerDeps(),
+          appOwnerDeps(),
         );
         if (outcome !== 'verified') return { ok: false, reason: outcome };
       }

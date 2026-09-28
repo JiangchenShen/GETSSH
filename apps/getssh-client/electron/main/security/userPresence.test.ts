@@ -9,6 +9,8 @@ vi.mock('electron', () => ({ systemPreferences: touchId }));
 
 import {
   checkMasterPassword,
+  failedPasswordDelay,
+  resetPasswordFailuresForTest,
   secretsEqual,
   unlockWithBiometrics,
   verifyOwner,
@@ -23,6 +25,7 @@ function setPlatform(platform: NodeJS.Platform) {
 }
 
 beforeEach(() => {
+  resetPasswordFailuresForTest();
   setPlatform('darwin');
   touchId.canPromptTouchID.mockReset().mockReturnValue(true);
   touchId.promptTouchID.mockReset().mockResolvedValue(undefined);
@@ -63,21 +66,26 @@ describe('verifyUserPresence', () => {
 });
 
 describe('master password checks', () => {
+  const matchesRight = async (candidate: string) => candidate === 'right';
+
   it('compares in constant time regardless of length', () => {
     expect(secretsEqual('correct horse', 'correct horse')).toBe(true);
     expect(secretsEqual('correct horse', 'correct horsf')).toBe(false);
     expect(secretsEqual('short', 'a much longer value')).toBe(false);
   });
 
-  it('delays failed attempts', async () => {
+  it('delays failed attempts, longer after repeated failures', async () => {
+    expect([1, 2, 3, 4, 5, 6].map(failedPasswordDelay)).toEqual([750, 750, 750, 1500, 3000, 6000]);
+    expect(failedPasswordDelay(50)).toBe(30_000);
+
     vi.useFakeTimers();
     let settled = false;
-    const attempt = checkMasterPassword('wrong', async () => 'right').then(result => { settled = true; return result; });
+    const attempt = checkMasterPassword('wrong', matchesRight).then(result => { settled = true; return result; });
     await vi.advanceTimersByTimeAsync(700);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(100);
     expect(await attempt).toBe(false);
-    expect(await checkMasterPassword('right', async () => 'right')).toBe(true);
+    expect(await checkMasterPassword('right', matchesRight)).toBe(true);
   });
 
   it('treats an unreadable stored password as a mismatch', async () => {
@@ -88,12 +96,23 @@ describe('master password checks', () => {
     expect(await attempt).toBe(false);
     warn.mockRestore();
   });
+
+  it('never makes a Touch ID prompt wait behind failed password guesses', async () => {
+    vi.useFakeTimers();
+    const guesses = [1, 2, 3, 4, 5].map(() => checkMasterPassword('wrong', matchesRight));
+    const prompt = verifyUserPresence('unlock');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await Promise.race([prompt, new Promise(resolve => setTimeout(() => resolve('blocked'), 10))]))
+      .toBe('verified');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await Promise.all(guesses)).toEqual([false, false, false, false, false]);
+  });
 });
 
 describe('verifyOwner', () => {
   const deps = (stored: string | null, presence: PresenceOutcome = 'verified') => ({
     hasStoredPassword: () => stored !== null,
-    readStoredPassword: async () => stored ?? '',
+    passwordMatches: vi.fn(async (candidate: string) => candidate === stored),
     presence: vi.fn(async () => presence),
   });
 
@@ -103,21 +122,26 @@ describe('verifyOwner', () => {
     expect(d.presence).not.toHaveBeenCalled();
   });
 
-  it('accepts the right password and rejects a wrong one without prompting', async () => {
+  it('requires Touch ID where available and never accepts a password instead', async () => {
+    const withTouchId = deps('s3cret', 'verified');
+    expect(await verifyOwner({ password: 'anything', reason: 'x' }, withTouchId)).toBe('verified');
+    expect(withTouchId.passwordMatches).not.toHaveBeenCalled();
+
+    // A renderer holding the right password cannot skip a cancelled prompt.
+    const cancelled = deps('s3cret', 'cancelled');
+    expect(await verifyOwner({ password: 's3cret', reason: 'x' }, cancelled)).toBe('denied');
+    expect(cancelled.passwordMatches).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the master password only where no OS prompt exists', async () => {
     vi.useFakeTimers();
-    const d = deps('s3cret');
+    const d = deps('s3cret', 'unsupported');
+    expect(await verifyOwner({ reason: 'x' }, d)).toBe('password_required');
+    expect(await verifyOwner({ password: '', reason: 'x' }, d)).toBe('password_required');
     expect(await verifyOwner({ password: 's3cret', reason: 'x' }, d)).toBe('verified');
     const wrong = verifyOwner({ password: 'guess', reason: 'x' }, d);
     await vi.advanceTimersByTimeAsync(1000);
     expect(await wrong).toBe('denied');
-    expect(d.presence).not.toHaveBeenCalled();
-  });
-
-  it('uses the OS prompt when no password is given', async () => {
-    expect(await verifyOwner({ reason: 'x' }, deps('s3cret', 'verified'))).toBe('verified');
-    expect(await verifyOwner({ reason: 'x' }, deps('s3cret', 'cancelled'))).toBe('denied');
-    expect(await verifyOwner({ reason: 'x' }, deps('s3cret', 'unsupported'))).toBe('password_required');
-    expect(await verifyOwner({ password: '', reason: 'x' }, deps('s3cret', 'unsupported'))).toBe('password_required');
   });
 });
 

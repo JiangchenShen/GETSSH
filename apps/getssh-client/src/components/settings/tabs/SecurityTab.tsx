@@ -57,14 +57,25 @@ export const SecurityTab: React.FC = () => {
     }
     try {
       const nextPassword = safeAction === 'disable' ? '' : safeNewPwd;
-      await window.electronAPI.saveProfiles({ masterPassword: nextPassword, payload: savedProfiles(sessions), workspaceId: activeWorkspaceId });
+      await window.electronAPI.saveProfiles({
+        masterPassword: nextPassword,
+        payload: savedProfiles(sessions),
+        workspaceId: activeWorkspaceId,
+        passwordChange: true,
+        currentPassword: safeAction === 'enable' ? undefined : safeOldPwd,
+      });
       setEncryptionDisabled(safeAction === 'disable');
       setMasterPassword(nextPassword);
       await useWorkspaceStore.getState().initWorkspaces();
       setSafeAction('none'); setSafeOldPwd(''); setSafeNewPwd(''); setSafeError('');
       addToast(safeAction === 'disable' ? t('security.pwdDisabled') : safeAction === 'change' ? t('security.pwdUpdated') : t('security.pwdEnabled'), 'success');
     } catch (error) {
-      setSafeError(error instanceof Error ? error.message : (zh ? '保险库操作失败' : 'Vault update failed'));
+      const message = error instanceof Error ? error.message : '';
+      if (/verification_failed|current_password_required/.test(message)) {
+        setSafeError(zh ? '身份验证未通过，保险库密码未更改' : 'Identity verification failed; the vault password was not changed');
+      } else {
+        setSafeError(message || (zh ? '保险库操作失败' : 'Vault update failed'));
+      }
     }
   };
 
@@ -73,20 +84,17 @@ export const SecurityTab: React.FC = () => {
     if (mode === 'developer' && !window.confirm(zh
       ? '开发者模式会让插件直接在主进程运行并获得完整系统权限。仅用于完全信任的代码。确定继续？'
       : 'Developer mode runs plugins in the main process with full system access. Use it only for fully trusted code. Continue?')) return;
-    let token: string | undefined;
-    if (mode !== 'safe') {
-      if (!encryptionDisabled) {
-        const biometric = await window.electronAPI.promptBiometricUnlock();
-        if (biometric.success) token = biometric.masterPassword;
-        else if (biometric.reason === 'unsupported' || biometric.reason === 'no_key' || biometric.reason === 'not_enabled' || biometric.reason === 'cancelled') {
-          token = window.prompt(zh ? '请输入保险库密码以验证身份' : 'Enter your vault password to verify') || undefined;
-          if (!token) return;
-        } else return;
-      } else if (!window.confirm(zh ? '启用后端插件执行？插件将在系统隔离进程中运行。' : 'Enable backend plugins in an OS-confined process?')) return;
-    }
+    if (mode !== 'safe' && encryptionDisabled && !window.confirm(zh ? '启用后端插件执行？插件将在系统隔离进程中运行。' : 'Enable backend plugins in an OS-confined process?')) return;
     setPluginBusy(true);
     try {
-      const result = await window.electronAPI.updateBackendConfig({ pluginSecurityMode: mode }, token);
+      // The main process verifies the owner itself (Touch ID); it asks for the master password only
+      // where no OS prompt exists.
+      let result = await window.electronAPI.updateBackendConfig({ pluginSecurityMode: mode });
+      if (!result.success && result.verification === 'password_required') {
+        const token = window.prompt(zh ? '请输入保险库密码以验证身份' : 'Enter your vault password to verify') || undefined;
+        if (!token) return;
+        result = await window.electronAPI.updateBackendConfig({ pluginSecurityMode: mode }, token);
+      }
       if (!result.success) throw new Error(result.error || 'Plugin security mode could not be changed');
       updateConfig('pluginSecurityMode', mode);
       await window.electronAPI.reloadPlugins();

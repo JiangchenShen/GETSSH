@@ -243,6 +243,54 @@ export class DatabaseManager {
     }
   }
 
+  /**
+   * Whether `password` opens this workspace's encrypted database, checked on a separate read-only
+   * connection (mountWorkspace() does not check anything for a database that is already open).
+   */
+  public static workspaceKeyMatches(workspaceId: string, password: string): boolean {
+    if (!password) return false;
+    const wsDbPath = path.join(this.baseDir, `workspace_${workspaceId}.db`);
+    let db: Database.Database | null = null;
+    try {
+      db = new Database(wsDbPath, { readonly: true, fileMustExist: true });
+      db.pragma(`cipher = 'sqlcipher'`);
+      const keyBuffer = Buffer.from(password, 'utf8');
+      try {
+        db.key(keyBuffer);
+      } finally {
+        keyBuffer.fill(0);
+      }
+      db.prepare('SELECT count(*) FROM sqlite_master').get();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      try { db?.close(); } catch {}
+    }
+  }
+
+  /**
+   * Changes the key of a mounted workspace database; an empty password removes encryption.
+   * SQLite3 Multiple Ciphers cannot rekey in WAL mode ("SQL logic error"), so the journal is
+   * switched to DELETE for the rekey and back to WAL afterwards.
+   */
+  public static rekeyWorkspace(workspaceId: string, password: string): void {
+    const db = this.workspaceDbs.get(workspaceId);
+    if (!db) throw new Error('Workspace database is not mounted');
+    db.pragma('journal_mode = DELETE');
+    try {
+      db.pragma(`cipher = 'sqlcipher'`);
+      const keyBuffer = Buffer.from(password, 'utf8');
+      try {
+        db.rekey(keyBuffer);
+      } finally {
+        keyBuffer.fill(0);
+      }
+    } finally {
+      db.pragma('journal_mode = WAL');
+    }
+  }
+
   public static unmountWorkspace(workspaceId: string) {
     this.assetFolderUnlocks.delete(workspaceId);
     const db = this.workspaceDbs.get(workspaceId);

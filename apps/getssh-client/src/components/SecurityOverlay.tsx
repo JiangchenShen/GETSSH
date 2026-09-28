@@ -55,8 +55,8 @@ export const SecurityOverlay: React.FC = () => {
     setLockdownInfo(null);
   };
 
-  // The main process verifies the owner before ignoring: Touch ID, or the master password when
-  // Touch ID is unavailable or was cancelled. A workspace without a master password is not asked.
+  // The main process verifies the owner before ignoring: Touch ID where the Mac has it, otherwise
+  // the master password. Nothing is asked when no workspace has a master password.
   const requestIgnore = async (masterPassword?: string) => {
     if (verifying) return;
     setVerifying(true);
@@ -70,11 +70,12 @@ export const SecurityOverlay: React.FC = () => {
         setPwdError(null);
         return;
       }
-      if (masterPassword === undefined) {
-        if (res?.reason === 'password_required' || res?.reason === 'denied') setPwdPrompt(true);
+      if (res?.reason === 'password_required') {
+        setPwdPrompt(true);
+        if (masterPassword !== undefined) setPwdError('Enter your master password.');
         return;
       }
-      setPwdError('Incorrect master password.');
+      if (masterPassword !== undefined) setPwdError('Incorrect master password.');
     } finally {
       setVerifying(false);
     }

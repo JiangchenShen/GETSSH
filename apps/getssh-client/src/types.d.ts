@@ -65,7 +65,8 @@ declare global {
       bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => Promise<{ success: boolean; error?: string }>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
       /** `workspaceId`: the workspace the renderer believes is active; main refuses the write if it differs. */
-      saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[], workspaceId?: string }) => Promise<boolean>;
+      /** passwordChange + currentPassword: only the settings flow changes or removes an existing password; main verifies it (Touch ID, else currentPassword). */
+      saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[], workspaceId?: string, currentPassword?: string, passwordChange?: boolean }) => Promise<boolean>;
       assetFolders: {
         list: (workspaceId: string) => Promise<{ success: boolean; folders?: string[]; error?: string }>;
         create: (workspaceId: string, path: string) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;

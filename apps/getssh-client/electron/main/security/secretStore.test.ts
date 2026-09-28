@@ -90,6 +90,17 @@ describe('current format', () => {
     expect(() => encryptSecret('x')).toThrow(SecretStoreUnavailableError);
   });
 
+  it('keeps config blobs and identity secrets apart', () => {
+    const config = encryptSecret('{"aiApiKey":"sk-x"}', 'config');
+    expect(config.subarray(0, 11).toString('ascii')).toBe('GETSSH-CF1:');
+    expect(decryptSecret(config, undefined, 'config')).toEqual({ value: '{"aiApiKey":"sk-x"}', legacy: false });
+    // A config blob cannot be planted as vault.key, and decrypt-config cannot open a vault blob.
+    expect(() => decryptSecret(config)).toThrow(/not written as secret/);
+    expect(() => decryptSecret(encryptSecret('master-pw'), undefined, 'config')).toThrow(/not written as config/);
+    // Config saved before 3.0 (mock keychain) still loads once.
+    expect(decryptSecret(GOLDEN_MOCK_BLOB, undefined, 'config').legacy).toBe(true);
+  });
+
   it('rejects values that fail validation', () => {
     expect(() => decryptSecret(encryptSecret('not-hex'), value => /^[0-9a-f]+$/.test(value))).toThrow(/expected value/);
   });

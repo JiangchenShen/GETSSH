@@ -209,26 +209,29 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
 
     let modeChangeAccepted = true;
     let modeChangeError: string | undefined;
+    let modeChangeVerification: 'password_required' | 'denied' | undefined;
     // Safe mode reduces privileges and is always allowed. Any transition that
     // enables backend plugin code must be authenticated in the main process.
     if (config.pluginSecurityMode && config.pluginSecurityMode !== backendConfig.pluginSecurityMode) {
       if (config.pluginSecurityMode !== 'safe') {
         try {
           const { verifyOwner } = require('../security/userPresence');
-          const { activeWorkspaceOwnerDeps } = require('../security/workspaceVault');
-          // A master password supplied by the settings flow, or Touch ID; a workspace without a
-          // stored password has no identity secret to verify.
+          const { appOwnerDeps } = require('../security/workspaceVault');
+          // Touch ID where available; otherwise the master password typed in the settings flow.
+          // Without any protected workspace there is no identity secret to verify.
           const outcome = await verifyOwner(
             { password: typeof authToken === 'string' ? authToken : undefined, reason: 'enable backend plugins' },
-            activeWorkspaceOwnerDeps(),
+            appOwnerDeps(),
           );
-          const verified = outcome === 'verified';
 
-          if (!verified) {
+          if (outcome !== 'verified') {
             console.warn(`[Security] Blocked unauthorized attempt to change pluginSecurityMode to ${config.pluginSecurityMode}`);
             delete config.pluginSecurityMode;
             modeChangeAccepted = false;
-            modeChangeError = 'Identity verification failed. Plugin security mode was not changed.';
+            modeChangeVerification = outcome;
+            modeChangeError = outcome === 'password_required'
+              ? 'Enter your master password to change the plugin security mode.'
+              : 'Identity verification failed. Plugin security mode was not changed.';
           }
         } catch (e) {
           console.error("Failed to verify plugin mode change", e);
@@ -246,7 +249,8 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     return {
       success: modeChangeAccepted,
       effectiveConfig: { ...backendConfig },
-      ...(modeChangeError ? { error: modeChangeError } : {})
+      ...(modeChangeError ? { error: modeChangeError } : {}),
+      ...(modeChangeVerification ? { verification: modeChangeVerification } : {})
     };
   });
 
@@ -456,7 +460,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     try {
       const { encryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
       if (isSecretStoreAvailable()) {
-        return encryptSecret(JSON.stringify(data)).toString('base64');
+        return encryptSecret(JSON.stringify(data), 'config').toString('base64');
       }
     } catch (err) {}
     // Fallback to base64 if no encryption available
@@ -470,7 +474,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       const { decryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
       const buf = Buffer.from(base64, 'base64');
       if (isSecretStoreAvailable()) {
-        return JSON.parse(decryptSecret(buf).value);
+        return JSON.parse(decryptSecret(buf, undefined, 'config').value);
       }
       return JSON.parse(buf.toString('utf-8'));
     } catch (err) {

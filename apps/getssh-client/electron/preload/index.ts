@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bridgeFetchProfiles: (sourceWorkspaceId: string) => ipcRenderer.invoke('workspace:bridge:fetchProfiles', sourceWorkspaceId),
   bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => ipcRenderer.invoke('workspace:bridge:importProfiles', targetWorkspaceId, profiles, runbooks),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
-  saveProfiles: (payload: { masterPassword?: string; payload: unknown[]; workspaceId?: string }) => ipcRenderer.invoke('save-profiles', payload),
+  saveProfiles: (payload: { masterPassword?: string; payload: unknown[]; workspaceId?: string; currentPassword?: string; passwordChange?: boolean }) => ipcRenderer.invoke('save-profiles', payload),
   assetFolders: {
     list: (workspaceId: string) => ipcRenderer.invoke('asset-folders:list', workspaceId),
     create: (workspaceId: string, path: string) => ipcRenderer.invoke('asset-folders:create', workspaceId, path),
