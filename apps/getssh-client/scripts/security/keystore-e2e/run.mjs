@@ -75,8 +75,17 @@ let failed = false;
 try {
   for (const phases of sequences) {
     const home = fs.mkdtempSync(path.join(homesDir, 'home-'));
+    // USERPROFILE points Node's os.homedir() at the temporary home. Windows expands its known
+    // folders (%USERPROFILE%\AppData\...) from the same variable, so give Chromium a complete
+    // profile there instead of paths that do not exist.
+    const windowsProfile = {};
+    if (process.platform === 'win32') {
+      windowsProfile.APPDATA = path.join(home, 'AppData', 'Roaming');
+      windowsProfile.LOCALAPPDATA = path.join(home, 'AppData', 'Local');
+      for (const dir of Object.values(windowsProfile)) fs.mkdirSync(dir, { recursive: true });
+    }
     for (const phase of phases) {
-      const env = { ...process.env, HOME: home, USERPROFILE: home, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' };
+      const env = { ...process.env, HOME: home, USERPROFILE: home, ...windowsProfile, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' };
       const result = spawnSync(electron, [bundle], {
         env,
         encoding: 'utf8',
