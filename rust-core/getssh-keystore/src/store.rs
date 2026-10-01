@@ -99,6 +99,17 @@ pub struct Status {
     pub scopes: Vec<ScopeStatus>,
 }
 
+/// One scope's current key version for an encrypted export bundle (getssh-store): the version key
+/// and the version record with only the routes that work on another computer (passwords).
+/// Device, presence, parent and recovery routes belong to this keyring and are rebuilt by the
+/// importing keystore. Holds a key, so it never leaves Rust.
+#[derive(Clone)]
+pub struct ScopeExport {
+    pub scope_id: String,
+    pub key: Key32,
+    pub version: KeyVersion,
+}
+
 pub struct Keystore<D: Device> {
     device: D,
     path: PathBuf,
@@ -1679,6 +1690,78 @@ impl<D: Device> Keystore<D> {
         self.device.verify_presence(reason)
     }
 
+    /// The current version of an unlocked scope with its key, keeping only password routes.
+    /// Refused while a rotation is staged (the database would be on the other key).
+    pub fn export_scope(&self, scope_id: &str) -> Result<ScopeExport, KsError> {
+        let st = self.state();
+        let keyring = st.keyring.as_ref().ok_or(KsError::NotInitialized)?;
+        let scope = get_scope(keyring, scope_id)?;
+        if scope.versions.len() > 1 {
+            return Err(KsError::RotationPending(scope_id.to_string()));
+        }
+        let mut version = scope.versions[0].clone();
+        let key = st.keys.get(&slot(scope_id, &version.id)).cloned().ok_or_else(|| KsError::Locked(scope_id.to_string()))?;
+        version.wraps.retain(Wrap::is_password);
+        Ok(ScopeExport { scope_id: scope_id.to_string(), key, version })
+    }
+
+    /// First run from an export bundle: a keyring holding exactly the exported versions. The
+    /// policy then adds this computer's routes: the quiet device key for unprotected scopes and
+    /// parent routes under a master password. Database and field keys stay what they were, so the
+    /// exported databases open unchanged and existing passwords keep working.
+    pub fn initialize_from_export(&self, scopes: Vec<ScopeExport>) -> Result<(), KsError> {
+        let _op = self.op();
+        let epoch = {
+            let st = self.state();
+            if st.keyring.is_some() {
+                return Err(KsError::AlreadyInitialized);
+            }
+            st.epoch
+        };
+        if fs_exists(&self.path) {
+            return Err(KsError::AlreadyInitialized);
+        }
+        if !scopes.iter().any(|s| s.scope_id == APP) {
+            return Err(KsError::InvalidArgument("the export has no app scope".into()));
+        }
+        let mut keyring = Keyring::new();
+        let mut known = KeyMap::new();
+        let mut field_keys = Vec::new();
+        for export in scopes {
+            let ScopeExport { scope_id, key, version } = export;
+            if scope_id != APP && !keyring::is_valid_scope_id(&scope_id) {
+                return Err(KsError::InvalidArgument("invalid scope id in the export".into()));
+            }
+            if keyring.scopes.contains_key(&scope_id) {
+                return Err(KsError::InvalidArgument(format!("{scope_id} appears twice in the export")));
+            }
+            if version.wraps.iter().any(|w| !w.is_password()) {
+                return Err(KsError::InvalidArgument("exported versions carry password routes only".into()));
+            }
+            if !crypto::ct_eq(&crypto::key_check(&key, &check_context(&scope_id, &version.id)), &version.check.0) {
+                return Err(KsError::Corrupt(format!("{scope_id}: the exported key does not match its version")));
+            }
+            let field_key = crypto::open_key(&key, &version.field_key.nonce.0, &version.field_key.ciphertext.0, &field_key_aad(&scope_id, &version.id))
+                .map_err(|_| KsError::Corrupt(format!("{scope_id}: the field key does not open")))?;
+            known.insert(slot(&scope_id, &version.id), key);
+            field_keys.push((scope_id.clone(), field_key));
+            keyring.scopes.insert(scope_id, Scope { versions: vec![version] });
+        }
+        let mut lost = false;
+        let retired = self.reconcile(&mut keyring, &mut known, None, &mut lost)?;
+        keyring::validate(&keyring)?;
+        self.finish(
+            epoch,
+            Some(keyring),
+            lost,
+            retired,
+            Box::new(move |st| {
+                st.keys.extend(known);
+                st.field_keys.extend(field_keys);
+            }),
+        )
+    }
+
     /// Creates a throwaway quiet device key, runs a full encapsulate / decapsulate round trip
     /// (never prompts), deletes the key and returns the backend name. For startup checks and
     /// diagnostics; touches no keyring.
@@ -2743,5 +2826,102 @@ mod tests {
         ks.commit_rotation(APP).unwrap();
         let ks = env.open();
         ks.open_scope(APP).unwrap();
+    }
+
+    fn export_all(ks: &Keystore<FakeDevice>, scopes: &[&str]) -> Vec<ScopeExport> {
+        scopes.iter().map(|s| ks.export_scope(s).unwrap()).collect()
+    }
+
+    #[test]
+    fn an_export_opens_on_another_computer_with_the_same_keys() {
+        let a = Env::new();
+        let ks = a.open();
+        ks.initialize().unwrap();
+        ks.create_scope("ws:plain", None).unwrap();
+        ks.create_scope("ws:secret", Some("secret-password")).unwrap();
+        let sealed_plain = ks.seal_field("ws:plain", "profile|p|password", b"pw-plain").unwrap();
+        let sealed_secret = ks.seal_field("ws:secret", "profile|s|password", b"pw-secret").unwrap();
+        let db_keys: Vec<_> = ["app", "ws:plain", "ws:secret"].iter().map(|s| ks.database_key(s, "database", false).unwrap()).collect();
+        let exports = export_all(&ks, &["app", "ws:plain", "ws:secret"]);
+        assert!(exports.iter().all(|e| e.version.wraps.iter().all(|w| w.is_password())), "device routes stay behind");
+
+        let b = Env::new();
+        let other: [u8; 32] = crypto::random_array();
+        let imported = b.open_on(other);
+        imported.initialize_from_export(exports).unwrap();
+        for (scope, key) in ["app", "ws:plain", "ws:secret"].iter().zip(&db_keys) {
+            assert_eq!(&imported.database_key(scope, "database", false).unwrap(), key, "{scope} keeps its database key");
+        }
+        assert_eq!(&imported.open_field("ws:plain", "profile|p|password", &sealed_plain).unwrap()[..], b"pw-plain");
+        assert_eq!(&imported.open_field("ws:secret", "profile|s|password", &sealed_secret).unwrap()[..], b"pw-secret");
+
+        // After a restart on the new computer: quiet scopes open by themselves, the password one asks.
+        let ks = b.open_on(other);
+        ks.open_scope(APP).unwrap();
+        ks.open_scope("ws:plain").unwrap();
+        assert!(matches!(ks.open_scope("ws:secret"), Err(KsError::Locked(_))));
+        ks.unlock_with_password("ws:secret", "secret-password").unwrap();
+        // The original computer's device keys mean nothing there.
+        assert!(b.keyring().quiet_device.as_ref().is_some_and(|d| a.keyring().quiet_device.as_ref().is_some_and(|o| o.id != d.id)));
+    }
+
+    #[test]
+    fn an_export_under_a_master_password_still_needs_it() {
+        let a = Env::new();
+        let ks = a.open();
+        ks.initialize().unwrap();
+        ks.create_scope("ws:w", None).unwrap();
+        for scope in ks.set_password(APP, "master-password").unwrap() {
+            ks.commit_rotation(&scope).unwrap();
+        }
+        let exports = export_all(&ks, &["app", "ws:w"]);
+        let b = Env::new();
+        let other: [u8; 32] = crypto::random_array();
+        b.open_on(other).initialize_from_export(exports).unwrap();
+        let ks = b.open_on(other);
+        assert!(matches!(ks.open_scope(APP), Err(KsError::Locked(_))));
+        assert!(matches!(ks.open_scope("ws:w"), Err(KsError::Locked(_))));
+        assert!(matches!(ks.unlock_with_password(APP, "wrong-password"), Err(KsError::WrongPassword)));
+        ks.unlock_with_password(APP, "master-password").unwrap();
+        ks.open_scope("ws:w").unwrap();
+        assert!(ks.status().app_protected);
+    }
+
+    #[test]
+    fn a_tampered_or_incomplete_export_is_refused() {
+        let a = Env::new();
+        let ks = a.open();
+        ks.initialize().unwrap();
+        ks.create_scope("ws:w", None).unwrap();
+        let fresh = || Env::new();
+
+        let mut swapped = export_all(&ks, &["app", "ws:w"]);
+        let other_key = swapped[0].key.clone();
+        swapped[1].key = other_key;
+        let env = fresh();
+        assert!(matches!(env.open().initialize_from_export(swapped), Err(KsError::Corrupt(_))));
+        assert!(!env.path().exists(), "nothing written");
+
+        let env = fresh();
+        assert!(matches!(env.open().initialize_from_export(export_all(&ks, &["ws:w"])), Err(KsError::InvalidArgument(_))), "no app scope");
+
+        let mut with_device = export_all(&ks, &["app"]);
+        with_device[0].version = ks.state().keyring.as_ref().unwrap().scopes[APP].versions[0].clone();
+        assert!(matches!(fresh().open().initialize_from_export(with_device), Err(KsError::InvalidArgument(_))), "device routes refused");
+
+        assert!(matches!(a.open().initialize_from_export(export_all(&ks, &["app"])), Err(KsError::AlreadyInitialized)));
+    }
+
+    #[test]
+    fn locked_or_rotating_scopes_cannot_be_exported() {
+        let env = Env::new();
+        let ks = env.open();
+        ks.initialize().unwrap();
+        ks.create_scope("ws:s", Some("secret-password")).unwrap();
+        ks.lock_scope("ws:s").unwrap();
+        assert!(matches!(ks.export_scope("ws:s"), Err(KsError::Locked(_))));
+        ks.unlock_with_password("ws:s", "secret-password").unwrap();
+        ks.remove_password("ws:s").unwrap();
+        assert!(matches!(ks.export_scope("ws:s"), Err(KsError::RotationPending(_))));
     }
 }
