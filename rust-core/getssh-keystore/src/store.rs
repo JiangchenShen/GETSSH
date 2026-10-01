@@ -42,7 +42,11 @@ use crate::recovery::{self, RecoveryCode};
 
 /// A reveal session ends after this long without a reveal.
 pub const REVEAL_IDLE: Duration = Duration::from_secs(5 * 60);
+/// Minimum length of a new workspace password.
 const MIN_PASSWORD_CHARS: usize = 8;
+/// Minimum length of a new master password: it alone protects everything, including copies of
+/// the data taken off this computer, where only its strength slows down guessing.
+const MIN_MASTER_PASSWORD_CHARS: usize = 12;
 const MAX_PASSWORD_BYTES: usize = 1024;
 const FIELD_PREFIX: &str = "gk1:";
 const MAX_FIELD_BYTES: usize = 1024 * 1024;
@@ -449,10 +453,11 @@ fn normalize_password(password: &str) -> Result<Zeroizing<String>, KsError> {
     Ok(normalized)
 }
 
-fn validate_new_password(password: &str) -> Result<Zeroizing<String>, KsError> {
+fn validate_new_password(scope_id: &str, password: &str) -> Result<Zeroizing<String>, KsError> {
     let normalized = normalize_password(password)?;
-    if normalized.chars().count() < MIN_PASSWORD_CHARS {
-        return Err(KsError::InvalidArgument(format!("password must have at least {MIN_PASSWORD_CHARS} characters")));
+    let min_chars = if scope_id == APP { MIN_MASTER_PASSWORD_CHARS } else { MIN_PASSWORD_CHARS };
+    if normalized.chars().count() < min_chars {
+        return Err(KsError::InvalidArgument(format!("password must have at least {min_chars} characters")));
     }
     if normalized.len() > MAX_PASSWORD_BYTES {
         return Err(KsError::InvalidArgument("password is too long".into()));
@@ -1156,7 +1161,7 @@ impl<D: Device> Keystore<D> {
 
     /// Creates a workspace scope, optionally with its own password.
     pub fn create_scope(&self, scope_id: &str, password: Option<&str>) -> Result<(), KsError> {
-        let password = password.map(validate_new_password).transpose()?;
+        let password = password.map(|p| validate_new_password(scope_id, p)).transpose()?;
         self.create_scope_with(scope_id, password)
     }
 
@@ -1315,7 +1320,7 @@ impl<D: Device> Keystore<D> {
     /// Setting a master password also discards the recovery code: anyone at the computer may have
     /// created it, and from now on it would open everything. Create a new one right after.
     pub fn set_password(&self, scope_id: &str, password: &str) -> Result<Vec<String>, KsError> {
-        let password = validate_new_password(password)?;
+        let password = validate_new_password(scope_id, password)?;
         let _op = self.op();
         let (mut keyring, mut known, epoch, mut lost) = self.snapshot()?;
         let scope = get_scope(&keyring, scope_id)?;
@@ -2012,6 +2017,22 @@ mod tests {
         ks.create_scope("ws:a", Some("caf\u{e9}-password")).unwrap();
         let ks = env.open();
         ks.unlock_with_password("ws:a", "cafe\u{301}-password").unwrap();
+    }
+
+    #[test]
+    fn master_passwords_need_twelve_characters() {
+        let env = Env::new();
+        let ks = env.open();
+        ks.initialize().unwrap();
+        ks.create_scope("ws:a", Some("8-chars!")).unwrap();
+        assert!(matches!(ks.set_password(APP, "eleven-char"), Err(KsError::InvalidArgument(_))));
+        // Counted in characters, not bytes: 11 CJK characters are 33 bytes and still too short.
+        assert!(matches!(ks.set_password(APP, "主密码主密码主密码主密"), Err(KsError::InvalidArgument(_))));
+        for scope in ks.set_password(APP, "twelve-chars").unwrap() {
+            ks.commit_rotation(&scope).unwrap();
+        }
+        let ks = env.open();
+        ks.unlock_with_password(APP, "twelve-chars").unwrap();
     }
 
     #[test]

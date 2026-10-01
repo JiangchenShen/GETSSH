@@ -510,7 +510,7 @@
     },
     "crypto": {
       "passwordMismatch": "Passwords do not match",
-      "passwordTooShort": "Password too short (min 4 chars)",
+      "passwordTooShort": "Password too short (min 8 chars)",
       "invalidPassword": "Invalid master password or corrupted file",
       "skip": "Skip",
       "skipTip": "Skip for now — will be prompted again next time",

@@ -542,7 +542,7 @@
     },
     "crypto": {
       "passwordMismatch": "两次输入的密码不一致",
-      "passwordTooShort": "密码太短（最少 4 个字符）",
+      "passwordTooShort": "密码太短（最少 8 个字符）",
       "invalidPassword": "主密码无效或档案文件已损坏",
       "skip": "跳过",
       "skipTip": "暂时跳过 — 下次仍会提示",

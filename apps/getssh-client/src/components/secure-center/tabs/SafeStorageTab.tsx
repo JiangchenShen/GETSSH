@@ -22,7 +22,11 @@ export interface SafeStorageTabProps {
   section?: 'app' | 'vault' | 'both';
 }
 
-const MIN_PASSWORD = 8;
+// Must match getssh-keystore: the master password alone protects everything, including copies
+// of the data taken off this computer.
+const MIN_MASTER_PASSWORD = 12;
+const MIN_WORKSPACE_PASSWORD = 8;
+const minPasswordFor = (kind: string) => (kind.endsWith('-master') ? MIN_MASTER_PASSWORD : MIN_WORKSPACE_PASSWORD);
 
 export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both' }) => {
   const { i18n } = useTranslation();
@@ -98,7 +102,8 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
   const submit = async () => {
     if (form.kind === 'none') return;
     if ('next' in form) {
-      if (form.next.length < MIN_PASSWORD) { setError(zh ? `密码至少 ${MIN_PASSWORD} 个字符` : `At least ${MIN_PASSWORD} characters`); return; }
+      const min = minPasswordFor(form.kind);
+      if ([...form.next].length < min) { setError(zh ? `密码至少 ${min} 个字符` : `At least ${min} characters`); return; }
       if (form.next !== form.confirm) { setError(zh ? '两次输入的密码不一致' : 'The passwords do not match'); return; }
     }
     switch (form.kind) {
@@ -159,7 +164,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       <form className="max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void submit(); }}>
         {form.needsCurrent && <label className="block text-xs text-ink-2">{zh ? '当前密码' : 'Current password'}<input autoFocus type="password" value={form.current} onChange={event => setForm({ ...form, current: event.target.value })} className={`mt-1 ${settingFieldClass}`} /></label>}
         {'next' in form && <>
-          <label className="block text-xs text-ink-2">{zh ? '新密码' : 'New password'}<input autoFocus={!form.needsCurrent} type="password" value={form.next} onChange={event => setForm({ ...form, next: event.target.value })} className={`mt-1 ${settingFieldClass}`} /></label>
+          <label className="block text-xs text-ink-2">{zh ? `新密码（至少 ${minPasswordFor(form.kind)} 个字符）` : `New password (at least ${minPasswordFor(form.kind)} characters)`}<input autoFocus={!form.needsCurrent} type="password" value={form.next} onChange={event => setForm({ ...form, next: event.target.value })} className={`mt-1 ${settingFieldClass}`} /></label>
           <label className="block text-xs text-ink-2">{zh ? '再输入一次' : 'Repeat it'}<input type="password" value={form.confirm} onChange={event => setForm({ ...form, confirm: event.target.value })} className={`mt-1 ${settingFieldClass}`} /></label>
         </>}
         {form.kind === 'remove-master' && <p className="text-xs text-down">{zh ? '移除后，打开 GETSSH 不再需要密码；任何使用这台电脑的人都能打开没有单独密码的工作区。数据在磁盘上仍然加密。' : 'Afterwards GETSSH opens without a password and anyone using this computer can open workspaces that have no password of their own. Data on disk stays encrypted.'}</p>}
