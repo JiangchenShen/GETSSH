@@ -12,10 +12,8 @@ import {
   failedPasswordDelay,
   resetPasswordFailuresForTest,
   secretsEqual,
-  unlockWithBiometrics,
   verifyOwner,
   verifyUserPresence,
-  type BiometricUnlockDeps,
   type PresenceOutcome,
 } from './userPresence';
 
@@ -142,58 +140,5 @@ describe('verifyOwner', () => {
     const wrong = verifyOwner({ password: 'guess', reason: 'x' }, d);
     await vi.advanceTimersByTimeAsync(1000);
     expect(await wrong).toBe('denied');
-  });
-});
-
-describe('unlockWithBiometrics', () => {
-  const base = (overrides: Partial<BiometricUnlockDeps> = {}): BiometricUnlockDeps => ({
-    isMainSender: true,
-    getActiveWorkspaceId: () => 'work',
-    getWorkspace: () => ({ name: 'Work', biometricEnabled: true }),
-    hasStoredPassword: () => true,
-    readStoredPassword: async () => 'master-pw',
-    presence: vi.fn(async () => 'verified' as PresenceOutcome),
-    ...overrides,
-  });
-
-  it('releases the password only after the OS verified the user', async () => {
-    const deps = base();
-    expect(await unlockWithBiometrics(deps)).toEqual({ success: true, masterPassword: 'master-pw' });
-    expect(deps.presence).toHaveBeenCalledWith('unlock the workspace "Work"');
-  });
-
-  const refusals: Array<[string, Partial<BiometricUnlockDeps>]> = [
-    ['unauthorized', { isMainSender: false }],
-    ['not_enabled', { getWorkspace: () => ({ name: 'Work', biometricEnabled: false }) }],
-    ['not_enabled', { getWorkspace: () => null }],
-    ['no_key', { hasStoredPassword: () => false }],
-  ];
-  it.each(refusals)('refuses with %s before any prompt', async (reason, overrides) => {
-    const deps = base(overrides);
-    expect(await unlockWithBiometrics(deps)).toEqual({ success: false, reason });
-    expect(deps.presence).not.toHaveBeenCalled();
-  });
-
-  it.each(['cancelled', 'unsupported'] as const)('does not release the password when the prompt is %s', async outcome => {
-    const read = vi.fn(async () => 'master-pw');
-    const result = await unlockWithBiometrics(base({ presence: async () => outcome, readStoredPassword: read }));
-    expect(result).toEqual({ success: false, reason: outcome });
-    expect(read).not.toHaveBeenCalled();
-  });
-
-  it('refuses if the active workspace changed while the prompt was open', async () => {
-    let active = 'work';
-    const result = await unlockWithBiometrics(base({
-      getActiveWorkspaceId: () => active,
-      presence: async () => { active = 'other'; return 'verified'; },
-    }));
-    expect(result).toEqual({ success: false, reason: 'workspace_changed' });
-  });
-
-  it('reports a stored password that cannot be read', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const result = await unlockWithBiometrics(base({ readStoredPassword: async () => { throw new Error('denied'); } }));
-    expect(result).toEqual({ success: false, reason: 'read_failed' });
-    warn.mockRestore();
   });
 });

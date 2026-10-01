@@ -8,13 +8,29 @@ import { ChatStorageManager } from '../services/chatStorageManager';
 import { DatabaseManager } from '../services/DatabaseManager';
 import { isMainWebContents } from '../windowRegistry';
 import { isValidWorkspaceId, resolveWorkspaceDir } from '../utils/workspaceId';
-import { hasWorkspaceVault, readWorkspaceVault } from '../security/workspaceVault';
-import { verifyUserPresence } from '../security/userPresence';
+import { appLock } from '../security/appLock';
+import { isKeystoreError, keystore, workspaceScope } from '../security/keystore';
 
 /** Workspace state is only changed by the main window; torn windows never need these handlers. */
 const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
 /** Workspace ids become directory names; see utils/workspaceId.ts. */
 const INVALID_WORKSPACE_ID = { success: false, error: 'Invalid workspace id' };
+const LOCKED = { success: false, error: 'locked' };
+
+/** Keystore view of a workspace: its own password, Touch ID route, and whether it is open now. */
+function workspaceLockInfo(workspaceId: string, legacyHasPassword: boolean) {
+  let scope: ReturnType<typeof keystore.status>['scopes'][number] | undefined;
+  try {
+    scope = keystore.status().scopes.find(entry => entry.id === workspaceScope(workspaceId));
+  } catch {
+    scope = undefined;
+  }
+  return {
+    hasPassword: scope ? scope.ownPassword : legacyHasPassword,
+    biometricEnabled: !!scope?.presence,
+    protected: scope ? scope.protected : legacyHasPassword,
+  };
+}
 
 export function setupWorkspaceHandlers() {
   ipcMain.handle('workspace:list', async () => {
@@ -25,8 +41,7 @@ export function setupWorkspaceHandlers() {
         visualMeta: {
           name: ws.name,
           themeColor: ws.themeColor,
-          hasPassword: ws.hasPassword === 1,
-          biometricEnabled: ws.biometric_enabled === 1,
+          ...workspaceLockInfo(ws.id, ws.hasPassword === 1),
           isMain: ws.is_main === 1,
           preferences: ws.preferences ? JSON.parse(ws.preferences) : {}
         }
@@ -42,17 +57,20 @@ export function setupWorkspaceHandlers() {
     if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     console.log(`[Workspace IPC] Creating new workspace: ${workspaceId}`);
     try {
+      if (!appLock.isReady()) return LOCKED;
       const res = await nexusBridge.bootstrapWorkspace(workspaceId);
       if (res && res !== 'skip') {
         const now = Date.now();
+        // A password, if any, is set afterwards through workspace:set-password.
         DatabaseManager.createWorkspace({
           id: workspaceId,
           name: visualMeta?.name || workspaceId,
           themeColor: visualMeta?.themeColor || '#1e293b',
-          hasPassword: visualMeta?.hasPassword ? 1 : 0,
+          hasPassword: 0,
           created_at: now,
           updated_at: now
         });
+        await DatabaseManager.openWorkspace(workspaceId);
         return { success: true, res };
       }
       return { success: false, error: 'bootstrap skipped or failed' };
@@ -77,21 +95,17 @@ export function setupWorkspaceHandlers() {
   ipcMain.handle('workspace:toggleBiometric', async (event, workspaceId: string, enabled: boolean) => {
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
-    // Turning it on lets Touch ID release this workspace's master password, so the OS prompt runs
-    // here rather than in the renderer. Turning it off needs no check.
-    if (enabled === true) {
-      const outcome = await verifyUserPresence(`turn on Touch ID unlock for the workspace "${workspaceId}"`);
-      if (outcome !== 'verified') return { success: false, error: outcome };
-    }
+    // Touch ID / Windows Hello becomes a second way into a workspace that has its own password
+    // (a key of its own in the Secure Enclave or Windows Hello; the workspace must be unlocked).
     try {
-      const db = DatabaseManager.getDb();
-      if (db) {
-        db.prepare('UPDATE workspaces SET biometric_enabled = ? WHERE id = ?').run(enabled === true ? 1 : 0, workspaceId);
-      }
+      const scope = workspaceScope(workspaceId);
+      if (enabled === true) await keystore.enablePresence(scope, 'turn on Touch ID for this workspace');
+      else await keystore.disablePresence(scope);
+      appLock.notifyChanged();
       return { success: true };
     } catch (e) {
       console.error('Failed to toggle biometric:', e);
-      return { success: false, error: String(e) };
+      return { success: false, error: isKeystoreError(e) ? e.code : String(e) };
     }
   });
 
@@ -130,30 +144,14 @@ export function setupWorkspaceHandlers() {
     }
   });
 
-  async function getWorkspacePassword(wsId: string): Promise<string | undefined> {
-    if (hasWorkspaceVault(wsId)) {
-      try {
-        return await readWorkspaceVault(wsId);
-      } catch (e) {
-        console.error(`Failed to decrypt vault for ${wsId}`, e);
-      }
-    }
-    return undefined;
-  }
-
   ipcMain.handle('workspace:bridge:fetchProfiles', async (event, sourceWorkspaceId: string) => {
     // Returns decrypted profile rows (credentials included): main window only.
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(sourceWorkspaceId)) return INVALID_WORKSPACE_ID;
     try {
-      const pwd = await getWorkspacePassword(sourceWorkspaceId);
-      let db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
-      if (!db) {
-        const isMounted = DatabaseManager.mountWorkspace(sourceWorkspaceId, pwd);
-        if (!isMounted) throw new Error(`Failed to mount source workspace: ${sourceWorkspaceId}`);
-        db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
-      }
-      
+      // A workspace that is locked stays locked: the owner has to unlock it first.
+      if (!appLock.isReady() || (await DatabaseManager.openWorkspace(sourceWorkspaceId)) !== 'open') return LOCKED;
+      const db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
       if (!db) throw new Error('Source workspace DB not found');
       
       const profiles = db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(sourceWorkspaceId);
@@ -170,14 +168,8 @@ export function setupWorkspaceHandlers() {
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(targetWorkspaceId)) return INVALID_WORKSPACE_ID;
     try {
-      const pwd = await getWorkspacePassword(targetWorkspaceId);
-      let db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
-      if (!db) {
-        const isMounted = DatabaseManager.mountWorkspace(targetWorkspaceId, pwd);
-        if (!isMounted) throw new Error('Failed to mount target workspace');
-        db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
-      }
-
+      if (!appLock.isReady() || (await DatabaseManager.openWorkspace(targetWorkspaceId)) !== 'open') return LOCKED;
+      const db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
       if (!db) throw new Error('Target workspace DB not found');
 
       const importProfile = db.prepare(`
@@ -226,6 +218,18 @@ export function setupWorkspaceHandlers() {
     try {
       const wsPath = resolveWorkspaceDir(workspaceId);
       DatabaseManager.deleteWorkspace(workspaceId);
+      try {
+        await keystore.deleteScope(workspaceScope(workspaceId));
+      } catch (e) {
+        if (!isKeystoreError(e, 'unknown_scope')) throw e;
+      }
+      try {
+        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db`), { force: true });
+        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db-wal`), { force: true });
+        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db-shm`), { force: true });
+      } catch (e) {
+        console.warn(`[Workspace IPC] Failed to delete the database of ${workspaceId}`, e);
+      }
       // We could also delete the vault file in ~/.getssh/workspaces/<workspaceId> if it still exists
       try {
         await fs.promises.rm(wsPath, { recursive: true, force: true });
@@ -279,17 +283,18 @@ export function setupWorkspaceHandlers() {
       // ==========================================
       // Phase 3: 剧本与资产盘装载 (Load Storage Assets from DB)
       // ==========================================
+      if (!appLock.isReady()) throw new Error('GETSSH is locked');
       const workspaces = DatabaseManager.getWorkspaces();
       const wsRow = workspaces.find(w => w.id === targetWorkspaceId);
-      if (wsRow?.hasPassword) DatabaseManager.unmountWorkspace(targetWorkspaceId);
       
       let visualMeta = { themeColor: '#1e293b', hasPassword: false, biometricEnabled: false, name: targetWorkspaceId };
       if (wsRow) {
+        const lockInfo = workspaceLockInfo(targetWorkspaceId, wsRow.hasPassword === 1);
         visualMeta = {
           name: wsRow.name,
           themeColor: wsRow.themeColor || '#1e293b',
-          hasPassword: wsRow.hasPassword === 1,
-          biometricEnabled: wsRow.biometric_enabled === 1
+          hasPassword: lockInfo.hasPassword,
+          biometricEnabled: lockInfo.biometricEnabled
         };
       } else {
         // If workspace doesn't exist in DB but folder exists, insert it
@@ -304,17 +309,19 @@ export function setupWorkspaceHandlers() {
         });
       }
       
-      let profilesToReturn: any[] = [];
-      let isLocked = false;
-      
-      if (visualMeta.hasPassword) {
-         isLocked = true;
-         // Frontend must suspend rendering and prompt for password via unlock-profiles
-      } else {
-         profilesToReturn = DatabaseManager.getProfiles(targetWorkspaceId);
+      // Leaving a workspace that has its own password locks it again.
+      if (previousWorkspaceId !== targetWorkspaceId && workspaceLockInfo(previousWorkspaceId, false).hasPassword) {
+        try {
+          keystore.lockScope(workspaceScope(previousWorkspaceId));
+        } catch {}
+        DatabaseManager.closeLockedDatabases();
       }
 
-      const runbooks = DatabaseManager.getRunbooks(targetWorkspaceId);
+      let profilesToReturn: any[] = [];
+      // Opens without a prompt unless the workspace needs its password (or Touch ID).
+      const isLocked = (await DatabaseManager.openWorkspace(targetWorkspaceId)) !== 'open';
+      if (!isLocked) profilesToReturn = DatabaseManager.getProfiles(targetWorkspaceId);
+      const runbooks = isLocked ? [] : DatabaseManager.getRunbooks(targetWorkspaceId);
 
       const payload = {
         success: true,
@@ -337,10 +344,7 @@ export function setupWorkspaceHandlers() {
 
       config.active_workspace = targetWorkspaceId;
       await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      DatabaseManager.resetAssetFolderUnlocks();
-      if (previousWorkspaceId !== targetWorkspaceId && workspaces.find(w => w.id === previousWorkspaceId)?.hasPassword) {
-        DatabaseManager.unmountWorkspace(previousWorkspaceId);
-      }
+      appLock.notifyChanged();
       console.log(`[Workspace IPC] Successfully committed leap to ${targetWorkspaceId}. Global config updated.`);
 
       return payload;

@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bridgeFetchProfiles: (sourceWorkspaceId: string) => ipcRenderer.invoke('workspace:bridge:fetchProfiles', sourceWorkspaceId),
   bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => ipcRenderer.invoke('workspace:bridge:importProfiles', targetWorkspaceId, profiles, runbooks),
   unlockProfiles: (password: string) => ipcRenderer.invoke('unlock-profiles', password),
-  saveProfiles: (payload: { masterPassword?: string; payload: unknown[]; workspaceId?: string; currentPassword?: string; passwordChange?: boolean }) => ipcRenderer.invoke('save-profiles', payload),
+  saveProfiles: (payload: { payload: unknown[]; workspaceId?: string }) => ipcRenderer.invoke('save-profiles', payload),
   assetFolders: {
     list: (workspaceId: string) => ipcRenderer.invoke('asset-folders:list', workspaceId),
     create: (workspaceId: string, path: string) => ipcRenderer.invoke('asset-folders:create', workspaceId, path),
@@ -235,7 +235,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
   workspace: {
     getWorkspaces: () => ipcRenderer.invoke('workspace:list'),
     createWorkspace: (workspaceId: string, visualMeta?: any) => ipcRenderer.invoke('workspace:create', workspaceId, visualMeta),
-    switchWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:switch', workspaceId)
+    switchWorkspace: (workspaceId: string) => ipcRenderer.invoke('workspace:switch', workspaceId),
+    setPassword: (request: { workspaceId: string; password: string; currentPassword?: string }) => ipcRenderer.invoke('workspace:set-password', request),
+    removePassword: (request: { workspaceId: string; currentPassword?: string }) => ipcRenderer.invoke('workspace:remove-password', request),
+    unlock: (request: { workspaceId: string; method: 'password' | 'presence'; password?: string }) => ipcRenderer.invoke('workspace:unlock', request),
+    lock: (workspaceId: string) => ipcRenderer.invoke('workspace:lock', workspaceId),
+  },
+
+  // App lock (master password, Touch ID / Windows Hello, recovery code). Passwords go to the main
+  // process as typed and are never kept here.
+  appLock: {
+    getState: () => ipcRenderer.invoke('app-lock:state'),
+    unlock: (request: { method: 'password'; password: string } | { method: 'presence' } | { method: 'recovery'; code: string }) =>
+      ipcRenderer.invoke('app-lock:unlock', request),
+    lock: () => ipcRenderer.invoke('app-lock:lock'),
+    onChanged: (callback: (state: unknown) => void) => {
+      const listener = (_event: IpcRendererEvent, state: unknown) => callback(state)
+      ipcRenderer.on('app-lock:changed', listener)
+      return () => ipcRenderer.removeListener('app-lock:changed', listener)
+    },
+  },
+  security: {
+    status: () => ipcRenderer.invoke('security:status'),
+    verifyOwner: (request: { reason: string; password?: string }) => ipcRenderer.invoke('security:verify-owner', request),
+    setMasterPassword: (request: { password: string; currentPassword?: string }) => ipcRenderer.invoke('security:set-master-password', request),
+    removeMasterPassword: (request: { currentPassword?: string }) => ipcRenderer.invoke('security:remove-master-password', request),
+    setupRecovery: (request: { currentPassword?: string }) => ipcRenderer.invoke('security:setup-recovery', request),
+    setPresence: (request: { workspaceId?: string | null; enabled: boolean }) => ipcRenderer.invoke('security:set-presence', request),
   },
   
   // Model Context Protocol (MCP) API

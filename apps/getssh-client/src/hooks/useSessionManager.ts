@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { unlockActiveWorkspaceWithPassword } from '../lib/workspaceUnlock';
 import { callNexus, savedProfiles, useSessionStore, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useCryptoStore } from '../store/cryptoStore';
@@ -20,40 +21,24 @@ export const useSessionManager = () => {
   const setError = useSessionStore(state => state.setError);
 
   const appConfig = useAppStore(state => state.appConfig);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
-  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
 
+  // The main process refuses the save while the workspace is locked; no password travels with it.
   const syncProfiles = async (updatedSessions: SessionProfile[]) => {
     setSessions(updatedSessions);
-    const persistedSessions = savedProfiles(updatedSessions);
-    if (masterPassword || encryptionDisabled) {
-      await window.electronAPI.saveProfiles({ masterPassword: encryptionDisabled ? '' : masterPassword, payload: persistedSessions, workspaceId: useWorkspaceStore.getState().activeWorkspaceId });
-    } else {
-      setCryptoMode('setup');
-    }
+    await window.electronAPI.saveProfiles({ payload: savedProfiles(updatedSessions), workspaceId: useWorkspaceStore.getState().activeWorkspaceId });
   };
 
   const handleSetup = async (pwd: string) => {
-    setMasterPassword(pwd);
-    await window.electronAPI.saveProfiles({ masterPassword: pwd, payload: savedProfiles(sessions), workspaceId: useWorkspaceStore.getState().activeWorkspaceId });
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const result = await window.electronAPI.workspace.setPassword({ workspaceId, password: pwd });
+    if (!result.ok) return false;
+    useCryptoStore.getState().setWorkspaceUnprotected(false);
     setCryptoMode('idle');
     return true;
   };
 
-  const handleUnlock = async (pwd: string) => {
-    try {
-      const decrypted = await window.electronAPI.unlockProfiles(pwd);
-      setMasterPassword(pwd);
-      setSessions(decrypted);
-      setCryptoMode('idle');
-      useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-      return true;
-    } catch (e) {
-      return false;
-    }
-  };
+  const handleUnlock = (pwd: string) => unlockActiveWorkspaceWithPassword(pwd);
 
   // Sidebar calls (event, session) and asks here; Command Center calls (session) after its own two-step confirm.
   const deleteSession = (eventOrSession: React.MouseEvent | SessionProfile, sidebarSession?: SessionProfile) => {

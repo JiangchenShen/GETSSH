@@ -3,6 +3,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import crypto from 'crypto';
+import { type DatabaseKey, keyOpens, openDatabase, rekeyDatabaseFile, rekeyOpenDatabase, wipeKey } from '../security/databaseKeys';
+import { APP_SCOPE, isKeystoreError, keystore, workspaceScope } from '../security/keystore';
+import { migrateLegacyWorkspace } from '../security/keystoreMigration';
 
 export interface WorkspaceRow {
   id: string;
@@ -67,9 +70,7 @@ export interface AiMemoryMessageRow {
 export class DatabaseManager {
   private static mainDb: Database.Database | null = null;
   private static workspaceDbs: Map<string, Database.Database> = new Map();
-  private static assetFolderUnlocks = new Set<string>();
   private static baseDir: string = '';
-  private static mainDbEncrypted = false;
 
   private static readonly SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'utf8');
 
@@ -91,208 +92,237 @@ export class DatabaseManager {
     }
   }
 
+  private static scopeKey(scope: string, staged = false): DatabaseKey {
+    return { kind: 'raw', key: keystore.databaseKey(scope, { staged }) };
+  }
+
+  private static scopeStatus(scope: string) {
+    return keystore.status().scopes.find(entry => entry.id === scope);
+  }
+
+  public static getBaseDir(): string {
+    if (!this.baseDir) this.baseDir = path.join(os.homedir(), '.getssh');
+    return this.baseDir;
+  }
+
+  private static workspaceDbPath(workspaceId: string): string {
+    return path.join(this.getBaseDir(), `workspace_${workspaceId}.db`);
+  }
+
   /**
-   * Older V3 previews could create main.db before the app-key path was active.
-   * Upgrade that plaintext metadata database through a verified temporary copy,
-   * then atomically replace it. Workspace profile databases are not touched.
+   * Brings a pre-3.0 main.db up to date under its legacy key (fission of getssh.db, JSON import)
+   * and closes it again; the keystore migration then moves it to the keystore key.
    */
-  private static encryptLegacyPlaintextMainDatabase(dbPath: string, appKeyBuffer: Buffer): void {
-    const tempPath = `${dbPath}.encrypting-${process.pid}-${Date.now()}`;
-    let sourceDb: Database.Database | null = null;
-    let candidateDb: Database.Database | null = null;
-    let verifierDb: Database.Database | null = null;
-
-    const assertIntegrity = (db: Database.Database) => {
-      const row = db.prepare('PRAGMA integrity_check').get() as Record<string, unknown> | undefined;
-      if (!row || Object.values(row)[0] !== 'ok') {
-        throw new Error('SQLite integrity check failed');
-      }
-    };
-
+  public static prepareLegacyMainDatabase(legacyKey: Buffer | null): void {
+    const baseDir = this.getBaseDir();
+    fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
+    const mainDbPath = path.join(baseDir, 'main.db');
+    const legacyDbPath = path.join(baseDir, 'getssh.db');
+    const needsFissionMigration = !fs.existsSync(mainDbPath) && fs.existsSync(legacyDbPath);
+    if (needsFissionMigration) {
+      console.log('[DatabaseManager] Legacy getssh.db detected. Starting Fission Migration...');
+      this.performFissionMigration(legacyDbPath, mainDbPath, legacyKey);
+    }
+    const key: DatabaseKey = legacyKey && !this.isPlaintextSqliteDatabase(mainDbPath)
+      ? { kind: 'passphrase', passphrase: legacyKey }
+      : { kind: 'none' };
+    const mainDb = key.kind === 'none' ? new Database(mainDbPath) : openDatabase(mainDbPath, key);
     try {
-      sourceDb = new Database(dbPath);
-      assertIntegrity(sourceDb);
-      // Fold any committed WAL pages into the database before taking the copy.
-      sourceDb.pragma('journal_mode = DELETE');
-      sourceDb.close();
-      sourceDb = null;
-
-      fs.copyFileSync(dbPath, tempPath, fs.constants.COPYFILE_EXCL);
-      fs.chmodSync(tempPath, 0o600);
-
-      candidateDb = new Database(tempPath);
-      candidateDb.pragma("cipher = 'sqlcipher'");
-      candidateDb.rekey(appKeyBuffer);
-      assertIntegrity(candidateDb);
-      candidateDb.close();
-      candidateDb = null;
-
-      verifierDb = new Database(tempPath, { readonly: true, fileMustExist: true });
-      verifierDb.pragma("cipher = 'sqlcipher'");
-      verifierDb.key(appKeyBuffer);
-      assertIntegrity(verifierDb);
-      verifierDb.close();
-      verifierDb = null;
-
-      // rename() replaces a file atomically on supported desktop filesystems.
-      fs.renameSync(tempPath, dbPath);
-      fs.chmodSync(dbPath, 0o600);
-      console.log('[DatabaseManager] Upgraded legacy plaintext main.db to app-key SQLCipher.');
-    } catch (error) {
-      try { sourceDb?.close(); } catch {}
-      try { candidateDb?.close(); } catch {}
-      try { verifierDb?.close(); } catch {}
-      try { fs.rmSync(tempPath, { force: true }); } catch {}
-      try { fs.rmSync(`${tempPath}-wal`, { force: true }); } catch {}
-      try { fs.rmSync(`${tempPath}-shm`, { force: true }); } catch {}
-      throw error;
+      this.mainDb = mainDb;
+      this.runMainMigrations();
+      if (!needsFissionMigration && !fs.existsSync(legacyDbPath)) {
+        this.migrateLegacyJsonData(baseDir);
+      }
+    } finally {
+      this.mainDb = null;
+      try { mainDb.close(); } catch {}
+      if (legacyKey) legacyKey.fill(0);
     }
   }
 
-  public static init(appKeyBuffer: Buffer | null = null) {
+  /** Opens main.db with the keystore's app key; the app scope must be unlocked. */
+  public static init() {
     if (this.mainDb) return;
-
-    this.baseDir = path.join(os.homedir(), '.getssh');
-    if (!fs.existsSync(this.baseDir)) {
-      fs.mkdirSync(this.baseDir, { recursive: true });
-    }
-
-    // 1. Initialize Main DB (Kernel)
-    const mainDbPath = path.join(this.baseDir, 'main.db');
-    const legacyDbPath = path.join(this.baseDir, 'getssh.db');
-
-    // Migration Check: If main.db doesn't exist but getssh.db does, we need to migrate
-    const needsFissionMigration = !fs.existsSync(mainDbPath) && fs.existsSync(legacyDbPath);
-
-    if (needsFissionMigration) {
-      console.log('[DatabaseManager] Legacy getssh.db detected. Starting Fission Migration...');
-      this.performFissionMigration(legacyDbPath, mainDbPath, appKeyBuffer);
-    }
-
-    if (appKeyBuffer && this.isPlaintextSqliteDatabase(mainDbPath)) {
-      this.encryptLegacyPlaintextMainDatabase(mainDbPath, appKeyBuffer);
-    }
-
-    const mainDb = new Database(mainDbPath);
+    const baseDir = this.getBaseDir();
+    fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
+    const mainDbPath = path.join(baseDir, 'main.db');
+    const key = this.scopeKey(APP_SCOPE);
+    let mainDb: Database.Database;
     try {
-      if (appKeyBuffer) {
-        mainDb.pragma("cipher = 'sqlcipher'");
-        mainDb.key(appKeyBuffer);
-      }
-
-      // Force key validation before exposing the handle to any IPC path.
-      mainDb.prepare('SELECT count(*) AS count FROM sqlite_master').get();
+      mainDb = openDatabase(mainDbPath, key);
+    } finally {
+      wipeKey(key);
+    }
+    try {
+      fs.chmodSync(mainDbPath, 0o600);
       mainDb.pragma('journal_mode = WAL');
       mainDb.pragma('synchronous = NORMAL');
       mainDb.pragma('foreign_keys = ON');
-
       this.mainDb = mainDb;
-      this.mainDbEncrypted = Boolean(appKeyBuffer);
       this.runMainMigrations();
-
-      // The legacy migration from JSON should still run if no db existed at all
-      if (!needsFissionMigration && !fs.existsSync(legacyDbPath)) {
-        this.migrateLegacyJsonData(this.baseDir);
-      }
+      this.ensureDefaultWorkspace();
     } catch (error) {
       try { mainDb.close(); } catch {}
       this.mainDb = null;
-      this.mainDbEncrypted = false;
       throw error;
     }
   }
 
-  // Mounts a workspace DB. Uses password if provided, otherwise attempts plaintext.
-  public static mountWorkspace(workspaceId: string, password?: string): boolean {
-    if (this.workspaceDbs.has(workspaceId)) {
-      // Already mounted
-      return true;
-    }
+  public static isMainDbOpen(): boolean {
+    return !!this.mainDb?.open;
+  }
 
-    const wsDbPath = path.join(this.baseDir, `workspace_${workspaceId}.db`);
-    let db: Database.Database | null = null;
+  private static ensureDefaultWorkspace(): void {
+    if (!this.mainDb) return;
+    const count = this.mainDb.prepare('SELECT COUNT(*) AS c FROM workspaces').get() as { c: number };
+    if (count.c > 0) return;
+    const now = Date.now();
+    this.createWorkspace({ id: 'default', name: 'Default Workspace', created_at: now, updated_at: now, is_main: 1, hasPassword: 0 });
+  }
+
+  /**
+   * Finishes a key rotation the keystore staged for `scope` (a password or master password was
+   * set): the database moves to the staged key, then the rotation is committed. After a crash
+   * between the two steps the database already opens with the staged key and only the commit runs.
+   */
+  public static async completeRotation(scope: string): Promise<void> {
+    if (!this.scopeStatus(scope)?.staged) return;
+    const isApp = scope === APP_SCOPE;
+    const workspaceId = isApp ? null : scope.slice('ws:'.length);
+    const file = isApp ? path.join(this.getBaseDir(), 'main.db') : this.workspaceDbPath(workspaceId!);
+    const open = isApp ? this.mainDb : this.workspaceDbs.get(workspaceId!);
+    const staged = this.scopeKey(scope, true);
     try {
-      db = new Database(wsDbPath);
-      
-      if (password) {
-        db.pragma(`cipher = 'sqlcipher'`);
-        const keyBuffer = Buffer.from(password, 'utf8');
+      if (open?.open) {
+        rekeyOpenDatabase(open, staged);
+      } else if (fs.existsSync(file) && !keyOpens(file, staged)) {
+        const current = this.scopeKey(scope);
         try {
-          db.key(keyBuffer);
+          rekeyDatabaseFile(file, current, staged);
         } finally {
-          keyBuffer.fill(0);
+          wipeKey(current);
         }
       }
+    } finally {
+      wipeKey(staged);
+    }
+    await keystore.commitRotation(scope);
+  }
 
+  /** Finishes every rotation that was interrupted (for scopes whose keys are in memory). */
+  public static async completePendingRotations(): Promise<void> {
+    for (const scope of keystore.status().scopes) {
+      if (scope.staged && scope.unlocked) await this.completeRotation(scope.id);
+    }
+  }
+
+  public static isWorkspaceMounted(workspaceId: string): boolean {
+    return !!this.workspaceDbs.get(workspaceId)?.open;
+  }
+
+  /**
+   * Mounts a workspace whose key is in memory. Returns false while it is locked (or still a
+   * pre-3.0 database waiting for its password); use openWorkspace() to unlock quietly first.
+   */
+  public static mountWorkspace(workspaceId: string): boolean {
+    if (this.workspaceDbs.has(workspaceId)) return true;
+    const scope = workspaceScope(workspaceId);
+    const status = this.scopeStatus(scope);
+    if (!status?.unlocked) return false;
+    const file = this.workspaceDbPath(workspaceId);
+    let db: Database.Database | null = null;
+    const key = this.scopeKey(scope);
+    try {
+      db = openDatabase(file, key);
+      fs.chmodSync(file, 0o600);
       db.pragma('journal_mode = WAL');
       db.pragma('synchronous = NORMAL');
       db.pragma('foreign_keys = ON');
-
-      // Test connection to verify password
-      db.exec('CREATE TABLE IF NOT EXISTS _test (id INTEGER PRIMARY KEY)');
-
-      // Run workspace schema migrations
       this.runWorkspaceMigrations(db);
-
       this.workspaceDbs.set(workspaceId, db);
       return true;
     } catch (e: any) {
       try { db?.close(); } catch {}
       console.error(`[DatabaseManager] Failed to mount workspace ${workspaceId}:`, e.message);
       return false;
+    } finally {
+      wipeKey(key);
     }
   }
 
   /**
-   * Whether `password` opens this workspace's encrypted database, checked on a separate read-only
-   * connection (mountWorkspace() does not check anything for a database that is already open).
+   * Unlocks a workspace without asking anyone (it has no password of its own, or the master
+   * password already opened it) and mounts it. A workspace without a keystore scope yet (created
+   * by an older GETSSH, or found on disk without a row) gets one here.
    */
-  public static workspaceKeyMatches(workspaceId: string, password: string): boolean {
-    if (!password) return false;
-    const wsDbPath = path.join(this.baseDir, `workspace_${workspaceId}.db`);
-    let db: Database.Database | null = null;
-    try {
-      db = new Database(wsDbPath, { readonly: true, fileMustExist: true });
-      db.pragma(`cipher = 'sqlcipher'`);
-      const keyBuffer = Buffer.from(password, 'utf8');
-      try {
-        db.key(keyBuffer);
-      } finally {
-        keyBuffer.fill(0);
+  public static async openWorkspace(workspaceId: string): Promise<'open' | 'locked' | 'legacy'> {
+    if (this.isWorkspaceMounted(workspaceId)) return 'open';
+    const scope = workspaceScope(workspaceId);
+    if (!this.scopeStatus(scope)) {
+      const row = this.getWorkspaces().find(entry => entry.id === workspaceId);
+      if (row?.hasPassword) return 'legacy';
+      await keystore.createScope(scope);
+      const file = this.workspaceDbPath(workspaceId);
+      if (fs.existsSync(file) && fs.statSync(file).size > 0) {
+        const key = this.scopeKey(scope);
+        try {
+          rekeyDatabaseFile(file, { kind: 'none' }, key);
+        } finally {
+          wipeKey(key);
+        }
       }
-      db.prepare('SELECT count(*) FROM sqlite_master').get();
-      return true;
-    } catch {
-      return false;
-    } finally {
-      try { db?.close(); } catch {}
     }
+    try {
+      await keystore.openScope(scope);
+    } catch (error) {
+      if (isKeystoreError(error, 'locked')) return 'locked';
+      throw error;
+    }
+    await this.completeRotation(scope);
+    return this.mountWorkspace(workspaceId) ? 'open' : 'locked';
   }
 
   /**
-   * Changes the key of a mounted workspace database; an empty password removes encryption.
-   * SQLite3 Multiple Ciphers cannot rekey in WAL mode ("SQL logic error"), so the journal is
-   * switched to DELETE for the rekey and back to WAL afterwards.
+   * Unlocks a workspace with its own password (a pre-3.0 workspace moves to the keystore here)
+   * and mounts it. Returns false for a wrong password.
    */
-  public static rekeyWorkspace(workspaceId: string, password: string): void {
-    const db = this.workspaceDbs.get(workspaceId);
-    if (!db) throw new Error('Workspace database is not mounted');
-    db.pragma('journal_mode = DELETE');
-    try {
-      db.pragma(`cipher = 'sqlcipher'`);
-      const keyBuffer = Buffer.from(password, 'utf8');
+  public static async unlockWorkspaceWithPassword(workspaceId: string, password: string): Promise<boolean> {
+    const scope = workspaceScope(workspaceId);
+    if (!this.scopeStatus(scope)) {
+      if (!(await migrateLegacyWorkspace(this.getBaseDir(), workspaceId, password))) return false;
+    } else {
       try {
-        db.rekey(keyBuffer);
-      } finally {
-        keyBuffer.fill(0);
+        await keystore.unlockWithPassword(scope, password);
+      } catch (error) {
+        if (isKeystoreError(error, 'wrong_password')) return false;
+        throw error;
       }
-    } finally {
-      db.pragma('journal_mode = WAL');
+    }
+    await this.completeRotation(scope);
+    return this.mountWorkspace(workspaceId);
+  }
+
+  /** Touch ID / Windows Hello; throws KeystoreError (cancelled, unavailable) when it does not verify. */
+  public static async unlockWorkspaceWithPresence(workspaceId: string, reason: string): Promise<boolean> {
+    const scope = workspaceScope(workspaceId);
+    await keystore.unlockWithPresence(scope, reason);
+    await this.completeRotation(scope);
+    return this.mountWorkspace(workspaceId);
+  }
+
+  /** Closes every database whose key is no longer in memory (after keystore.lockProtected()). */
+  public static closeLockedDatabases(): void {
+    const unlocked = new Set(keystore.status().scopes.filter(scope => scope.unlocked).map(scope => scope.id));
+    for (const workspaceId of [...this.workspaceDbs.keys()]) {
+      if (!unlocked.has(workspaceScope(workspaceId))) this.unmountWorkspace(workspaceId);
+    }
+    if (this.mainDb && !unlocked.has(APP_SCOPE)) {
+      try { this.mainDb.close(); } catch {}
+      this.mainDb = null;
     }
   }
 
   public static unmountWorkspace(workspaceId: string) {
-    this.assetFolderUnlocks.delete(workspaceId);
     const db = this.workspaceDbs.get(workspaceId);
     if (db) {
       db.close();
@@ -301,32 +331,15 @@ export class DatabaseManager {
   }
 
   public static getWorkspaceDb(workspaceId: string): Database.Database | null {
-    // If not mounted, try to mount without password (plaintext db)
-    if (!this.workspaceDbs.has(workspaceId)) {
-      const success = this.mountWorkspace(workspaceId);
-      if (!success) return null;
-    }
+    if (!this.workspaceDbs.has(workspaceId) && !this.mountWorkspace(workspaceId)) return null;
     return this.workspaceDbs.get(workspaceId) || null;
   }
 
-  /** Folder operations must never auto-mount a locked workspace without its key. */
+  /** Folder operations never mount a locked workspace: its key is simply not available. */
   private static requireMountedWorkspaceDb(workspaceId: string): Database.Database {
-    const workspace = this.mainDb?.prepare('SELECT hasPassword FROM workspaces WHERE id = ?').get(workspaceId) as { hasPassword: number } | undefined;
-    if (!workspace || (workspace.hasPassword && !this.assetFolderUnlocks.has(workspaceId))) {
-      throw new Error('Workspace is locked. Unlock it first.');
-    }
-    const db = workspace.hasPassword ? this.workspaceDbs.get(workspaceId) : this.getWorkspaceDb(workspaceId);
+    const db = this.getWorkspaceDb(workspaceId);
     if (!db || !db.open) throw new Error('Workspace is locked. Unlock it first.');
     return db;
-  }
-
-  public static resetAssetFolderUnlocks(): void {
-    this.assetFolderUnlocks.clear();
-  }
-
-  public static markAssetFolderWorkspaceUnlocked(workspaceId: string): void {
-    if (!this.workspaceDbs.has(workspaceId)) throw new Error('Workspace is not mounted');
-    this.assetFolderUnlocks.add(workspaceId);
   }
 
   private static performFissionMigration(legacyPath: string, mainPath: string, appKeyBuffer: Buffer | null) {
@@ -991,11 +1004,11 @@ export class DatabaseManager {
   // --- Encrypted local semantic memory (Main SQLCipher DB) ---
 
   public static isEncryptedAiMemoryAvailable(): boolean {
-    return Boolean(this.mainDb && this.mainDbEncrypted);
+    return Boolean(this.mainDb?.open);
   }
 
   public static upsertAiMemoryVector(row: AiMemoryVectorRow): void {
-    if (!this.mainDb || !this.mainDbEncrypted) return;
+    if (!this.mainDb?.open) return;
     this.mainDb.prepare(`
       INSERT INTO ai_memory_vectors (
         workspace_id, message_id, session_id, role, embedding,
@@ -1021,14 +1034,14 @@ export class DatabaseManager {
   }
 
   public static deleteAiMemoryMessage(workspaceId: string, messageId: string): void {
-    if (!this.mainDb || !this.mainDbEncrypted) return;
+    if (!this.mainDb?.open) return;
     this.mainDb.prepare(
       'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND message_id = ?'
     ).run(workspaceId, messageId);
   }
 
   public static deleteAiMemorySession(workspaceId: string, sessionId: string): void {
-    if (!this.mainDb || !this.mainDbEncrypted) return;
+    if (!this.mainDb?.open) return;
     this.mainDb.prepare(
       'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND session_id = ?'
     ).run(workspaceId, sessionId);
@@ -1039,7 +1052,7 @@ export class DatabaseManager {
     limit: number,
     excludeSessionId?: string
   ): AiMemoryVectorRow[] {
-    if (!this.mainDb || !this.mainDbEncrypted) return [];
+    if (!this.mainDb?.open) return [];
     const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 2_000));
     if (excludeSessionId) {
       return this.mainDb.prepare(`

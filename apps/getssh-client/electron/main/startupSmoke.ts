@@ -16,6 +16,7 @@ const RUST_MODULE_EXPORTS: Record<string, readonly string[]> = {
   'nexus-core': ['initNexusCore', 'bootstrapWorkspace'],
   'audit-stream': ['AuditStream'],
   'getssh-sentinel': ['sanitize', 'rehydrate'],
+  'getssh-keystore': ['configure', 'status', 'initialize', 'openScope', 'databaseKey', 'sealField', 'openField', 'probeDevice'],
 };
 
 export interface PackagedStartupSmokeResult {
@@ -47,6 +48,35 @@ function assertExports(moduleName: string, loaded: unknown, expected: readonly s
     if (typeof (loaded as Record<string, unknown>)[exportName] !== 'function') {
       throw new Error(`${moduleName} is missing native export ${exportName}`);
     }
+  }
+}
+
+/**
+ * Exercises this OS's real device key (Secure Enclave or Keychain, TPM or DPAPI) through the
+ * packaged keystore, with a keyring in a temporary directory. Nothing here can prompt.
+ */
+async function testKeystore(keystore: any): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-keystore-'));
+  try {
+    keystore.configure(path.join(dir, 'keyring.json'));
+    const backend: string = await keystore.probeDevice();
+    await keystore.initialize();
+    await keystore.createScope('ws:startup-smoke');
+    const key: Buffer = keystore.databaseKey('ws:startup-smoke', 'database');
+    try {
+      if (key.length !== 32) throw new Error('keystore returned a database key of the wrong length');
+    } finally {
+      key.fill(0);
+    }
+    const marker = 'GETSSH_KEYSTORE_SMOKE_OK';
+    const sealed: string = keystore.sealField('ws:startup-smoke', 'startup-smoke', marker);
+    if (sealed.includes(marker) || keystore.openField('ws:startup-smoke', 'startup-smoke', sealed) !== marker) {
+      throw new Error('keystore field encryption did not round-trip');
+    }
+    if (keystore.status().quietBackend !== backend) throw new Error('keystore used an unexpected device key backend');
+    return backend;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -213,7 +243,11 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
   for (const [moduleName, expectedExports] of Object.entries(RUST_MODULE_EXPORTS)) {
     const loaded = require(getRustCorePath(moduleName));
     assertExports(moduleName, loaded, expectedExports);
-    loadedModules.push(moduleName);
+    if (moduleName === 'getssh-keystore') {
+      loadedModules.push(`${moduleName} (${await testKeystore(loaded)})`);
+    } else {
+      loadedModules.push(moduleName);
+    }
   }
 
   assertNativeTool(process.platform === 'win32' ? 'watchdog.exe' : 'watchdog');

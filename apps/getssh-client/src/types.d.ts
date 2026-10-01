@@ -60,13 +60,14 @@ declare global {
       updateBackendConfig: (config: import('./types/ipc').BackendConfig, authToken?: string) => Promise<import('./types/ipc').BackendConfigUpdateResult>;
       selectFile: () => Promise<string | null>;
       getPathForFile: (file: File) => string;
-      checkProfiles: () => Promise<{ status: 'encrypted' | 'plain' | 'none'; biometricEnabled: boolean }>;
+      /** 'encrypted': the active workspace needs unlocking; hasPassword: it has a password of its own. */
+      checkProfiles: () => Promise<{ status: 'encrypted' | 'plain' | 'none'; biometricEnabled: boolean; hasPassword: boolean }>;
       bridgeFetchProfiles: (sourceWorkspaceId: string) => Promise<{ success: boolean; profiles?: any[]; runbooks?: any[]; error?: string }>;
       bridgeImportProfiles: (targetWorkspaceId: string, profiles: any[], runbooks: any[]) => Promise<{ success: boolean; error?: string }>;
       unlockProfiles: (password: string) => Promise<import('./store/sessionStore').SessionProfile[]>;
       /** `workspaceId`: the workspace the renderer believes is active; main refuses the write if it differs. */
-      /** passwordChange + currentPassword: only the settings flow changes or removes an existing password; main verifies it (Touch ID, else currentPassword). */
-      saveProfiles: (payload: { masterPassword: string, payload: import('./store/sessionStore').SessionProfile[], workspaceId?: string, currentPassword?: string, passwordChange?: boolean }) => Promise<boolean>;
+      /** Workspace passwords are set with workspace.setPassword / removePassword, never through a save. */
+      saveProfiles: (payload: { payload: import('./store/sessionStore').SessionProfile[], workspaceId?: string }) => Promise<boolean>;
       assetFolders: {
         list: (workspaceId: string) => Promise<{ success: boolean; folders?: string[]; error?: string }>;
         create: (workspaceId: string, path: string) => Promise<{ success: boolean; folders?: string[]; memberships?: { id: string; group: string | null }[]; error?: string }>;
@@ -98,7 +99,8 @@ declare global {
       checkForUpdates: () => Promise<{ hasUpdate: boolean; version?: string; url?: string; error?: string }>;
       exportProfiles: () => Promise<{ success: boolean; count?: number; reason?: string }>;
       importProfiles: (payload: { masterPassword: string }) => Promise<{ success: boolean; count?: number; reason?: string }>;
-      promptBiometricUnlock: () => Promise<{ success: boolean; masterPassword?: string; reason?: string }>;
+      /** Touch ID / Windows Hello for the active workspace; on success load its profiles with unlockProfiles(''). */
+      promptBiometricUnlock: () => Promise<{ success: boolean; reason?: string }>;
       onSysmonData: (cb: (data: any) => void) => (() => void);
       onPromptHostVerification: (cb: (data: { requestId: string, hostname: string, fingerprint: string, isChanged?: boolean, oldFingerprint?: string }) => void) => (() => void);
       sendHostVerificationResult: (payload: { requestId: string, result: 'accept-save' | 'accept-once' | 'reject', hostname: string, fingerprint: string }) => void;
@@ -163,6 +165,25 @@ declare global {
         getWorkspaces: () => Promise<any[]>;
         createWorkspace: (workspaceId: string, visualMeta?: any) => Promise<{ success: boolean; error?: string; visualMeta?: any }>;
         switchWorkspace: (workspaceId: string) => Promise<{ success: boolean; error?: string; visualMeta?: any }>;
+        setPassword: (request: { workspaceId: string; password: string; currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        removePassword: (request: { workspaceId: string; currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        unlock: (request: { workspaceId: string; method: 'password' | 'presence'; password?: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        lock: (workspaceId: string) => Promise<boolean>;
+      };
+      appLock: {
+        getState: () => Promise<import('./types/ipc').AppLockState | null>;
+        unlock: (request: { method: 'password'; password: string } | { method: 'presence' } | { method: 'recovery'; code: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        lock: () => Promise<boolean>;
+        onChanged: (callback: (state: import('./types/ipc').AppLockState) => void) => () => void;
+      };
+      security: {
+        status: () => Promise<import('./types/ipc').SecurityStatus | null>;
+        /** OS check first (Touch ID / Windows Hello); `error: 'current_password_required'` where none exists. */
+        verifyOwner: (request: { reason: string; password?: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        setMasterPassword: (request: { password: string; currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult<{ recoveryReset: boolean }>>;
+        removeMasterPassword: (request: { currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult>;
+        setupRecovery: (request: { currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult<{ code: string }>>;
+        setPresence: (request: { workspaceId?: string | null; enabled: boolean }) => Promise<import('./types/ipc').KeystoreResult>;
       };
       ai: {
         invokePrivileged: (payload: any) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;

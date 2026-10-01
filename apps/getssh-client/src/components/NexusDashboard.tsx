@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, CornerDownLeft, Layers3, Plus, Server, ShieldAlert, SquareTerminal } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useCryptoStore } from '../store/cryptoStore';
-import { isSSHConfig, savedProfiles, useSessionStore, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
+import { isSSHConfig, useSessionStore, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
 import { CryptoModal } from './CryptoModal';
 
 interface NexusDashboardProps {
@@ -27,13 +28,9 @@ export const NexusDashboard: React.FC<NexusDashboardProps> = ({ onConnect, resum
 
   const cryptoMode = useCryptoStore(state => state.cryptoMode);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
-  const encryptionDisabled = useCryptoStore(state => state.encryptionDisabled);
-  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
+  const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
 
   const sessions = useSessionStore(state => state.sessions);
-  const setSessions = useSessionStore(state => state.setSessions);
   const tabs = useSessionStore(state => state.tabs);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
 
@@ -49,21 +46,12 @@ export const NexusDashboard: React.FC<NexusDashboardProps> = ({ onConnect, resum
     pollWatchdogStatus();
   }, [pollWatchdogStatus]);
 
-  const handleUnlock = async (password: string) => {
-    const profiles = await window.electronAPI.unlockProfiles(password);
-    if (!profiles) return false;
-    setMasterPassword(password);
-    setSessions(profiles);
-    setCryptoMode('idle');
-    useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-    return true;
-  };
+  const handleUnlock = (password: string) => unlockActiveWorkspaceWithPassword(password);
 
   const handleSetup = async (password: string) => {
-    setEncryptionDisabled(false);
-    setMasterPassword(password);
-    const updatedSessions = savedProfiles(sessions).map(session => ({ ...session, password: session.password || '' }));
-    await window.electronAPI.saveProfiles({ masterPassword: password, payload: updatedSessions, workspaceId: useWorkspaceStore.getState().activeWorkspaceId });
+    const result = await window.electronAPI.workspace.setPassword({ workspaceId: useWorkspaceStore.getState().activeWorkspaceId, password });
+    if (!result.ok) return;
+    useCryptoStore.getState().setWorkspaceUnprotected(false);
     setCryptoMode('idle');
   };
 
@@ -74,32 +62,14 @@ export const NexusDashboard: React.FC<NexusDashboardProps> = ({ onConnect, resum
         <CryptoModal
           mode="locked"
           isDark={isDark}
-          encryptionDisabled={encryptionDisabled}
+          encryptionDisabled={workspaceUnprotected}
           onUnlock={handleUnlock}
           onSetup={handleSetup}
           onSkip={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
-          onCancel={cryptoMode === 'setup' && sessions.length === 0 && !masterPassword ? undefined : () => {
-            if (cryptoMode === 'setup') {
-              setEncryptionDisabled(true);
-              window.electronAPI.saveProfiles({ masterPassword: '', payload: savedProfiles(sessions), workspaceId: useWorkspaceStore.getState().activeWorkspaceId })
-                .catch((err) => console.error('[NexusDashboard] Failed to save profiles without encryption:', err));
-            }
-            setCryptoMode('idle');
-          }}
+          onCancel={cryptoMode === 'setup' ? () => setCryptoMode('idle') : undefined}
           onRetryBiometric={activeWorkspace?.biometricEnabled ? async () => {
-            // The main process shows the OS prompt (Touch ID) before it releases the password.
-            const biometricResult = await window.electronAPI.promptBiometricUnlock();
-            if (biometricResult.success && biometricResult.masterPassword) {
-              try {
-                const decrypted = await window.electronAPI.unlockProfiles(biometricResult.masterPassword);
-                setMasterPassword(biometricResult.masterPassword);
-                setSessions(decrypted);
-                setCryptoMode('idle');
-                useWorkspaceStore.setState({ isVaultLocked: false, isUnlockModalOpen: false });
-              } catch (error) {
-                console.warn('Biometric unlock failed:', error);
-              }
-            }
+            // Touch ID / Windows Hello unlocks the workspace in the main process.
+            await unlockActiveWorkspaceWithPresence();
           } : undefined}
           workspaceName={activeWorkspace?.name || activeWorkspaceId}
           themeColor={activeWorkspace?.themeColor}
@@ -179,7 +149,7 @@ export const NexusDashboard: React.FC<NexusDashboardProps> = ({ onConnect, resum
           </div>
         </header>
 
-        {encryptionDisabled && (
+        {workspaceUnprotected && (
           <button type="button" className="home-alert" onClick={openSecurity}>
             <ShieldAlert size={18} aria-hidden="true" />
             <span><strong>{t('welcome.home.vaultOff')}</strong><small>{t('welcome.dashboard.metrics.vaultOffDetail')}</small></span>

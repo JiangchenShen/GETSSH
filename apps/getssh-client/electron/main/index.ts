@@ -253,7 +253,7 @@ import { TornWindowManager } from './windowManager'
 import { broadcastToAllWindows, getMainWindow, setMainWindow } from './windowRegistry'
 import { killAllSessions } from './handlers/sshHandler'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
-import { DatabaseManager } from './services/DatabaseManager'
+import { appLock } from './security/appLock'
 import { mcpManager } from './services/mcp/McpManager'
 import {
   runPackagedStartupSmoke,
@@ -311,74 +311,26 @@ app.whenReady().then(async () => {
     console.warn('[Main] MCP Manager init error:', err);
   });
   
-  let appKeyBuffer: Buffer | null = null;
-  try {
-    const appDataDir = join(app.getPath('home'), '.getssh');
-    const appKeyPathEnc = join(appDataDir, 'app_key.enc');
-    const appKeyPathPlain = join(appDataDir, 'app_key.txt');
-    const fs = require('fs');
-    const crypto = require('crypto');
-    const { isSecretStoreAvailable, readSecretFile, writeSecretFile } = require('./security/secretStore');
-
-    fs.mkdirSync(appDataDir, { recursive: true, mode: 0o700 });
-
-    if (fs.existsSync(appKeyPathEnc)) {
-      // The key is 64 hex characters; anything else means the wrong key decrypted the file, and the
-      // file is then neither used nor rewritten.
-      const appKeyStr: string = readSecretFile(appKeyPathEnc, (value: string) => /^[0-9a-f]{64}$/i.test(value));
-      appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
-    } else if (fs.existsSync(appKeyPathPlain)) {
-      const appKeyStr = fs.readFileSync(appKeyPathPlain, 'utf8');
-      appKeyBuffer = Buffer.from(appKeyStr, 'utf8');
-    } else {
-      // First boot: generate key
-      const newKey = crypto.randomBytes(32).toString('hex');
-      if (isSecretStoreAvailable()) {
-        writeSecretFile(appKeyPathEnc, newKey);
-      } else {
-        fs.writeFileSync(appKeyPathPlain, newKey, { mode: 0o600 });
-      }
-      appKeyBuffer = Buffer.from(newKey, 'utf8');
+  // Nothing is decrypted before the keystore says so: without a master password the device key
+  // opens the data right away; with one, the window shows the lock screen until it is unlocked.
+  // Workspace bootstrap and plugins wait for the first unlock.
+  appLock.onFirstReady(async () => {
+    try {
+      await bootstrapAppWorkspace();
+      await pluginManager.loadPlugins();
+    } finally {
+      pluginManager.markInitialLoadDone();
     }
-
-    if (!appKeyBuffer || appKeyBuffer.length === 0) {
-      throw new Error('The GETSSH app key is empty');
+  });
+  appLock.start().then(() => {
+    if (appLock.state().phase === 'error') {
+      dialog.showErrorBox(
+        'GETSSH could not open its data',
+        'GETSSH could not open its encrypted data. Nothing was changed. Details: ' + (appLock.state().error || 'unknown error'),
+      );
     }
-  } catch (e) {
-    console.error('Failed to initialize or retrieve global app key', e);
-    dialog.showErrorBox(
-      'GETSSH secure storage error',
-      'GETSSH could not initialize its encrypted database key. The application will close without opening the database.' +
-        (process.platform === 'darwin'
-          ? '\n\nIf macOS asked whether GETSSH may use its "Safe Storage" Keychain item, reopen GETSSH and choose "Always Allow".'
-          : '')
-    );
-    app.exit(1);
-    return;
-  }
+  });
 
-  // Initialize Master SQLite Database synchronously with the Global App Key.
-  // better-sqlite3 copies the key into SQLite; erase the temporary JS buffer.
-  try {
-    DatabaseManager.init(appKeyBuffer);
-  } catch (e) {
-    console.error('Failed to initialize the encrypted GETSSH database', e);
-    dialog.showErrorBox(
-      'GETSSH database error',
-      'GETSSH could not safely open its encrypted database. The application will close without changing your saved hosts or workspaces.'
-    );
-    app.exit(1);
-    return;
-  } finally {
-    appKeyBuffer?.fill(0);
-    appKeyBuffer = null;
-  }
-  
-  // Background asynchronous heavy initialization (workspaces, plugins)
-  bootstrapAppWorkspace().then(async () => {
-    await pluginManager.loadPlugins();
-  }).catch(console.error).finally(() => pluginManager.markInitialLoadDone());
-  
   protocol.handle('getssh-plugin', (request) => {
     try {
       const parsedUrl = new URL(request.url);

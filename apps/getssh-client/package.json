@@ -19,11 +19,12 @@
     "test:plugin-network": "vitest run electron/main/services/plugin/PluginNetworkGateway.test.ts --environment node",
     "test:plugin-sandbox": "vitest run electron/main/services/plugin/PluginProcessSandbox.test.ts --environment node",
     "test:database-encryption": "electron scripts/security/database-key-smoke.cjs",
-    "test:asset-folders": "electron scripts/security/asset-folders-smoke.cjs",
+    "test:asset-folders": "node scripts/security/keystore-e2e/run.mjs asset-folders",
     "test:local-memory": "vitest run electron/main/services/LocalMemoryService.test.ts --environment node",
     "test:sentinel": "vitest run electron/main/services/SentinelGateway.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
     "test:mcp-sandbox": "vitest run electron/main/services/mcp/McpProcessSandbox.test.ts --environment node",
     "test:packaged-startup": "node scripts/security/packaged-startup-smoke.cjs",
+    "test:keystore-e2e": "node scripts/security/keystore-e2e/run.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -210,6 +211,18 @@
       {
         "from": "../../rust-core/getssh-sentinel",
         "to": "rust-core/getssh-sentinel",
+        "filter": [
+          "*.node",
+          "*.js",
+          "package.json",
+          "!node_modules",
+          "!src",
+          "!target"
+        ]
+      },
+      {
+        "from": "../../rust-core/getssh-keystore",
+        "to": "rust-core/getssh-keystore",
         "filter": [
           "*.node",
           "*.js",

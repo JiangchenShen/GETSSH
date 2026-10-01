@@ -1,0 +1,25 @@
+{
+  "name": "getssh-keystore",
+  "version": "1.0.0",
+  "main": "index.js",
+  "types": "keystore.d.ts",
+  "napi": {
+    "name": "getssh-keystore",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-pc-windows-msvc",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  }
+}

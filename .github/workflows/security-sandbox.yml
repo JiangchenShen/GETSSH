@@ -106,6 +106,13 @@ jobs:
         if: runner.os == 'macOS'
         run: cargo test -p getssh-unarchive -p getssh-sentinel -p getssh-kv -p audit-stream -p nexus-core
 
+      - name: Test the keystore (protection policy and this OS's device keys)
+        run: cargo test -p getssh-keystore
+
+      - name: Test keystore migration, app lock and passwords in Electron
+        working-directory: apps/getssh-client
+        run: npm run test:keystore-e2e
+
       - name: Package unpacked Electron app
         if: runner.os != 'macOS'
         working-directory: apps/getssh-client

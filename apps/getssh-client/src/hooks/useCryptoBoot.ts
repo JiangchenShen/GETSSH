@@ -1,43 +1,27 @@
 import { useEffect } from 'react';
+import { loadActiveWorkspace, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useCryptoStore } from '../store/cryptoStore';
-import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
+/** Opens the active workspace once the app is unlocked, asking for its password only if it has one. */
 export const useCryptoBoot = () => {
-  const setEncryptionDisabled = useCryptoStore(state => state.setEncryptionDisabled);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
-  const setSessions = useSessionStore(state => state.setSessions);
+  const setWorkspaceUnprotected = useCryptoStore(state => state.setWorkspaceUnprotected);
 
   useEffect(() => {
     const bootCrypto = async () => {
-       const res = await window.electronAPI.checkProfiles();
-       if (res.status === 'encrypted') {
-          setEncryptionDisabled(false);
-          useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
-          
-          if (res.biometricEnabled) {
-            const bioRes = await window.electronAPI.promptBiometricUnlock();
-            if (bioRes.success && bioRes.masterPassword) {
-              try {
-                 const decrypted = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                 setMasterPassword(bioRes.masterPassword);
-                 setSessions(decrypted);
-                 useWorkspaceStore.setState({ isVaultLocked: false });
-                 return; 
-              } catch (e) {
-                 console.warn('Biometric unlock failed to decrypt:', e);
-              }
-            }
-          }
-       } else if (res.status === 'plain') {
-          const plainSessions = await window.electronAPI.unlockProfiles('');
-          setSessions(plainSessions);
-          setEncryptionDisabled(true);
-          useWorkspaceStore.setState({ isVaultLocked: false });
-       } else {
-          useWorkspaceStore.setState({ isVaultLocked: false });
-       }
+      const res = await window.electronAPI.checkProfiles();
+      setWorkspaceUnprotected(!res.hasPassword);
+      if (res.status === 'plain') {
+        if (!(await loadActiveWorkspace())) useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
+        return;
+      }
+      if (res.status === 'encrypted') {
+        useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
+        if (res.biometricEnabled) await unlockActiveWorkspaceWithPresence();
+        return;
+      }
+      useWorkspaceStore.setState({ isVaultLocked: false });
     };
-    bootCrypto();
-  }, [setEncryptionDisabled, setMasterPassword, setSessions]);
+    bootCrypto().catch(error => console.error('[CryptoBoot] Failed to open the active workspace:', error));
+  }, [setWorkspaceUnprotected]);
 };

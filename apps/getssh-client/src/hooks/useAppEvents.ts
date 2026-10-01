@@ -8,7 +8,6 @@ export function useAppEvents() {
   const appConfig = useAppStore(state => state.appConfig);
   const cryptoMode = useCryptoStore(state => state.cryptoMode);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
-  const setMasterPassword = useCryptoStore(state => state.setMasterPassword);
 
   // Global Shortcut for Command Center
   useEffect(() => {
@@ -48,8 +47,9 @@ export function useAppEvents() {
       if (cryptoMode !== 'idle') return;
       
       if (Date.now() - lastActive > appConfig.autoLockTimeout * 60 * 1000) {
-        setCryptoMode('locked');
-        setMasterPassword(''); // Clear from memory for security
+        lastActive = Date.now();
+        // The main process drops the keys of everything protected and tells every window.
+        void window.electronAPI.appLock.lock();
       }
     }, 10000); // check every 10 seconds
 
@@ -59,5 +59,5 @@ export function useAppEvents() {
       window.removeEventListener('click', updateActivity);
       clearInterval(checkInterval);
     };
-  }, [appConfig.autoLockTimeout, setCryptoMode, cryptoMode, setMasterPassword]);
+  }, [appConfig.autoLockTimeout, setCryptoMode, cryptoMode]);
 }

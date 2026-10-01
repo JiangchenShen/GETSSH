@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { lockActiveWorkspace } from '../lib/workspaceUnlock';
 import { Server, Terminal as TerminalIcon, Search, Settings, Plus, Lock, Box, Edit2, Play, Copy, Trash2, ShieldAlert, Sparkles, BookOpen, Database } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
@@ -42,7 +43,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const reduceMotion = useReducedMotion();
   const installedPlugins = usePluginStore(state => state.installedPlugins);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
-  const masterPassword = useCryptoStore(state => state.masterPassword);
+  const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
   const isPolluted = useAppStore(state => state.isPolluted);
   const watchdogStatus = useAppStore(state => state.watchdogStatus);
   const runbooks = useWorkspaceStore(state => state.runbooks);
@@ -126,13 +127,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
         id: 'qa-lock',
         type: 'action',
         title: t('welcome.lockProfile', 'Lock Profile'),
-        subtitle: !masterPassword ? t('welcome.lockProfileDisabledTip', 'Password required') : undefined,
+        subtitle: workspaceUnprotected ? t('welcome.lockProfileDisabledTip', 'Password required') : undefined,
         icon: <Lock className="w-4 h-4 text-ink-3" />,
         onSelect: () => {
-          if (masterPassword) {
+          // Only a workspace with its own password (or a master password) can be locked.
+          if (!workspaceUnprotected) {
             onClose();
-            setCryptoMode('locked');
-            useCryptoStore.getState().setMasterPassword('');
+            void lockActiveWorkspace();
           }
         }
       }
@@ -240,7 +241,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
     })));
 
     return items;
-  }, [sessions, installedPlugins, runbooks, mcpPrompts, mcpResources, masterPassword, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
+  }, [sessions, installedPlugins, runbooks, mcpPrompts, mcpResources, workspaceUnprotected, t, onConnect, onOpenPlugin, onClose, setCryptoMode]);
 
   const fuse = useMemo(() => {
     return new Fuse(baseItems, {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
 import { useCryptoStore } from './cryptoStore';
 import { useAppStore } from './appStore';
+import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 
 export interface WorkspaceMeta {
   id: string;
@@ -69,25 +70,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setIsCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
   setIsUnlockModalOpen: (open) => set({ isUnlockModalOpen: open }),
 
-  unlockVault: async (password: string) => {
-    try {
-      // Use existing unlockProfiles IPC — it decrypts AES-256-GCM and returns profiles
-      const profiles = await window.electronAPI.unlockProfiles(password);
-      if (!profiles || profiles.length === 0) {
-        // Empty array could mean wrong password or genuinely empty vault
-        // Try accepting it — the caller can validate
-        useSessionStore.getState().setSessions(profiles || []);
-        set({ isVaultLocked: false, isUnlockModalOpen: false });
-        return true;
-      }
-      useSessionStore.getState().setSessions(profiles);
-      set({ isVaultLocked: false, isUnlockModalOpen: false });
-      return true;
-    } catch (e) {
-      console.error('[WorkspaceStore] Vault unlock failed:', e);
-      return false;
-    }
-  },
+  unlockVault: (password: string) => unlockActiveWorkspaceWithPassword(password),
 
   initWorkspaces: async () => {
     if (window.electronAPI?.workspace?.getWorkspaces) {
@@ -150,37 +133,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
              document.documentElement.style.setProperty('--primary-color', targetWs.themeColor);
           }
 
-          // Zero-Trust Lazy Unlock: if target workspace has a password, lock the vault
-          if (targetWs?.hasPassword) {
-            set({ isVaultLocked: true, isUnlockModalOpen: false }); // Rely on inline CryptoModal now
-
-            // If biometric is enabled for this workspace, auto-trigger it
-            if (targetWs.biometricEnabled && window.electronAPI?.promptBiometricUnlock) {
-              window.electronAPI.promptBiometricUnlock().then(async bioRes => {
-                if (bioRes.success && bioRes.masterPassword) {
-                  try {
-                    const profiles = await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                    if (profiles) {
-                      useSessionStore.getState().setSessions(profiles);
-                      set({ isVaultLocked: false });
-                      useCryptoStore.getState().setMasterPassword(bioRes.masterPassword);
-                    }
-                  } catch (e) {
-                    console.warn('Biometric auto-unlock failed to decrypt:', e);
-                  }
-                }
-              });
+          // The main process opened the workspace unless it needs its password (or Touch ID).
+          useCryptoStore.getState().setWorkspaceUnprotected(!targetWs?.hasPassword);
+          if ((res as any).isLocked) {
+            set({ isVaultLocked: true, isUnlockModalOpen: false }); // The inline CryptoModal asks.
+            if (targetWs?.biometricEnabled) {
+              void unlockActiveWorkspaceWithPresence();
             }
           } else {
             set({ isVaultLocked: false });
-            // Fetch sessions immediately if the workspace is plain (unencrypted)
-            try {
-              const plainSessions = await window.electronAPI.unlockProfiles('');
-              useSessionStore.getState().setSessions(plainSessions || []);
-            } catch (err) {
-              console.error('Failed to load sessions for plain workspace:', err);
-              useSessionStore.getState().setSessions([]);
-            }
+            useSessionStore.getState().setSessions((res as any).profiles || []);
           }
           return true;
         }

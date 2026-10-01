@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { registerCryptoHandlers } from './cryptoHandler';
+import { registerKeystoreHandlers } from './keystoreHandler';
 import { registerSshHandlers } from './sshHandler';
 import { registerSftpHandlers } from './sftpHandler';
 import { registerProfileHandlers } from './profileHandler';
@@ -20,6 +21,7 @@ import { registerAssetFolderHandlers } from './assetFolderHandler';
 export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.App, getWin: () => BrowserWindow | null) {
   // Security/Crypto Handlers
   registerCryptoHandlers(ipcMain, app);
+  registerKeystoreHandlers(ipcMain);
   
   // Connection Handlers
   registerSshHandlers(ipcMain, app, getWin);

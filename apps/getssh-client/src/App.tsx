@@ -38,13 +38,15 @@ import { SplitPane } from './components/SplitPane';
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
 import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
-import { GlobalBootLockOverlay } from './components/app-overlays/GlobalBootLockOverlay';
+import { AppLockScreen } from './components/app-overlays/AppLockScreen';
+import { useAppLockSync } from './hooks/useAppLockSync';
+import { useAppLockStore } from './store/appLockStore';
 
 const DASHBOARD_EASE = [0.33, 1, 0.68, 1] as const;
 
 export type { AppConfig } from './store/appStore';
 
-function App() {
+function AppMain() {
   const { t, i18n } = useTranslation();
 
   // Boot Application & Bind IPC / Window Events
@@ -170,6 +172,31 @@ function App() {
     appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${uiOpacity})` };
   }
 
+  /** Types the confirmed high-risk runbook into the active terminal (not executed: no newline). */
+  const fillPendingRunbook = () => {
+    const runbook = pendingHighRiskRunbook;
+    if (!runbook) return;
+    const state = useSessionStore.getState();
+    let sessionId: string | null = null;
+    const tab = state.tabs.find(t => t.id === state.activeTabId);
+    const traverse = (node: PaneNode) => {
+      if (node.type === 'leaf') {
+        if (node.paneId === state.activePaneId && node.paneType === 'terminal') sessionId = node.sessionId || null;
+      } else if (node.type === 'hsplit' || node.type === 'vsplit') {
+        if (node.children[0]) traverse(node.children[0]);
+        if (node.children[1]) traverse(node.children[1]);
+      }
+    };
+    if (tab?.paneTree && state.activePaneId) traverse(tab.paneTree);
+    if (!sessionId) {
+      useAppStore.getState().addToast(t('commandCenter.noActiveTerminal', '未找到活动的终端面板以执行剧本'), 'warning');
+    } else if (window.electronAPI?.sshWrite) {
+      window.electronAPI.sshWrite(sessionId, runbook.command.replace(/[\r\n]+/g, ' ').trim());
+      useAppStore.getState().addToast(t('commandCenter.runbookFilled', '剧本命令已安全填入终端缓冲'), 'success');
+    }
+    setPendingHighRiskRunbook(null);
+  };
+
   return (
     <>
       <IpcManager />
@@ -180,7 +207,6 @@ function App() {
         {/* Removed Duo-Tone Ambient Glow to let pure Liquid Glass shine through */}
 
         <AnimatePresence>
-          <GlobalBootLockOverlay />
           {pendingHighRiskRunbook && (
             <motion.div 
                initial={{ opacity: 0, scale: 0.95 }}
@@ -198,84 +224,16 @@ function App() {
                   isDark={true}
                   onSetup={async () => {}}
                   onUnlock={async (pwd) => {
-                     try {
-                        const success = await window.electronAPI.unlockProfiles(pwd);
-                        if (!success) return false;
-                        
-                        const getActiveSessionId = (): string | null => {
-                          const state = useSessionStore.getState();
-                          if (!state.activeTabId || !state.activePaneId) return null;
-                          const tab = state.tabs.find(t => t.id === state.activeTabId);
-                          if (!tab || !tab.paneTree) return null;
-                          let foundSessionId: string | null = null;
-                          const traverse = (node: PaneNode) => {
-                            if (node.type === 'leaf') {
-                              if (node.paneId === state.activePaneId && node.paneType === 'terminal') foundSessionId = node.sessionId || null;
-                            } else if (node.type === 'hsplit' || node.type === 'vsplit') {
-                              if (node.children[0]) traverse(node.children[0]);
-                              if (node.children[1]) traverse(node.children[1]);
-                            }
-                          };
-                          traverse(tab.paneTree);
-                          return foundSessionId;
-                        };
-                        
-                        const sessionId = getActiveSessionId();
-                        if (!sessionId) {
-                          useAppStore.getState().addToast('未找到活动的终端面板以执行剧本', 'warning');
-                        } else {
-                          const sanitized = pendingHighRiskRunbook.command.replace(/[\r\n]+/g, ' ').trim();
-                          if (window.electronAPI?.sshWrite) {
-                            window.electronAPI.sshWrite(sessionId, sanitized);
-                            useAppStore.getState().addToast('剧本命令已安全填入终端缓冲', 'success');
-                          }
-                        }
-                        setPendingHighRiskRunbook(null);
-                        return true;
-                     } catch (e) {
-                        console.warn('Unlock failed:', e);
-                        return false;
-                     }
+                     // The main process checks the person: Touch ID / Windows Hello first, this
+                     // workspace's password (or the master password) where the OS has no check.
+                     const result = await window.electronAPI.security.verifyOwner({ reason: 'run a high-risk runbook', password: pwd });
+                     if (!result.ok) return false;
+                     fillPendingRunbook();
+                     return true;
                   }}
                   onRetryBiometric={async () => {
-                     // Fetch decrypted master password (automatically prompts OS TouchID if enabled)
-
-                     const bioRes = await window.electronAPI.promptBiometricUnlock();
-                     if (bioRes.success && bioRes.masterPassword) {
-                       try {
-                          await window.electronAPI.unlockProfiles(bioRes.masterPassword);
-                          const getActiveSessionId = (): string | null => {
-                            const state = useSessionStore.getState();
-                            if (!state.activeTabId || !state.activePaneId) return null;
-                            const tab = state.tabs.find(t => t.id === state.activeTabId);
-                            if (!tab || !tab.paneTree) return null;
-                            let foundSessionId: string | null = null;
-                            const traverse = (node: PaneNode) => {
-                              if (node.type === 'leaf') {
-                                if (node.paneId === state.activePaneId && node.paneType === 'terminal') foundSessionId = node.sessionId;
-                              } else {
-                                traverse(node.children[0]); traverse(node.children[1]);
-                              }
-                            };
-                            traverse(tab.paneTree);
-                            return foundSessionId;
-                          };
-                          
-                          const sessionId = getActiveSessionId();
-                          if (!sessionId) {
-                            useAppStore.getState().addToast(t('commandCenter.noActiveTerminal', '未找到活动的终端面板以执行剧本'), 'warning');
-                          } else {
-                            const sanitized = pendingHighRiskRunbook.command.replace(/[\r\n]+/g, ' ').trim();
-                            if (window.electronAPI?.sshWrite) {
-                              window.electronAPI.sshWrite(sessionId, sanitized);
-                              useAppStore.getState().addToast(t('commandCenter.runbookFilled', '剧本命令已安全填入终端缓冲'), 'success');
-                            }
-                          }
-                          setPendingHighRiskRunbook(null);
-                       } catch (e) {
-                          console.warn('Biometric unlock failed on manual retry:', e);
-                       }
-                     }
+                     const result = await window.electronAPI.security.verifyOwner({ reason: 'run a high-risk runbook' });
+                     if (result.ok) fillPendingRunbook();
                   }}
                 />
               </div>
@@ -412,6 +370,27 @@ function App() {
         </AnimatePresence>
         <ToastProvider />
       </div>
+    </>
+  );
+}
+
+/**
+ * Nothing that reads GETSSH data mounts before the main process has opened it: until the first
+ * unlock only the lock screen exists. A later lock (master password, idle time) covers the app
+ * instead, so terminal sessions keep running underneath.
+ */
+function App() {
+  useAppLockSync();
+  const phase = useAppLockStore(state => state.state?.phase);
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (phase === 'ready') setOpened(true);
+  }, [phase]);
+  if (!opened) return <AppLockScreen />;
+  return (
+    <>
+      <AppMain />
+      {phase !== 'ready' && <AppLockScreen />}
     </>
   );
 }

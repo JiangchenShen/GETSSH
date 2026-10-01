@@ -216,7 +216,7 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
       if (config.pluginSecurityMode !== 'safe') {
         try {
           const { verifyOwner } = require('../security/userPresence');
-          const { appOwnerDeps } = require('../security/workspaceVault');
+          const { appOwnerDeps } = require('../security/ownerChecks');
           // Touch ID where available; otherwise the master password typed in the settings flow.
           // Without any protected workspace there is no identity secret to verify.
           const outcome = await verifyOwner(

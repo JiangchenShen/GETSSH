@@ -9,7 +9,8 @@ const modules = [
   'sftp-stream',
   'nexus-core',
   'audit-stream',
-  'getssh-sentinel'
+  'getssh-sentinel',
+  'getssh-keystore'
 ];
 
 const target = process.env.RUST_TARGET;

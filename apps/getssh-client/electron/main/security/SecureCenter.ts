@@ -83,7 +83,7 @@ export class SecureCenter {
       if (action === 'ignore') {
         if (!this.lockdownMode) return { ok: false, reason: 'invalid_action' };
         const { verifyOwner } = require('./userPresence');
-        const { appOwnerDeps } = require('./workspaceVault');
+        const { appOwnerDeps } = require('./ownerChecks');
         const outcome = await verifyOwner(
           { password: typeof masterPassword === 'string' ? masterPassword : undefined, reason: 'ignore a security lockdown' },
           appOwnerDeps(),

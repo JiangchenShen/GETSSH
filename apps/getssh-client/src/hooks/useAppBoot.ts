@@ -24,26 +24,10 @@ export function useAppBoot() {
     syncConfigEffects();
   }, [appConfig, systemIsDark, syncConfigEffects]);
 
-  // Check global app boot lock
+  // The app lock lives in the main process now (see useAppLockSync / AppLockScreen).
   useEffect(() => {
-    const checkAppBootLock = async () => {
-      if (window.electronAPI && window.electronAPI.getGlobalSetting) {
-        try {
-          const hash = await window.electronAPI.getGlobalSetting('app_boot_password_hash');
-          if (hash) {
-            useAppStore.getState().setIsAppBootLocked(true);
-          } else {
-            useAppStore.getState().setIsAppBootLocked(false);
-          }
-        } catch (e) {
-          useAppStore.getState().setIsAppBootLocked(false);
-        }
-        useAppStore.getState().setIsAppBootLoading(false);
-      } else {
-        useAppStore.getState().setIsAppBootLoading(false);
-      }
-    };
-    checkAppBootLock();
+    useAppStore.getState().setIsAppBootLocked(false);
+    useAppStore.getState().setIsAppBootLoading(false);
   }, []);
 
   useEffect(() => {

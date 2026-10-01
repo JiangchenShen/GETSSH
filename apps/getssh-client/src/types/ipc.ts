@@ -85,3 +85,44 @@ export interface ContextMenuTriggerPayload {
   extensions: UIExtensionAction[];
   contextData: any;
 }
+
+/** Keystore IPC results. `error` is a keystore code such as wrong_password, cancelled, locked. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type KeystoreResult<T extends object = {}> = ({ ok: true } & T) | { ok: false; error: string; retryAfterMs?: number };
+
+export interface KeystoreMigrationReport {
+  migratedWorkspaces: string[];
+  deferredWorkspaces: string[];
+  presenceToReenable: string[];
+  failedWorkspaces: string[];
+}
+
+export interface AppLockState {
+  phase: 'starting' | 'locked' | 'ready' | 'error';
+  appProtected: boolean;
+  presenceSupported: boolean;
+  presenceEnabled: boolean;
+  recoveryConfigured: boolean;
+  deviceKeyLost: boolean;
+  error?: string;
+  migration?: KeystoreMigrationReport;
+}
+
+export interface SecurityScopeStatus {
+  id: string;
+  workspaceId: string | null;
+  protected: boolean;
+  ownPassword: boolean;
+  presence: boolean;
+  unlocked: boolean;
+  recovery: boolean;
+  revealRemainingMs: number | null;
+}
+
+export interface SecurityStatus {
+  appProtected: boolean;
+  recoveryConfigured: boolean;
+  presenceSupported: boolean;
+  deviceBackend: string | null;
+  scopes: SecurityScopeStatus[];
+}
