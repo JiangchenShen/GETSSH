@@ -192,6 +192,12 @@ importers:
         specifier: ^2.18.4
         version: 2.18.4
 
+  rust-core/getssh-store:
+    devDependencies:
+      '@napi-rs/cli':
+        specifier: ^3.0.0
+        version: 3.7.1(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.4)(node-addon-api@7.1.1)
+
   rust-core/getssh-sysprobe:
     devDependencies:
       '@napi-rs/cli':
