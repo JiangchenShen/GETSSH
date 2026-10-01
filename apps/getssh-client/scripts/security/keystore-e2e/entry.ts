@@ -89,6 +89,11 @@ async function commitAll(staged: string[]) {
 
 async function run(): Promise<string> {
   trace('app ready');
+  if (process.env.KS_TRACE) {
+    const localState = path.join(app.getPath('userData'), 'Local State');
+    const text = fs.existsSync(localState) ? fs.readFileSync(localState, 'utf8') : null;
+    trace(`Local State ${text === null ? 'missing' : `present, os_crypt key ${text.includes('"encrypted_key"') ? 'stored' : 'absent'}`} (${localState})`);
+  }
   switch (phase) {
     case 'legacy':
       writeLegacyLayout();
@@ -297,7 +302,9 @@ async function run(): Promise<string> {
 app.whenReady().then(run).then(
   message => {
     console.log(`[${phase}] OK ${message}`);
-    app.exit(0);
+    // A normal quit, not app.exit(): on Windows the safeStorage key lives in Chromium's Local
+    // State, which must reach the disk for the next phase to read app_key.enc.
+    app.quit();
   },
   error => {
     console.error(`[${phase}] FAILED`, error);
