@@ -42,8 +42,13 @@ await build({
 });
 // A failure while loading the bundle exits instead of leaving Electron's error dialog open
 // (on Windows that dialog blocks until the timeout).
-fs.writeFileSync(bundle, `try {
+fs.writeFileSync(bundle, `const trace = step => { if (process.env.KS_TRACE) process.stderr.write('[' + process.env.KS_PHASE + '] trace: ' + step + '\\n'); };
+try {
+  trace('loading better-sqlite3-multiple-ciphers');
+  require('better-sqlite3-multiple-ciphers');
+  trace('loading the test bundle');
   require('./main-impl.cjs');
+  trace('loaded');
 } catch (error) {
   console.error('[' + (process.env.KS_PHASE || '?') + '] FAIL loading the test bundle:', error && error.stack || error);
   process.exit(1);
@@ -63,21 +68,34 @@ const only = process.argv[2];
 const sequences = only ? allSequences.filter(sequence => sequence.includes(only)) : allSequences;
 if (sequences.length === 0) throw new Error(`unknown phase ${only}`);
 
+/** Windows crash codes are easier to recognise in hex (0x80000003 is a breakpoint). */
+const exitCode = status => (status != null && status > 255 ? `${status} (0x${status.toString(16)})` : String(status));
+
 let failed = false;
 try {
   for (const phases of sequences) {
     const home = fs.mkdtempSync(path.join(homesDir, 'home-'));
     for (const phase of phases) {
+      const env = { ...process.env, HOME: home, USERPROFILE: home, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' };
       const result = spawnSync(electron, [bundle], {
-        env: { ...process.env, HOME: home, USERPROFILE: home, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' },
+        env,
         encoding: 'utf8',
         timeout: 120_000,
       });
       const line = `${result.stdout}\n${result.stderr}`.split('\n').find(l => l.startsWith(`[${phase}]`));
-      console.log(line || `[${phase}] no result (exit ${result.status})`);
+      console.log(line || `[${phase}] no result (exit ${exitCode(result.status)})`);
       if (result.status !== 0 || !line?.includes(' OK ')) {
         failed = true;
         console.error(result.stdout.slice(-4000), result.stderr.slice(-4000));
+        // Run the phase once more with Chromium logging and step traces: a native crash (for
+        // example 0x80000003 on Windows) leaves no JavaScript error behind.
+        const rerun = spawnSync(electron, ['--enable-logging=stderr', bundle], {
+          env: { ...env, KS_TRACE: '1', ELECTRON_ENABLE_LOGGING: '1', ELECTRON_ENABLE_STACK_DUMPING: '1' },
+          encoding: 'utf8',
+          timeout: 120_000,
+        });
+        console.error(`[${phase}] diagnostic rerun: exit ${exitCode(rerun.status)}${rerun.signal ? ` signal ${rerun.signal}` : ''}`);
+        console.error(`${rerun.stdout ?? ''}\n${rerun.stderr ?? ''}`.slice(-12000));
         break;
       }
     }

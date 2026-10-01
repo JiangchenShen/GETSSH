@@ -17,6 +17,8 @@ app.commandLine.appendSwitch('use-mock-keychain');
 const phase = process.env.KS_PHASE ?? '';
 const base = path.join(os.homedir(), '.getssh');
 const marker = (name: string) => path.join(os.homedir(), name);
+/** Step markers for run.mjs's diagnostic rerun after a native crash. */
+const trace = (step: string) => { if (process.env.KS_TRACE) process.stderr.write(`[${phase}] trace: ${step}\n`); };
 
 const WORKSPACE_SCHEMA = 'CREATE TABLE profiles (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, host TEXT NOT NULL, username TEXT NOT NULL, password TEXT, privateKeyPath TEXT, passphrase TEXT, port INTEGER DEFAULT 22, autoStart INTEGER DEFAULT 0, alias TEXT, osType TEXT)';
 
@@ -34,7 +36,9 @@ function legacyDb(file: string, passphrase: string | null, setup: (db: Database.
 function writeLegacyLayout(options: { corruptDefault?: boolean } = {}) {
   fs.mkdirSync(path.join(base, 'workspaces'), { recursive: true });
   const appKey = 'ab'.repeat(32);
+  trace('safeStorage: writing app_key.enc');
   writeSecretFile(path.join(base, 'app_key.enc'), appKey);
+  trace('better-sqlite3: writing the legacy main.db');
   legacyDb(path.join(base, 'main.db'), appKey, db => {
     db.exec('CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, themeColor TEXT, hasPassword INTEGER DEFAULT 0, biometric_enabled INTEGER DEFAULT 0, is_main INTEGER DEFAULT 0, preferences TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
     const insert = db.prepare('INSERT INTO workspaces (id, name, hasPassword, biometric_enabled, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1)');
@@ -84,6 +88,7 @@ async function commitAll(staged: string[]) {
 }
 
 async function run(): Promise<string> {
+  trace('app ready');
   switch (phase) {
     case 'legacy':
       writeLegacyLayout();
