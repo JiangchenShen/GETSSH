@@ -16,7 +16,13 @@ const rustCore = path.resolve(appDir, '../../rust-core');
 const require = createRequire(import.meta.url);
 const { build } = await import(pathToFileURL(require.resolve('rolldown', { paths: [require.resolve('vite')] })).href);
 
-const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-keystore-e2e-'));
+// The bundle lives under the app's node_modules/.cache so that Node finds its dependencies by
+// walking up the tree, whether pnpm installed them next to the app or hoisted them to the root.
+const cacheDir = path.join(appDir, 'node_modules', '.cache');
+fs.mkdirSync(cacheDir, { recursive: true });
+const workDir = fs.mkdtempSync(path.join(cacheDir, 'getssh-keystore-e2e-'));
+const homesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-keystore-e2e-home-'));
+const implementation = path.join(workDir, 'main-impl.cjs');
 const bundle = path.join(workDir, 'main.cjs');
 await build({
   input: path.join(here, 'entry.ts'),
@@ -31,11 +37,18 @@ await build({
         : null;
     },
   }],
-  output: { file: bundle, format: 'cjs' },
+  output: { file: implementation, format: 'cjs' },
   logLevel: 'warn',
 });
-// The bundle resolves better-sqlite3-multiple-ciphers from the app's node_modules.
-fs.symlinkSync(path.join(appDir, 'node_modules'), path.join(workDir, 'node_modules'), 'junction');
+// A failure while loading the bundle exits instead of leaving Electron's error dialog open
+// (on Windows that dialog blocks until the timeout).
+fs.writeFileSync(bundle, `try {
+  require('./main-impl.cjs');
+} catch (error) {
+  console.error('[' + (process.env.KS_PHASE || '?') + '] FAIL loading the test bundle:', error && error.stack || error);
+  process.exit(1);
+}
+`);
 
 const electron = require('electron');
 const allSequences = [
@@ -53,7 +66,7 @@ if (sequences.length === 0) throw new Error(`unknown phase ${only}`);
 let failed = false;
 try {
   for (const phases of sequences) {
-    const home = fs.mkdtempSync(path.join(workDir, 'home-'));
+    const home = fs.mkdtempSync(path.join(homesDir, 'home-'));
     for (const phase of phases) {
       const result = spawnSync(electron, [bundle], {
         env: { ...process.env, HOME: home, USERPROFILE: home, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' },
@@ -72,5 +85,6 @@ try {
   }
 } finally {
   fs.rmSync(workDir, { recursive: true, force: true });
+  fs.rmSync(homesDir, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);
