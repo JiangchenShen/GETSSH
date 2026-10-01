@@ -8,6 +8,7 @@
 //! S2: the store itself (store.rs, profiles.rs); the N-API surface follows the tests.
 
 pub mod error;
+pub mod napi_api;
 pub mod profiles;
 pub mod rekey;
 pub mod schema;
