@@ -1,9 +1,14 @@
+---
+name: getssh-store
+description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结接口和三个 AI 的分工规则。修改 GETSSH 的数据库、凭据、主密码、Touch ID/Windows Hello、导出导入、DatabaseManager、keystore 或相关界面之前必须先读。
+---
+
 # GETSSH 3.0 加密与数据层设计（getssh-store）
 
-> 状态：草案，待确认后冻结接口
-> 分支：`feat/master-key-store`（基于 `v3-next` 5a8c533）
-> 日期：2026-10-01
-> 读者：参与开发的三个 AI，以及项目负责人
+> 状态：**接口已冻结（2026-10-01）**，唯一的接口定义是 `rust-core/getssh-store/store.d.ts`
+> 分支：`feat/master-key-store`，集成分支 `v3-next`（都只在本地，不推送 GitHub）
+> 读者：Claude（AI-1）、Gemini（AI-2）、ChatGPT（AI-3），以及项目负责人
+> 本文件路径：`~/Documents/GETSSH/docs/GETSSH_STORE_DESIGN_CN.md`
 
 ## 0. 已经拍板的决定
 
@@ -23,6 +28,15 @@
    - 数据库钥匙不再进入 JS。
    - 渲染进程永远拿不到任何秘密。
    - SSH 暂时还用 JS 的 `ssh2`：连接那一刻，主进程把凭据交给它。改用 Rust 的 russh 放到 3.0 之后。
+8. **导出时由用户自己选工作区**。
+   - 先列出全部工作区让用户勾选；
+   - 选完后一键解锁选中的、还锁着的工作区，优先用 Touch ID / Windows Hello，一次验证解开全部；
+   - 没开 Touch ID / Hello 的工作区，再逐个输入密码。
+9. **3.0 之前设的 8–11 位主密码必须强制更换**：
+   - 解锁后弹出不可跳过的"更换主密码"对话框；
+   - 换完之前不能导出。
+10. **导入在 3.0 只做"整体替换"**（替换前自动备份），"合并"放到以后。
+11. **分工**：AI-1 = Claude，AI-2 = Gemini，AI-3 = ChatGPT（见第 8 节）。
 
 ## 1. 现状（5a8c533）
 
@@ -121,99 +135,47 @@
   `locked`、`needs_password`、`wrong_password`、`rate_limited`、`not_found`、`invalid_argument`、`corrupt`、`unavailable`、`io`、`busy`、`rotation_pending`。
 - 不开放任意 SQL。每个操作都是有类型的函数，参数绑定都在 Rust 里完成。
 
-## 4. 接口草案（冻结后写成 `rust-core/getssh-store/store.d.ts`）
+## 4. 接口（已冻结）
 
-```ts
-// ── 生命周期与应用锁 ──
-export function configure(baseDir: string): void;                 // ~/.getssh
-export function start(): Promise<StartReport>;                    // 迁移旧数据，打开不需要密码的库
-export function appState(): AppState;                             // phase / masterPassword / presence / recovery / deviceBackend
-export function unlockApp(route: UnlockRoute): Promise<void>;     // { password } | { presence: reason } | { recoveryCode }
-export function lockApp(): void;                                  // 丢弃所有钥匙，关闭所有受保护的库
+**唯一的定义是 [`rust-core/getssh-store/store.d.ts`](../rust-core/getssh-store/store.d.ts)，以那个文件为准。** 本节只说明约定。
 
-// ── 主密码、Touch ID、恢复码 ──
-export function setMasterPassword(password: string, current?: string): Promise<{ recoveryReset: boolean }>;
-export function removeMasterPassword(current: string): Promise<void>;
-export function setPresence(enabled: boolean, reason: string): Promise<void>;
-export function createRecoveryCode(current?: string): Promise<string>;   // 只显示一次
-export function removeRecoveryCode(): Promise<void>;
-
-// ── 工作区 ──
-export interface Workspace { id: string; name: string; isMain: boolean; hasPassword: boolean; state: 'open' | 'locked'; preferences: string | null; createdAt: number }
-export function listWorkspaces(): Workspace[];
-export function createWorkspace(input: { name: string; password?: string }): Promise<Workspace>;
-export function renameWorkspace(id: string, name: string): void;
-export function setWorkspacePreferences(id: string, json: string): void;
-export function setMainWorkspace(id: string): void;
-export function deleteWorkspace(id: string): Promise<void>;
-export function openWorkspace(id: string): Promise<'open' | 'locked'>;
-export function unlockWorkspace(id: string, route: { password: string } | { presence: string }): Promise<void>;
-export function lockWorkspace(id: string): void;
-export function setWorkspacePassword(id: string, password: string, current?: string): Promise<void>;
-export function removeWorkspacePassword(id: string, current: string): Promise<void>;
-export function workspaceStats(id: string): WorkspaceStats;
-
-// ── 服务器配置：任何读取接口都不返回秘密 ──
-export interface Profile {
-  id: string; host: string; port: number; username: string; alias: string | null; protocol: string;
-  groupName: string | null; folder: string | null; osType: string | null; authType: 'password' | 'key' | 'agent';
-  keyId: string | null;                 // 引用库里的私钥（见第 6 节）
-  hasPassword: boolean; hasPassphrase: boolean;
-  /* 其余非秘密字段与现有 ProfileRow 一致：autoStart、useKeepAlive、proxyJump、strictHostKeyChecking、
-     initialDirectory、postConnectScript、themeOverride …… */
-}
-/** 秘密字段的约定：undefined 表示保持原值，null 表示清除，string 表示设置新值。 */
-export interface ProfileInput extends Omit<Profile, 'hasPassword' | 'hasPassphrase'> { password?: string | null; passphrase?: string | null }
-export function listProfiles(workspaceId: string): Profile[];
-export function saveProfiles(workspaceId: string, inputs: ProfileInput[]): Profile[];   // 和现有的整表保存语义一致
-export function deleteProfiles(workspaceId: string, ids: string[]): void;
-export function copyProfiles(from: string, to: string, ids: string[]): void;            // 资产桥接；秘密在 Rust 内重新封装
-
-// ── 连接用凭据：只给主进程，绝不经 IPC 转发 ──
-export interface ConnectSecrets { password?: Buffer; privateKey?: Buffer; passphrase?: Buffer }
-export function connectSecrets(workspaceId: string, profileId: string): ConnectSecrets; // 握手完成后由调用方 fill(0)
-
-// ── 查看密码：5 分钟滑动窗口 ──
-export function openReveal(workspaceId: string, route: { presence: string } | { password: string }): Promise<void>;
-export function revealSecret(workspaceId: string, profileId: string, field: 'password' | 'passphrase'): string;
-export function closeReveal(workspaceId: string): void;
-
-// ── 私钥（阶段 B） ──
-export interface SshKey { id: string; name: string; algorithm: string; fingerprint: string; publicKey: string; hasPassphrase: boolean; createdAt: number }
-export function importSshKey(workspaceId: string, input: { name: string; data: Buffer; passphrase?: string }): SshKey;  // OpenSSH / PEM / PPK
-export function generateSshKey(workspaceId: string, input: { name: string; algorithm: 'ed25519' }): SshKey;
-export function listSshKeys(workspaceId: string): SshKey[];
-export function deleteSshKey(workspaceId: string, id: string): void;
-
-// ── 应用级秘密：AI Key、插件秘密、MCP token，取代 safeStorage 文件 ──
-export function setAppSecret(name: string, value: string | null): void;
-export function getAppSecret(name: string): Buffer | null;        // 只给主进程
-
-// ── 其余表：一一对应现有 DatabaseManager 方法，名字不变 ──
-// globalSettings: getGlobalSetting / setGlobalSetting
-// assetFolders: getAssetFolders / createAssetFolder / renameAssetFolder / removeAssetFolder / moveProfilesToAssetFolder
-// runbooks: getRunbooks / saveRunbooks
-// ai: getAiSessions / createAiSession / saveAiMessage / updateAiSessionTitle / deleteAiSession
-// memory: upsertAiMemoryVector / getAiMemoryVectors / deleteAiMemoryMessage / deleteAiMemorySession /
-//         getRecentAiMessagesForMemory / getAiMessagesByIds
-// audit: logAudit / getAuditLogs
-
-// ── 导出与导入（第 5 节） ──
-export function exportBundle(path: string, password: string): Promise<ExportReport>;
-export function inspectBundle(path: string): Promise<BundleInfo>;   // 只读头部，不需要密码
-export function importBundle(path: string, password: string, mode: 'replace' | 'merge'): Promise<ImportReport>;
-```
-
-渲染进程看到的 IPC 接口不变：仍然经过 `keystoreHandler` / `workspaceHandler` / `profileHandler`。只是这些处理器改成调用 `getssh-store`，而且任何返回给渲染进程的数据里都没有秘密字段。
+- **分组**：
+  - 生命周期与应用锁；
+  - 主密码、Touch ID/Hello、恢复码；
+  - 工作区；
+  - 服务器配置；
+  - 秘密：只给主进程；
+  - SSH 私钥；
+  - 其余各表；
+  - 导出与导入。
+- **数据行字段名和现有 SQLite 列一致**，`DatabaseManager` 的方法可以一对一转发。
+- **服务器配置**：
+  - 读取接口不返回秘密，只返回 `hasPassword` / `hasPassphrase` / `keyId`；
+  - 保存时秘密字段的约定：`undefined` 保持原值，`null` 清除，字符串表示设新值。
+- **秘密**：标了 MAIN PROCESS ONLY 的函数（`connectSecrets`、`revealSecret`、`getAppSecret`），返回值绝不能经 IPC 发给渲染进程。
+- **错误**：错误信息以 `[store:<code>] ` 开头，code 的取值见 `StoreErrorCode`。
+- **同步与异步**：普通读写是同步的；Argon2、换钥匙、Touch ID/Hello、导出导入返回 Promise。
+- **假实现** `rust-core/getssh-store/store.fake.js`：
+  - 接口和真模块完全一样，数据只存在内存里；
+  - AI-2/AI-3 在 Rust 模块完成前用它开发和测试；
+  - 用法见文件头部注释。
+- **改接口**：必须先改本文档和 `store.d.ts`，并通知另外两方。
 
 ## 5. 加密导出包
 
 ### 5.1 导出
 
 - **必须设导出密码**，至少 12 个字符；设了主密码时，默认就用主密码。不提供明文导出。
-- 导出前要求所有工作区都处于解锁状态。锁着的工作区，界面先逐个请你解锁。
+- 导出流程：
+  1. 界面用 `exportCandidates()` 列出全部工作区，用户勾选要导出的；
+  2. 选中的工作区里还锁着的，先调用 `unlockWorkspaces(ids, reason)`，一次 Touch ID / Hello 全部解开；
+  3. 返回 `failed` 的工作区再逐个输入密码；
+  4. 最后调用 `exportBundle(path, password, workspaceIds)`。
+- 设了主密码时，所有工作区随应用一起解锁，不需要第 2、3 步。
+- 主密码还没强制更换完之前（`masterPasswordMustChange`），拒绝导出。
 - 打包内容（白名单）：
-  - `main.db` 和所有 `workspace_<id>.db`，导出前先执行 `wal_checkpoint(TRUNCATE)`，不带 `-wal` / `-shm`；
+  - 选中工作区的 `workspace_<id>.db`，导出前先执行 `wal_checkpoint(TRUNCATE)`，不带 `-wal` / `-shm`；
+  - `main.db` 里与选中工作区相关的部分：`workspaces` 行、`ai_memory_vectors`、`global_settings`、应用级秘密；
   - `app-config.json`；
   - `mcp_servers.json`，其中的秘密改为存进 `setAppSecret`；
   - 版本号和工作区列表。
@@ -236,11 +198,9 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 ### 5.3 导入
 
-1. 校验头部，用导出密码解开密钥区。
+1. 校验头部，用导出密码解开密钥区。`inspectBundle` 也要先输入密码，因为工作区名字在加密区里。
 2. 解到临时目录，用 Rust 打开每个库跑 `integrity_check`。
-3. 按模式处理：
-   - `replace`（3.0 默认）：先自动备份当前的 `~/.getssh`，然后整体替换；
-   - `merge`：把导入的工作区作为新工作区并入，ID 冲突时重新生成。
+3. 3.0 只支持 `replace`：先自动把当前的 `~/.getssh` 备份到旁边一个带时间戳的目录，然后整体替换。`merge` 放到以后。
 4. 钥匙交给本机 keystore 重新保管：
    - 有主密码的包，导入后仍然要主密码；
    - 没有主密码的包，按本机设备钥匙保管。
@@ -287,12 +247,12 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
    | 负责方 | 范围 |
    |---|---|
-   | AI-1（建议 Claude） | `rust-core/getssh-store/**`、`rust-core/getssh-keystore/**`、数据迁移、导出包核心、集成和合并 |
-   | AI-2 | `apps/getssh-client/electron/main/**`（`security/keystore*` 除外）：`DatabaseManager` 薄包装、各个 handler、按 id 连接 |
-   | AI-3 | `apps/getssh-client/src/**`、`electron/preload/**`、`src/types/**`：配置编辑器（不碰秘密）、查看窗口、导出导入界面、私钥管理界面 |
+   | AI-1：Claude | `rust-core/getssh-store/**`、`rust-core/getssh-keystore/**`、数据迁移、导出包核心、集成和合并 |
+   | AI-2：Gemini | `apps/getssh-client/electron/main/**`（`security/keystore*` 除外）：`DatabaseManager` 薄包装、各个 handler、按 id 连接、AI Key 和插件秘密迁到 `setAppSecret` |
+   | AI-3：ChatGPT | `apps/getssh-client/src/**`、`electron/preload/**`、`src/types/**`：配置编辑器（不碰秘密）、查看窗口、导出界面（勾选列表 + 一键解锁）、导入界面、强制更换主密码的对话框、私钥管理界面 |
 
 3. **先冻结接口**：第 4 节确认以后，由 AI-1 提交 `store.d.ts`，再加一个纯 JS 的假实现 `store.fake.js` 供 AI-2/AI-3 先开发和测试。之后接口要改，必须先在本文档里改，再通知另外两方。
-4. 各自的分支从 `feat/master-key-store` 拉出，通过 PR 合回这个分支，由 AI-1 合并并跑完整测试，最后整体合进 `v3-next`。
+4. 各自的分支从 `feat/master-key-store` 拉出，在本地合回这个分支，由 AI-1 合并并跑完整测试，最后整体合进 `v3-next`。**不推送 GitHub，不开 PR，不手动触发 CI。**只有必须在 Windows 上验证时，由负责人决定推送一次。
 5. 推送前必须通过：
    - `tsc -b`；
    - `cargo test -p getssh-store -p getssh-keystore`；
@@ -316,9 +276,27 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 阶段 B 视进度决定是否进入 3.0。
 
-## 10. 待定问题
+## 10. 已解决的问题（2026-10-01）
 
-1. 导入时 `merge` 模式要不要进 3.0，还是只做 `replace`？
-2. 导出时如果有工作区锁着、用户不想逐个解锁，是不导出这些工作区，还是必须全部解锁？我建议必须全部解锁，保证"一次带走全部"。
-3. 已经设过的 8–11 位主密码要不要提示用户更换？我建议在设置页显示一条提示，但不强制。
-4. AI-2、AI-3 具体由哪两个 AI 负责？
+1. 导入只做 `replace`，`merge` 以后再做。
+2. 导出时由用户勾选工作区，选完后用 Touch ID / Hello 一键解锁（第 0 节第 8 条）。
+3. 8–11 位的旧主密码强制更换（第 0 节第 9 条）。
+4. AI-2 是 Gemini，AI-3 是 ChatGPT。
+
+## 11. Gemini 和 ChatGPT 怎么开工
+
+1. **先读两份东西**：本文档，以及 `rust-core/getssh-store/store.d.ts`。
+2. **建自己的 worktree**，不要在 `~/Documents/GETSSH` 里直接改：
+
+   ```bash
+   cd ~/Documents/GETSSH
+   git worktree add ../GETSSH-gemini -b feat/store-main feat/master-key-store    # Gemini
+   git worktree add ../GETSSH-chatgpt -b feat/store-ui feat/master-key-store     # ChatGPT
+   cd ../GETSSH-<名字> && pnpm install --frozen-lockfile
+   ```
+3. **Rust 模块完成前**，用 `rust-core/getssh-store/store.fake.js` 代替真模块：`require` 它，接口完全相同。
+4. **拿到别人的新进度**：`git merge feat/master-key-store`。只有 Claude 往这个分支合并代码。
+5. **完成一块就在自己的分支上提交**，然后告诉负责人分支名，由 Claude 合并。
+6. **测试一律用临时 HOME**：`HOME` / `USERPROFILE` 指向临时目录。绝不读写真实的 `~/.getssh` 和系统钥匙串。
+7. **只改自己负责的目录**（第 8 节）。需要改别人的地方，写下来交给负责人转达。
+8. **以下文件不属于任何一方，不要提交**：仓库根目录的 `GETSSH_v3.0_*.md`、`apps/getssh-client/scripts/security/` 下的 `*chaos*` 和 `*stress*` 脚本、`docs/dependency-licenses.md`、`docs/dependency-update-report.md`。
