@@ -94,10 +94,23 @@
 | A. 用 `cc` 编译 SQLite3MultipleCiphers 源码，自己写一层薄薄的 FFI 封装 | 和写这些库的引擎完全相同，格式零风险；不依赖 OpenSSL；MIT 许可 | 封装要自己写（约 400 行） |
 | B. rusqlite 的 `bundled-sqlcipher` | 现成的 API | Windows 要自带编译 OpenSSL（需要 Perl）；和 `getssh-kv` 的 `libsqlite3-sys` 特性会在工作区内合并，要确认不会互相影响 |
 
-**倾向 A。** 验证要通过三项：
+**选 A。** 验证要通过三项：
 1. 打开一份由 bsmc 12 写出的**测试库副本**，跑 `integrity_check`，行数一致；
 2. macOS arm64/x64、Windows x64/arm64 四个 CI 目标都能编译；
 3. 打开一个库的耗时不超过 1 ms。
+
+**验证结果（2026-10-01，macOS arm64）**：用 `cc` 编译 bsmc 12.11.1 自带的 SQLite3MC 2.3.5 源码（SQLite 3.53.2），编译选项和 bsmc 的 `deps/defines.gypi` 完全一致，配一层约 100 行的 FFI。
+
+| 测试库（由 bsmc 12 写出） | 结果 |
+|---|---|
+| 原始钥匙 `x'…'`，WAL 模式，2000 行 | 打开 0.5 ms，`integrity_check` ok，2000 行 |
+| 同上，WAL 里还有没写回主文件的修改（模拟崩溃） | 打开 0.1 ms，修改可见 |
+| 旧式口令钥匙（含非 ASCII 字符） | 打开 81 ms（PBKDF2 256000 次），ok |
+| 钥匙错一位 / 口令错误 | 报 `file is not a database`，不会读出乱码 |
+
+- 第 1、3 项通过。
+- 第 2 项要等 `getssh-store` 进 CI 才能验证。bsmc 在 Windows 上本来就用 MSVC 编译同一份源码，风险低。
+- 源码直接放进仓库，放在 `rust-core/getssh-store/vendor/sqlite3mc/`，约 13 MB，MIT 许可。版本跟随 bsmc 当前用的版本，以后单独升级。
 
 ### 3.3 运行方式
 
@@ -295,7 +308,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 | 日期 | 里程碑 |
 |---|---|
-| 10-02 | 本文档确认，接口冻结；完成 S0 |
+| 10-02 | 本文档确认，接口冻结（S0 已于 10-01 在 macOS 上完成） |
 | 10-06 | S1、S2 完成；配置编辑器接上新接口 |
 | 10-09 | S3、S4 完成 |
 | 10-12 | S5 完成，导出导入跑通 |
