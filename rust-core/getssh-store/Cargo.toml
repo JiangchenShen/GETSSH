@@ -14,6 +14,10 @@ getssh-keystore = { path = "../getssh-keystore" }
 napi = { version = "2.16.17", default-features = false, features = ["napi4"] }
 napi-derive = "2.16.13"
 zeroize = { version = "1.8.1", features = ["zeroize_derive"] }
+unicode-normalization = "0.1.24"
+
+[dev-dependencies]
+getssh-keystore = { path = "../getssh-keystore", features = ["fake-device"] }
 
 [build-dependencies]
 napi-build = "2.3.2"

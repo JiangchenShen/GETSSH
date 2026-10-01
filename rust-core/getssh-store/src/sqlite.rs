@@ -340,6 +340,11 @@ impl Connection {
     /// Re-encrypts the database under `key` (`Key::Plain` removes encryption). The caller switches
     /// the journal to DELETE first and keeps a verified copy (see the keystore rekey flow).
     pub fn rekey(&self, key: &Key<'_>) -> SqlResult<()> {
+        // Encrypting a plain database would otherwise use the engine's default cipher (ChaCha20),
+        // which no GETSSH database uses.
+        if !matches!(key, Key::Plain) {
+            self.execute_batch("PRAGMA cipher = 'sqlcipher'")?;
+        }
         let material = key.material().unwrap_or_else(|| Zeroizing::new(Vec::new()));
         let rc = unsafe { ffi::sqlite3_rekey(self.db.as_ptr(), material.as_ptr().cast(), material.len() as c_int) };
         if rc != ffi::OK {
@@ -617,6 +622,21 @@ mod tests {
             conn.rekey(&Key::Raw(&KEY)).unwrap();
         }
         assert!(Connection::open(&path, &Key::Passphrase(b"old-password"), Mode::ReadOnly).is_err());
+        let conn = Connection::open(&path, &Key::Raw(&KEY), Mode::ReadOnly).unwrap();
+        assert_eq!(conn.query_row("SELECT count(*) FROM t", &[], |r| r.integer(0)).unwrap(), 100);
+    }
+
+    #[test]
+    fn a_plain_database_is_encrypted_with_the_sqlcipher_scheme() {
+        let dir = TempDir::new();
+        let path = dir.file("plain-to-raw.db");
+        {
+            let conn = Connection::open(&path, &Key::Plain, Mode::Create).unwrap();
+            sample(&conn);
+            conn.execute_batch("PRAGMA journal_mode = DELETE").unwrap();
+            conn.rekey(&Key::Raw(&KEY)).unwrap();
+        }
+        assert_ne!(&std::fs::read(&path).unwrap()[..16], b"SQLite format 3\0");
         let conn = Connection::open(&path, &Key::Raw(&KEY), Mode::ReadOnly).unwrap();
         assert_eq!(conn.query_row("SELECT count(*) FROM t", &[], |r| r.integer(0)).unwrap(), 100);
     }

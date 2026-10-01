@@ -10,6 +10,8 @@ crate-type = ["cdylib", "rlib"]
 # The standalone getssh-keystore.node (scripts/build-native.js passes --features napi).
 # getssh-store links this crate without it, so the N-API exports are not registered twice.
 napi = ["dep:napi", "dep:napi-derive"]
+# The software device from src/device/fake.rs, for getssh-store's tests. Never in a build.
+fake-device = []
 
 [dependencies]
 napi = { version = "2.16.17", default-features = false, features = ["napi4"], optional = true }

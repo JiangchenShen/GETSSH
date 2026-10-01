@@ -699,6 +699,7 @@ dependencies = [
  "napi 2.16.17",
  "napi-build",
  "napi-derive 2.16.13",
+ "unicode-normalization",
  "zeroize",
 ]
 

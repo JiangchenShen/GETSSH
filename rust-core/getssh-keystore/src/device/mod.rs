@@ -53,5 +53,5 @@ pub use unsupported::PlatformDevice;
 #[cfg(not(windows))]
 pub fn set_parent_window(_handle: &[u8]) {}
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fake-device"))]
 pub mod fake;

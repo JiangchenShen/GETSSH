@@ -4,10 +4,18 @@
 //! described in docs/GETSSH_STORE_DESIGN_CN.md. Database keys come from getssh-keystore inside
 //! this module and never cross into JavaScript.
 //!
-//! Step S1 (this commit): the crate, the vendored SQLite3 Multiple Ciphers engine and its safe
-//! wrapper. The functions of store.d.ts arrive in S2 onwards.
+//! S1: the vendored SQLite3 Multiple Ciphers engine and its safe wrapper (sqlite.rs).
+//! S2: the store itself (store.rs, profiles.rs); the N-API surface follows the tests.
 
+pub mod error;
+pub mod profiles;
+pub mod rekey;
+pub mod schema;
 pub mod sqlite;
+pub mod store;
+
+#[cfg(test)]
+mod tests;
 
 use napi_derive::napi;
 
