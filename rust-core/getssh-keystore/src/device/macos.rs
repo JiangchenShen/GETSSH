@@ -103,6 +103,12 @@ fn keychain_account(key: &DeviceKey) -> CString {
 
 pub struct PlatformDevice;
 
+impl Default for PlatformDevice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlatformDevice {
     pub fn new() -> Self {
         PlatformDevice

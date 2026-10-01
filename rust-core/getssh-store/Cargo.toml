@@ -1,0 +1,20 @@
+[package]
+name = "getssh-store"
+version = "0.1.0"
+edition = "2021"
+description = "GETSSH 3.0 data layer: encrypted SQLite databases, credentials and export bundles (see store.d.ts)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The keystore as a plain Rust library: no `napi` feature, so its own N-API exports are not
+# registered a second time inside getssh-store.node.
+getssh-keystore = { path = "../getssh-keystore" }
+napi = { version = "2.16.17", default-features = false, features = ["napi4"] }
+napi-derive = "2.16.13"
+zeroize = { version = "1.8.1", features = ["zeroize_derive"] }
+
+[build-dependencies]
+napi-build = "2.3.2"
+cc = "1"

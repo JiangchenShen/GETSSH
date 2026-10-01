@@ -109,6 +109,9 @@ jobs:
       - name: Test the keystore (protection policy and this OS's device keys)
         run: cargo test -p getssh-keystore
 
+      - name: Test the data layer (SQLite3 Multiple Ciphers engine)
+        run: cargo test -p getssh-store
+
       - name: Test keystore migration, app lock and passwords in Electron
         working-directory: apps/getssh-client
         run: npm run test:keystore-e2e

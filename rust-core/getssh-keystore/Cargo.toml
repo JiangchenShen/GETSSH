@@ -4,11 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The standalone getssh-keystore.node (scripts/build-native.js passes --features napi).
+# getssh-store links this crate without it, so the N-API exports are not registered twice.
+napi = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
-napi = { version = "2.16.17", default-features = false, features = ["napi4"] }
-napi-derive = "2.16.13"
+napi = { version = "2.16.17", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "2.16.13", optional = true }
 aes-gcm = { version = "0.10.3", features = ["zeroize"] }
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
 base64 = "0.22"

@@ -6,6 +6,12 @@ use crate::keyring::DeviceKey;
 /// Platforms without a device key backend: every device operation fails closed.
 pub struct PlatformDevice;
 
+impl Default for PlatformDevice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlatformDevice {
     pub fn new() -> Self {
         PlatformDevice

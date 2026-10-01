@@ -231,6 +231,20 @@
           "!src",
           "!target"
         ]
+      },
+      {
+        "from": "../../rust-core/getssh-store",
+        "to": "rust-core/getssh-store",
+        "filter": [
+          "*.node",
+          "index.js",
+          "package.json",
+          "!store.fake.js",
+          "!node_modules",
+          "!src",
+          "!target",
+          "!vendor"
+        ]
       }
     ],
     "files": [

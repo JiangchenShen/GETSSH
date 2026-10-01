@@ -691,6 +691,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "getssh-store"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "getssh-keystore",
+ "napi 2.16.17",
+ "napi-build",
+ "napi-derive 2.16.13",
+ "zeroize",
+]
+
+[[package]]
 name = "getssh-sysprobe"
 version = "0.1.0"
 dependencies = [
