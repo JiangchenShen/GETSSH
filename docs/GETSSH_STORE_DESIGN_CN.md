@@ -158,7 +158,11 @@ description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结�
 - **假实现** `rust-core/getssh-store/store.fake.js`：
   - 接口和真模块完全一样，数据只存在内存里；
   - AI-2/AI-3 在 Rust 模块完成前用它开发和测试；
-  - 用法见文件头部注释。
+  - 用法、测试开关 `__fake`，以及 `store.d.ts` 没写清楚时它的取舍，都在文件头部注释里；
+  - `store.fake.test.mjs` 固定它的行为；
+  - `store.conformance.mjs` 用同一套步骤分别跑真模块和假实现，比较错误码和返回值结构。每当一批函数从假实现搬到 Rust，就扩充这个脚本并跑一遍，要求零差异。
+- **导入后必须重启**：`importBundle` 成功后，模块拒绝一切调用（`unavailable`），主进程要 `app.relaunch(); app.exit()`。
+- **`configure(baseDir, appVersion?)`**：第二个参数是冻结后加的可选参数，传 `app.getVersion()`，写进导出包。
 - **改接口**：必须先改本文档和 `store.d.ts`，并通知另外两方。
 
 ## 5. 加密导出包
@@ -272,6 +276,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | 10-06 | S1、S2 完成；配置编辑器接上新接口 |
 | 10-09 | S3、S4 完成 |
 | 10-12 | S5 完成，导出导入跑通 |
+
+10-02 进度：S1、S2 核心、S5 已完成，并已合进本地 `v3-next`。真模块和假实现的对照检查零差异。下一步是 S3。
 | 10-13 ~ 10-19 | 两个平台的 CI、打包、真机测试（Touch ID、Windows Hello、迁移你的真实数据备份）、修 bug；依赖升级阶段 0 和 Electron 的决定也在这段时间落地 |
 
 阶段 B 视进度决定是否进入 3.0。
@@ -294,7 +300,11 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
    git worktree add ../GETSSH-chatgpt -b feat/store-ui feat/master-key-store     # ChatGPT
    cd ../GETSSH-<名字> && pnpm install --frozen-lockfile
    ```
-3. **Rust 模块完成前**，用 `rust-core/getssh-store/store.fake.js` 代替真模块：`require` 它，接口完全相同。
+3. **Rust 模块完成前**，用 `rust-core/getssh-store/store.fake.js` 代替真模块，接口完全相同：
+   - Gemini 在主进程唯一加载 store 的地方，按文件头部注释的写法，用 `GETSSH_FAKE_STORE=1` 且未打包时加载假实现；
+   - ChatGPT 的渲染进程永远不直接加载 store，真假都一样；用 `GETSSH_FAKE_STORE=1` 启动应用，用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据；
+   - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）；
+   - 截至 10-02，真模块已实现 38 个函数：生命周期、主密码、Touch ID / Hello、恢复码、工作区、服务器配置、查看窗口、全局设置、导出导入。其余 30 个是 S3：资产文件夹、Runbook、AI 会话与记忆、审计、应用秘密、SSH 私钥、`copyProfiles`。这些暂时只有假实现。
 4. **拿到别人的新进度**：`git merge feat/master-key-store`。只有 Claude 往这个分支合并代码。
 5. **完成一块就在自己的分支上提交**，然后告诉负责人分支名，由 Claude 合并。
 6. **测试一律用临时 HOME**：`HOME` / `USERPROFILE` 指向临时目录。绝不读写真实的 `~/.getssh` 和系统钥匙串。
