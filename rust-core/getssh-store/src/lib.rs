@@ -6,11 +6,14 @@
 //!
 //! S1: the vendored SQLite3 Multiple Ciphers engine and its safe wrapper (sqlite.rs).
 //! S2: the store itself (store.rs, profiles.rs); the N-API surface follows the tests.
+//! S3: the remaining tables (folders.rs, records.rs) and copying profiles between workspaces.
 
 pub mod bundle;
 pub mod error;
+pub mod folders;
 pub mod napi_api;
 pub mod profiles;
+pub mod records;
 pub mod rekey;
 pub mod schema;
 pub mod sqlite;

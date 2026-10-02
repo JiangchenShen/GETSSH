@@ -2,7 +2,7 @@
 //! workspace's field key, bound to workspace, profile and field), so a row copied to another
 //! profile or field does not open. Read functions return only hasPassword / hasPassphrase.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use getssh_keystore::device::Device;
 use getssh_keystore::{KsError, Keystore};
@@ -103,6 +103,14 @@ fn context(profile_id: &str, field: SecretField) -> String {
 
 const COLUMNS: &str = "id, workspace_id, host, username, port, protocol, authType, alias, osType, groupName, autoStart, useKeepAlive, \
     strictHostKeyChecking, proxyJump, initialDirectory, postConnectScript, themeOverride, keyId, privateKeyPath, password, passphrase";
+// Positions in COLUMNS.
+const COLUMN_COUNT: usize = 21;
+const KEY_ID: usize = 17;
+const PASSWORD: usize = 19;
+const PASSPHRASE: usize = 20;
+const KEY_COLUMNS: &str = "id, name, algorithm, fingerprint, public_key, private_key, has_passphrase, created_at";
+const KEY_COLUMN_COUNT: usize = 8;
+const KEY_PRIVATE: usize = 5;
 
 fn read_profile(row: &Row<'_, '_>) -> SqlResult<Profile> {
     let flag = |i: usize, default: bool| -> SqlResult<bool> { Ok(row.optional_integer(i)?.map(|v| v != 0).unwrap_or(default)) };
@@ -298,6 +306,111 @@ impl<D: Device> Store<D> {
             conn.transaction(|c| {
                 for id in ids {
                     c.execute("DELETE FROM profiles WHERE workspace_id = ? AND id = ?", &[workspace_id.into(), id.as_str().into()])?;
+                }
+                Ok(())
+            })?;
+            Ok(())
+        })
+    }
+
+    /// Copies profiles into another workspace, with the SSH keys they use (unless the target has a
+    /// key with that id) and, with `include_runbooks`, every runbook of the source (the asset
+    /// bridge, which copies only the runbooks the user ticked, uses saveRunbooks for those). Ids are kept,
+    /// so a profile or runbook with the same id in the target is replaced. Secrets are opened with
+    /// the source workspace's field key and sealed again under the target's; a sealed value copied
+    /// as it is would not open there.
+    pub fn copy_profiles(&self, from: &str, to: &str, ids: &[String], include_runbooks: bool) -> StoreResult<()> {
+        self.with_workspace(from, |_| Ok(()))?;
+        self.with_workspace(to, |_| Ok(()))?;
+        if from == to {
+            return Err(StoreError::invalid("source and target workspace are the same"));
+        }
+        let (from_scope, to_scope) = (workspace_scope(from)?, workspace_scope(to)?);
+        let mut seen = HashSet::new();
+        let picked: Vec<&String> = ids.iter().filter(|id| seen.insert(id.as_str())).collect();
+        let values = |r: &Row<'_, '_>, count: usize| (0..count).map(|i| r.value(i)).collect::<SqlResult<Vec<Value>>>();
+
+        // Everything is read from the source first, so only one workspace is locked at a time.
+        let (profiles, keys, runbooks) = self.with_workspace(from, |conn| {
+            let mut profiles = Vec::with_capacity(picked.len());
+            for id in &picked {
+                let row = conn
+                    .query_optional(&format!("SELECT {COLUMNS} FROM profiles WHERE workspace_id = ? AND id = ?"), &[from.into(), id.as_str().into()], |r| values(r, COLUMN_COUNT))?
+                    .ok_or_else(|| StoreError::not_found(format!("profile {id} does not exist in workspace {from}")))?;
+                profiles.push(row);
+            }
+            let mut key_ids = HashSet::new();
+            let mut keys = Vec::new();
+            for row in &profiles {
+                if let Value::Text(key_id) = &row[KEY_ID] {
+                    if !key_id.is_empty() && key_ids.insert(key_id.clone()) {
+                        if let Some(key) = conn.query_optional(&format!("SELECT {KEY_COLUMNS} FROM ssh_keys WHERE id = ?"), &[key_id.as_str().into()], |r| values(r, KEY_COLUMN_COUNT))? {
+                            keys.push(key);
+                        }
+                    }
+                }
+            }
+            let runbooks = if include_runbooks {
+                conn.query_map("SELECT id, title, script, riskLevel, created_at FROM runbooks WHERE workspace_id = ? ORDER BY rowid", &[from.into()], |r| values(r, 5))?
+            } else {
+                Vec::new()
+            };
+            Ok((profiles, keys, runbooks))
+        })?;
+
+        let ks = self.keystore();
+        let reseal = |value: &Value, context: &str| -> StoreResult<Value> {
+            match value {
+                Value::Text(stored) if !stored.is_empty() => {
+                    let plain = if Keystore::<D>::is_sealed_field(stored) {
+                        ks.open_field(&from_scope, context, stored)?
+                    } else {
+                        Zeroizing::new(stored.as_bytes().to_vec())
+                    };
+                    Ok(Value::Text(ks.seal_field(&to_scope, context, &plain)?))
+                }
+                _ => Ok(Value::Null),
+            }
+        };
+        let text_at = |row: &[Value], i: usize| match &row[i] {
+            Value::Text(v) => v.clone(),
+            _ => String::new(),
+        };
+        let mut copied = Vec::with_capacity(profiles.len());
+        for mut row in profiles {
+            let id = text_at(&row, 0);
+            row[1] = to.into();
+            row[PASSWORD] = reseal(&row[PASSWORD], &context(&id, SecretField::Password))?;
+            row[PASSPHRASE] = reseal(&row[PASSPHRASE], &context(&id, SecretField::Passphrase))?;
+            copied.push(row);
+        }
+        let mut copied_keys = Vec::with_capacity(keys.len());
+        for mut key in keys {
+            let id = text_at(&key, 0);
+            key[KEY_PRIVATE] = reseal(&key[KEY_PRIVATE], &format!("ssh_key|{id}|private"))?;
+            copied_keys.push(key);
+        }
+
+        self.with_workspace(to, |conn| {
+            let existing_keys: HashSet<String> = conn.query_map("SELECT id FROM ssh_keys", &[], |r| Ok(r.text(0)?.unwrap_or_default()))?.into_iter().collect();
+            let update_profile = COLUMNS.split(", ").skip(1).map(|c| format!("{c} = excluded.{c}")).collect::<Vec<_>>().join(", ");
+            conn.transaction(|c| {
+                for key in copied_keys.iter().filter(|key| !existing_keys.contains(&text_at(key, 0))) {
+                    c.execute(&format!("INSERT INTO ssh_keys ({KEY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"), key)?;
+                }
+                for row in &copied {
+                    c.execute(
+                        &format!("INSERT INTO profiles ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET {update_profile}"),
+                        row,
+                    )?;
+                }
+                for rb in &runbooks {
+                    c.execute(
+                        "INSERT INTO runbooks (id, workspace_id, title, script, riskLevel, created_at) VALUES (?, ?, ?, ?, ?, ?) \
+                         ON CONFLICT(id) DO UPDATE SET workspace_id = excluded.workspace_id, title = excluded.title, script = excluded.script, \
+                         riskLevel = excluded.riskLevel, created_at = excluded.created_at",
+                        &[rb[0].clone(), to.into(), rb[1].clone(), rb[2].clone(), rb[3].clone(), rb[4].clone()],
+                    )?;
                 }
                 Ok(())
             })?;

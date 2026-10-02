@@ -205,11 +205,15 @@ impl<D: Device> Store<D> {
         self.workspaces.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
-    fn check_live(&self) -> StoreResult<()> {
+    pub(crate) fn check_live(&self) -> StoreResult<()> {
         if self.replaced.load(Ordering::SeqCst) {
             return Err(StoreError::new(Code::Unavailable, "the data was replaced by an import; restart GETSSH"));
         }
         Ok(())
+    }
+
+    pub(crate) fn is_started(&self) -> bool {
+        self.started.load(Ordering::SeqCst)
     }
 
     fn main_path(&self) -> PathBuf {
@@ -251,11 +255,16 @@ impl<D: Device> Store<D> {
     /// Runs `f` on a workspace database, mounting it first when its key is already in memory.
     pub(crate) fn with_workspace<T>(&self, id: &str, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
         self.check_live()?;
+        if !self.is_started() {
+            return Err(StoreError::new(Code::NotConfigured, "call start() first"));
+        }
         let scope = workspace_scope(id)?;
         if !self.is_mounted(id) {
             match self.scope_status(&scope) {
                 Some(status) if status.unlocked => self.mount(id)?,
                 Some(_) => return Err(StoreError::locked(scope)),
+                // A pre-3.0 password workspace has a row but no key scope until its password is typed.
+                None if self.workspace_listed(id)? => return Err(StoreError::locked(format!("workspace {id} waits for its pre-3.0 password"))),
                 None => return Err(StoreError::not_found(format!("workspace {id}"))),
             }
         }
@@ -264,6 +273,10 @@ impl<D: Device> Store<D> {
             Some(conn) => f(conn),
             None => Err(StoreError::locked(scope)),
         }
+    }
+
+    fn workspace_listed(&self, id: &str) -> StoreResult<bool> {
+        self.with_main(|conn| Ok(conn.query_optional("SELECT 1 FROM workspaces WHERE id = ?", &[id.into()], |_| Ok(()))?.is_some()))
     }
 
     pub fn is_mounted(&self, id: &str) -> bool {

@@ -310,6 +310,9 @@ fn a_2x_password_workspace_migrates_when_its_password_is_typed() {
         })
         .unwrap();
     assert_eq!(store.open_workspace("old").err().unwrap().code, Code::NeedsPassword);
+    // Until then it exists but is locked, so the UI asks for its password instead of losing it.
+    assert_eq!(store.get_runbooks("old").err().unwrap().code, Code::Locked);
+    assert_eq!(store.list_profiles("old").err().unwrap().code, Code::Locked);
     assert_eq!(store.unlock_workspace("old", pw("wrong")).err().unwrap().code, Code::WrongPassword);
     store.unlock_workspace("old", pw("old-pw")).unwrap();
     assert_eq!(store.list_profiles("old").unwrap().len(), 1);
@@ -642,4 +645,354 @@ fn the_device_backend_uses_the_public_names() {
     let env = Env::new();
     let backend = env.started().app_state().device_backend;
     assert!(["secure-enclave", "keychain", "tpm", "dpapi", "unsupported"].contains(&backend.as_str()), "{backend}");
+}
+
+// ───────────────────────────── S3: the remaining tables ─────────────────────────────
+
+fn ids(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+fn grouped(id: &str, group: Option<&str>) -> ProfileInput {
+    ProfileInput { group_name: group.map(Into::into), ..profile(id, SecretUpdate::Keep) }
+}
+
+#[test]
+fn asset_folders_include_profile_groups_and_parents() {
+    let env = Env::new();
+    let store = env.started();
+    store.save_profiles("default", &[profile("web", SecretUpdate::Keep)]).unwrap();
+    let snapshot = store.create_asset_folder("default", "Ops/Staging").unwrap();
+    assert_eq!(snapshot.folders, ids(&["Ops", "Ops/Staging", "Prod", "Prod/DB"]));
+    assert!(snapshot.memberships.is_empty());
+    assert_eq!(store.get_asset_folders("default").unwrap(), snapshot.folders);
+    for bad in ["", "a//b", "a/./b", "..", "a/\u{1}", " ", &"x".repeat(129)] {
+        assert_eq!(store.create_asset_folder("default", bad).err().unwrap().code, Code::InvalidArgument, "{bad:?}");
+    }
+}
+
+#[test]
+fn renaming_a_folder_moves_its_subfolders_and_hosts() {
+    let env = Env::new();
+    let store = env.started();
+    store.save_profiles("default", &[grouped("a", Some("Prod/DB")), grouped("b", Some("Prod")), grouped("c", Some("Production"))]).unwrap();
+    store.create_asset_folder("default", "Prod/Empty").unwrap();
+    store.create_asset_folder("default", "Prodigy").unwrap();
+    let snapshot = store.rename_asset_folder("default", "Prod", "Live").unwrap();
+    assert_eq!(snapshot.folders, ids(&["Live", "Live/DB", "Live/Empty", "Prodigy", "Production"]), "folders that only share a prefix stay");
+    assert_eq!(snapshot.memberships, vec![("a".into(), Some("Live/DB".into())), ("b".into(), Some("Live".into()))]);
+    assert_eq!(store.rename_asset_folder("default", "Live", "Production").err().unwrap().code, Code::InvalidArgument, "the target exists");
+    assert_eq!(store.rename_asset_folder("default", "Missing", "X").err().unwrap().code, Code::NotFound);
+    assert_eq!(store.rename_asset_folder("default", "Live", "a/b").err().unwrap().code, Code::InvalidArgument, "a name, not a path");
+}
+
+#[test]
+fn only_empty_folders_can_be_removed() {
+    let env = Env::new();
+    let store = env.started();
+    store.save_profiles("default", &[grouped("a", Some("Prod/DB"))]).unwrap();
+    store.create_asset_folder("default", "Spare").unwrap();
+    assert_eq!(store.remove_asset_folder("default", "Prod").err().unwrap().code, Code::InvalidArgument, "it has a subfolder");
+    assert_eq!(store.remove_asset_folder("default", "Prod/DB").err().unwrap().code, Code::InvalidArgument, "it holds a host");
+    assert_eq!(store.remove_asset_folder("default", "Nope").err().unwrap().code, Code::NotFound);
+    assert_eq!(store.remove_asset_folder("default", "Spare").unwrap().folders, ids(&["Prod", "Prod/DB"]));
+}
+
+#[test]
+fn moving_hosts_between_folders_reports_what_changed() {
+    let env = Env::new();
+    let store = env.started();
+    store.save_profiles("default", &[grouped("a", None), grouped("b", Some("Ops"))]).unwrap();
+    let moved = store.move_profiles_to_asset_folder("default", &ids(&["a", "b"]), Some("Ops")).unwrap();
+    assert_eq!(moved.memberships, vec![("a".into(), Some("Ops".into()))], "b was already there");
+    let out = store.move_profiles_to_asset_folder("default", &ids(&["a"]), None).unwrap();
+    assert_eq!(out.memberships, vec![("a".into(), None)]);
+    assert_eq!(out.folders, ids(&["Ops"]), "the folder was stored when a host moved in");
+    assert_eq!(store.move_profiles_to_asset_folder("default", &ids(&["a"]), Some("Nope")).err().unwrap().code, Code::NotFound);
+    assert_eq!(store.move_profiles_to_asset_folder("default", &ids(&["zz"]), Some("Ops")).err().unwrap().code, Code::NotFound);
+    assert_eq!(store.move_profiles_to_asset_folder("default", &ids(&["a", "a"]), None).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.move_profiles_to_asset_folder("default", &[], None).err().unwrap().code, Code::InvalidArgument);
+}
+
+#[test]
+fn runbooks_are_replaced_as_a_whole_and_keep_their_order() {
+    use crate::records::RunbookInput;
+    let env = Env::new();
+    let store = env.started();
+    let rb = |id: &str, risk: Option<&str>, created_at: Option<f64>| RunbookInput {
+        id: id.into(),
+        title: format!("{id} title"),
+        script: "uptime".into(),
+        risk_level: risk.map(Into::into),
+        created_at,
+    };
+    store.save_runbooks("default", &[rb("b", Some("HIGH"), Some(2.0)), rb("a", None, Some(1.0)), rb("c", Some(""), Some(2.0))]).unwrap();
+    let listed = store.get_runbooks("default").unwrap();
+    assert_eq!(listed.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"], "by created_at, then saved order");
+    assert_eq!(listed.iter().map(|r| r.risk_level.as_str()).collect::<Vec<_>>(), ["LOW", "HIGH", "LOW"]);
+    store.save_runbooks("default", &[rb("z", None, None)]).unwrap();
+    let listed = store.get_runbooks("default").unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].created_at > 1.0e12, "a missing created_at is now");
+    assert_eq!(store.save_runbooks("default", &[rb("d", None, None), rb("d", None, None)]).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.save_runbooks("default", &[rb("", None, None)]).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.save_runbooks("default", &[rb("e", None, Some(f64::INFINITY))]).err().unwrap().code, Code::InvalidArgument);
+}
+
+fn message(id: &str, session: &str, role: &str, timestamp: f64) -> crate::records::AiMessage {
+    crate::records::AiMessage {
+        id: id.into(),
+        session_id: session.into(),
+        role: role.into(),
+        content: format!("{id} text"),
+        raw_content: None,
+        timestamp,
+    }
+}
+
+#[test]
+fn ai_sessions_keep_their_messages_in_order() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_ai_session("default", "s1", "First", 100.0).unwrap();
+    store.create_ai_session("default", "s2", "Second", 200.0).unwrap();
+    assert_eq!(store.create_ai_session("default", "s1", "Again", 300.0).err().unwrap().code, Code::InvalidArgument);
+    store.save_ai_message("default", &message("m2", "s1", "assistant", 120.0)).unwrap();
+    store.save_ai_message("default", &message("m1", "s1", "user", 110.0)).unwrap();
+    assert_eq!(store.save_ai_message("default", &message("m9", "nope", "user", 1.0)).err().unwrap().code, Code::NotFound);
+    // Saving an existing message changes its text only.
+    let edited = crate::records::AiMessage { content: "edited".into(), raw_content: Some("raw".into()), role: "system".into(), ..message("m2", "s1", "assistant", 500.0) };
+    store.save_ai_message("default", &edited).unwrap();
+    let sessions = store.get_ai_sessions("default").unwrap();
+    assert_eq!(sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["s1", "s2"], "s1 was updated last");
+    assert_eq!(sessions[0].updated_at, 500.0);
+    let messages = &sessions[0].messages;
+    assert_eq!(messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m1", "m2"]);
+    assert_eq!((messages[1].content.as_str(), messages[1].raw_content.as_deref(), messages[1].role.as_str(), messages[1].timestamp), ("edited", Some("raw"), "assistant", 120.0));
+    store.update_ai_session_title("default", "s1", "Renamed").unwrap();
+    store.update_ai_session_title("default", "missing", "No-op").unwrap();
+    assert_eq!(store.get_ai_sessions("default").unwrap()[0].title, "Renamed");
+    store.save_ai_message("default", &message("k1", "s2", "user", 210.0)).unwrap();
+    store.delete_ai_session("default", "s1").unwrap();
+    let sessions = store.get_ai_sessions("default").unwrap();
+    assert_eq!(sessions.iter().map(|s| (s.id.as_str(), s.messages.len())).collect::<Vec<_>>(), [("s2", 1)], "other chats stay");
+    let left = store.get_ai_messages_by_ids("default", &ids(&["m1", "m2", "k1"])).unwrap();
+    assert_eq!(left.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["k1"], "the messages of s1 went with it");
+}
+
+#[test]
+fn ai_memory_reads_back_newest_first_and_only_for_open_workspaces() {
+    use crate::records::AiMemoryVector;
+    let env = Env::new();
+    let store = env.started();
+    assert!(store.is_encrypted_ai_memory_available().unwrap());
+    let vector = |id: &str, session: &str, timestamp: f64| AiMemoryVector {
+        workspace_id: "default".into(),
+        message_id: id.into(),
+        session_id: session.into(),
+        role: "user".into(),
+        embedding: vec![1, 2, 3],
+        dimensions: 3.0,
+        content_hash: format!("hash-{id}"),
+        timestamp,
+    };
+    store.upsert_ai_memory_vector(&vector("m1", "s1", 10.0)).unwrap();
+    store.upsert_ai_memory_vector(&vector("m2", "s2", 20.0)).unwrap();
+    store.upsert_ai_memory_vector(&vector("m1", "s1", 30.0)).unwrap();
+    let all = store.get_ai_memory_vectors("default", 10.0, None).unwrap();
+    assert_eq!(all.iter().map(|v| v.message_id.as_str()).collect::<Vec<_>>(), ["m1", "m2"], "m1 was rewritten later");
+    assert_eq!(all[0].embedding, vec![1, 2, 3]);
+    assert_eq!(store.get_ai_memory_vectors("default", 0.0, None).unwrap().len(), 1, "the limit is at least 1");
+    assert_eq!(store.get_ai_memory_vectors("default", 10.0, Some("s1")).unwrap().len(), 1);
+    assert_eq!(store.get_ai_memory_vectors("default", 10.0, Some("")).unwrap().len(), 2, "an empty session id excludes nothing");
+    assert_eq!(store.get_ai_memory_vectors("default", f64::NAN, None).err().unwrap().code, Code::InvalidArgument);
+    for bad in [
+        AiMemoryVector { role: "system".into(), ..vector("x", "s", 1.0) },
+        AiMemoryVector { dimensions: 1.5, ..vector("x", "s", 1.0) },
+        AiMemoryVector { message_id: String::new(), ..vector("x", "s", 1.0) },
+    ] {
+        assert_eq!(store.upsert_ai_memory_vector(&bad).err().unwrap().code, Code::InvalidArgument);
+    }
+    store.upsert_ai_memory_vector(&vector("m3", "s2", 40.0)).unwrap();
+    store.delete_ai_memory_message("default", "m2").unwrap();
+    let left = store.get_ai_memory_vectors("default", 10.0, None).unwrap();
+    assert_eq!(left.iter().map(|v| v.message_id.as_str()).collect::<Vec<_>>(), ["m3", "m1"], "only m2 went");
+    store.delete_ai_memory_session("default", "s1").unwrap();
+    let left = store.get_ai_memory_vectors("default", 10.0, None).unwrap();
+    assert_eq!(left.iter().map(|v| v.message_id.as_str()).collect::<Vec<_>>(), ["m3"], "only session s1 went");
+
+    store.create_workspace(Some("p"), "P", None, Some("eight-chars")).unwrap();
+    store.lock_workspace("p").unwrap();
+    assert_eq!(store.upsert_ai_memory_vector(&AiMemoryVector { workspace_id: "p".into(), ..vector("x", "s", 1.0) }).err().unwrap().code, Code::Locked);
+    assert_eq!(store.get_ai_memory_vectors("p", 10.0, None).err().unwrap().code, Code::Locked);
+}
+
+#[test]
+fn ai_memory_is_unavailable_while_a_master_password_locks_the_app() {
+    let env = Env::new();
+    let store = env.started();
+    store.set_master_password("correct horse battery", None).unwrap();
+    store.lock_app();
+    assert!(!store.is_encrypted_ai_memory_available().unwrap());
+    assert_eq!(store.get_ai_memory_vectors("default", 10.0, None).err().unwrap().code, Code::Locked);
+}
+
+#[test]
+fn memory_message_queries_cover_user_and_assistant_messages_only() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_ai_session("default", "s", "S", 1.0).unwrap();
+    for (id, role, ts) in [("u1", "user", 1.0), ("a1", "assistant", 2.0), ("t1", "tool", 3.0), ("u2", "user", 4.0)] {
+        store.save_ai_message("default", &message(id, "s", role, ts)).unwrap();
+    }
+    let recent = store.get_recent_ai_messages_for_memory("default", 2.0).unwrap();
+    assert_eq!(recent.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["u2", "a1"]);
+    let by_id = store.get_ai_messages_by_ids("default", &ids(&["u2", "u1", "u2", "missing"])).unwrap();
+    assert_eq!(by_id.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["u1", "u2"], "in saved order, duplicates once");
+    assert!(store.get_ai_messages_by_ids("default", &[]).unwrap().is_empty());
+    let many: Vec<String> = (0..40).map(|i| format!("id{i}")).chain(["u1".to_string()]).collect();
+    assert!(store.get_ai_messages_by_ids("default", &many).unwrap().is_empty(), "only the first 32 ids are looked up");
+}
+
+#[test]
+fn the_audit_log_is_newest_first_with_a_default_limit() {
+    let env = Env::new();
+    let store = env.started();
+    for i in 0..55 {
+        store.log_audit("default", &format!("action-{i}"), if i == 0 { None } else { Some("host") }, None).unwrap();
+    }
+    let logs = store.get_audit_logs("default", None).unwrap();
+    assert_eq!(logs.len(), 50);
+    assert_eq!(logs[0].action, "action-54");
+    assert_eq!(store.get_audit_logs("default", Some(-1.0)).unwrap().len(), 55);
+    assert!(store.get_audit_logs("default", Some(0.0)).unwrap().is_empty());
+    let first = store.get_audit_logs("default", Some(-1.0)).unwrap().pop().unwrap();
+    assert_eq!((first.action.as_str(), first.target.as_str(), first.details.as_str()), ("action-0", "", ""));
+}
+
+#[test]
+fn copied_profiles_are_sealed_again_for_the_target_workspace() {
+    use crate::records::RunbookInput;
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("w2"), "W2", None, None).unwrap();
+    // A stored SSH key, sealed the way phase B will store them.
+    let sealed_key = store.keystore().seal_field("ws:default", "ssh_key|k1|private", b"PRIVATE KEY BYTES").unwrap();
+    store
+        .with_workspace("default", |c| {
+            c.execute(
+                "INSERT INTO ssh_keys (id, name, algorithm, fingerprint, public_key, private_key, has_passphrase, created_at) VALUES ('k1', 'laptop', 'ed25519', 'SHA256:x', 'ssh-ed25519 AAAA', ?, 0, 1)",
+                &[sealed_key.as_str().into()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let with_key = ProfileInput { key_id: Some("k1".into()), auth_type: Some("key".into()), ..profile("b", SecretUpdate::Keep) };
+    store.save_profiles("default", &[profile("a", set("secret-a")), with_key]).unwrap();
+    store
+        .save_runbooks("default", &[RunbookInput { id: "r1".into(), title: "T".into(), script: "ls".into(), risk_level: None, created_at: Some(5.0) }])
+        .unwrap();
+    store.save_profiles("w2", &[ProfileInput { host: "old.example".into(), ..profile("a", set("old-secret")) }]).unwrap();
+
+    store.copy_profiles("default", "w2", &ids(&["a", "b", "a"]), true).unwrap();
+    let copied = store.list_profiles("w2").unwrap();
+    assert_eq!(copied.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["a", "b"], "a replaced the old a in place");
+    assert_eq!(copied[0].host, "a.example");
+    assert_eq!(store.connect_secrets("w2", "a").unwrap().password.unwrap().as_slice(), b"secret-a");
+    assert_eq!(store.connect_secrets("w2", "b").unwrap().private_key.unwrap().as_slice(), b"PRIVATE KEY BYTES");
+    assert_eq!(store.get_runbooks("w2").unwrap().len(), 1);
+    // The target holds its own ciphertext: the source's does not open there.
+    let source = store.with_workspace("default", |c| Ok(c.query_row("SELECT password FROM profiles WHERE id = 'a'", &[], |r| r.text(0))?)).unwrap();
+    let target = store.with_workspace("w2", |c| Ok(c.query_row("SELECT password FROM profiles WHERE id = 'a'", &[], |r| r.text(0))?)).unwrap();
+    assert_ne!(source, target);
+
+    assert_eq!(store.copy_profiles("default", "default", &ids(&["a"]), false).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.copy_profiles("default", "w2", &ids(&["missing"]), false).err().unwrap().code, Code::NotFound);
+    assert_eq!(store.copy_profiles("default", "nope", &ids(&["a"]), false).err().unwrap().code, Code::NotFound);
+}
+
+#[test]
+fn the_remaining_tables_need_an_open_workspace_and_a_started_store() {
+    let env = Env::new();
+    let store = env.open();
+    assert_eq!(store.get_runbooks("default").err().unwrap().code, Code::NotConfigured);
+    assert_eq!(store.get_asset_folders("default").err().unwrap().code, Code::NotConfigured);
+    store.start().unwrap();
+    store.create_workspace(Some("p"), "P", None, Some("eight-chars")).unwrap();
+    store.lock_workspace("p").unwrap();
+    assert_eq!(store.get_runbooks("p").err().unwrap().code, Code::Locked);
+    assert_eq!(store.get_ai_sessions("p").err().unwrap().code, Code::Locked);
+    assert_eq!(store.log_audit("p", "x", None, None).err().unwrap().code, Code::Locked);
+    assert_eq!(store.create_asset_folder("p", "A").err().unwrap().code, Code::Locked);
+    assert_eq!(store.get_audit_logs("missing", None).err().unwrap().code, Code::NotFound);
+}
+
+#[test]
+fn ai_memory_stays_with_its_workspace() {
+    use crate::records::AiMemoryVector;
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("b"), "B", None, Some("eight-chars")).unwrap();
+    let vector = |workspace: &str| AiMemoryVector {
+        workspace_id: workspace.into(),
+        message_id: "m".into(),
+        session_id: "s".into(),
+        role: "assistant".into(),
+        embedding: workspace.as_bytes().to_vec(),
+        dimensions: 1.0,
+        content_hash: format!("hash-{workspace}"),
+        timestamp: 1.0,
+    };
+    // main.db keeps every workspace's vectors in one table, keyed by workspace.
+    store.upsert_ai_memory_vector(&vector("default")).unwrap();
+    store.upsert_ai_memory_vector(&vector("b")).unwrap();
+    let a = store.get_ai_memory_vectors("default", 10.0, None).unwrap();
+    assert_eq!(a.iter().map(|v| v.embedding.as_slice()).collect::<Vec<_>>(), [b"default".as_slice()]);
+    store.delete_ai_memory_message("default", "m").unwrap();
+    store.delete_ai_memory_session("default", "s").unwrap();
+    assert_eq!(store.get_ai_memory_vectors("b", 10.0, None).unwrap().len(), 1, "deleting in one workspace leaves the other");
+    store.lock_workspace("b").unwrap();
+    assert_eq!(store.get_ai_memory_vectors("b", 10.0, None).err().unwrap().code, Code::Locked);
+    assert!(store.get_ai_memory_vectors("default", 10.0, None).is_ok());
+}
+
+/// Seals an SSH key into a workspace the way phase B will store them.
+fn store_key(store: &Store<FakeDevice>, workspace: &str, id: &str, private: &[u8]) {
+    let sealed = store.keystore().seal_field(&format!("ws:{workspace}"), &format!("ssh_key|{id}|private"), private).unwrap();
+    store
+        .with_workspace(workspace, |c| {
+            c.execute(
+                "INSERT INTO ssh_keys (id, name, algorithm, fingerprint, public_key, private_key, has_passphrase, created_at) VALUES (?, 'k', 'ed25519', 'SHA256:x', 'ssh-ed25519 AAAA', ?, 0, 1)",
+                &[id.into(), sealed.as_str().into()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn copying_keeps_the_targets_own_key_and_seals_passphrases_too() {
+    use crate::records::RunbookInput;
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("w2"), "W2", None, None).unwrap();
+    store_key(&store, "default", "k1", b"SOURCE KEY");
+    store_key(&store, "w2", "k1", b"TARGET KEY");
+    let keyed = |id: &str| ProfileInput { key_id: Some("k1".into()), auth_type: Some("key".into()), passphrase: set("pp-secret"), ..profile(id, SecretUpdate::Keep) };
+    store.save_profiles("default", &[keyed("a"), keyed("b")]).unwrap();
+    let rb = |id: &str, title: &str| RunbookInput { id: id.into(), title: title.into(), script: "ls".into(), risk_level: None, created_at: Some(1.0) };
+    store.save_runbooks("default", &[rb("r1", "source")]).unwrap();
+    store.save_runbooks("w2", &[rb("r1", "target")]).unwrap();
+
+    store.copy_profiles("default", "w2", &ids(&["a"]), false).unwrap();
+    store.copy_profiles("default", "w2", &ids(&["b"]), false).unwrap();
+    let secrets = store.connect_secrets("w2", "a").unwrap();
+    assert_eq!(secrets.private_key.unwrap().as_slice(), b"TARGET KEY", "the target keeps its own key");
+    assert_eq!(secrets.passphrase.unwrap().as_slice(), b"pp-secret");
+    assert_eq!(store.connect_secrets("w2", "b").unwrap().passphrase.unwrap().as_slice(), b"pp-secret");
+    let source = store.with_workspace("default", |c| Ok(c.query_row("SELECT passphrase FROM profiles WHERE id = 'a'", &[], |r| r.text(0))?)).unwrap();
+    let target = store.with_workspace("w2", |c| Ok(c.query_row("SELECT passphrase FROM profiles WHERE id = 'a'", &[], |r| r.text(0))?)).unwrap();
+    assert_ne!(source, target, "the passphrase is sealed again");
+    let runbooks = store.get_runbooks("w2").unwrap();
+    assert_eq!(runbooks.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["target"], "no runbooks without include_runbooks");
 }

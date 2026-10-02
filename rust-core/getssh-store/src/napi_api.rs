@@ -14,7 +14,12 @@ use zeroize::Zeroizing;
 
 use crate::error::{Code, StoreError, StoreResult};
 use crate::bundle::ExportCandidate as RsExportCandidate;
+use crate::folders::FolderSnapshot;
 use crate::profiles::{Profile as RsProfile, ProfileInput as RsProfileInput, SecretField, SecretUpdate};
+use crate::records::{
+    AiMemoryMessage as RsAiMemoryMessage, AiMemoryVector as RsAiMemoryVector, AiMessage as RsAiMessage, AiSession as RsAiSession,
+    AuditLog as RsAuditLog, Runbook as RsRunbook, RunbookInput as RsRunbookInput,
+};
 use crate::store::{AppStateInfo, Store, UnlockRoute, WorkspaceChanges, WorkspaceInfo};
 
 static STORE: OnceLock<Store<PlatformDevice>> = OnceLock::new();
@@ -454,21 +459,31 @@ pub struct ProfileInput {
     pub protocol: Option<String>,
     #[napi(js_name = "authType")]
     pub auth_type: Option<String>,
-    pub alias: Option<String>,
-    pub os_type: Option<String>,
-    pub group_name: Option<String>,
+    // `string | null` in store.d.ts: a plain Option<String> would refuse null, so saving back what
+    // listProfiles returned would fail.
+    pub alias: Option<Either<String, Null>>,
+    pub os_type: Option<Either<String, Null>>,
+    pub group_name: Option<Either<String, Null>>,
     pub auto_start: Option<bool>,
     pub use_keep_alive: Option<bool>,
     pub strict_host_key_checking: Option<bool>,
-    pub proxy_jump: Option<String>,
-    pub initial_directory: Option<String>,
-    pub post_connect_script: Option<String>,
-    pub theme_override: Option<String>,
-    pub key_id: Option<String>,
-    pub private_key_path: Option<String>,
+    pub proxy_jump: Option<Either<String, Null>>,
+    pub initial_directory: Option<Either<String, Null>>,
+    pub post_connect_script: Option<Either<String, Null>>,
+    pub theme_override: Option<Either<String, Null>>,
+    pub key_id: Option<Either<String, Null>>,
+    pub private_key_path: Option<Either<String, Null>>,
     /// undefined keeps the stored value, null clears it, a string replaces it.
     pub password: Option<Either<String, Null>>,
     pub passphrase: Option<Either<String, Null>>,
+}
+
+/// A `string | null` field: null and undefined are both "no value".
+fn nullable(value: Option<Either<String, Null>>) -> Option<String> {
+    match value {
+        Some(Either::A(text)) => Some(text),
+        _ => None,
+    }
 }
 
 fn secret(update: Option<Either<String, Null>>) -> SecretUpdate {
@@ -488,18 +503,18 @@ impl From<ProfileInput> for RsProfileInput {
             port: p.port,
             protocol: p.protocol,
             auth_type: p.auth_type,
-            alias: p.alias,
-            os_type: p.os_type,
-            group_name: p.group_name,
+            alias: nullable(p.alias),
+            os_type: nullable(p.os_type),
+            group_name: nullable(p.group_name),
             auto_start: p.auto_start.unwrap_or(false),
             use_keep_alive: p.use_keep_alive.unwrap_or(true),
             strict_host_key_checking: p.strict_host_key_checking.unwrap_or(false),
-            proxy_jump: p.proxy_jump,
-            initial_directory: p.initial_directory,
-            post_connect_script: p.post_connect_script,
-            theme_override: p.theme_override,
-            key_id: p.key_id,
-            private_key_path: p.private_key_path,
+            proxy_jump: nullable(p.proxy_jump),
+            initial_directory: nullable(p.initial_directory),
+            post_connect_script: nullable(p.post_connect_script),
+            theme_override: nullable(p.theme_override),
+            key_id: nullable(p.key_id),
+            private_key_path: nullable(p.private_key_path),
             password: secret(p.password),
             passphrase: secret(p.passphrase),
         }
@@ -520,6 +535,17 @@ pub fn save_profiles(workspace_id: String, inputs: Vec<ProfileInput>) -> napi::R
 #[napi]
 pub fn delete_profiles(workspace_id: String, ids: Vec<String>) -> napi::Result<()> {
     sync(|s| s.delete_profiles(&workspace_id, &ids))
+}
+
+#[napi(object)]
+pub struct CopyProfilesOptions {
+    pub include_runbooks: Option<bool>,
+}
+
+#[napi]
+pub fn copy_profiles(from_workspace_id: String, to_workspace_id: String, ids: Vec<String>, options: Option<CopyProfilesOptions>) -> napi::Result<()> {
+    let include_runbooks = options.and_then(|o| o.include_runbooks) == Some(true);
+    sync(|s| s.copy_profiles(&from_workspace_id, &to_workspace_id, &ids, include_runbooks))
 }
 
 // ─────────────────────────── secrets (main process only) ───────────────────────────
@@ -574,6 +600,309 @@ pub fn get_global_setting(key: String) -> napi::Result<Option<String>> {
 #[napi]
 pub fn set_global_setting(key: String, value: String) -> napi::Result<()> {
     sync(|s| s.set_global_setting(&key, &value))
+}
+
+// ───────────────── other tables: one function per DatabaseManager method ─────────────────
+
+#[napi(object, use_nullable = true)]
+pub struct AssetFolderMembership {
+    pub id: String,
+    pub group: Option<String>,
+}
+
+#[napi(object)]
+pub struct AssetFolderSnapshot {
+    pub folders: Vec<String>,
+    pub memberships: Vec<AssetFolderMembership>,
+}
+
+impl From<FolderSnapshot> for AssetFolderSnapshot {
+    fn from(s: FolderSnapshot) -> Self {
+        AssetFolderSnapshot {
+            folders: s.folders,
+            memberships: s.memberships.into_iter().map(|(id, group)| AssetFolderMembership { id, group }).collect(),
+        }
+    }
+}
+
+#[napi]
+pub fn get_asset_folders(workspace_id: String) -> napi::Result<Vec<String>> {
+    sync(|s| s.get_asset_folders(&workspace_id))
+}
+
+#[napi]
+pub fn create_asset_folder(workspace_id: String, folder_path: String) -> napi::Result<AssetFolderSnapshot> {
+    sync(|s| Ok(s.create_asset_folder(&workspace_id, &folder_path)?.into()))
+}
+
+#[napi]
+pub fn rename_asset_folder(workspace_id: String, folder_path: String, new_name: String) -> napi::Result<AssetFolderSnapshot> {
+    sync(|s| Ok(s.rename_asset_folder(&workspace_id, &folder_path, &new_name)?.into()))
+}
+
+#[napi]
+pub fn remove_asset_folder(workspace_id: String, folder_path: String) -> napi::Result<AssetFolderSnapshot> {
+    sync(|s| Ok(s.remove_asset_folder(&workspace_id, &folder_path)?.into()))
+}
+
+#[napi(ts_args_type = "workspaceId: string, profileIds: string[], folderPath: string | null")]
+pub fn move_profiles_to_asset_folder(workspace_id: String, profile_ids: Vec<String>, folder_path: Option<String>) -> napi::Result<AssetFolderSnapshot> {
+    sync(|s| Ok(s.move_profiles_to_asset_folder(&workspace_id, &profile_ids, folder_path.as_deref())?.into()))
+}
+
+#[napi(object)]
+pub struct Runbook {
+    pub id: String,
+    #[napi(js_name = "workspace_id")]
+    pub workspace_id: String,
+    pub title: String,
+    pub script: String,
+    #[napi(js_name = "riskLevel")]
+    pub risk_level: String,
+    #[napi(js_name = "created_at")]
+    pub created_at: f64,
+}
+
+impl From<RsRunbook> for Runbook {
+    fn from(r: RsRunbook) -> Self {
+        Runbook { id: r.id, workspace_id: r.workspace_id, title: r.title, script: r.script, risk_level: r.risk_level, created_at: r.created_at }
+    }
+}
+
+#[napi(object)]
+pub struct RunbookInput {
+    pub id: String,
+    pub title: String,
+    pub script: String,
+    #[napi(js_name = "riskLevel")]
+    pub risk_level: Option<String>,
+    #[napi(js_name = "created_at")]
+    pub created_at: Option<f64>,
+}
+
+#[napi]
+pub fn get_runbooks(workspace_id: String) -> napi::Result<Vec<Runbook>> {
+    sync(|s| Ok(s.get_runbooks(&workspace_id)?.into_iter().map(Into::into).collect()))
+}
+
+#[napi]
+pub fn save_runbooks(workspace_id: String, runbooks: Vec<RunbookInput>) -> napi::Result<()> {
+    let runbooks: Vec<RsRunbookInput> = runbooks
+        .into_iter()
+        .map(|r| RsRunbookInput { id: r.id, title: r.title, script: r.script, risk_level: r.risk_level, created_at: r.created_at })
+        .collect();
+    sync(|s| s.save_runbooks(&workspace_id, &runbooks))
+}
+
+#[napi(object, use_nullable = true)]
+pub struct AiMessage {
+    pub id: String,
+    #[napi(js_name = "session_id")]
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    #[napi(js_name = "raw_content")]
+    pub raw_content: Option<String>,
+    pub timestamp: f64,
+}
+
+impl From<RsAiMessage> for AiMessage {
+    fn from(m: RsAiMessage) -> Self {
+        AiMessage { id: m.id, session_id: m.session_id, role: m.role, content: m.content, raw_content: m.raw_content, timestamp: m.timestamp }
+    }
+}
+
+#[napi(object)]
+pub struct AiSession {
+    pub id: String,
+    #[napi(js_name = "workspace_id")]
+    pub workspace_id: String,
+    pub title: String,
+    #[napi(js_name = "created_at")]
+    pub created_at: f64,
+    #[napi(js_name = "updated_at")]
+    pub updated_at: f64,
+    pub messages: Vec<AiMessage>,
+}
+
+impl From<RsAiSession> for AiSession {
+    fn from(s: RsAiSession) -> Self {
+        AiSession {
+            id: s.id,
+            workspace_id: s.workspace_id,
+            title: s.title,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+            messages: s.messages.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[napi]
+pub fn get_ai_sessions(workspace_id: String) -> napi::Result<Vec<AiSession>> {
+    sync(|s| Ok(s.get_ai_sessions(&workspace_id)?.into_iter().map(Into::into).collect()))
+}
+
+#[napi]
+pub fn create_ai_session(workspace_id: String, id: String, title: String, timestamp: f64) -> napi::Result<()> {
+    sync(|s| s.create_ai_session(&workspace_id, &id, &title, timestamp))
+}
+
+/// AiMessage as the caller sends it: raw_content may be a string, null, or left out.
+#[napi(object)]
+pub struct AiMessageInput {
+    pub id: String,
+    #[napi(js_name = "session_id")]
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    #[napi(js_name = "raw_content")]
+    pub raw_content: Option<Either<String, Null>>,
+    pub timestamp: f64,
+}
+
+#[napi(ts_args_type = "workspaceId: string, message: AiMessage")]
+pub fn save_ai_message(workspace_id: String, message: AiMessageInput) -> napi::Result<()> {
+    let message = RsAiMessage {
+        id: message.id,
+        session_id: message.session_id,
+        role: message.role,
+        content: message.content,
+        raw_content: nullable(message.raw_content),
+        timestamp: message.timestamp,
+    };
+    sync(|s| s.save_ai_message(&workspace_id, &message))
+}
+
+#[napi]
+pub fn update_ai_session_title(workspace_id: String, id: String, title: String) -> napi::Result<()> {
+    sync(|s| s.update_ai_session_title(&workspace_id, &id, &title))
+}
+
+#[napi]
+pub fn delete_ai_session(workspace_id: String, id: String) -> napi::Result<()> {
+    sync(|s| s.delete_ai_session(&workspace_id, &id))
+}
+
+#[napi(object)]
+pub struct AiMemoryVector {
+    #[napi(js_name = "workspace_id")]
+    pub workspace_id: String,
+    #[napi(js_name = "message_id")]
+    pub message_id: String,
+    #[napi(js_name = "session_id")]
+    pub session_id: String,
+    #[napi(ts_type = "'user' | 'assistant'")]
+    pub role: String,
+    pub embedding: Buffer,
+    pub dimensions: f64,
+    #[napi(js_name = "content_hash")]
+    pub content_hash: String,
+    pub timestamp: f64,
+}
+
+#[napi(object)]
+pub struct AiMemoryMessage {
+    pub id: String,
+    #[napi(js_name = "session_id")]
+    pub session_id: String,
+    #[napi(ts_type = "'user' | 'assistant'")]
+    pub role: String,
+    pub content: String,
+    pub timestamp: f64,
+}
+
+impl From<RsAiMemoryMessage> for AiMemoryMessage {
+    fn from(m: RsAiMemoryMessage) -> Self {
+        AiMemoryMessage { id: m.id, session_id: m.session_id, role: m.role, content: m.content, timestamp: m.timestamp }
+    }
+}
+
+#[napi]
+pub fn is_encrypted_ai_memory_available() -> napi::Result<bool> {
+    sync(|s| s.is_encrypted_ai_memory_available())
+}
+
+#[napi]
+pub fn upsert_ai_memory_vector(row: AiMemoryVector) -> napi::Result<()> {
+    let row = RsAiMemoryVector {
+        workspace_id: row.workspace_id,
+        message_id: row.message_id,
+        session_id: row.session_id,
+        role: row.role,
+        embedding: row.embedding.to_vec(),
+        dimensions: row.dimensions,
+        content_hash: row.content_hash,
+        timestamp: row.timestamp,
+    };
+    sync(|s| s.upsert_ai_memory_vector(&row))
+}
+
+#[napi]
+pub fn get_ai_memory_vectors(workspace_id: String, limit: f64, exclude_session_id: Option<String>) -> napi::Result<Vec<AiMemoryVector>> {
+    sync(|s| {
+        Ok(s.get_ai_memory_vectors(&workspace_id, limit, exclude_session_id.as_deref())?
+            .into_iter()
+            .map(|v| AiMemoryVector {
+                workspace_id: v.workspace_id,
+                message_id: v.message_id,
+                session_id: v.session_id,
+                role: v.role,
+                embedding: v.embedding.into(),
+                dimensions: v.dimensions,
+                content_hash: v.content_hash,
+                timestamp: v.timestamp,
+            })
+            .collect())
+    })
+}
+
+#[napi]
+pub fn delete_ai_memory_message(workspace_id: String, message_id: String) -> napi::Result<()> {
+    sync(|s| s.delete_ai_memory_message(&workspace_id, &message_id))
+}
+
+#[napi]
+pub fn delete_ai_memory_session(workspace_id: String, session_id: String) -> napi::Result<()> {
+    sync(|s| s.delete_ai_memory_session(&workspace_id, &session_id))
+}
+
+#[napi]
+pub fn get_recent_ai_messages_for_memory(workspace_id: String, limit: f64) -> napi::Result<Vec<AiMemoryMessage>> {
+    sync(|s| Ok(s.get_recent_ai_messages_for_memory(&workspace_id, limit)?.into_iter().map(Into::into).collect()))
+}
+
+#[napi]
+pub fn get_ai_messages_by_ids(workspace_id: String, message_ids: Vec<String>) -> napi::Result<Vec<AiMemoryMessage>> {
+    sync(|s| Ok(s.get_ai_messages_by_ids(&workspace_id, &message_ids)?.into_iter().map(Into::into).collect()))
+}
+
+#[napi(object)]
+pub struct AuditLog {
+    pub id: String,
+    #[napi(js_name = "workspace_id")]
+    pub workspace_id: String,
+    pub action: String,
+    pub target: String,
+    pub details: String,
+    #[napi(js_name = "created_at")]
+    pub created_at: f64,
+}
+
+impl From<RsAuditLog> for AuditLog {
+    fn from(a: RsAuditLog) -> Self {
+        AuditLog { id: a.id, workspace_id: a.workspace_id, action: a.action, target: a.target, details: a.details, created_at: a.created_at }
+    }
+}
+
+#[napi]
+pub fn log_audit(workspace_id: String, action: String, target: Option<String>, details: Option<String>) -> napi::Result<()> {
+    sync(|s| s.log_audit(&workspace_id, &action, target.as_deref(), details.as_deref()))
+}
+
+#[napi]
+pub fn get_audit_logs(workspace_id: String, limit: Option<f64>) -> napi::Result<Vec<AuditLog>> {
+    sync(|s| Ok(s.get_audit_logs(&workspace_id, limit)?.into_iter().map(Into::into).collect()))
 }
 
 // ───────────────────────────── export and import ─────────────────────────────
