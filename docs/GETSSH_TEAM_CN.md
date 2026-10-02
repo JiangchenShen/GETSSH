@@ -27,6 +27,7 @@
    | `/Volumes/Developer/GETSSH-store` | `feat/master-key-store` | Claude 的存储层开发 |
    | `/Volumes/Developer/GETSSH-codex` | `feat/ui-<主题>` | Codex（需要时新建） |
    | `/Volumes/Developer/GETSSH-gemini` | `qa/<主题>` | Gemini（需要时新建） |
+   | `/Volumes/Developer/GETSSH-v2` | `V2` | 2.x 维护（需要时新建） |
    | `/Volumes/Developer/GETSSH-WEBSITE` | 官网仓库 | Codex |
 
    新建的方法：
@@ -43,7 +44,10 @@
    - 完成一块就在自己的分支上提交，然后把分支名告诉负责人；
    - 只改了 `src/**` 和官网的分支，负责人可以自己合并；
    - 改到其他目录的分支，由 Claude 审查后合并。
-4. **`main` 现在仍然是 2.x。** 等负责人切出 2.x 维护分支以后，`v3-next` 再快进合并到 `main`。在那之前，谁都不要往 `main` 提交。
+4. **2.x 在 `V2` 分支上维护。**
+   - `V2` 于 10-03 从 `main` 的 `f5602a4` 切出，包含 `v2.0.0_R7K4S`；
+   - 2.1 和以后的 2.x 修复都提交到 `V2`，不提交到 `main`；
+   - `main` 暂时还是 2.0。v3 准备好以后，`v3-next` 快进合并到 `main`。在那之前，谁都不要往 `main` 提交，否则就不能快进了。
 5. **不推送 GitHub，不开 PR，不手动触发 CI。** 只有负责人决定推送时才推送。
 
 ## 3. 交付前要做的
