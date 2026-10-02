@@ -52,3 +52,5 @@ vitest.config.ts
 .gemini/
 rules/
 skills/
+rust-core/getssh-keystore/index.d.ts
+rust-core/getssh-store/index.d.ts
