@@ -26,6 +26,12 @@ export interface AppLockState {
   recoveryConfigured: boolean;
   /** The device key of this installation is gone (another computer): only the recovery code or the master password opens the data. */
   deviceKeyLost: boolean;
+  /**
+   * Unlocked with a master password shorter than 12 characters (set before 3.0): the renderer
+   * shows a blocking "change your master password" dialog. Always false until getssh-store
+   * replaces the keystore here.
+   */
+  masterPasswordMustChange: boolean;
   error?: string;
   migration?: MigrationReport;
 }
@@ -51,6 +57,7 @@ class AppLock {
   private readyRan = false;
   private idleTimer: NodeJS.Timeout | null = null;
   private triggersInstalled = false;
+  private lockListeners: Array<() => void> = [];
 
   state(): AppLockState {
     let status: ReturnType<typeof keystore.status> | null = null;
@@ -67,6 +74,7 @@ class AppLock {
       presenceEnabled: !!app?.presence,
       recoveryConfigured: !!status?.recoveryConfigured,
       deviceKeyLost: this.deviceKeyLost || !!status?.deviceKeyLost,
+      masterPasswordMustChange: false,
       error: this.error,
       migration: this.migration,
     };
@@ -74,6 +82,11 @@ class AppLock {
 
   isReady(): boolean {
     return this.phase === 'ready';
+  }
+
+  /** Runs on every lock request while the app is open (idle, screen lock, sleep, the lock button), even when nothing is protected. */
+  onLock(listener: () => void): void {
+    this.lockListeners.push(listener);
   }
 
   /** Runs once, the first time the data opens (workspace bootstrap, plugins). */
@@ -195,6 +208,13 @@ class AppLock {
    */
   lock(reason: string): void {
     if (this.phase !== 'ready') return;
+    for (const listener of this.lockListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.warn('[AppLock] A lock listener failed:', error);
+      }
+    }
     const status = keystore.status();
     if (!status.scopes.some(scope => scope.protected && scope.unlocked)) {
       keystore.closeReveal();

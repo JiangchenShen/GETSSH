@@ -104,6 +104,8 @@ export interface AppLockState {
   presenceEnabled: boolean;
   recoveryConfigured: boolean;
   deviceKeyLost: boolean;
+  /** Show a blocking "change your master password" dialog (a pre-3.0 master password under 12 characters). */
+  masterPasswordMustChange: boolean;
   error?: string;
   migration?: KeystoreMigrationReport;
 }

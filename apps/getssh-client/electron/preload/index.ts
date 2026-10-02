@@ -264,6 +264,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setPresence: (request: { workspaceId?: string | null; enabled: boolean }) => ipcRenderer.invoke('security:set-presence', request),
   },
   
+  // getssh-store features without an older channel (types: src/types/store.ts). Secrets never come
+  // back here: `reveal.show` displays one in a system dialog, whose Copy button is the only way to copy it.
+  store: {
+    profiles: {
+      list: (request: { workspaceId: string }) => ipcRenderer.invoke('store:profiles:list', request),
+      save: (request: { workspaceId: string; profiles: unknown[] }) => ipcRenderer.invoke('store:profiles:save', request),
+      delete: (request: { workspaceId: string; ids: string[] }) => ipcRenderer.invoke('store:profiles:delete', request),
+    },
+    reveal: {
+      open: (request: { workspaceId: string; method: 'presence' } | { workspaceId: string; method: 'password'; password: string }) =>
+        ipcRenderer.invoke('store:reveal:open', request),
+      show: (request: { workspaceId: string; profileId: string; field: 'password' | 'passphrase'; language?: 'zh-CN' | 'en-US' }) =>
+        ipcRenderer.invoke('store:reveal:show', request),
+      close: (request: { workspaceId: string }) => ipcRenderer.invoke('store:reveal:close', request),
+    },
+    sshKeys: {
+      list: (request: { workspaceId: string }) => ipcRenderer.invoke('store:ssh-keys:list', request),
+      importFile: (request: { workspaceId: string; name?: string; passphrase?: string }) => ipcRenderer.invoke('store:ssh-keys:import', request),
+      generate: (request: { workspaceId: string; name: string }) => ipcRenderer.invoke('store:ssh-keys:generate', request),
+      delete: (request: { workspaceId: string; id: string }) => ipcRenderer.invoke('store:ssh-keys:delete', request),
+    },
+    backup: {
+      candidates: () => ipcRenderer.invoke('store:backup:candidates', {}),
+      unlockForExport: (request: { workspaceIds: string[] }) => ipcRenderer.invoke('store:backup:unlock-for-export', request),
+      export: (request: { workspaceIds: string[]; password: string }) => ipcRenderer.invoke('store:backup:export', request),
+      chooseImportFile: () => ipcRenderer.invoke('store:backup:choose-import-file', {}),
+      inspect: (request: { fileId: string; password: string }) => ipcRenderer.invoke('store:backup:inspect', request),
+      import: (request: { fileId: string; password: string }) => ipcRenderer.invoke('store:backup:import', request),
+      relaunch: () => ipcRenderer.invoke('store:backup:relaunch'),
+    },
+  },
+
   // Model Context Protocol (MCP) API
   mcp: {
     getServers: () => ipcRenderer.invoke('mcp:get-servers'),

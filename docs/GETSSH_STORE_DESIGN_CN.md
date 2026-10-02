@@ -226,6 +226,9 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 渲染进程只传 id；
   - 快速连接里临时输入的密码不受影响，仍可以直接传。
 - 查看密码：先用 Touch ID/Hello（没有时用密码）打开 5 分钟滑动窗口；复制到剪贴板的内容 30 秒后清空。
+- 查看和复制都由主进程做：密码显示在系统对话框里，只有对话框的"复制"按钮能复制（10-02 实现，见第 11 节）。
+  - 剩余风险：用户点了复制以后的 30 秒内，界面和带 `host:clipboard` 权限的后端插件仍然能读到剪贴板；
+  - S4 时把终端粘贴改成走主进程，并拒绝读回刚复制过的密码。
 
 ## 7. 迁移步骤
 
@@ -300,8 +303,21 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
    还没有时，按 [GETSSH_TEAM_CN.md](GETSSH_TEAM_CN.md) 第 2 节新建，分支名用 `feat/ui-store`。
 3. **渲染进程永远不直接加载 store**，真模块和假实现都一样。界面只通过 preload 暴露的 IPC 调用。
-   - IPC 通道和主进程里的 `GETSSH_FAKE_STORE=1` 开关由 Claude 先接好。接好之前，界面可以先按 `store.d.ts` 的数据形状做静态部分。
-   - 接好以后，用 `GETSSH_FAKE_STORE=1` 启动应用，用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据。用法写在 `store.fake.js` 的文件头部注释里。
+   - **接口**：`window.electronAPI.store`，类型在 `apps/getssh-client/src/types/store.ts`，每个函数的说明在 `src/types.d.ts`。分四组：
+     - `profiles`：服务器配置的列表、保存、删除。返回值里没有密码，只有 `hasPassword` / `hasPassphrase` / `keyId`；保存时秘密字段不传表示保留，传 `null` 表示清除，传字符串表示改成新值；
+     - `reveal`：查看已保存的密码。先 `open`（Touch ID / Hello 或工作区密码），再 `show`。**密码不会回到界面**：`show` 由主进程弹系统对话框显示，对话框上的"复制"按钮是复制密码的唯一途径，30 秒后清空剪贴板（退出应用时也会清）。对话框的文字固定在主进程里，界面只能用 `language` 选中文或英文。应用锁定时对话框会自动关闭；
+       - 为什么不让界面直接复制：插件代码跑在主窗口里，界面能读剪贴板。如果界面能让主进程复制任意一条密码，就能在用户毫无察觉的情况下把所有密码逐条读走；
+     - `sshKeys`：列出、从文件导入（主进程弹选择文件的对话框）、生成 ed25519、删除；
+     - `backup`：导出候选列表、一次 Touch ID / Hello 解锁、导出（主进程弹保存对话框）、选择导入文件、检查密码、导入、导入后重启。
+   - 已有的通道继续用，不另起新的：工作区密码解锁用 `workspace.unlock`，改主密码用 `security.setMasterPassword`，强制更换主密码看 `appLock.getState()` 里新加的 `masterPasswordMustChange`。
+   - 返回值统一是 `{ ok: true, ... }` 或 `{ ok: false, error }`，`error` 的取值写在 `StoreResult` 的注释里。
+   - **开发时**用临时 HOME 和假实现启动：`HOME=$(mktemp -d) GETSSH_FAKE_STORE=1 pnpm run dev`。用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据，用法写在 `store.fake.js` 的文件头部注释里。
+   - **10-02 的限制**：主进程还没接入 store，所以假实现模式下只有 `store` 这组通道走假实现，侧栏、应用锁、`workspace.unlock`、`security.*` 仍然走旧的钥匙库和数据库。因此：
+     - 导出时给带密码的工作区输入密码、强制更换主密码这两条流程，暂时没法对着假实现走通；`masterPasswordMustChange` 现在总是 `false`；
+     - 准备初始数据时不要设 `masterPassword`：没有地方替假实现解锁，`store` 的所有通道都会返回 `locked`；
+     - 要和侧栏显示的工作区对上，初始数据里的工作区 id 用 `default`（旧代码默认选中它）。
+     Claude 下一步就是让整个应用在假实现模式下都走 store，做完后这些限制都会去掉。
+   - 不开假实现时，`store` 这组通道一律返回 `unavailable`：真模块要等主进程接入以后才加载（和旧的钥匙库、数据库同时打开同一批文件会损坏数据）。界面要能处理 `unavailable`，导入完成、重启之前也会返回它。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
    - 截至 10-02，`store.d.ts` 共 67 个函数，真模块已实现 38 个：生命周期、主密码、Touch ID / Hello、恢复码、工作区、服务器配置、查看窗口、全局设置、导出导入。其余 29 个暂时只有假实现：
      - S3：资产文件夹（5 个）、Runbook（2 个）、AI 会话与记忆（12 个）、审计（2 个）、`copyProfiles`；

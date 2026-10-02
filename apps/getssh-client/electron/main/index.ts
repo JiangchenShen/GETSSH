@@ -255,6 +255,8 @@ import { killAllSessions } from './handlers/sshHandler'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { appLock } from './security/appLock'
 import { mcpManager } from './services/mcp/McpManager'
+import { startStore } from './services/getsshStore'
+import { clearCopiedSecret } from './handlers/storeHandler'
 import {
   runPackagedStartupSmoke,
   shouldRunPackagedStartupSmoke,
@@ -292,6 +294,8 @@ app.whenReady().then(async () => {
   // Setup IPC Handlers before window creation to ensure early IPC works.
   // None of these depend on the database; plugins are only loaded after bootstrap below.
   registerAllIpcHandlers(ipcMain, app, () => getMainWindow());
+  // Only the in-memory fake for now (GETSSH_FAKE_STORE=1 in development); see services/getsshStore.ts.
+  startStore().catch(error => console.error('[Main] getssh-store did not start:', error));
   nexusBridge.setupIpcHandlers();
   nexusBridge.setupStateBroadcaster();
   TornWindowManager.getInstance().init();
@@ -512,6 +516,8 @@ app.on('before-quit', (e) => {
 })
 
 async function runQuitTeardown() {
+  // A password copied from the reveal dialog less than 30 s ago must not outlive the app.
+  await clearCopiedSecret().catch(err => console.warn('[Main] Clipboard cleanup failed:', err));
   // Gracefully deactivate all plugins and release the watchdog before the process exits
   try {
     SecureCenter.getInstance().gracefulShutdown();

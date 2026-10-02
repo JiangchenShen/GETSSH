@@ -16,7 +16,7 @@ export function useAppLockSync() {
   useEffect(() => {
     if (!window.electronAPI?.appLock) {
       // Development without the main process: behave as an unlocked app.
-      setState({ phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false });
+      setState({ phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false });
       return;
     }
     let disposed = false;

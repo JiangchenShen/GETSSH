@@ -185,6 +185,45 @@ declare global {
         setupRecovery: (request: { currentPassword?: string }) => Promise<import('./types/ipc').KeystoreResult<{ code: string }>>;
         setPresence: (request: { workspaceId?: string | null; enabled: boolean }) => Promise<import('./types/ipc').KeystoreResult>;
       };
+      /** getssh-store features (src/types/store.ts). Answers `unavailable` until the store is connected. */
+      store: {
+        profiles: {
+          list: (request: { workspaceId: string }) => Promise<import('./types/store').StoreResult<{ profiles: import('./types/store').Profile[] }>>;
+          /** Whole list: profiles left out are deleted. Secret fields: absent keeps, null clears, a string replaces. */
+          save: (request: { workspaceId: string; profiles: import('./types/store').ProfileInput[] }) => Promise<import('./types/store').StoreResult<{ profiles: import('./types/store').Profile[] }>>;
+          delete: (request: { workspaceId: string; ids: string[] }) => Promise<import('./types/store').StoreResult>;
+        };
+        reveal: {
+          /** Touch ID / Windows Hello, or the workspace password; opens a 5-minute window that each reveal extends. */
+          open: (request: { workspaceId: string } & import('./types/store').RevealRoute) => Promise<import('./types/store').StoreResult>;
+          /**
+           * Shows the secret in a system dialog; it never reaches the renderer. The dialog's Copy button
+           * is the only way to copy it (cleared from the clipboard after 30 s). Resolves when the dialog
+           * closes; `locked` when the app locked meanwhile, which also closes the dialog.
+           */
+          show: (request: { workspaceId: string; profileId: string; field: import('./types/store').SecretField; language?: import('./types/store').RevealLanguage }) => Promise<import('./types/store').StoreResult>;
+          close: (request: { workspaceId: string }) => Promise<import('./types/store').StoreResult>;
+        };
+        sshKeys: {
+          list: (request: { workspaceId: string }) => Promise<import('./types/store').StoreResult<{ keys: import('./types/store').SshKey[] }>>;
+          /** Opens a file dialog in the main process; `name` defaults to the file name. */
+          importFile: (request: { workspaceId: string; name?: string; passphrase?: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
+          generate: (request: { workspaceId: string; name: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
+          delete: (request: { workspaceId: string; id: string }) => Promise<import('./types/store').StoreResult>;
+        };
+        backup: {
+          candidates: () => Promise<import('./types/store').StoreResult<{ candidates: import('./types/store').ExportCandidate[] }>>;
+          /** One Touch ID / Windows Hello prompt; workspaces in `failed` need `workspace.unlock` with their password. */
+          unlockForExport: (request: { workspaceIds: string[] }) => Promise<import('./types/store').StoreResult<{ unlocked: string[]; failed: { id: string; code: import('./types/store').StoreErrorCode }[] }>>;
+          /** At least 12 characters; asks where to save. Opens every chosen workspace, even ones with their own password. */
+          export: (request: { workspaceIds: string[]; password: string }) => Promise<import('./types/store').StoreResult<{ report: import('./types/store').ExportReport }>>;
+          chooseImportFile: () => Promise<import('./types/store').StoreResult<{ fileId: string; fileName: string }>>;
+          inspect: (request: { fileId: string; password: string }) => Promise<import('./types/store').StoreResult<{ info: import('./types/store').BundleInfo }>>;
+          /** Replaces all data; the old data folder is kept as `report.backupPath`. Then call `relaunch`. */
+          import: (request: { fileId: string; password: string }) => Promise<import('./types/store').StoreResult<{ report: import('./types/store').ImportReport }>>;
+          relaunch: () => Promise<import('./types/store').StoreResult>;
+        };
+      };
       ai: {
         invokePrivileged: (payload: any) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;
         clearHistory: (workspaceId: string) => Promise<{ success: boolean }>;

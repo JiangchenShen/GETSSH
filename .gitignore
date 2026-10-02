@@ -35,6 +35,7 @@ _ui_snapshot.tgz
 # TypeScript declarations generated in electron
 apps/getssh-client/electron/**/*.d.ts
 apps/getssh-client/src/types/ipc.d.ts
+apps/getssh-client/src/types/store.d.ts
 apps/getssh-client/vite.config.d.mts
 
 # Security Reports
