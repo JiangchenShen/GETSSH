@@ -361,6 +361,9 @@ impl<D: Device> Store<D> {
 
     /// A secret while the reveal window is open; each call extends the window. Main process only.
     pub fn reveal_secret(&self, workspace_id: &str, profile_id: &str, field: SecretField) -> StoreResult<Zeroizing<String>> {
+        if !self.keystore().reveal_active(&workspace_scope(workspace_id)?)? {
+            return Err(StoreError::locked("the reveal window is closed"));
+        }
         let value = self.open_secret(workspace_id, profile_id, field, true)?.ok_or_else(|| StoreError::not_found(format!("profile {profile_id} has no {}", field.column())))?;
         String::from_utf8(value.to_vec()).map(Zeroizing::new).map_err(|_| StoreError::new(Code::Corrupt, "the secret is not text"))
     }

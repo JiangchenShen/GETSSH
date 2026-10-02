@@ -157,8 +157,11 @@ pub fn unlock_app(route_input: UnlockRouteJs) -> AsyncTask<Job<AppState>> {
 }
 
 #[napi(ts_args_type = "reason: 'manual' | 'idle' | 'screen-locked' | 'sleep'")]
-pub fn lock_app(_reason: String) -> napi::Result<()> {
+pub fn lock_app(reason: String) -> napi::Result<()> {
     sync(|s| {
+        if !["manual", "idle", "screen-locked", "sleep"].contains(&reason.as_str()) {
+            return Err(StoreError::invalid("reason must be manual, idle, screen-locked or sleep"));
+        }
         s.lock_app();
         Ok(())
     })
@@ -217,7 +220,7 @@ pub fn verify_password(password: String, workspace_id: Option<String>) -> AsyncT
 
 // ──────────────────────────────────── workspaces ────────────────────────────────────
 
-#[napi(object)]
+#[napi(object, use_nullable = true)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -384,7 +387,7 @@ pub fn workspace_stats(id: String) -> napi::Result<WorkspaceStats> {
 
 // ───────────────────────────── server profiles (no secrets) ─────────────────────────────
 
-#[napi(object)]
+#[napi(object, use_nullable = true)]
 pub struct Profile {
     pub id: String,
     #[napi(js_name = "workspace_id")]
@@ -661,7 +664,7 @@ pub fn inspect_bundle(path: String, password: String) -> AsyncTask<Job<BundleInf
     })
 }
 
-#[napi(object)]
+#[napi(object, use_nullable = true)]
 pub struct ImportReport {
     pub workspace_ids: Vec<String>,
     pub backup_path: Option<String>,

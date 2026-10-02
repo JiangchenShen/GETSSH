@@ -445,15 +445,17 @@ fn a_master_password_travels_with_the_bundle() {
 fn a_subset_export_carries_only_the_chosen_workspaces() {
     let (a, b) = (Env::new(), Env::new());
     let source = source_with_data(&a);
-    source.unlock_workspace("vault", pw("vault-pass")).ok();
-    let bundle = export_to(&source, &a, &["vault"]);
-    assert!(source.list_profiles("default").is_ok(), "exporting does not touch the source");
+    source.create_workspace(Some("team"), "Team", None, None).unwrap();
+    source.save_profiles("team", &[profile("t", set("team-secret"))]).unwrap();
+    let bundle = export_to(&source, &a, &["team"]);
+    assert!(source.list_profiles("default").is_ok() && source.workspace("default").unwrap().is_main, "exporting does not touch the source");
 
     let (store, _backup) = import_into(&b, &bundle);
     store.start().unwrap();
     let workspaces = store.list_workspaces().unwrap();
     assert_eq!(workspaces.len(), 1);
-    assert!(workspaces[0].id == "vault" && workspaces[0].is_main, "the only workspace becomes main");
+    assert!(workspaces[0].id == "team" && workspaces[0].is_main, "the only workspace becomes main");
+    assert_eq!(store.connect_secrets("team", "t").unwrap().password.unwrap().as_slice(), b"team-secret");
     assert!(!b.dir.join("workspace_default.db").exists());
 }
 
@@ -543,4 +545,101 @@ fn a_locked_app_cannot_import() {
     target.set_master_password("target master pw", None).unwrap();
     target.lock_app();
     assert_eq!(target.import_bundle(&bundle, BUNDLE_PASSWORD, FakeDevice::new(b.machine)).err().unwrap().code, Code::Locked);
+}
+
+// ───────────────────────────── conformance with store.d.ts / the fake ─────────────────────────────
+
+#[test]
+fn calls_before_start_are_not_configured() {
+    let env = Env::new();
+    let store = env.open();
+    assert_eq!(store.list_workspaces().err().unwrap().code, Code::NotConfigured);
+    store.start().unwrap();
+    assert!(store.list_workspaces().is_ok());
+}
+
+#[test]
+fn the_first_master_password_replaces_workspace_passwords() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("p"), "P", None, Some("eight-chars")).unwrap();
+    store.save_profiles("p", &[profile("x", set("inner-secret"))]).unwrap();
+    store.lock_workspace("p").unwrap();
+    assert_eq!(store.set_master_password("correct horse battery", None).err().unwrap().code, Code::Locked, "its key must be in memory");
+    assert!(!store.app_state().master_password, "nothing changed");
+    store.unlock_workspace("p", pw("eight-chars")).unwrap();
+    store.set_master_password("correct horse battery", None).unwrap();
+    let p = store.workspace("p").unwrap();
+    assert!(!p.has_password && p.open);
+    drop(store);
+
+    let store = env.started();
+    store.unlock_app(pw("correct horse battery")).unwrap();
+    assert!(store.workspace("p").unwrap().open, "the master password opens it");
+    assert_eq!(store.connect_secrets("p", "x").unwrap().password.unwrap().as_slice(), b"inner-secret");
+    assert_eq!(store.verify_password("eight-chars", Some("p")).ok(), Some(false), "the old workspace password is gone");
+}
+
+#[test]
+fn presence_unlock_where_it_is_not_enabled_asks_for_the_password() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("p"), "P", None, Some("eight-chars")).unwrap();
+    store.lock_workspace("p").unwrap();
+    let presence = UnlockRoute::Presence("test".into());
+    assert_eq!(store.unlock_workspace("p", presence).err().unwrap().code, Code::NeedsPassword);
+}
+
+#[test]
+fn a_closed_reveal_window_does_not_say_whether_a_profile_exists() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("w"), "W", None, Some("eight-chars")).unwrap();
+    assert_eq!(store.reveal_secret("w", "missing", SecretField::Password).err().unwrap().code, Code::Locked);
+    store.open_reveal("w", None, Some("eight-chars")).unwrap();
+    assert_eq!(store.reveal_secret("w", "missing", SecretField::Password).err().unwrap().code, Code::NotFound);
+}
+
+#[test]
+fn a_recovery_code_unlock_may_set_a_new_master_password() {
+    let env = Env::new();
+    let store = env.started();
+    store.set_master_password("correct horse battery", None).unwrap();
+    let code = store.create_recovery_code(Some("correct horse battery")).unwrap();
+    store.lock_app();
+    drop(store);
+    let store = env.started();
+    store.unlock_app(UnlockRoute::RecoveryCode(code)).unwrap();
+    store.set_master_password("a brand new password", None).unwrap();
+    assert_eq!(store.set_master_password("yet another password", None).err().unwrap().code, Code::NeedsPassword, "only once, right after the recovery unlock");
+    drop(store);
+    let store = env.started();
+    store.unlock_app(pw("a brand new password")).unwrap();
+    assert_eq!(store.set_master_password("yet another password", None).err().unwrap().code, Code::NeedsPassword);
+}
+
+#[test]
+fn a_bundle_without_an_eligible_main_gets_an_empty_default() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    source.unlock_workspace("vault", pw("vault-pass")).ok();
+    // Only the password workspace: it cannot become MAIN.
+    let bundle = export_to(&source, &a, &["vault"]);
+    let (store, _backup) = import_into(&b, &bundle);
+    store.start().unwrap();
+    let workspaces = store.list_workspaces().unwrap();
+    let main = workspaces.iter().find(|w| w.is_main).unwrap();
+    assert!(main.id == "default" && !main.has_password && main.open);
+    assert_eq!(store.list_profiles("default").unwrap().len(), 0);
+    let vault = workspaces.iter().find(|w| w.id == "vault").unwrap();
+    assert!(!vault.is_main && vault.has_password && !vault.open);
+    store.unlock_workspace("vault", pw("vault-pass")).unwrap();
+    assert_eq!(store.connect_secrets("vault", "db").unwrap().password.unwrap().as_slice(), b"db-secret");
+}
+
+#[test]
+fn the_device_backend_uses_the_public_names() {
+    let env = Env::new();
+    let backend = env.started().app_state().device_backend;
+    assert!(["secure-enclave", "keychain", "tpm", "dpapi", "unsupported"].contains(&backend.as_str()), "{backend}");
 }

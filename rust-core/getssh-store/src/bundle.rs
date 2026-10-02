@@ -437,7 +437,22 @@ impl<D: Device> Store<D> {
                 "DELETE FROM ai_memory_vectors WHERE workspace_id NOT IN ({keep}); DELETE FROM workspaces WHERE id NOT IN ({keep}); VACUUM;"
             ))?;
             if !workspace_ids.iter().any(|id| all.iter().any(|w| &w.id == id && w.is_main)) {
-                conn.execute(&format!("UPDATE workspaces SET is_main = 1 WHERE id = (SELECT id FROM workspaces WHERE id IN ({keep}) ORDER BY created_at LIMIT 1)"), &[])?;
+                // MAIN never has its own password: promote the oldest chosen workspace without one,
+                // or add an empty default workspace (its database is created on the first start).
+                let promote = all.iter().filter(|w| workspace_ids.contains(&w.id) && !w.has_password).min_by_key(|w| w.created_at);
+                match promote {
+                    Some(w) => {
+                        conn.execute("UPDATE workspaces SET is_main = 1 WHERE id = ?", &[w.id.as_str().into()])?;
+                    }
+                    None => {
+                        let id = if workspace_ids.iter().any(|id| id == "default") { crypto::random_id() } else { "default".into() };
+                        let now = now_ms();
+                        conn.execute(
+                            "INSERT INTO workspaces (id, name, hasPassword, biometric_enabled, is_main, preferences, created_at, updated_at) VALUES (?, 'Default Workspace', 0, 0, 1, '{}', ?, ?)",
+                            &[id.as_str().into(), now.into(), now.into()],
+                        )?;
+                    }
+                }
             }
         }
         let mut files = vec![(BundleFile { name: "main.db".into(), size: 0 }, main_copy)];

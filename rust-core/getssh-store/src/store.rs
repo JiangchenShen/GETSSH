@@ -136,6 +136,11 @@ pub struct Store<D: Device> {
     must_change_master: AtomicBool,
     /// Set once an import replaced the data directory: every call fails until the app restarts.
     replaced: AtomicBool,
+    /// start() ran; before that, calls fail with not_configured rather than locked.
+    started: AtomicBool,
+    /// The app was unlocked with the recovery code: a new master password may be set without
+    /// the current one (it was forgotten). Cleared by locking or by setting the password.
+    recovery_unlock: AtomicBool,
 }
 
 fn is_locked(error: &KsError) -> bool {
@@ -176,6 +181,8 @@ impl<D: Device> Store<D> {
             workspaces: Mutex::new(HashMap::new()),
             must_change_master: AtomicBool::new(false),
             replaced: AtomicBool::new(false),
+            started: AtomicBool::new(false),
+            recovery_unlock: AtomicBool::new(false),
         }
     }
 
@@ -232,6 +239,7 @@ impl<D: Device> Store<D> {
         let guard = self.main.lock().unwrap_or_else(|e| e.into_inner());
         match guard.as_ref() {
             Some(conn) => f(conn),
+            None if !self.started.load(Ordering::SeqCst) => Err(StoreError::new(Code::NotConfigured, "call start() first")),
             None => Err(StoreError::locked(APP)),
         }
     }
@@ -335,6 +343,7 @@ impl<D: Device> Store<D> {
             }
             self.ks.initialize()?;
         }
+        self.started.store(true, Ordering::SeqCst);
         let mut report = StartReport::default();
         match self.ks.open_scope(APP) {
             Ok(()) => {}
@@ -371,7 +380,7 @@ impl<D: Device> Store<D> {
             presence_enabled: app.is_some_and(|s| s.presence),
             recovery_configured: status.recovery_configured,
             device_key_lost: status.device_key_lost,
-            device_backend: status.quiet_backend.unwrap_or_else(|| "unsupported".into()),
+            device_backend: public_backend(status.quiet_backend.as_deref()).into(),
         }
     }
 
@@ -381,10 +390,17 @@ impl<D: Device> Store<D> {
             UnlockRoute::Password(password) => {
                 self.ks.unlock_with_password(APP, password)?;
                 self.must_change_master.store(master_password_too_short(password), Ordering::SeqCst);
+                self.recovery_unlock.store(false, Ordering::SeqCst);
             }
-            UnlockRoute::Presence(reason) => self.ks.unlock_with_presence(APP, reason)?,
+            UnlockRoute::Presence(reason) => {
+                self.require_presence(APP)?;
+                self.ks.unlock_with_presence(APP, reason)?;
+                self.recovery_unlock.store(false, Ordering::SeqCst);
+            }
             UnlockRoute::RecoveryCode(code) => {
                 self.ks.unlock_with_recovery(code)?;
+                self.must_change_master.store(false, Ordering::SeqCst);
+                self.recovery_unlock.store(true, Ordering::SeqCst);
             }
         }
         self.open_main()?;
@@ -394,6 +410,7 @@ impl<D: Device> Store<D> {
 
     /// Drops every key a password protects and closes those databases.
     pub fn lock_app(&self) {
+        self.recovery_unlock.store(false, Ordering::SeqCst);
         self.ks.lock_protected();
         self.close_locked();
     }
@@ -453,16 +470,39 @@ impl<D: Device> Store<D> {
 
     /// Returns whether a recovery code existed and was reset (setting a master password discards it).
     pub fn set_master_password(&self, password: &str, current: Option<&str>) -> StoreResult<bool> {
-        if self.app_protected() {
-            let current = current.ok_or_else(|| StoreError::new(Code::NeedsPassword, "the current master password is required"))?;
-            self.ks.verify_password(APP, current)?;
-        } else if self.must_change_master.load(Ordering::SeqCst) {
-            return Err(StoreError::new(Code::MustChangeMasterPassword, ""));
+        if master_password_too_short(password) {
+            return Err(StoreError::invalid("the master password needs at least 12 characters"));
         }
-        let recovery_before = self.ks.status().recovery_configured;
+        if self.app_protected() {
+            match current {
+                Some(current) => self.ks.verify_password(APP, current)?,
+                None if self.must_change_master() => return Err(StoreError::new(Code::MustChangeMasterPassword, "confirm the current master password")),
+                // Unlocked with the recovery code: the current password was forgotten.
+                None if self.recovery_unlock.load(Ordering::SeqCst) => {}
+                None => return Err(StoreError::new(Code::NeedsPassword, "the current master password is required")),
+            }
+        }
+        let status = self.ks.status();
+        // The first master password replaces workspace passwords, so those workspaces must be
+        // open: their keys move under the master password.
+        let own: Vec<String> = if status.app_protected {
+            Vec::new()
+        } else {
+            status.scopes.iter().filter(|s| s.id != APP && s.own_password).map(|s| s.id.clone()).collect()
+        };
+        if let Some(locked) = status.scopes.iter().find(|s| own.contains(&s.id) && !s.unlocked) {
+            return Err(StoreError::locked(locked.id.clone()));
+        }
+        let recovery_before = status.recovery_configured;
         let staged = self.ks.set_password(APP, password)?;
         self.complete_rotations(staged)?;
         self.must_change_master.store(false, Ordering::SeqCst);
+        self.recovery_unlock.store(false, Ordering::SeqCst);
+        for scope in own {
+            if let Some(id) = scope.strip_prefix("ws:") {
+                self.drop_workspace_password_under_master(id)?;
+            }
+        }
         Ok(recovery_before && !self.ks.status().recovery_configured)
     }
 
@@ -735,6 +775,10 @@ impl<D: Device> Store<D> {
 
     pub fn unlock_workspace(&self, id: &str, route: UnlockRoute) -> StoreResult<()> {
         let scope = workspace_scope(id)?;
+        // Already open, or opens without asking: nothing to unlock.
+        if self.is_mounted(id) || (self.scope_status(&scope).is_some() && self.open_workspace(id)?) {
+            return Ok(());
+        }
         if self.scope_status(&scope).is_none() {
             // A pre-3.0 password workspace without vault.key: migrated the first time its password is typed.
             let UnlockRoute::Password(password) = route else {
@@ -744,13 +788,43 @@ impl<D: Device> Store<D> {
         }
         match route {
             UnlockRoute::Password(password) => self.ks.unlock_with_password(&scope, &password)?,
-            UnlockRoute::Presence(reason) => self.ks.unlock_with_presence(&scope, &reason)?,
+            UnlockRoute::Presence(reason) => {
+                self.require_presence(&scope)?;
+                self.ks.unlock_with_presence(&scope, &reason)?
+            }
             UnlockRoute::RecoveryCode(code) => {
                 self.ks.unlock_with_recovery(&code)?;
             }
         }
         self.complete_rotation(&scope)?;
-        self.mount(id)
+        self.mount(id)?;
+        // A master password replaces workspace passwords. One can survive here only if the app
+        // stopped between setting the master password and dropping it (or came from 2.x).
+        self.drop_workspace_password_under_master(id)
+    }
+
+    /// Unlocking with Touch ID / Windows Hello where it is not enabled: ask for the password.
+    fn require_presence(&self, scope: &str) -> StoreResult<()> {
+        if self.scope_status(scope).is_some_and(|s| s.presence) {
+            Ok(())
+        } else {
+            Err(StoreError::new(Code::NeedsPassword, "Touch ID / Windows Hello is not enabled here"))
+        }
+    }
+
+    /// Under a master password, an unlocked workspace that still has its own password loses it
+    /// and is protected by the master password instead.
+    fn drop_workspace_password_under_master(&self, id: &str) -> StoreResult<()> {
+        let scope = workspace_scope(id)?;
+        if !self.app_protected() || !self.scope_status(&scope).is_some_and(|s| s.own_password && s.unlocked) {
+            return Ok(());
+        }
+        let staged = self.ks.remove_password(&scope)?;
+        self.complete_rotations(staged)?;
+        self.with_main(|conn| {
+            conn.execute("UPDATE workspaces SET hasPassword = 0, biometric_enabled = 0, updated_at = ? WHERE id = ?", &[now_ms().into(), id.into()])?;
+            Ok(())
+        })
     }
 
     fn migrate_legacy_workspace(&self, id: &str, password: &str) -> StoreResult<()> {
@@ -768,7 +842,8 @@ impl<D: Device> Store<D> {
             let _ = self.ks.delete_scope(&scope);
             return Err(error);
         }
-        self.mount(id)
+        self.mount(id)?;
+        self.drop_workspace_password_under_master(id)
     }
 
     /// One Touch ID / Windows Hello prompt per workspace that has it enabled (see store.d.ts).
@@ -890,3 +965,14 @@ pub(crate) fn remove_database(path: &Path) {
     }
 }
 
+
+/// The keystore's backend ids as store.d.ts names them.
+fn public_backend(id: Option<&str>) -> &'static str {
+    match id {
+        Some("macos-se") => "secure-enclave",
+        Some("macos-keychain") => "keychain",
+        Some("windows-tpm") => "tpm",
+        Some("windows-dpapi") => "dpapi",
+        _ => "unsupported",
+    }
+}

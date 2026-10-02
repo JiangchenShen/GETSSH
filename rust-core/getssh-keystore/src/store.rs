@@ -1685,6 +1685,14 @@ impl<D: Device> Keystore<D> {
         Ok(value)
     }
 
+    /// Whether a reveal session covers `scope_id`, without extending it.
+    pub fn reveal_active(&self, scope_id: &str) -> Result<bool, KsError> {
+        let st = self.state();
+        let policy = Self::current_policy(&st).ok_or(KsError::NotInitialized)?;
+        let domain = reveal_domain(&policy, st.keyring.as_ref().ok_or(KsError::NotInitialized)?, scope_id)?;
+        Ok(st.reveal.get(&domain).is_some_and(|last| self.now().saturating_duration_since(*last) < REVEAL_IDLE))
+    }
+
     pub fn close_reveal(&self) {
         self.state().reveal.clear();
     }
