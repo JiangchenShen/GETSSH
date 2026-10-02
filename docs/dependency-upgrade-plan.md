@@ -4,6 +4,66 @@
 > 依据：`pnpm outdated`、`pnpm audit`、`cargo update --dry-run`、`cargo metadata`、`releases.electronjs.org`、各包官方 changelog，以及仓库代码检索（所有影响都标了代码位置）。
 > 本文取代 `dependency-update-report.md` 和 `dependency-licenses.md` 中有误的结论，那两份报告的勘误见文末。
 
+## 〇、执行结果（2026-10-02）
+
+阶段 0、阶段 1、阶段 2 的依赖部分已全部完成，分支 `chore/deps-leap`，已合入本地 `v3-next`。
+
+**npm**
+- Electron 42.3.0 → **44.5.1**。最低系统要求改为 macOS 13，Windows 不变。
+- `better-sqlite3-multiple-ciphers` 12 → **13.0.3**，改用 N-API 预编译文件。
+  - 用 12.x 写的三种库都能用 13 打开：原始密钥、口令、换过钥匙的库。
+  - 13.0.3 的类型导出有缺陷，在 `tsconfig.node.json` 里用 `paths` 绕过，等 13.0.4 发布后删掉。
+- TypeScript 6 → **7.0.2**。
+- 其他：
+  - vite 8.3.1、vitest 5、jsdom 30、vite-plugin-electron 1.1；
+  - React 19.3、framer-motion 13.4.6（锁死版本）、lucide-react 1.49；
+  - electron-builder 26.15.3、electron-updater 6.8.9、adm-zip 0.6.1；
+  - 所有 crate 的 `@napi-rs/cli` 统一到 3。
+- 间接依赖用 override 或更新修掉：js-yaml、tar、undici、xmldom、form-data、ip-address、brace-expansion。`pnpm audit`：0 个漏洞。
+- 删掉了未使用的依赖：dompurify、@testing-library/*、@types/better-sqlite3、@vitest/coverage-v8、vite-plugin-electron-renderer，以及根目录的 `package-lock.json`。
+- `@types/node` 有意停在 24，因为 Electron 44 内置的是 Node 24。
+
+**Rust**
+- `cargo update`：108 个 crate 在兼容范围内更新。
+- 所有模块统一到 napi 3.14 / napi-derive 3.6。
+  - 原先 vault、sysprobe、unarchive、sftp-stream 四个模块提交的 `index.d.ts` 是空的，现在有了真实签名。
+- 大版本升级：
+  - sysinfo 0.39、tree-sitter 0.27、rusqlite 0.40、zip 8.6；
+  - windows 0.62（Windows 的设备密钥代码）；
+  - RustCrypto 全家：aes-gcm 0.11、argon2 0.6、hkdf 0.13、sha2 0.11、p256 0.14、pbkdf2 0.13、rand 0.10、base64 0.23。
+- `windows-future` 必须和 `windows` 0.62 配套，所以停在 0.3。
+
+**升级附带的代码修改**
+- 剪贴板改为 `await`。
+- 选私钥的对话框默认打开 `~/.ssh`。
+- Node 24.21 读不到上级 `package.json` 会直接报错，所以插件 worker 目录自带一个 `package.json`。
+- 只打包当前平台的 bsmc 预编译文件。
+- 构建脚本改用 `--no-js`。
+- AES-GCM 的 nonce 长度不对时，原来会 panic，现在当作认证失败处理。
+
+**兼容性保护**
+- 新增 `getssh-keystore/tests/fixtures/golden`：保存了旧版本写出的 keyring、恢复码、封装字段和各个密码学原语的输出。以后任何版本都必须能打开它们，并推出相同的钥匙。
+- vault 新增 V1、V2 两种旧文件的解密测试。
+- 在这台 Mac 的 Secure Enclave 上做了实测：旧版本创建的数据，新版本能打开，包括设备密钥、工作区密码和主密码三种情况。
+
+**已验证（macOS arm64）**
+- `tsc -b`、`vite build`；
+- `cargo test --workspace`（184 个），clippy 的 macOS 和 Windows 目标；
+- 插件隔离、插件网络、插件沙箱、MCP 沙箱、数据库加密、本地记忆、Sentinel、security vitest、keystore e2e、资产文件夹；
+- store 真假实现对照：零差异；
+- 打包启动探针：Electron 44.5.1，12 个原生模块和运行时模块全部通过。
+
+**还没做的**
+1. **Windows 实机验证**。需要推送一次，跑 CI。要验证的有：
+   - Electron 44 和 bsmc 13 的 Windows 预编译文件；
+   - 插件 `package.json` 修复在 AppContainer 下是否生效；
+   - napi 3 在 Windows 上的运行；
+   - windows 0.62 下的 TPM、DPAPI、Windows Hello。
+2. **`@xterm/addon-canvas` 0.7 只支持 xterm 5**，项目用的是 xterm 6。没开防眩光时，终端用的就是它，需要实际看一下画面（ChatGPT 负责渲染进程，交给他）。
+3. **渲染进程用的库放在了 `dependencies` 里**，例如 react-syntax-highlighter、prismjs。它们已经被 Vite 打包过一次，安装包里又带了一份 `node_modules`。可以移到 `devDependencies`，安装包能小一截。
+4. 第二节的"发布基础设施"还没做：许可证合规、`build/` 纳入 git、dependabot、在 CI 里加 audit。
+5. Electron 45 定于 10-20 发布，届时要把 `safeStorage` 改成异步调用。
+
 ## 一、先说结论
 
 1. **Electron 42 在 2026-10-20 停止维护，正好是 3.0 发布当天**（Electron 45 也定在这一天转正）。
