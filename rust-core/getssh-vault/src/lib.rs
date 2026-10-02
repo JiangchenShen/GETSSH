@@ -206,3 +206,28 @@ mod tests {
         assert_eq!(result.unwrap_err(), "Invalid V2 encrypted profile: too short");
     }
 }
+
+/// Files written by an earlier build (aes-gcm 0.10, pbkdf2 0.12, generated 2026-10-02). Every
+/// later build must still decrypt them, or exported profiles become unreadable.
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+
+    fn unhex(h: &str) -> Vec<u8> {
+        (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect()
+    }
+
+    const V2: &str = "4745545353485f5632378744bf28132d8634ea3de331fcb5f8b3e284f89fa66b63e13dd0a733b57c19f1735a777dcb07faaa7c20f9c94ffcfbdedceb8f0be49aaeed2ead6ae8f794b1ba1b8265f91d7ac86b6b2fdacf5feb63";
+    const V1: &str = "050505050505050505050505050505050606060606060606060606065d6e4c12f64bdf7ef170c6f6e37ccd08750cefb19707925903007533c8ebca2efe";
+
+    #[test]
+    fn v2_files_from_an_earlier_build_decrypt() {
+        assert_eq!(decrypt_vault_inner(b"golden vault password", &unhex(V2)).unwrap(), b"golden vault payload");
+        assert!(decrypt_vault_inner(b"wrong password", &unhex(V2)).is_err());
+    }
+
+    #[test]
+    fn v1_files_from_an_earlier_build_decrypt() {
+        assert_eq!(decrypt_vault_inner(b"golden vault password", &unhex(V1)).unwrap(), b"legacy v1 payload");
+    }
+}

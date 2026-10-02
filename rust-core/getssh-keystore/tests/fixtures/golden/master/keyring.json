@@ -1,0 +1,91 @@
+{
+  "format": 1,
+  "generation": 5,
+  "quietDevice": {
+    "id": "c7241675c4d20cbe",
+    "backend": "fake-quiet",
+    "params": {
+      "machine": "7f5a367dbdd7a3ed"
+    }
+  },
+  "recovery": {
+    "id": "6ea9ac4907b188ae",
+    "publicKey": "BBUiIPe/H390uF/dlujTJpaS5QlYbVCv9PYedsg+waNSyLviDnKeRCNLIFhelLZnZ8c+usjcnLX71NSF+/C4jv8=",
+    "mac": "x3mDyN2YCUwjfURfMMmIzuw/i6NspVViBsnwNJNyFfA="
+  },
+  "scopes": {
+    "app": {
+      "versions": [
+        {
+          "id": "6457c33e788d27cd",
+          "check": "YZYr0ONYEdf5vkArSRcnYQ==",
+          "policy": {
+            "nonce": "CBcfTKG9rObDYUIg",
+            "ciphertext": "2TagL+x3Uypa/qpyxgQdsA0="
+          },
+          "fieldKey": {
+            "nonce": "lPsK8xa6YS0BlWn3",
+            "ciphertext": "z/Z7Glxut6SfKwE1aYk3noYVzo5PmQaVRdRj0CGBiQY22CGEKaEbt/GkHxFSBYZk"
+          },
+          "wraps": [
+            {
+              "kind": "password",
+              "salt": "EkVG1JxfjWVHmuPCRNCfIA==",
+              "mKib": 8192,
+              "t": 1,
+              "p": 1,
+              "sealed": {
+                "nonce": "4TxuU/Q7M2PxnPF7",
+                "ciphertext": "mXHn4zMGNxNUQAqHbdkLqaBFsPedQkFAkxkksLCXj+4jDwOZ9U8nCpt4OAu2J7QM"
+              }
+            },
+            {
+              "kind": "recovery",
+              "recovery": "6ea9ac4907b188ae",
+              "ephemeral": "BMseSQbGFZhmdOoMFCsosLKSW/7Gv/UKFT3li9Qdds0JmlwgvFu3wKNrJ+W5UnqOpfl87IC2LZ897ZIc1cVxWAU=",
+              "sealed": {
+                "nonce": "itFQLfWU9hBwgoQY",
+                "ciphertext": "dgLV3h/KZk8iKlZ7Mwi8HkbFiLROeuAbzrbc1xA26s5usGOhWPz/OjfbxkVtcgAF"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "ws:w1": {
+      "versions": [
+        {
+          "id": "c23e18e88cc2ca7a",
+          "check": "9Jp7TU4EwtNKwGTlgzurdQ==",
+          "policy": {
+            "nonce": "jtImXFx8EedJIP9L",
+            "ciphertext": "ggcBbqwV8z81PqjfwewYILY="
+          },
+          "fieldKey": {
+            "nonce": "zfbtWt9Zl6u3v7KI",
+            "ciphertext": "Y6jm6HaOuUHxcs7TcmC+hSfYg0pthqEaWub6O4ZShwtd6WpsewSRQRPf9jP135bC"
+          },
+          "wraps": [
+            {
+              "kind": "parent",
+              "parentVersion": "6457c33e788d27cd",
+              "sealed": {
+                "nonce": "55OVCUEJWYoAkdQ/",
+                "ciphertext": "gzQLBFpKs4+wjiqDV92dXTkpnnEXacXsnPW4JzZRDDQspPw8GESRitqG3EmVgULr"
+              }
+            },
+            {
+              "kind": "recovery",
+              "recovery": "6ea9ac4907b188ae",
+              "ephemeral": "BLuY66GmRhQM6f6ofsJQICzeuQ/28LbnIKwkY1BA69pRA87BcyC7IrWzh2R5rVieqW0b6cItZcgk4Ql7GmWJLaI=",
+              "sealed": {
+                "nonce": "ESHpZtCpRfHKmVT1",
+                "ciphertext": "omhezhDjJ2I+T2BK4Qjz74Eay6X1Jkbnu/sH9Z5AF9ndtGlX1umuJ1WozCp0yMQJ"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

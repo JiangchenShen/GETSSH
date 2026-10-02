@@ -13,6 +13,8 @@ pub mod error;
 pub mod keyring;
 pub mod recovery;
 pub mod store;
+#[cfg(test)]
+mod golden_tests;
 
 #[cfg(feature = "napi")]
 pub mod napi_api;

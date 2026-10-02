@@ -1,0 +1,20 @@
+{
+  "argon2id": "83eaf6bbbbb1de039bc9dbdb36a4c3c5e3694f76a735e74bac7ddd742404f7cf",
+  "ecies_code": "73TQ-98XF-338Z-CMT3-7BJA-YNTT-8APA-QZ8T",
+  "ecies_ephemeral": "04212e64cf272d8006a398c7991bf214f28a1ecf3860146ef739d6bd0112a2aca8d4eb967b913c7e8e5f5351376660f7d5415267d8f98a284335d8bc7cd3274dae",
+  "ecies_kek": "1137dbc3d2a69cf76f4a16ea2fc1eb78756f1f3994f820f9f5f426d3b5e5c4bb",
+  "ecies_public": "04715fbf1c02948a62ec445c073512fbe2581eeb6955c37356ce82f220d4d9f75c7051ffafae78bd8928a31175af47d483c148b5c98cac7dada03db8e894842ef8",
+  "gcm_ciphertext": "7a8d137b8fada9631b0f9c79f8416207ec6e37886c30e97f156a1188cfe96ca6ad",
+  "gcm_nonce": "94fa73325fa7c44aced9bd5b",
+  "hkdf32": "fe8f9615d2374c0d17f77d1aeaf408c2e75fe0466073d0def23c733e2f862dfd",
+  "key_check": "c8966b59b2164b10587d7588ac502ae9",
+  "master_db_app": "1e0422854322d8e8eb0e4399c98dd1b6e95709a3985e2a2c746b8538d0e3f556",
+  "master_db_w1": "f41974de89ea21fa1eedaaf36fcabc892ad220de93c8a230465295ce2629ff54",
+  "master_password": "golden master password",
+  "master_sealed": "gk1:f+CIswL2EhjjiyVMdyQy8vscJ1byXixkdpg73sckys5sdKHLEJBtRQY=",
+  "recovery_code": "FH7K-VN35-T0EC-K98P-S74B-Z7ZW-RY3G-S4YM",
+  "ws_db_app": "5edd8528e4d9a7c352eaf0299cdf9bf35b7f06882a9bde5215425bae7b40785b",
+  "ws_db_p": "b52dee93be17cef379c6d932b243e4f11f77a7fe4444be71a15a77820c66be67",
+  "ws_password": "golden workspace pw",
+  "ws_sealed": "gk1:m9LC/OuCqZ+QLD4Yq5PYumxtUmP9lHhgqSs/2vHsOuSf6TNPdsDmZVzw"
+}
