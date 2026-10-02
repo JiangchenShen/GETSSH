@@ -17,9 +17,13 @@
   Runs only the steps whose names match one of these wildcards, e.g. -Only 'cargo*','keystore*'.
 
 .NOTES
-  Needs Git, Node.js 24 and the Visual Studio 2022 C++ Build Tools installed machine-wide. The
-  tests use temporary directories; the packaged-app step also runs under a temporary profile.
-  Never prompts for Windows Hello.
+  Needs Git, Node.js 24, Python 3 and the Visual Studio 2022 C++ Build Tools with the
+  Spectre-mitigated libraries, installed machine-wide: electron-builder rebuilds node-pty and
+  better-sqlite3-multiple-ciphers with node-gyp. The tests use temporary directories; the
+  packaged-app step also gets temporary profile variables (run it from an account without GETSSH
+  data to be certain). Never prompts for Windows Hello.
+  DPAPI needs a full logon: over a key-based SSH session the preflight fails, so run this through
+  a scheduled task or an interactive session.
 #>
 [CmdletBinding()]
 param(
@@ -40,6 +44,11 @@ $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:PATH"
 $env:RUST_TARGET = 'x86_64-pc-windows-msvc'
 # 8 GB machines run out of memory with one rustc per logical core.
 if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = '4' }
+# node-gyp must not pick the Microsoft Store "python.exe" placeholder.
+if (-not $env:PYTHON) {
+    $python = Get-ChildItem -Path (Join-Path $env:ProgramFiles 'Python3*\python.exe') -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1
+    if ($python) { $env:PYTHON = $python.FullName; $env:npm_config_python = $python.FullName }
+}
 
 # Runs a command line through cmd so stderr arrives as text, and returns its exit code.
 function Invoke-Native([string]$CommandLine, [string]$Directory = $Repo) {
@@ -88,6 +97,11 @@ $steps = @(
         }
         $major = [int](((& node --version) -replace '^v', '') -split '\.')[0]
         if ($major -ne 24) { Write-Host "Node $major found; GETSSH builds with Node 24"; return 1 }
+        if (-not $env:PYTHON) { Write-Host 'missing: Python 3 (node-gyp rebuilds node-pty and bsmc for Electron)'; return 1 }
+        Write-Host "python $env:PYTHON"
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        $vc = if (Test-Path $vswhere) { & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre -property installationPath } else { $null }
+        if (-not $vc) { Write-Host 'missing: MSVC C++ tools with the Spectre-mitigated libraries'; return 1 }
         Add-Type -AssemblyName System.Security
         $sealed = [Security.Cryptography.ProtectedData]::Protect([byte[]](1, 2, 3), $null, 'CurrentUser')
         $open = [Security.Cryptography.ProtectedData]::Unprotect($sealed, $null, 'CurrentUser')
@@ -117,7 +131,8 @@ $steps = @(
     } }
     @{ Name = 'package';              Run = { Invoke-Native 'pnpm exec electron-builder --publish never --dir --win --x64' $Client } }
     @{ Name = 'packaged-startup';     Run = {
-        # The real app binary runs here: give it a throwaway profile.
+        # The real app binary runs here: point the profile variables at a throwaway folder. Electron
+        # may still resolve some known folders through the shell, hence the account advice above.
         $tempHome = Join-Path $env:TEMP ("getssh-verify-home-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Force -Path (Join-Path $tempHome 'AppData\Roaming'), (Join-Path $tempHome 'AppData\Local') | Out-Null
         $saved = @{ USERPROFILE = $env:USERPROFILE; HOME = $env:HOME; APPDATA = $env:APPDATA; LOCALAPPDATA = $env:LOCALAPPDATA }
