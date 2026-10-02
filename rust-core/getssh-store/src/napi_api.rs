@@ -13,11 +13,14 @@ use napi_derive::napi;
 use zeroize::Zeroizing;
 
 use crate::error::{Code, StoreError, StoreResult};
+use crate::bundle::ExportCandidate as RsExportCandidate;
 use crate::profiles::{Profile as RsProfile, ProfileInput as RsProfileInput, SecretField, SecretUpdate};
 use crate::store::{AppStateInfo, Store, UnlockRoute, WorkspaceChanges, WorkspaceInfo};
 
 static STORE: OnceLock<Store<PlatformDevice>> = OnceLock::new();
 static CONFIGURE: Mutex<()> = Mutex::new(());
+/// Written into export bundles ("made by GETSSH x.y.z").
+static APP_VERSION: OnceLock<String> = OnceLock::new();
 
 fn js_error(error: StoreError) -> napi::Error {
     napi::Error::from_reason(error.to_string())
@@ -110,8 +113,11 @@ fn route(input: UnlockRouteJs) -> StoreResult<UnlockRoute> {
 }
 
 #[napi]
-pub fn configure(base_dir: String) -> napi::Result<()> {
+pub fn configure(base_dir: String, app_version: Option<String>) -> napi::Result<()> {
     let _guard = CONFIGURE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(version) = app_version {
+        let _ = APP_VERSION.set(version);
+    }
     let base = PathBuf::from(&base_dir);
     if let Some(existing) = STORE.get() {
         if existing.base() == base {
@@ -565,4 +571,110 @@ pub fn get_global_setting(key: String) -> napi::Result<Option<String>> {
 #[napi]
 pub fn set_global_setting(key: String, value: String) -> napi::Result<()> {
     sync(|s| s.set_global_setting(&key, &value))
+}
+
+// ───────────────────────────── export and import ─────────────────────────────
+
+#[napi(object)]
+pub struct ExportCandidate {
+    pub id: String,
+    pub name: String,
+    #[napi(js_name = "is_main")]
+    pub is_main: bool,
+    #[napi(ts_type = "'open' | 'locked'")]
+    pub state: String,
+    #[napi(ts_type = "Array<'presence' | 'password'>")]
+    pub unlock_with: Vec<String>,
+    pub profile_count: i64,
+}
+
+impl From<RsExportCandidate> for ExportCandidate {
+    fn from(c: RsExportCandidate) -> Self {
+        ExportCandidate {
+            id: c.id,
+            name: c.name,
+            is_main: c.is_main,
+            state: if c.open { "open" } else { "locked" }.into(),
+            unlock_with: c.unlock_with.into_iter().map(String::from).collect(),
+            profile_count: c.profile_count,
+        }
+    }
+}
+
+#[napi]
+pub fn export_candidates() -> napi::Result<Vec<ExportCandidate>> {
+    sync(|s| Ok(s.export_candidates()?.into_iter().map(ExportCandidate::from).collect()))
+}
+
+fn absolute(path: String) -> StoreResult<PathBuf> {
+    let path = PathBuf::from(path);
+    if !path.is_absolute() || path.file_name().is_none() {
+        return Err(StoreError::invalid("the backup path must be an absolute file path"));
+    }
+    Ok(path)
+}
+
+#[napi(object)]
+pub struct ExportReport {
+    pub path: String,
+    pub workspace_ids: Vec<String>,
+    pub bytes: f64,
+}
+
+#[napi(ts_return_type = "Promise<ExportReport>")]
+pub fn export_bundle(path: String, password: String, workspace_ids: Vec<String>) -> AsyncTask<Job<ExportReport>> {
+    let password = Zeroizing::new(password);
+    job(move |s| {
+        let path = absolute(path)?;
+        let version = APP_VERSION.get().map(String::as_str).unwrap_or("unknown");
+        let r = s.export_bundle(&path, &password, &workspace_ids, version)?;
+        Ok(ExportReport { path: r.path.to_string_lossy().into_owned(), workspace_ids: r.workspace_ids, bytes: r.bytes as f64 })
+    })
+}
+
+#[napi(object)]
+pub struct BundleWorkspace {
+    pub id: String,
+    pub name: String,
+    pub has_password: bool,
+}
+
+#[napi(object)]
+pub struct BundleInfo {
+    pub format_version: u32,
+    pub created_at: f64,
+    pub app_version: String,
+    pub workspaces: Vec<BundleWorkspace>,
+}
+
+#[napi(ts_return_type = "Promise<BundleInfo>")]
+pub fn inspect_bundle(path: String, password: String) -> AsyncTask<Job<BundleInfo>> {
+    let password = Zeroizing::new(password);
+    job(move |s| {
+        let info = s.inspect_bundle(&absolute(path)?, &password)?;
+        Ok(BundleInfo {
+            format_version: info.format_version.into(),
+            created_at: info.created_at as f64,
+            app_version: info.app_version,
+            workspaces: info.workspaces.into_iter().map(|w| BundleWorkspace { id: w.id, name: w.name, has_password: w.has_password }).collect(),
+        })
+    })
+}
+
+#[napi(object)]
+pub struct ImportReport {
+    pub workspace_ids: Vec<String>,
+    pub backup_path: Option<String>,
+}
+
+#[napi(ts_args_type = "path: string, password: string, mode: 'replace'", ts_return_type = "Promise<ImportReport>")]
+pub fn import_bundle(path: String, password: String, mode: String) -> AsyncTask<Job<ImportReport>> {
+    let password = Zeroizing::new(password);
+    job(move |s| {
+        if mode != "replace" {
+            return Err(StoreError::invalid("3.0 imports in 'replace' mode only"));
+        }
+        let r = s.import_bundle(&absolute(path)?, &password, PlatformDevice::new())?;
+        Ok(ImportReport { workspace_ids: r.workspace_ids, backup_path: r.backup_path.map(|p| p.to_string_lossy().into_owned()) })
+    })
 }

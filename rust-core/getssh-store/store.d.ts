@@ -54,8 +54,12 @@ export type UnlockRoute =
   | { presence: string }          // the reason shown in the Touch ID / Windows Hello prompt
   | { recoveryCode: string };
 
-/** Points the store at the data directory (normally ~/.getssh). Call once, before anything else. */
-export function configure(baseDir: string): void;
+/**
+ * Points the store at the data directory (normally ~/.getssh). Call once, before anything else.
+ * `appVersion` (app.getVersion()) is written into export bundles; added after the freeze,
+ * optional, so older callers keep working.
+ */
+export function configure(baseDir: string, appVersion?: string): void;
 /** Migrates legacy data if present, then opens everything that needs no password. */
 export function start(): Promise<StartReport>;
 export function appState(): AppState;
@@ -274,11 +278,24 @@ export interface BundleInfo {
   appVersion: string;
   workspaces: { id: string; name: string; hasPassword: boolean }[];
 }
-/** Reads the encrypted header after checking the password; changes nothing. */
+/**
+ * Reads the encrypted header after checking the password; changes nothing.
+ * A wrong password and an edited header both give wrong_password; damage elsewhere gives corrupt.
+ */
 export function inspectBundle(path: string, password: string): Promise<BundleInfo>;
 export interface ImportReport { workspaceIds: string[]; backupPath: string | null }
 /**
- * 3.0 supports 'replace' only: the current data is first copied to a timestamped backup
- * directory next to ~/.getssh, then replaced. 'merge' is reserved for a later release.
+ * 3.0 supports 'replace' only. The app must be unlocked (else locked). The whole bundle is
+ * decrypted into a staging directory and every database is opened and integrity-checked before
+ * anything moves; a wrong password or a damaged bundle (wrong_password / corrupt) leaves the
+ * current data untouched. Then ~/.getssh is renamed to ~/.getssh-backup-<YYYYMMDD-HHMMSS>
+ * (backupPath) and the staged data takes its place; plugins and other files the bundle does not
+ * carry are copied over from the old directory.
+ *
+ * After it resolves, every store call fails with `unavailable`: relaunch the app
+ * (app.relaunch(); app.exit()). The imported data keeps its own master password and workspace
+ * passwords. Touch ID / Windows Hello and the recovery code are device-bound and are not carried:
+ * offer to set them up again after the restart.
+ * 'merge' is reserved for a later release.
  */
 export function importBundle(path: string, password: string, mode: 'replace'): Promise<ImportReport>;

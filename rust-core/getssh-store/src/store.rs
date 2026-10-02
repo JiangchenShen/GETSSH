@@ -134,6 +134,8 @@ pub struct Store<D: Device> {
     main: Mutex<Option<Connection>>,
     workspaces: Mutex<HashMap<String, Connection>>,
     must_change_master: AtomicBool,
+    /// Set once an import replaced the data directory: every call fails until the app restarts.
+    replaced: AtomicBool,
 }
 
 fn is_locked(error: &KsError) -> bool {
@@ -167,7 +169,14 @@ impl<D: Device> Store<D> {
     }
 
     pub fn with_keystore(ks: Keystore<D>, base: PathBuf) -> Self {
-        Store { base, ks, main: Mutex::new(None), workspaces: Mutex::new(HashMap::new()), must_change_master: AtomicBool::new(false) }
+        Store {
+            base,
+            ks,
+            main: Mutex::new(None),
+            workspaces: Mutex::new(HashMap::new()),
+            must_change_master: AtomicBool::new(false),
+            replaced: AtomicBool::new(false),
+        }
     }
 
     pub fn keystore(&self) -> &Keystore<D> {
@@ -176,6 +185,24 @@ impl<D: Device> Store<D> {
 
     pub fn base(&self) -> &Path {
         &self.base
+    }
+
+    pub(crate) fn must_change_master(&self) -> bool {
+        self.must_change_master.load(Ordering::SeqCst)
+    }
+
+    /// Closes every database and refuses all further calls (an import replaced the directory).
+    pub(crate) fn mark_replaced(&self) {
+        self.replaced.store(true, Ordering::SeqCst);
+        *self.main.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.workspaces.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    fn check_live(&self) -> StoreResult<()> {
+        if self.replaced.load(Ordering::SeqCst) {
+            return Err(StoreError::new(Code::Unavailable, "the data was replaced by an import; restart GETSSH"));
+        }
+        Ok(())
     }
 
     fn main_path(&self) -> PathBuf {
@@ -201,6 +228,7 @@ impl<D: Device> Store<D> {
     // ───────────────────────────── connections ─────────────────────────────
 
     pub(crate) fn with_main<T>(&self, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
+        self.check_live()?;
         let guard = self.main.lock().unwrap_or_else(|e| e.into_inner());
         match guard.as_ref() {
             Some(conn) => f(conn),
@@ -214,6 +242,7 @@ impl<D: Device> Store<D> {
 
     /// Runs `f` on a workspace database, mounting it first when its key is already in memory.
     pub(crate) fn with_workspace<T>(&self, id: &str, f: impl FnOnce(&Connection) -> StoreResult<T>) -> StoreResult<T> {
+        self.check_live()?;
         let scope = workspace_scope(id)?;
         if !self.is_mounted(id) {
             match self.scope_status(&scope) {
@@ -262,6 +291,7 @@ impl<D: Device> Store<D> {
 
     /// Opens a workspace database whose key is in memory.
     fn mount(&self, id: &str) -> StoreResult<()> {
+        self.check_live()?;
         if self.is_mounted(id) {
             return Ok(());
         }
@@ -295,6 +325,7 @@ impl<D: Device> Store<D> {
 
     /// Opens everything that needs no password. A first run creates the keyring and main.db.
     pub fn start(&self) -> StoreResult<StartReport> {
+        self.check_live()?;
         let keyring = self.base.join("keyring.json");
         if !keyring.exists() {
             let legacy = ["app_key.enc", "app_key.txt", "getssh.db"].iter().any(|n| self.base.join(n).exists()) || self.main_path().exists();
@@ -345,6 +376,7 @@ impl<D: Device> Store<D> {
     }
 
     pub fn unlock_app(&self, route: UnlockRoute) -> StoreResult<AppStateInfo> {
+        self.check_live()?;
         match &route {
             UnlockRoute::Password(password) => {
                 self.ks.unlock_with_password(APP, password)?;

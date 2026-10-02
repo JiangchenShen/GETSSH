@@ -535,6 +535,11 @@ impl<D: Device> Keystore<D> {
         &self.path
     }
 
+    /// The Argon2id parameters this keystore uses for new password wraps.
+    pub fn argon2_params(&self) -> Argon2Params {
+        self.argon2
+    }
+
     #[cfg(test)]
     pub fn device(&self) -> &D {
         &self.device

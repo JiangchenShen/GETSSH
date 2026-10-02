@@ -7,6 +7,7 @@
 //! S1: the vendored SQLite3 Multiple Ciphers engine and its safe wrapper (sqlite.rs).
 //! S2: the store itself (store.rs, profiles.rs); the N-API surface follows the tests.
 
+pub mod bundle;
 pub mod error;
 pub mod napi_api;
 pub mod profiles;

@@ -354,3 +354,193 @@ fn legacy_layouts_are_left_for_the_typescript_migration() {
     std::fs::write(env.dir.join("app_key.enc"), b"x").unwrap();
     assert_eq!(env.open().start().err().unwrap().code, Code::Unavailable);
 }
+
+// ───────────────────────────── export bundles ─────────────────────────────
+
+/// Removes the backup directory an import leaves next to the data directory.
+struct Backup(Option<PathBuf>);
+
+impl Drop for Backup {
+    fn drop(&mut self) {
+        if let Some(path) = &self.0 {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
+
+const BUNDLE_PASSWORD: &str = "bundle password 1";
+
+/// A source install with a main workspace, a password workspace and a setting.
+fn source_with_data(env: &Env) -> Store<FakeDevice> {
+    let store = env.started();
+    store.save_profiles("default", &[profile("web", set("web-secret"))]).unwrap();
+    store.create_workspace(Some("vault"), "Vault", None, Some("vault-pass")).unwrap();
+    store.save_profiles("vault", &[profile("db", set("db-secret"))]).unwrap();
+    store.set_global_setting("language", "zh-CN").unwrap();
+    store
+}
+
+fn export_to(store: &Store<FakeDevice>, env: &Env, ids: &[&str]) -> PathBuf {
+    let path = env.dir.join("out.getssh-backup");
+    let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    let report = store.export_bundle(&path, BUNDLE_PASSWORD, &ids, "3.0.0-test").unwrap();
+    assert_eq!(report.bytes, std::fs::metadata(&path).unwrap().len());
+    path
+}
+
+fn import_into(target: &Env, bundle: &std::path::Path) -> (Store<FakeDevice>, Backup) {
+    let store = target.started();
+    let report = store.import_bundle(bundle, BUNDLE_PASSWORD, FakeDevice::new(target.machine)).unwrap();
+    let backup = Backup(report.backup_path.clone());
+    assert_eq!(store.list_workspaces().err().unwrap().code, Code::Unavailable, "the old store refuses calls after an import");
+    drop(store);
+    (target.open(), backup)
+}
+
+#[test]
+fn a_bundle_restores_everything_on_another_computer() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    let bundle = export_to(&source, &a, &["default", "vault"]);
+    // The bundle is opaque without its password.
+    let raw = std::fs::read(&bundle).unwrap();
+    assert!(!raw.windows(10).any(|w| w == b"web-secret") && !raw.windows(5).any(|w| w == b"zh-CN"));
+
+    let info = source.inspect_bundle(&bundle, BUNDLE_PASSWORD).unwrap();
+    assert_eq!(info.app_version, "3.0.0-test");
+    assert_eq!(info.workspaces.iter().map(|w| (w.id.as_str(), w.has_password)).collect::<Vec<_>>(), [("default", false), ("vault", true)]);
+
+    let (store, backup) = import_into(&b, &bundle);
+    store.start().unwrap();
+    assert!(store.app_state().ready, "no master password: the new device key opens it quietly");
+    assert_eq!(store.connect_secrets("default", "web").unwrap().password.unwrap().as_slice(), b"web-secret");
+    assert_eq!(store.get_global_setting("language").unwrap().as_deref(), Some("zh-CN"));
+    // The workspace keeps its own password.
+    assert_eq!(store.list_profiles("vault").err().unwrap().code, Code::Locked);
+    store.unlock_workspace("vault", pw("vault-pass")).unwrap();
+    assert_eq!(store.connect_secrets("vault", "db").unwrap().password.unwrap().as_slice(), b"db-secret");
+    // The previous data of computer B is kept next to it.
+    let old = backup.0.as_ref().unwrap();
+    assert!(old.join("main.db").exists() && old.join("keyring.json").exists());
+}
+
+#[test]
+fn a_master_password_travels_with_the_bundle() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    source.unlock_workspace("vault", pw("vault-pass")).ok();
+    source.remove_workspace_password("vault", "vault-pass").unwrap();
+    source.set_master_password("correct horse battery", None).unwrap();
+    let bundle = export_to(&source, &a, &["default", "vault"]);
+
+    let (store, _backup) = import_into(&b, &bundle);
+    store.start().unwrap();
+    assert!(!store.app_state().ready && store.app_state().master_password);
+    assert_eq!(store.unlock_app(pw("bundle password 1")).err().unwrap().code, Code::WrongPassword, "the bundle password is not the master password");
+    store.unlock_app(pw("correct horse battery")).unwrap();
+    assert_eq!(store.connect_secrets("vault", "db").unwrap().password.unwrap().as_slice(), b"db-secret");
+}
+
+#[test]
+fn a_subset_export_carries_only_the_chosen_workspaces() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    source.unlock_workspace("vault", pw("vault-pass")).ok();
+    let bundle = export_to(&source, &a, &["vault"]);
+    assert!(source.list_profiles("default").is_ok(), "exporting does not touch the source");
+
+    let (store, _backup) = import_into(&b, &bundle);
+    store.start().unwrap();
+    let workspaces = store.list_workspaces().unwrap();
+    assert_eq!(workspaces.len(), 1);
+    assert!(workspaces[0].id == "vault" && workspaces[0].is_main, "the only workspace becomes main");
+    assert!(!b.dir.join("workspace_default.db").exists());
+}
+
+#[test]
+fn export_checks_its_inputs() {
+    let a = Env::new();
+    let source = source_with_data(&a);
+    drop(source);
+    let source = a.started();
+    let path = a.dir.join("x.getssh-backup");
+    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(source.export_bundle(&path, "short", &ids(&["default"]), "t").err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(source.export_bundle(&path, BUNDLE_PASSWORD, &[], "t").err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(source.export_bundle(&path, BUNDLE_PASSWORD, &ids(&["default", "default"]), "t").err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(source.export_bundle(&path, BUNDLE_PASSWORD, &ids(&["nope"]), "t").err().unwrap().code, Code::NotFound);
+    assert_eq!(source.export_bundle(&path, BUNDLE_PASSWORD, &ids(&["vault"]), "t").err().unwrap().code, Code::Locked);
+    assert!(!path.exists());
+    let candidates = source.export_candidates().unwrap();
+    let vault = candidates.iter().find(|c| c.id == "vault").unwrap();
+    assert!(!vault.open && vault.unlock_with == ["password"]);
+    assert!(candidates.iter().find(|c| c.id == "default").unwrap().profile_count == 1);
+    let own = format!(".{}-export-", a.dir.file_name().unwrap().to_string_lossy());
+    assert!(std::fs::read_dir(a.dir.parent().unwrap()).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(&own)), "staging is cleaned up");
+}
+
+/// Byte offsets of each payload chunk (length prefix included).
+fn chunk_offsets(raw: &[u8]) -> Vec<(usize, usize)> {
+    let u32_at = |at: usize| u32::from_le_bytes(raw[at..at + 4].try_into().unwrap()) as usize;
+    let mut at = 10;
+    at += 4 + u32_at(at);
+    at += 4 + u32_at(at);
+    let mut chunks = Vec::new();
+    while at < raw.len() {
+        let len = 4 + u32_at(at);
+        chunks.push((at, len));
+        at += len;
+    }
+    chunks
+}
+
+#[test]
+fn damaged_bundles_and_wrong_passwords_change_nothing() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    source.unlock_workspace("vault", pw("vault-pass")).ok();
+    let bundle = export_to(&source, &a, &["default", "vault"]);
+    let raw = std::fs::read(&bundle).unwrap();
+    let chunks = chunk_offsets(&raw);
+    assert!(chunks.len() > 2, "the test needs several chunks, got {}", chunks.len());
+    let (mid_at, mid_len) = chunks[1];
+    let (last_at, _) = *chunks.last().unwrap();
+
+    let target = b.started();
+    target.save_profiles("default", &[profile("mine", set("keep-me"))]).unwrap();
+    let damaged = b.dir.join("damaged.getssh-backup");
+    let cases: Vec<(&str, Vec<u8>, Code)> = vec![
+        ("payload byte flipped", { let mut r = raw.clone(); r[mid_at + 40] ^= 1; r }, Code::Corrupt),
+        ("last chunk dropped", raw[..last_at].to_vec(), Code::Corrupt),
+        ("a chunk removed", [&raw[..mid_at], &raw[mid_at + mid_len..]].concat(), Code::Corrupt),
+        ("chunks swapped", [&raw[..chunks[1].0], &raw[chunks[2].0..chunks[2].0 + chunks[2].1], &raw[chunks[1].0..chunks[2].0], &raw[chunks[2].0 + chunks[2].1..]].concat(), Code::Corrupt),
+        ("extra data", [&raw[..], b"x"].concat(), Code::Corrupt),
+        ("cut mid-chunk", raw[..raw.len() - 7].to_vec(), Code::Corrupt),
+        ("header edited", { let mut r = raw.clone(); let i = r.windows(5).position(|w| w == b"3.0.0").unwrap(); r[i] = b'4'; r }, Code::WrongPassword),
+        ("not a bundle", b"SQLite format 3\0".to_vec(), Code::Corrupt),
+    ];
+    for (what, bytes, code) in cases {
+        std::fs::write(&damaged, &bytes).unwrap();
+        let error = target.import_bundle(&damaged, BUNDLE_PASSWORD, FakeDevice::new(b.machine)).err().unwrap_or_else(|| panic!("{what}: imported"));
+        assert_eq!(error.code, code, "{what}: {error:?}");
+    }
+    assert_eq!(target.inspect_bundle(&bundle, "wrong password!").err().unwrap().code, Code::WrongPassword);
+    assert_eq!(target.import_bundle(&bundle, "wrong password!", FakeDevice::new(b.machine)).err().unwrap().code, Code::WrongPassword);
+    // Nothing moved: the target still works on its own data, and no staging is left behind.
+    assert_eq!(target.connect_secrets("default", "mine").unwrap().password.unwrap().as_slice(), b"keep-me");
+    let parent = b.dir.parent().unwrap();
+    let leftovers: Vec<_> = std::fs::read_dir(parent).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(&*b.dir.file_name().unwrap().to_string_lossy()) && n != &*b.dir.file_name().unwrap().to_string_lossy()).collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn a_locked_app_cannot_import() {
+    let (a, b) = (Env::new(), Env::new());
+    let source = source_with_data(&a);
+    source.unlock_workspace("vault", pw("vault-pass")).ok();
+    let bundle = export_to(&source, &a, &["default"]);
+    let target = b.started();
+    target.set_master_password("target master pw", None).unwrap();
+    target.lock_app();
+    assert_eq!(target.import_bundle(&bundle, BUNDLE_PASSWORD, FakeDevice::new(b.machine)).err().unwrap().code, Code::Locked);
+}

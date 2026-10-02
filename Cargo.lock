@@ -699,6 +699,9 @@ dependencies = [
  "napi 2.16.17",
  "napi-build",
  "napi-derive 2.16.13",
+ "serde",
+ "serde_json",
+ "sha2",
  "unicode-normalization",
  "zeroize",
 ]
