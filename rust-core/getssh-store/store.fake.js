@@ -6,8 +6,8 @@
  *   The same exports as rust-core/getssh-store/store.d.ts, the frozen interface: the same names,
  *   the same sync/async split, the same argument order, the same return shapes and the same
  *   "[store:<code>] " error messages. All data lives in this process's memory and is lost when the
- *   process exits. It lets Gemini (Electron main process) and ChatGPT (renderer UI) build and test
- *   against the interface before the Rust module exists. store.fake.test.mjs pins its behaviour.
+ *   process exits. It lets the Electron main process (Claude) and the renderer UI (Codex) be built and
+ *   tested against the interface before the Rust module exists. store.fake.test.mjs pins its behaviour.
  *
  * IT IS NOT SECURE. NEVER SHIP IT.
  *   Passwords, credentials and private keys sit in ordinary JS strings and Buffers, nothing is wiped,
@@ -16,13 +16,13 @@
  *   it. Export bundles it writes can only be read by the fake (header {"fake": true}).
  *
  * HOW TO LOAD IT
- *   Main process (Gemini), in the single place that loads the store:
+ *   Main process, in the single place that loads the store:
  *
  *     const store = process.env.GETSSH_FAKE_STORE && !app.isPackaged
  *       ? require(path.join(getRustCorePath('getssh-store'), 'store.fake.js'))
  *       : require(getRustCorePath('getssh-store'));
  *
- *   Renderer (ChatGPT): the renderer never loads the store, real or fake (this file throws if it is
+ *   Renderer: the renderer never loads the store, real or fake (this file throws if it is
  *   required in a renderer). Start the app with GETSSH_FAKE_STORE=1 so the main process runs on the
  *   fake, and pick the starting state with the variables below. Node / Vitest tests may require()
  *   this file directly (from ESM: createRequire(import.meta.url)).

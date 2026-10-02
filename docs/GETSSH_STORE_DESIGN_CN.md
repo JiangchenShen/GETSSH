@@ -1,14 +1,14 @@
 ---
 name: getssh-store
-description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结接口和三个 AI 的分工规则。修改 GETSSH 的数据库、凭据、主密码、Touch ID/Windows Hello、导出导入、DatabaseManager、keystore 或相关界面之前必须先读。
+description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结接口和协作规则。修改 GETSSH 的数据库、凭据、主密码、Touch ID/Windows Hello、导出导入、DatabaseManager、keystore 或相关界面之前必须先读。
 ---
 
 # GETSSH 3.0 加密与数据层设计（getssh-store）
 
 > 状态：**接口已冻结（2026-10-01）**，唯一的接口定义是 `rust-core/getssh-store/store.d.ts`
-> 分支：`feat/master-key-store`，集成分支 `v3-next`（都只在本地，不推送 GitHub）
-> 读者：Claude（AI-1）、Gemini（AI-2）、ChatGPT（AI-3），以及项目负责人
-> 本文件路径：`~/Documents/GETSSH/docs/GETSSH_STORE_DESIGN_CN.md`
+> 分支：`feat/master-key-store`，集成分支 `v3-next`（GitHub 上有这两个分支的旧版本；之后不再推送，除非负责人决定）
+> 读者：Claude、ChatGPT（Codex）、Gemini，以及项目负责人。分工见 [GETSSH_TEAM_CN.md](GETSSH_TEAM_CN.md)
+> 本文件路径：`/Volumes/Developer/GETSSH/docs/GETSSH_STORE_DESIGN_CN.md`
 
 ## 0. 已经拍板的决定
 
@@ -36,7 +36,7 @@ description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结�
    - 解锁后弹出不可跳过的"更换主密码"对话框；
    - 换完之前不能导出。
 10. **导入在 3.0 只做"整体替换"**（替换前自动备份），"合并"放到以后。
-11. **分工**：AI-1 = Claude，AI-2 = Gemini，AI-3 = ChatGPT（见第 8 节）。
+11. **分工**（10-02 调整）：Rust 模块和主进程接入都由 Claude 负责，存储相关的界面由 ChatGPT（Codex）负责，Gemini 负责测试（见第 8 节）。
 
 ## 1. 现状（5a8c533）
 
@@ -157,13 +157,13 @@ description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结�
 - **同步与异步**：普通读写是同步的；Argon2、换钥匙、Touch ID/Hello、导出导入返回 Promise。
 - **假实现** `rust-core/getssh-store/store.fake.js`：
   - 接口和真模块完全一样，数据只存在内存里；
-  - AI-2/AI-3 在 Rust 模块完成前用它开发和测试；
+  - 在 Rust 模块完成前，界面和测试用它开发；
   - 用法、测试开关 `__fake`，以及 `store.d.ts` 没写清楚时它的取舍，都在文件头部注释里；
   - `store.fake.test.mjs` 固定它的行为；
   - `store.conformance.mjs` 用同一套步骤分别跑真模块和假实现，比较错误码和返回值结构。每当一批函数从假实现搬到 Rust，就扩充这个脚本并跑一遍，要求零差异。
 - **导入后必须重启**：`importBundle` 成功后，模块拒绝一切调用（`unavailable`），主进程要 `app.relaunch(); app.exit()`。
 - **`configure(baseDir, appVersion?)`**：第二个参数是冻结后加的可选参数，传 `app.getVersion()`，写进导出包。
-- **改接口**：必须先改本文档和 `store.d.ts`，并通知另外两方。
+- **改接口**：必须先改本文档和 `store.d.ts`，由 Claude 提交，并通知负责人和 Codex。
 
 ## 5. 加密导出包
 
@@ -244,29 +244,29 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 旧的 2.x 数据（`app_key` / `vault.key`）迁移继续由 keystore 迁移代码处理。到 S6 时改由 Rust 用 SQLCipher 直接打开旧库，彻底去掉 bsmc。
 
-## 8. 三个 AI 的协作规则
+## 8. 协作规则（10-02 调整）
 
-1. **每个 AI 用自己的 git worktree**，例如 `git worktree add ../GETSSH-<名字> <分支>`。三个 AI 不能共用 `~/Documents/GETSSH` 这一个工作区，否则一方切分支或打包，另外两方的文件就被换掉了。9 月 30 日就发生过一次。
-2. **按目录分工，互不越界**：
+全项目的分工、worktree 和禁止事项见 [GETSSH_TEAM_CN.md](GETSSH_TEAM_CN.md)。原计划由 Gemini 做的主进程接入，改由 Claude 负责。存储层的安排如下：
 
-   | 负责方 | 范围 |
-   |---|---|
-   | AI-1：Claude | `rust-core/getssh-store/**`、`rust-core/getssh-keystore/**`、数据迁移、导出包核心、集成和合并 |
-   | AI-2：Gemini | `apps/getssh-client/electron/main/**`（`security/keystore*` 除外）：`DatabaseManager` 薄包装、各个 handler、按 id 连接、AI Key 和插件秘密迁到 `setAppSecret` |
-   | AI-3：ChatGPT | `apps/getssh-client/src/**`、`electron/preload/**`、`src/types/**`：配置编辑器（不碰秘密）、查看窗口、导出界面（勾选列表 + 一键解锁）、导入界面、强制更换主密码的对话框、私钥管理界面 |
+| 负责方 | 范围 |
+|---|---|
+| Claude | `rust-core/getssh-store/**`、`rust-core/getssh-keystore/**`；主进程接入：`DatabaseManager` 薄包装、各个 handler、按 id 连接、AI Key / 插件秘密 / MCP token 迁到 `setAppSecret`；preload 和 IPC 接口；数据迁移、导出包；集成和合并 |
+| ChatGPT（Codex） | 界面：配置编辑器（不碰秘密）、查看密码窗口、导出界面（勾选列表 + 一键解锁）、导入界面、强制更换主密码的对话框、私钥管理界面 |
+| Gemini | 测试：按第 7 节各步骤的完成标准写测试、跑测试、报问题 |
 
-3. **先冻结接口**：第 4 节确认以后，由 AI-1 提交 `store.d.ts`，再加一个纯 JS 的假实现 `store.fake.js` 供 AI-2/AI-3 先开发和测试。之后接口要改，必须先在本文档里改，再通知另外两方。
-4. 各自的分支从 `feat/master-key-store` 拉出，在本地合回这个分支，由 AI-1 合并并跑完整测试，最后整体合进 `v3-next`。**不推送 GitHub，不开 PR，不手动触发 CI。**只有必须在 Windows 上验证时，由负责人决定推送一次。
-5. 推送前必须通过：
+1. **接口已冻结**：唯一的定义是 `store.d.ts`，配有纯 JS 的假实现 `store.fake.js`。接口要改，先改本文档和 `store.d.ts`，由 Claude 提交，再通知负责人和 Codex。
+2. **分支**：Claude 在 `/Volumes/Developer/GETSSH-store` 的 `feat/master-key-store` 上开发，再合进 `v3-next`。Codex 的界面分支从 `v3-next` 拉出（见第 11 节）。不推送 GitHub，不开 PR，不手动触发 CI。
+3. **合进 `v3-next` 之前必须通过**：
    - `tsc -b`；
    - `cargo test -p getssh-store -p getssh-keystore`；
    - `npm run test:keystore-e2e`；
+   - `GETSSH_STORE_CONFORMANCE=1 node rust-core/getssh-store/store.conformance.mjs`，零差异；
    - 改到的那部分对应的测试脚本。
-6. **禁止的操作**：
-   - 在别人的分支或工作区上打包；
-   - 提交不属于自己的未跟踪文件；
-   - 碰真实的 `~/.getssh` 和系统钥匙串（测试一律用临时 HOME）；
-   - 把篡改过的钥匙材料喂给 Secure Enclave 或 TPM。
+4. **会改动磁盘数据的步骤**（主进程接入、S3、S4、S6）合进 `v3-next` 之前，先告诉负责人，等负责人备份完。负责人每天用 v3 开发版处理真实数据。
+5. **禁止的操作**：
+   - 碰真实的 `~/.getssh` 和系统钥匙串里已有的条目（测试一律用临时 HOME）；
+   - 把篡改过的钥匙材料喂给 Secure Enclave 或 TPM；
+   - 提交不属于自己的文件或别人还没提交的改动。
 
 ## 9. 时间线（3.0 定于 10 月 20 日）
 
@@ -276,9 +276,9 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | 10-06 | S1、S2 完成；配置编辑器接上新接口 |
 | 10-09 | S3、S4 完成 |
 | 10-12 | S5 完成，导出导入跑通 |
-
-10-02 进度：S1、S2 核心、S5 已完成，并已合进本地 `v3-next`。真模块和假实现的对照检查零差异。下一步是 S3。
 | 10-13 ~ 10-19 | 两个平台的 CI、打包、真机测试（Touch ID、Windows Hello、迁移你的真实数据备份）、修 bug；依赖升级阶段 0 和 Electron 的决定也在这段时间落地 |
+
+10-02 进度：S1、S2 的 Rust 部分、S5 已完成，并已合进本地 `v3-next`。真模块和假实现的对照检查零差异。主进程还没接入，仍在加载 `getssh-keystore`。下一步是 S3 和主进程接入，都由 Claude 负责。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -287,26 +287,28 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 1. 导入只做 `replace`，`merge` 以后再做。
 2. 导出时由用户勾选工作区，选完后用 Touch ID / Hello 一键解锁（第 0 节第 8 条）。
 3. 8–11 位的旧主密码强制更换（第 0 节第 9 条）。
-4. AI-2 是 Gemini，AI-3 是 ChatGPT。
+4. 分工见第 8 节（10-02 调整：主进程接入改由 Claude 负责）。
 
-## 11. Gemini 和 ChatGPT 怎么开工
+## 11. 做存储界面时怎么开工（Codex）
 
-1. **先读两份东西**：本文档，以及 `rust-core/getssh-store/store.d.ts`。
-2. **建自己的 worktree**，不要在 `~/Documents/GETSSH` 里直接改：
+1. **先读**：本文档第 0、4、5、6 节，以及 `rust-core/getssh-store/store.d.ts`。
+2. **在自己的 worktree 里开分支**，不要在 `/Volumes/Developer/GETSSH` 里直接改。`GETSSH-codex` 已经存在时，在里面运行：
 
    ```bash
-   cd ~/Documents/GETSSH
-   git worktree add ../GETSSH-gemini -b feat/store-main feat/master-key-store    # Gemini
-   git worktree add ../GETSSH-chatgpt -b feat/store-ui feat/master-key-store     # ChatGPT
-   cd ../GETSSH-<名字> && pnpm install --frozen-lockfile
+   git switch -c feat/ui-store v3-next
    ```
-3. **Rust 模块完成前**，用 `rust-core/getssh-store/store.fake.js` 代替真模块，接口完全相同：
-   - Gemini 在主进程唯一加载 store 的地方，按文件头部注释的写法，用 `GETSSH_FAKE_STORE=1` 且未打包时加载假实现；
-   - ChatGPT 的渲染进程永远不直接加载 store，真假都一样；用 `GETSSH_FAKE_STORE=1` 启动应用，用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据；
-   - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）；
-   - 截至 10-02，真模块已实现 38 个函数：生命周期、主密码、Touch ID / Hello、恢复码、工作区、服务器配置、查看窗口、全局设置、导出导入。其余 30 个是 S3：资产文件夹、Runbook、AI 会话与记忆、审计、应用秘密、SSH 私钥、`copyProfiles`。这些暂时只有假实现。
-4. **拿到别人的新进度**：`git merge feat/master-key-store`。只有 Claude 往这个分支合并代码。
-5. **完成一块就在自己的分支上提交**，然后告诉负责人分支名，由 Claude 合并。
-6. **测试一律用临时 HOME**：`HOME` / `USERPROFILE` 指向临时目录。绝不读写真实的 `~/.getssh` 和系统钥匙串。
-7. **只改自己负责的目录**（第 8 节）。需要改别人的地方，写下来交给负责人转达。
+
+   还没有时，按 [GETSSH_TEAM_CN.md](GETSSH_TEAM_CN.md) 第 2 节新建，分支名用 `feat/ui-store`。
+3. **渲染进程永远不直接加载 store**，真模块和假实现都一样。界面只通过 preload 暴露的 IPC 调用。
+   - IPC 通道和主进程里的 `GETSSH_FAKE_STORE=1` 开关由 Claude 先接好。接好之前，界面可以先按 `store.d.ts` 的数据形状做静态部分。
+   - 接好以后，用 `GETSSH_FAKE_STORE=1` 启动应用，用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据。用法写在 `store.fake.js` 的文件头部注释里。
+   - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
+   - 截至 10-02，`store.d.ts` 共 67 个函数，真模块已实现 38 个：生命周期、主密码、Touch ID / Hello、恢复码、工作区、服务器配置、查看窗口、全局设置、导出导入。其余 29 个暂时只有假实现：
+     - S3：资产文件夹（5 个）、Runbook（2 个）、AI 会话与记忆（12 个）、审计（2 个）、`copyProfiles`；
+     - S4：应用秘密（3 个）；
+     - S4 和阶段 B：SSH 私钥（4 个）。
+4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。
+5. **拿到最新进度**：`git merge v3-next`。
+6. **完成一块就在自己的分支上提交**，然后把分支名告诉负责人。
+7. **测试一律用临时 HOME**：`HOME` / `USERPROFILE` 指向临时目录，绝不读写真实的 `~/.getssh`，也不动系统钥匙串里已有的条目。
 8. **以下文件不属于任何一方，不要提交**：仓库根目录的 `GETSSH_v3.0_*.md`、`apps/getssh-client/scripts/security/` 下的 `*chaos*` 和 `*stress*` 脚本、`docs/dependency-licenses.md`、`docs/dependency-update-report.md`。
