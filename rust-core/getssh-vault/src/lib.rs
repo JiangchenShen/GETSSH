@@ -7,7 +7,7 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use napi::bindgen_prelude::*;
 use pbkdf2::pbkdf2_hmac;
-use rand::RngCore;
+use rand::Rng;
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -65,7 +65,7 @@ fn decrypt_vault_inner(master_password: &[u8], encrypted_payload: &[u8]) -> std:
     let cipher = Aes256Gcm::new_from_slice(&key.0)
         .map_err(|e| format!("Invalid key length: {}", e))?;
 
-    let nonce = Nonce::from_slice(iv);
+    let nonce = Nonce::try_from(iv).map_err(|_| "Invalid IV length".to_string())?;
 
     // aes-gcm expects `ciphertext + auth_tag` as a single slice.
     // Wrap in SensitiveBuffer so it is zeroized on drop regardless of success/failure.
@@ -78,7 +78,7 @@ fn decrypt_vault_inner(master_password: &[u8], encrypted_payload: &[u8]) -> std:
 
     // Decrypt — SensitiveBuffer is dropped (and zeroized) at end of scope.
     let mut plaintext = cipher
-        .decrypt(nonce, Payload { msg: &encrypted_data.0, aad: &[] })
+        .decrypt(&nonce, Payload { msg: &encrypted_data.0, aad: &[] })
         .map_err(|_| "Invalid master password or corrupted file".to_string())?;
 
     // We can't automatically zeroize the returned Buffer because ownership passes to Node.js.
@@ -103,7 +103,7 @@ pub fn decrypt_vault(master_password: Buffer, encrypted_payload: Buffer) -> Resu
 }
 
 fn encrypt_vault_inner(master_password: &[u8], payload: &[u8]) -> std::result::Result<Vec<u8>, String> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // V2 Format: Salt increased to 32 bytes per NIST SP 800-132.
     let mut salt = [0u8; 32];
@@ -120,13 +120,13 @@ fn encrypt_vault_inner(master_password: &[u8], payload: &[u8]) -> std::result::R
     let cipher = Aes256Gcm::new_from_slice(&key.0)
         .map_err(|e| format!("Invalid key length: {}", e))?;
 
-    let nonce = Nonce::from_slice(&iv);
+    let nonce = Nonce::from(iv);
 
     // Encrypt — wrap result in SensitiveBuffer so it is zeroized on drop
     // on ALL exit paths, including early-return error cases.
     let encrypted_data = SensitiveBuffer(
         cipher
-            .encrypt(nonce, Payload { msg: payload, aad: &[] })
+            .encrypt(&nonce, Payload { msg: payload, aad: &[] })
             .map_err(|e| format!("Encryption failed: {}", e))?,
     );
 

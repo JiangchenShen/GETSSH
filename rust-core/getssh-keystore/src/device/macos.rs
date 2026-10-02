@@ -172,7 +172,7 @@ fn keychain_load(key: &DeviceKey) -> Result<Zeroizing<Vec<u8>>, KsError> {
 }
 
 fn quiet_self_test(key: &DeviceKey) -> Result<(), KsError> {
-    let peer = p256::ecdh::EphemeralSecret::random(&mut rand_core::OsRng);
+    let peer = <p256::ecdh::EphemeralSecret as p256::elliptic_curve::Generate>::generate_from_rng(&mut crate::crypto::os_rng());
     let peer_public = crypto::p256_public_bytes(&peer.public_key());
     let enclave = se_ecdh(key, &peer_public, false, "")?;
     let expected = peer.diffie_hellman(&crypto::parse_p256_public(&recorded_public(key)?)?);
@@ -313,7 +313,7 @@ mod tests {
 
         // Another public key: the self-test fails and wraps made for it do not open.
         let mut swapped = key.clone();
-        let other = p256::SecretKey::random(&mut rand_core::OsRng);
+        let other = <p256::SecretKey as p256::elliptic_curve::Generate>::generate_from_rng(&mut crate::crypto::os_rng());
         swapped.params.insert("publicKey".into(), STANDARD.encode(crypto::p256_public_bytes(&other.public_key())));
         assert!(!device.key_usable(&swapped).unwrap());
         assert_ne!(*device.decapsulate(&swapped, &blob, b"info", "").unwrap(), *kek);

@@ -1,12 +1,14 @@
 //! Primitives: AES-256-GCM, HKDF-SHA256, Argon2id and P-256 ECIES key encapsulation.
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
+use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
 use p256::ecdh::{diffie_hellman, EphemeralSecret};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
 use p256::{PublicKey, SecretKey};
-use rand_core::{OsRng, RngCore};
+use getrandom::rand_core::UnwrapErr;
+use getrandom::SysRng;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
@@ -28,15 +30,25 @@ pub type Key32 = Zeroizing<[u8; KEY_LEN]>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthError;
 
+/// The OS random number generator for key generation. Like rand_core's former OsRng it panics if
+/// the OS cannot provide randomness: no key may ever be made from anything weaker.
+pub fn os_rng() -> UnwrapErr<SysRng> {
+    UnwrapErr(SysRng)
+}
+
+fn fill_random(out: &mut [u8]) {
+    getrandom::fill(out).expect("the OS random number generator failed");
+}
+
 pub fn random_key() -> Key32 {
     let mut key = Zeroizing::new([0u8; KEY_LEN]);
-    OsRng.fill_bytes(key.as_mut_slice());
+    fill_random(key.as_mut_slice());
     key
 }
 
 pub fn random_array<const N: usize>() -> [u8; N] {
     let mut out = [0u8; N];
-    OsRng.fill_bytes(&mut out);
+    fill_random(&mut out);
     out
 }
 
@@ -62,21 +74,19 @@ pub struct Sealed {
 }
 
 pub fn seal(key: &[u8; KEY_LEN], plaintext: &[u8], aad: &[u8]) -> Sealed {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new_from_slice(key).expect("AES-256 takes a 32-byte key");
     let nonce = random_array::<NONCE_LEN>();
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad })
+        .encrypt(&Nonce::from(nonce), Payload { msg: plaintext, aad })
         .expect("AES-GCM encryption of an in-memory buffer cannot fail");
     Sealed { nonce, ciphertext }
 }
 
 pub fn open(key: &[u8; KEY_LEN], nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> Result<Zeroizing<Vec<u8>>, AuthError> {
-    if nonce.len() != NONCE_LEN {
-        return Err(AuthError);
-    }
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let nonce = Nonce::try_from(nonce).map_err(|_| AuthError)?;
+    let cipher = Aes256Gcm::new_from_slice(key).expect("AES-256 takes a 32-byte key");
     cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+        .decrypt(&nonce, Payload { msg: ciphertext, aad })
         .map(Zeroizing::new)
         .map_err(|_| AuthError)
 }
@@ -137,7 +147,7 @@ pub fn argon2id(password: &[u8], salt: &[u8], params: Argon2Params) -> Result<Ke
 }
 
 pub fn p256_public_bytes(key: &PublicKey) -> [u8; P256_PUBLIC_LEN] {
-    let point = key.to_encoded_point(false);
+    let point = key.to_sec1_point(false);
     let mut out = [0u8; P256_PUBLIC_LEN];
     out.copy_from_slice(point.as_bytes());
     out
@@ -163,7 +173,7 @@ pub fn ecies_kek(shared_x: &[u8], ephemeral: &[u8], recipient: &[u8], info: &[u8
 /// Encapsulates a fresh KEK to `recipient` (uncompressed SEC1). Needs only the public key.
 pub fn ecies_encapsulate(recipient: &[u8], info: &[u8]) -> Result<(Key32, [u8; P256_PUBLIC_LEN]), KsError> {
     let recipient_key = parse_p256_public(recipient)?;
-    let ephemeral = EphemeralSecret::random(&mut OsRng);
+    let ephemeral = EphemeralSecret::generate_from_rng(&mut os_rng());
     let ephemeral_public = p256_public_bytes(&ephemeral.public_key());
     let shared = ephemeral.diffie_hellman(&recipient_key);
     let kek = ecies_kek(shared.raw_secret_bytes().as_slice(), &ephemeral_public, recipient, info);
@@ -204,12 +214,12 @@ mod tests {
 
     #[test]
     fn ecies_round_trip_and_binding() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate_from_rng(&mut os_rng());
         let public = p256_public_bytes(&secret.public_key());
         let (kek, ephemeral) = ecies_encapsulate(&public, b"info").unwrap();
         assert_eq!(*ecies_decapsulate(&secret, &ephemeral, b"info").unwrap(), *kek);
         assert_ne!(*ecies_decapsulate(&secret, &ephemeral, b"other").unwrap(), *kek);
-        let other = SecretKey::random(&mut OsRng);
+        let other = SecretKey::generate_from_rng(&mut os_rng());
         assert_ne!(*ecies_decapsulate(&other, &ephemeral, b"info").unwrap(), *kek);
     }
 
