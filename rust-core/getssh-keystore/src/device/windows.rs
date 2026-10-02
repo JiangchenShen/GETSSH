@@ -10,7 +10,7 @@
 //! challenge; RSASSA-PKCS1-v1_5 signatures are deterministic, so the signature is reproducible
 //! key material that exists only after the user verifies with Windows Hello.
 //!
-//! WinRT operations are awaited with blocking `.get()` calls on a fresh thread in the
+//! WinRT operations are awaited with blocking `.join()` calls on a fresh thread in the
 //! multithreaded apartment. The JS thread is a single-threaded apartment, where a blocking wait
 //! can deadlock, and libuv worker threads carry whatever apartment another addon left them in.
 
@@ -24,7 +24,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ::windows::core::{factory, w, Array, Error as WinError, Interface, HRESULT, HSTRING, PCWSTR};
-use ::windows::Foundation::IAsyncOperation;
 use ::windows::Security::Credentials::UI::{
     UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
 };
@@ -51,6 +50,7 @@ use ::windows::Win32::Security::Cryptography::{
 use ::windows::Win32::System::Com::CoIncrementMTAUsage;
 use ::windows::Win32::System::WinRT::{IBufferByteAccess, IUserConsentVerifierInterop};
 use ::windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow};
+use ::windows_future::IAsyncOperation;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -125,11 +125,11 @@ fn parent_window() -> Option<HWND> {
     if raw == 0 {
         return None;
     }
-    let window = HWND(raw);
+    let window = HWND(raw as *mut c_void);
     let mut process = 0u32;
     // SAFETY: both functions accept any handle value; a stale or foreign one makes them fail or
     // report another process, and `process` is a valid out pointer.
-    let live = unsafe { IsWindow(window).as_bool() && GetWindowThreadProcessId(window, Some(&mut process)) != 0 };
+    let live = unsafe { IsWindow(Some(window)).as_bool() && GetWindowThreadProcessId(window, Some(&mut process)) != 0 };
     (live && process == std::process::id()).then_some(window)
 }
 
@@ -262,7 +262,7 @@ impl Provider {
 impl Drop for Provider {
     fn drop(&mut self) {
         // SAFETY: the handle came from NCryptOpenStorageProvider and is released only here.
-        let _ = unsafe { NCryptFreeObject(self.0) };
+        let _ = unsafe { NCryptFreeObject(self.0.into()) };
     }
 }
 
@@ -296,13 +296,13 @@ impl TpmKey {
 
     fn finalize(&self) -> Result<(), WinError> {
         // SAFETY: the key handle is live; the value is a 4-byte buffer read during the call.
-        unsafe { NCryptSetProperty(self.handle, NCRYPT_LENGTH_PROPERTY, &RSA_BITS.to_le_bytes(), NCRYPT_FLAGS(0)) }?;
+        unsafe { NCryptSetProperty(self.handle.into(), NCRYPT_LENGTH_PROPERTY, &RSA_BITS.to_le_bytes(), NCRYPT_FLAGS(0)) }?;
         // Decrypting the device secret is all the key is for. Not every TPM driver takes this
         // property; without it the key keeps the provider's default usage.
         // SAFETY: as above.
         let _ = unsafe {
             NCryptSetProperty(
-                self.handle,
+                self.handle.into(),
                 NCRYPT_KEY_USAGE_PROPERTY,
                 &NCRYPT_ALLOW_DECRYPT_FLAG.to_le_bytes(),
                 NCRYPT_FLAGS(0),
@@ -375,7 +375,7 @@ impl Drop for TpmKey {
         if self.handle.0 != 0 {
             // SAFETY: the handle came from NCryptCreatePersistedKey or NCryptOpenKey and is
             // released only here.
-            let _ = unsafe { NCryptFreeObject(self.handle) };
+            let _ = unsafe { NCryptFreeObject(self.handle.into()) };
         }
     }
 }
@@ -470,7 +470,7 @@ impl Drop for LocalBlob {
         // released with LocalFree, as DPAPI requires, exactly once.
         unsafe {
             std::slice::from_raw_parts_mut(self.0.pbData, self.0.cbData as usize).zeroize();
-            let _ = LocalFree(HLOCAL(self.0.pbData.cast()));
+            let _ = LocalFree(Some(HLOCAL(self.0.pbData.cast())));
         }
     }
 }
@@ -634,8 +634,8 @@ impl DialogRaiser {
                 let deadline = Instant::now() + DIALOG_RAISE_FOR;
                 while !flag.load(Ordering::SeqCst) && Instant::now() < deadline {
                     // SAFETY: the class name is a static NUL-terminated string; no window name.
-                    let dialog = unsafe { FindWindowW(DIALOG_CLASS, PCWSTR::null()) };
-                    if dialog.0 != 0 {
+                    // A missing window is an error since windows 0.58.
+                    if let Ok(dialog) = unsafe { FindWindowW(DIALOG_CLASS, PCWSTR::null()) } {
                         // SAFETY: accepts any handle; a window that just closed only makes it fail.
                         let _ = unsafe { SetForegroundWindow(dialog) };
                         return;
@@ -714,7 +714,7 @@ impl HelloParams {
 /// credential re-created under the same name is another key.
 fn open_credential(params: &HelloParams) -> Result<(KeyCredential, IBuffer), KsError> {
     let failed = |e: WinError| winrt_error("opening the Windows Hello key", &e);
-    let result = KeyCredentialManager::OpenAsync(&params.name).and_then(|op| op.get()).map_err(failed)?;
+    let result = KeyCredentialManager::OpenAsync(&params.name).and_then(|op| op.join()).map_err(failed)?;
     credential_status(result.Status().map_err(failed)?)?;
     let credential = result.Credential().map_err(failed)?;
     let public_key = credential.RetrievePublicKeyWithDefaultBlobType().map_err(failed)?;
@@ -742,7 +742,7 @@ fn hello_signature(key: &DeviceKey, challenge: &[u8]) -> Result<Zeroizing<Vec<u8
         let data = CryptographicBuffer::CreateFromByteArray(challenge).map_err(failed)?;
         let result = {
             let _raise = DialogRaiser::start();
-            credential.RequestSignAsync(&data).and_then(|op| op.get())
+            credential.RequestSignAsync(&data).and_then(|op| op.join())
         }
         .map_err(failed)?;
         credential_status(result.Status().map_err(failed)?)?;
@@ -767,7 +767,7 @@ fn create_hello_key() -> Result<DeviceKey, KsError> {
     let name = new_key_name(HELLO_KEY_PREFIX);
     let public_key_sha256 = in_mta(|| {
         let supported = KeyCredentialManager::IsSupportedAsync()
-            .and_then(|op| op.get())
+            .and_then(|op| op.join())
             .map_err(|e| winrt_error("checking for Windows Hello", &e))?;
         if !supported {
             return Err(KsError::Unavailable("Windows Hello is not set up for this user".into()));
@@ -777,7 +777,7 @@ fn create_hello_key() -> Result<DeviceKey, KsError> {
         let result = {
             let _raise = DialogRaiser::start();
             KeyCredentialManager::RequestCreateAsync(&hname, KeyCredentialCreationOption::FailIfExists)
-                .and_then(|op| op.get())
+                .and_then(|op| op.join())
         }
         .map_err(failed)?;
         credential_status(result.Status().map_err(failed)?).map_err(|e| match e {
@@ -791,7 +791,7 @@ fn create_hello_key() -> Result<DeviceKey, KsError> {
         match public_key {
             Ok(bytes) if !bytes.is_empty() => Ok(crypto::to_hex(&Sha256::digest(bytes.as_slice()))),
             _ => {
-                let _ = KeyCredentialManager::DeleteAsync(&hname).and_then(|op| op.get());
+                let _ = KeyCredentialManager::DeleteAsync(&hname).and_then(|op| op.join());
                 Err(KsError::Unavailable("reading the new Windows Hello key failed".into()))
             }
         }
@@ -807,18 +807,18 @@ fn delete_hello_key(key: &DeviceKey) {
     let Ok(params) = HelloParams::of(key) else { return };
     let _ = in_mta(|| {
         open_credential(&params)?;
-        let _ = KeyCredentialManager::DeleteAsync(&params.name).and_then(|op| op.get());
+        let _ = KeyCredentialManager::DeleteAsync(&params.name).and_then(|op| op.join());
         Ok(())
     });
 }
 
 fn probe_presence() -> bool {
     ensure_mta();
-    let verifier = UserConsentVerifier::CheckAvailabilityAsync().and_then(|op| op.get());
+    let verifier = UserConsentVerifier::CheckAvailabilityAsync().and_then(|op| op.join());
     if !matches!(verifier, Ok(UserConsentVerifierAvailability::Available)) {
         return false;
     }
-    matches!(KeyCredentialManager::IsSupportedAsync().and_then(|op| op.get()), Ok(true))
+    matches!(KeyCredentialManager::IsSupportedAsync().and_then(|op| op.join()), Ok(true))
 }
 
 struct PresenceCache {
@@ -930,16 +930,16 @@ impl Device for PlatformDevice {
                     // SAFETY: `window` is a live window of this process and `message` a valid
                     // HSTRING; the requested interface is the operation type the method returns.
                     let operation = unsafe {
-                        interop.RequestVerificationForWindowAsync::<_, IAsyncOperation<UserConsentVerificationResult>>(
+                        interop.RequestVerificationForWindowAsync::<IAsyncOperation<UserConsentVerificationResult>>(
                             window, &message,
                         )
                     }
                     .map_err(failed)?;
-                    operation.get()
+                    operation.join()
                 }
                 None => {
                     let _raise = DialogRaiser::start();
-                    UserConsentVerifier::RequestVerificationAsync(&message).and_then(|op| op.get())
+                    UserConsentVerifier::RequestVerificationAsync(&message).and_then(|op| op.join())
                 }
             }
             .map_err(failed)?;

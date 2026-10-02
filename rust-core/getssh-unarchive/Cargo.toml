@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "3.14.0", features = ["tokio_rt"] }
 napi-derive = "3.6.10"
-zip = { version = "2.2.0", default-features = false, features = ["deflate", "bzip2", "time"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs", "bzip2", "time"] }
 tokio = { version = "1.0", features = ["fs", "rt"] }
 
 [build-dependencies]

@@ -323,7 +323,7 @@ fn append_shape(node: Node<'_>, field: Option<&str>, shape: &mut Vec<String>) {
     ));
     for index in 0..node.child_count() {
         if let Some(child) = node.child(index) {
-            append_shape(child, node.field_name_for_child(index as u32), shape);
+            append_shape(child, node.field_name_for_child(index), shape);
         }
     }
 }
