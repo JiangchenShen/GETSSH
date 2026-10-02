@@ -9,7 +9,12 @@
     "isolatedModules": true,
     "strict": true,
     "emitDeclarationOnly": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      // better-sqlite3-multiple-ciphers 13.0.3 ships index.d.ts but has no "types" condition in
+      // "exports" (fixed in 13.0.4). Drop this once 13.0.4 is released.
+      "better-sqlite3-multiple-ciphers": ["./node_modules/better-sqlite3-multiple-ciphers/index.d.ts"]
+    }
   },
-  "include": ["vite.config.ts", "electron", "src/types/**/*"]
+  "include": ["vite.config.mts", "electron", "src/types/**/*"]
 }

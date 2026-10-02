@@ -11,6 +11,6 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.0"
+    "@napi-rs/cli": "^3.10.5"
   }
 }

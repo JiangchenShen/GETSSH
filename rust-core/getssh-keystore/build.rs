@@ -33,7 +33,7 @@ fn build_swift_shim() {
     "x86_64" => "x86_64",
     other => panic!("unsupported macOS architecture {other}"),
   };
-  let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "12.0".to_string());
+  let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "13.0".to_string());
   let sdk = xcrun(&["--sdk", "macosx", "--show-sdk-path"]);
   let swiftc = xcrun(&["--sdk", "macosx", "-f", "swiftc"]);
   let library = out_dir.join("libgetssh_keystore_shim.a");

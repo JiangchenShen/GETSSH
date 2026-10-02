@@ -51,7 +51,7 @@ for (const mod of modules) {
     const isPlatform = pkg.napi ? '--platform' : '';
     
     const featureArgs = features[mod] ? `--features ${features[mod]}` : '';
-    execSync(`pnpm exec napi build ${isPlatform} --release --target ${target} --js false ${featureArgs}`, {
+    execSync(`pnpm exec napi build ${isPlatform} --release --target ${target} --no-js ${featureArgs}`, {
       cwd, 
       stdio: 'inherit',
       shell: true 

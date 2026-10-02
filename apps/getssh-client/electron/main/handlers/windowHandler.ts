@@ -1,5 +1,7 @@
 import { dialog, Menu, BrowserWindow, shell, app, nativeTheme } from 'electron';
+import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import { windowForSender } from '../windowRegistry';
 
 export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => BrowserWindow | null) {
@@ -7,8 +9,11 @@ export function registerWindowHandlers(ipcMain: Electron.IpcMain, getWin: () => 
   ipcMain.handle('select-file', async (event) => {
     const win = windowForSender(event.sender) ?? getWin();
     if (!win) return null;
+    // Since Electron 43 a dialog without defaultPath opens in ~/Downloads; keys live in ~/.ssh.
+    const sshDir = path.join(os.homedir(), '.ssh');
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Select Private Key',
+      defaultPath: fs.existsSync(sshDir) ? sshDir : os.homedir(),
       properties: ['openFile', 'showHiddenFiles']
     });
     if (!canceled) {

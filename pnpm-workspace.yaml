@@ -8,10 +8,15 @@ allowBuilds:
 ignoreScripts: false
 ignoredOptionalDependencies:
   - cpu-features
-minimumReleaseAgeExclude:
-  - lucide-react@1.17.0
 packages:
   - '.'
   - 'rust-core/*'
   - 'apps/*'
   - 'packages/*'
+overrides:
+  # Security fixes the direct dependencies do not pull in yet (docs/dependency-upgrade-plan.md).
+  js-yaml@^4: ^4.3.2
+  # Electron 44 needs node-abi 4.33+, or install-app-deps cannot detect its ABI.
+  node-abi@^4: ^4.35.0
+minimumReleaseAgeExclude:
+  - '@types/node@24.19.1'
