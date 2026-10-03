@@ -30,6 +30,18 @@ function workspaceLockInfo(workspace: Workspace | undefined) {
   };
 }
 
+/**
+ * Creates a workspace's folder (~/.getssh/workspaces/<id>) when it is missing. The store creates
+ * a workspace's database but not this folder, so the MAIN workspace of a fresh install has none.
+ */
+async function ensureWorkspaceDir(workspaceId: string): Promise<void> {
+  const dir = resolveWorkspaceDir(workspaceId);
+  if (fs.existsSync(dir)) return;
+  await nexusBridge.bootstrapWorkspace(workspaceId);
+  // Without nexus-core the folder is still needed: switching checks for it.
+  if (!fs.existsSync(dir)) await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
+}
+
 function parsePreferences(text: string | null | undefined): Record<string, unknown> {
   try {
     return text ? JSON.parse(text) : {};
@@ -231,12 +243,12 @@ export function setupWorkspaceHandlers() {
       const getsshRoot = path.join(os.homedir(), '.getssh');
       const wsPath = resolveWorkspaceDir(targetWorkspaceId);
 
-      // Check if target exists
-      try {
-        await fs.promises.access(wsPath);
-      } catch {
-        // If not, we can either reject or bootstrap. Let's just reject.
-        throw new Error(`Target workspace sandbox does not exist: ${targetWorkspaceId}`);
+      // A workspace the store lists gets its folder back; any other id is refused.
+      if (!fs.existsSync(wsPath)) {
+        if (!DatabaseManager.getWorkspace(targetWorkspaceId)) {
+          throw new Error(`Target workspace sandbox does not exist: ${targetWorkspaceId}`);
+        }
+        await ensureWorkspaceDir(targetWorkspaceId);
       }
 
       // ==========================================
@@ -348,14 +360,15 @@ export async function bootstrapAppWorkspace() {
     }
 
     if (!config.active_workspace) {
-      console.log('[Workspace] No active workspace found. Auto-bootstrapping default sandbox...');
-      await nexusBridge.bootstrapWorkspace('default');
+      console.log('[Workspace] No active workspace found. Using the default workspace.');
       config.active_workspace = 'default';
       await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      console.log('[Workspace] Global configuration updated to use default');
     } else {
       console.log(`[Workspace] Active workspace confirmed: ${config.active_workspace}`);
     }
+    await ensureWorkspaceDir(config.active_workspace).catch(error => {
+      console.warn(`[Workspace] Could not create the folder of ${config.active_workspace}:`, error);
+    });
 
     // Note: In GETSSH 3.0, LanceDB is removed.
     // We rely on Micro Context Assembler to dynamically inject state context.

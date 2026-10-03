@@ -12,7 +12,7 @@ import Database from 'better-sqlite3-multiple-ciphers';
 import { registerAssetFolderHandlers } from '../../../electron/main/handlers/assetFolderHandler';
 import { registerCryptoHandlers } from '../../../electron/main/handlers/cryptoHandler';
 import { registerKeystoreHandlers } from '../../../electron/main/handlers/keystoreHandler';
-import { setupWorkspaceHandlers } from '../../../electron/main/handlers/workspaceHandler';
+import { bootstrapAppWorkspace, setupWorkspaceHandlers } from '../../../electron/main/handlers/workspaceHandler';
 import { DatabaseManager as DM } from '../../../electron/main/services/DatabaseManager';
 import { setMainWindow } from '../../../electron/main/windowRegistry';
 import { getStore } from '../../../electron/main/services/getsshStore';
@@ -282,6 +282,9 @@ async function run(): Promise<string> {
       // The IPC handlers the renderer uses, called as the main window would call them (a hidden
       // window; nothing is shown). Nothing here asks for Touch ID / Windows Hello.
       await appLock.start();
+      // What the app runs once the data opens: the MAIN workspace of a fresh install gets its folder.
+      await bootstrapAppWorkspace();
+      assert.ok(fs.existsSync(path.join(base, 'workspaces', 'default')), 'the default workspace folder exists');
       const win = new BrowserWindow({ show: false });
       setMainWindow(win);
       type Handler = (event: unknown, ...args: unknown[]) => any;
@@ -312,9 +315,11 @@ async function run(): Promise<string> {
       assert.deepEqual(await call('workspace:set-password', { workspaceId: 'default', password: 'main-password' }), { ok: false, error: 'main_workspace_needs_master_password' });
       assert.deepEqual(await call('workspace:set-password', { workspaceId: 'team', password: 'team-password' }), { ok: true });
 
-      // workspace:switch only enters workspaces whose folder exists (nexus-core made team's).
-      fs.mkdirSync(path.join(base, 'workspaces', 'default'), { recursive: true });
+      // A listed workspace whose folder went missing gets it back; an unknown id is refused.
+      fs.rmSync(path.join(base, 'workspaces', 'team'), { recursive: true, force: true });
+      await assert.rejects(call('workspace:switch', 'nowhere'), /does not exist/);
       const intoTeam = await call('workspace:switch', 'team');
+      assert.ok(fs.existsSync(path.join(base, 'workspaces', 'team')));
       assert.equal(intoTeam.isLocked, false);
       assert.equal(intoTeam.visualMeta.hasPassword, true);
       const backHome = await call('workspace:switch', 'default');
