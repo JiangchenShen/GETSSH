@@ -590,6 +590,27 @@ pub fn close_reveal(_workspace_id: String) -> napi::Result<()> {
     })
 }
 
+/// Sets an app-wide secret; null deletes it.
+#[napi(ts_args_type = "name: string, value: string | null")]
+pub fn set_app_secret(name: String, value: Either<String, Null>) -> napi::Result<()> {
+    let value = match value {
+        Either::A(text) => Some(Zeroizing::new(text)),
+        Either::B(_) => None,
+    };
+    sync(|s| s.set_app_secret(&name, value.as_deref().map(|v| v.as_str())))
+}
+
+/// MAIN PROCESS ONLY.
+#[napi]
+pub fn get_app_secret(name: String) -> napi::Result<Option<Buffer>> {
+    sync(|s| Ok(s.get_app_secret(&name)?.map(|v| Buffer::from(v.to_vec()))))
+}
+
+#[napi]
+pub fn list_app_secret_names(prefix: Option<String>) -> napi::Result<Vec<String>> {
+    sync(|s| s.list_app_secret_names(prefix.as_deref()))
+}
+
 // ───────────────────────────────── settings ─────────────────────────────────
 
 #[napi]

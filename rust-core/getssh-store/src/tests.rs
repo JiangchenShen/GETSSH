@@ -996,3 +996,82 @@ fn copying_keeps_the_targets_own_key_and_seals_passphrases_too() {
     let runbooks = store.get_runbooks("w2").unwrap();
     assert_eq!(runbooks.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["target"], "no runbooks without include_runbooks");
 }
+
+// ───────────────────────────── S4: app-wide secrets ─────────────────────────────
+
+#[test]
+fn app_secrets_are_sealed_listed_by_name_and_deleted_with_none() {
+    let env = Env::new();
+    let store = env.started();
+    store.set_app_secret("ai/openai", Some("sk-openai-secret")).unwrap();
+    store.set_app_secret("ai/anthropic", Some("sk-ant-secret")).unwrap();
+    store.set_app_secret("plugin/x", Some("")).unwrap();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-openai-secret");
+    assert_eq!(store.get_app_secret("plugin/x").unwrap().unwrap().as_slice(), b"", "an empty value is still a value");
+    assert!(store.get_app_secret("missing").unwrap().is_none());
+    assert_eq!(store.list_app_secret_names(None).unwrap(), ["ai/anthropic", "ai/openai", "plugin/x"]);
+    assert_eq!(store.list_app_secret_names(Some("ai/")).unwrap(), ["ai/anthropic", "ai/openai"]);
+    assert_eq!(store.list_app_secret_names(Some("")).unwrap().len(), 3);
+
+    store.set_app_secret("ai/openai", Some("sk-rotated")).unwrap();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-rotated");
+    store.set_app_secret("ai/openai", None).unwrap();
+    assert!(store.get_app_secret("ai/openai").unwrap().is_none());
+    store.set_app_secret("never-set", None).unwrap();
+
+    for bad in ["", "a\u{1}b", &"n".repeat(257)] {
+        assert_eq!(store.set_app_secret(bad, Some("v")).err().unwrap().code, Code::InvalidArgument, "{bad:?}");
+        assert_eq!(store.get_app_secret(bad).err().unwrap().code, Code::InvalidArgument);
+    }
+
+    // On disk the value is a sealed field bound to its name.
+    let raw = store.with_main(|c| Ok(c.query_row("SELECT value FROM app_secrets WHERE name = 'ai/anthropic'", &[], |r| r.text(0))?)).unwrap().unwrap();
+    assert!(raw.starts_with("gk1:") && !raw.contains("sk-ant"), "{raw}");
+    store
+        .with_main(|c| {
+            c.execute("INSERT INTO app_secrets (name, value, updated_at) VALUES ('copied', ?, 1)", &[raw.as_str().into()])?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(store.get_app_secret("copied").is_err(), "a value moved to another name does not open");
+}
+
+#[test]
+fn app_secrets_follow_the_master_password() {
+    let env = Env::new();
+    let store = env.started();
+    store.set_app_secret("ai/openai", Some("sk-1")).unwrap();
+    store.set_master_password("correct horse battery", None).unwrap();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-1", "the key rotation keeps them readable");
+    store.lock_app();
+    assert_eq!(store.get_app_secret("ai/openai").err().unwrap().code, Code::Locked);
+    assert_eq!(store.set_app_secret("ai/openai", Some("x")).err().unwrap().code, Code::Locked);
+    assert_eq!(store.list_app_secret_names(None).err().unwrap().code, Code::Locked);
+    drop(store);
+    let store = env.started();
+    store.unlock_app(pw("correct horse battery")).unwrap();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-1");
+    store.remove_master_password("correct horse battery").unwrap();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-1");
+}
+
+#[test]
+fn app_secrets_travel_in_an_export() {
+    let env = Env::new();
+    let store = source_with_data(&env);
+    store.set_app_secret("ai/openai", Some("sk-travels")).unwrap();
+    let bundle = export_to(&store, &env, &["default"]);
+    let target = Env::new();
+    let (imported, _backup) = import_into(&target, &bundle);
+    drop(imported);
+    let store = target.started();
+    assert_eq!(store.get_app_secret("ai/openai").unwrap().unwrap().as_slice(), b"sk-travels");
+}
+
+#[test]
+fn app_secrets_need_a_started_store() {
+    let env = Env::new();
+    let store = env.open();
+    assert_eq!(store.set_app_secret("a", Some("b")).err().unwrap().code, Code::NotConfigured);
+    assert_eq!(store.get_app_secret("a").err().unwrap().code, Code::NotConfigured);
+}

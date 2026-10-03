@@ -282,8 +282,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | 10-13 ~ 10-19 | 两个平台的 CI、打包、真机测试（Touch ID、Windows Hello、迁移你的真实数据备份）、修 bug；依赖升级阶段 0 和 Electron 的决定也在这段时间落地 |
 
 10-02 进度：
-- S1、S5 已完成；S2、S3 的 Rust 部分已完成。真模块和假实现的对照检查 207 步，零差异。
-- 主进程还没接入，仍在加载 `getssh-keystore`。下一步是主进程接入（S2、S3 的 TS 部分），由 Claude 负责。
+- S1、S5 已完成；S2、S3 的 Rust 部分已完成；S4 的应用秘密（`setAppSecret` 等 3 个函数）已完成，10-03。真模块和假实现的对照检查 232 步，零差异。
+- 主进程还没接入，仍在加载 `getssh-keystore`。下一步是主进程接入（S2、S3 的 TS 部分），然后是 S4 的主进程部分：AI Key、插件秘密、MCP token 和界面配置里的秘密从 `safeStorage` 搬到 `setAppSecret`，按 id 连接。都由 Claude 负责。
 - S3 的 Rust 实现里，资产文件夹的排序只做到稳定、接近原来的顺序：原来的 `DatabaseManager` 按用户的语言（`localeCompare`）排，中文环境下按拼音。主进程接入时，由 TS 那层再按 `localeCompare` 排一次。
 - 主进程接入时注意：资产桥（`workspace:bridge:importProfiles`）只复制用户勾选的 Runbook，不能用 `copyProfiles` 的 `includeRunbooks`（它复制源工作区的全部 Runbook），要用 `getRunbooks` 和 `saveRunbooks` 自己合并。
 
@@ -323,9 +323,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      Claude 下一步就是让整个应用在假实现模式下都走 store，做完后这些限制都会去掉。
    - 不开假实现时，`store` 这组通道一律返回 `unavailable`：真模块要等主进程接入以后才加载（和旧的钥匙库、数据库同时打开同一批文件会损坏数据）。界面要能处理 `unavailable`，导入完成、重启之前也会返回它。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
-   - 截至 10-02，`store.d.ts` 共 67 个函数，真模块已实现 60 个。其余 7 个暂时只有假实现：
-     - S4：应用秘密（3 个）；
-     - S4 和阶段 B：SSH 私钥（4 个）。
+   - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。其余 4 个是 SSH 私钥的导入、生成、列出、删除（阶段 B），暂时只有假实现。
 4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。
 5. **拿到最新进度**：`git merge v3-next`。
 6. **完成一块就在自己的分支上提交**，然后把分支名告诉负责人。

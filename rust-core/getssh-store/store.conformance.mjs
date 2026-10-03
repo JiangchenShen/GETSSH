@@ -69,6 +69,7 @@ if (mode !== '--child') {
   s.configure(dir, '3.0.0');
   await step('listWorkspaces before start', () => s.listWorkspaces());
   await step('getRunbooks before start', () => s.getRunbooks('default'));
+  await step('setAppSecret before start', () => s.setAppSecret('a', 'b'));
   await step('isEncryptedAiMemoryAvailable before start', () => s.isEncryptedAiMemoryAvailable(), v => v);
   await step('start', () => s.start());
   await step('appState', () => s.appState());
@@ -123,6 +124,9 @@ if (mode !== '--child') {
   await step('isEncryptedAiMemoryAvailable locked', () => s.isEncryptedAiMemoryAvailable(), v => v);
   await step('getAiMemoryVectors locked app', () => s.getAiMemoryVectors('default', 10));
   await step('getAuditLogs locked app', () => s.getAuditLogs('default'));
+  await step('setAppSecret locked', () => s.setAppSecret('ai/openai', 'x'));
+  await step('getAppSecret locked', () => s.getAppSecret('ai/openai'));
+  await step('listAppSecretNames locked', () => s.listAppSecretNames());
   await step('exportCandidates locked', () => s.exportCandidates());
   await step('unlockApp presence not enabled', () => s.unlockApp({ presence: 'r' }));
   await step('unlockApp bad route', () => s.unlockApp({ password: 'a', presence: 'b' }));
@@ -131,10 +135,30 @@ if (mode !== '--child') {
   await step('setGlobalSetting', () => s.setGlobalSetting('k', 'v'));
   await step('getGlobalSetting', () => s.getGlobalSetting('k'), v => v);
   await step('getGlobalSetting missing', () => s.getGlobalSetting('missing'), v => v);
+  await step('setAppSecret', () => s.setAppSecret('ai/openai', 'sk-openai'));
+  await step('setAppSecret 2', () => s.setAppSecret('ai/anthropic', 'sk-ant'));
+  await step('setAppSecret empty value', () => s.setAppSecret('plugin/x', ''));
+  await step('getAppSecret', () => s.getAppSecret('ai/openai'), v => [Buffer.isBuffer(v), v.toString()]);
+  await step('getAppSecret empty value', () => s.getAppSecret('plugin/x'), v => [Buffer.isBuffer(v), v.length]);
+  await step('getAppSecret missing', () => s.getAppSecret('missing'), v => v);
+  await step('listAppSecretNames', () => s.listAppSecretNames(), v => v);
+  await step('listAppSecretNames prefix', () => s.listAppSecretNames('ai/'), v => v);
+  await step('listAppSecretNames empty prefix', () => s.listAppSecretNames(''), v => v);
+  await step('listAppSecretNames null prefix', () => s.listAppSecretNames(null), v => v);
+  await step('setAppSecret overwrite', () => s.setAppSecret('ai/openai', 'sk-rotated'));
+  await step('getAppSecret overwritten', () => s.getAppSecret('ai/openai'), v => v.toString());
+  await step('setAppSecret delete', () => s.setAppSecret('plugin/x', null));
+  await step('getAppSecret deleted', () => s.getAppSecret('plugin/x'), v => v);
+  await step('setAppSecret delete missing', () => s.setAppSecret('never-set', null));
+  await step('setAppSecret empty name', () => s.setAppSecret('', 'v'));
+  await step('setAppSecret control name', () => s.setAppSecret('a\u0001b', 'v'));
+  await step('setAppSecret long name', () => s.setAppSecret('n'.repeat(257), 'v'));
+  await step('getAppSecret empty name', () => s.getAppSecret(''));
   await step('isRecoveryCodeWellFormed', () => s.isRecoveryCodeWellFormed('nope'), v => v);
   await step('removeMasterPassword wrong', () => s.removeMasterPassword('nope nope nope'));
   await step('removeMasterPassword', () => s.removeMasterPassword('correct horse battery'));
   await step('appState after remove', () => s.appState(), v => [v.phase, v.masterPassword, v.recoveryConfigured]);
+  await step('getAppSecret after master removed', () => s.getAppSecret('ai/openai'), v => v.toString());
   for (let i = 0; i < 6; i++) await step(`ws wrong ${i}`, () => s.unlockWorkspace('p1', { password: 'x-wrong-' + i }));
   await step('openReveal no route', () => s.openReveal('w1', {}));
   await step('revealSecret closed', () => s.revealSecret('w1', 'a', 'password'));
@@ -281,5 +305,6 @@ if (mode !== '--child') {
   await step('appState after import', () => s.appState(), v => v.phase);
   await step('getRunbooks after import', () => s.getRunbooks('default'));
   await step('isEncryptedAiMemoryAvailable after import', () => s.isEncryptedAiMemoryAvailable());
+  await step('getAppSecret after import', () => s.getAppSecret('ai/openai'));
   process.stdout.write(JSON.stringify(out));
 }
