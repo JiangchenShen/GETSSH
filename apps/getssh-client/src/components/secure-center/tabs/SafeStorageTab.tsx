@@ -89,8 +89,9 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
     }
   };
 
-  const createRecovery = async () => {
-    const result = await run(current => window.electronAPI.security.setupRecovery({ currentPassword: current }));
+  /** With a master password the store needs it typed (no Touch ID route): `password` is the one just set. */
+  const createRecovery = async (password?: string) => {
+    const result = await run(current => window.electronAPI.security.setupRecovery({ currentPassword: password ?? current }));
     if (result) {
       setRecoveryCode(result.code);
       setRecoverySaved(false);
@@ -115,7 +116,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
         await refresh();
         addToast(zh ? '主密码已更新' : 'Master password updated', 'success');
         // A new master password discards the old recovery code: make a new one right away.
-        if (result.recoveryReset) await createRecovery();
+        if (result.recoveryReset) await createRecovery(form.next);
         return;
       }
       case 'remove-master': {
@@ -169,7 +170,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
         </>}
         {form.kind === 'remove-master' && <p className="text-xs text-down">{zh ? '移除后，打开 GETSSH 不再需要密码；任何使用这台电脑的人都能打开没有单独密码的工作区。数据在磁盘上仍然加密。' : 'Afterwards GETSSH opens without a password and anyone using this computer can open workspaces that have no password of their own. Data on disk stays encrypted.'}</p>}
         {form.kind === 'remove-workspace' && <p className="text-xs text-down">{status?.appProtected ? (zh ? '移除后这个工作区仍受主密码保护。' : 'The workspace stays protected by the master password.') : (zh ? '移除后，任何使用这台电脑的人都能打开这个工作区。' : 'Afterwards anyone using this computer can open this workspace.')}</p>}
-        {form.kind === 'new-recovery' && <p className="text-xs text-ink-3">{zh ? '旧的恢复码会立即失效。' : 'The old recovery code stops working right away.'}</p>}
+        {form.kind === 'new-recovery' && status?.recoveryConfigured && <p className="text-xs text-ink-3">{zh ? '旧的恢复码会立即失效。' : 'The old recovery code stops working right away.'}</p>}
         {error && <p role="alert" className="text-xs text-down">{error}</p>}
         <div className="flex gap-2">
           <button type="button" onClick={() => open('none')} className={settingButtonClass}>{zh ? '取消' : 'Cancel'}</button>
@@ -204,7 +205,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       <SettingsRow label={zh ? '恢复码' : 'Recovery code'} description={status?.recoveryConfigured
         ? (status.appProtected ? (zh ? '已创建，可以打开所有数据。' : 'Created; it opens all data.') : (zh ? '已创建。未设置主密码时，它不覆盖有单独密码的工作区。' : 'Created. Without a master password it does not cover workspaces that have their own password.'))
         : (zh ? '尚未创建。没有恢复码时，换电脑或忘记密码将无法找回数据。' : 'Not created. Without one, data cannot be recovered on another computer or after a forgotten password.')}>
-        <button type="button" onClick={() => status?.recoveryConfigured ? open('new-recovery') : void createRecovery()} className={settingButtonClass}>{status?.recoveryConfigured ? (zh ? '生成新的' : 'Replace') : (zh ? '创建' : 'Create')}</button>
+        <button type="button" onClick={() => status?.recoveryConfigured || status?.appProtected ? open('new-recovery') : void createRecovery()} className={settingButtonClass}>{status?.recoveryConfigured ? (zh ? '生成新的' : 'Replace') : (zh ? '创建' : 'Create')}</button>
       </SettingsRow>
       {status?.deviceBackend && <SettingsRow label={zh ? '设备密钥' : 'Device key'} description={({
         'macos-se': 'Secure Enclave', 'macos-keychain': zh ? '登录钥匙串（此 Mac 没有 Secure Enclave）' : 'Login Keychain (this Mac has no Secure Enclave)',

@@ -15,6 +15,8 @@ use crate::store::{workspace_scope, Store};
 const PROTOCOLS: &[&str] = &["ssh", "local", "telnet", "auto"];
 const AUTH_TYPES: &[&str] = &["password", "key", "agent"];
 const MAX_TEXT: usize = 4096;
+/// Scripts run after connecting can be long; DatabaseManager.ts never limited them.
+const MAX_SCRIPT: usize = 64 * 1024;
 const MAX_SECRET_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,8 +141,8 @@ fn read_profile(row: &Row<'_, '_>) -> SqlResult<Profile> {
     })
 }
 
-fn check_text(name: &str, value: &Option<String>) -> StoreResult<()> {
-    if value.as_ref().is_some_and(|v| v.len() > MAX_TEXT || v.contains('\0')) {
+fn check_text(name: &str, value: &Option<String>, max: usize) -> StoreResult<()> {
+    if value.as_ref().is_some_and(|v| v.len() > max || v.contains('\0')) {
         return Err(StoreError::invalid(format!("{name} is too long or contains a NUL character")));
     }
     Ok(())
@@ -170,13 +172,13 @@ fn validate(input: &ProfileInput) -> StoreResult<()> {
         ("groupName", &input.group_name),
         ("proxyJump", &input.proxy_jump),
         ("initialDirectory", &input.initial_directory),
-        ("postConnectScript", &input.post_connect_script),
         ("themeOverride", &input.theme_override),
         ("keyId", &input.key_id),
         ("privateKeyPath", &input.private_key_path),
     ] {
-        check_text(name, value)?;
+        check_text(name, value, MAX_TEXT)?;
     }
+    check_text("postConnectScript", &input.post_connect_script, MAX_SCRIPT)?;
     for secret in [&input.password, &input.passphrase] {
         if let SecretUpdate::Set(value) = secret {
             if value.len() > MAX_SECRET_BYTES {

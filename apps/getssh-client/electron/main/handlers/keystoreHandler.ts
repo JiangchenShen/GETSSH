@@ -1,16 +1,16 @@
 import type { IpcMain } from 'electron';
 import { DatabaseManager } from '../services/DatabaseManager';
+import { getStore, toStoreError } from '../services/getsshStore';
 import { appLock, type UnlockRequest } from '../security/appLock';
-import { APP_SCOPE, isKeystoreError, keystore, toKeystoreError, workspaceScope } from '../security/keystore';
-import { scopeOwnerDeps } from '../security/ownerChecks';
+import { workspaceOwnerDeps } from '../security/ownerChecks';
 import { verifyOwner } from '../security/userPresence';
 import { isValidWorkspaceId } from '../utils/workspaceId';
 import { isKnownTopLevelSender, isMainWebContents } from '../windowRegistry';
 
 /**
- * App lock, master password, recovery code, Touch ID / Windows Hello and workspace passwords.
- * Only the main window may change anything; passwords arrive here because the user just typed
- * them and are never stored outside the keystore.
+ * App lock, master password, recovery code, Touch ID / Windows Hello and workspace passwords, on
+ * getssh-store. Only the main window may change anything; passwords arrive here because the user
+ * just typed them and are never stored outside the store.
  */
 
 type Failure = { ok: false; error: string; retryAfterMs?: number };
@@ -19,10 +19,17 @@ type Result<T extends object = {}> = ({ ok: true } & T) | Failure;
 
 const UNAUTHORIZED: Failure = { ok: false, error: 'unauthorized' };
 
+/**
+ * The renderer's names: a missing current password is `current_password_required` (the settings
+ * screen then shows that field); the rest are store codes.
+ */
 function failure(error: unknown): Failure {
-  const keystoreError = toKeystoreError(error);
-  if (keystoreError.code === 'internal') console.error('[Keystore IPC]', error);
-  return { ok: false, error: keystoreError.code, retryAfterMs: keystoreError.retryAfterMs };
+  const storeError = toStoreError(error);
+  if (storeError.code === 'internal') console.error('[Keystore IPC]', error);
+  const code = storeError.code === 'needs_password' || storeError.code === 'must_change_master_password'
+    ? 'current_password_required'
+    : storeError.code;
+  return { ok: false, error: code, retryAfterMs: storeError.retryAfterMs };
 }
 
 function optionalPassword(value: unknown): string | undefined {
@@ -33,45 +40,47 @@ function requiredPassword(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 && value.length <= 4096 ? value : null;
 }
 
-/** Confirms the owner before changing a protected scope: its password or an OS check. */
-async function confirmOwner(scope: string, currentPassword: unknown, reason: string): Promise<Failure | null> {
-  const outcome = await verifyOwner({ password: optionalPassword(currentPassword), reason }, scopeOwnerDeps(scope));
-  if (outcome === 'verified') return null;
-  return { ok: false, error: outcome === 'password_required' ? 'current_password_required' : 'verification_failed' };
-}
-
-/** Moves every database the keystore just staged a new key for. */
-async function applyStaged(scopes: string[]): Promise<void> {
-  for (const scope of scopes) await DatabaseManager.completeRotation(scope);
-}
-
-function setWorkspacePasswordFlag(workspaceId: string, hasPassword: boolean): void {
-  const workspace = DatabaseManager.getWorkspaces().find(entry => entry.id === workspaceId);
-  if (!workspace) return;
-  DatabaseManager.createWorkspace({ ...workspace, hasPassword: hasPassword ? 1 : 0, updated_at: Date.now() });
-}
-
-function isMainWorkspace(workspaceId: string): boolean {
-  return !!DatabaseManager.getWorkspaces().find(entry => entry.id === workspaceId)?.is_main;
-}
+/** The store's names for the device key, as the settings screen knows them. */
+const DEVICE_BACKENDS: Record<string, string | null> = {
+  'secure-enclave': 'macos-se',
+  keychain: 'macos-keychain',
+  tpm: 'windows-tpm',
+  dpapi: 'windows-dpapi',
+  unsupported: null,
+};
 
 function publicStatus() {
-  const status = keystore.status();
+  const store = getStore();
+  const state = store.appState();
+  const workspaces = store.listWorkspaces();
   return {
-    appProtected: status.appProtected,
-    recoveryConfigured: status.recoveryConfigured,
-    presenceSupported: status.presenceSupported,
-    deviceBackend: status.quietBackend ?? null,
-    scopes: status.scopes.map(scope => ({
-      id: scope.id,
-      workspaceId: scope.id === APP_SCOPE ? null : scope.id.slice('ws:'.length),
-      protected: scope.protected,
-      ownPassword: scope.ownPassword,
-      presence: scope.presence,
-      unlocked: scope.unlocked,
-      recovery: scope.recovery,
-      revealRemainingMs: scope.revealRemainingMs ?? null,
-    })),
+    appProtected: state.masterPassword,
+    recoveryConfigured: state.recoveryConfigured,
+    presenceSupported: state.presenceSupported,
+    deviceBackend: DEVICE_BACKENDS[state.deviceBackend] ?? null,
+    scopes: [
+      {
+        id: 'app',
+        workspaceId: null,
+        protected: state.masterPassword,
+        ownPassword: state.masterPassword,
+        presence: state.presenceEnabled,
+        unlocked: state.phase === 'ready',
+        recovery: state.recoveryConfigured,
+        revealRemainingMs: null,
+      },
+      ...workspaces.map(workspace => ({
+        id: `ws:${workspace.id}`,
+        workspaceId: workspace.id,
+        protected: state.masterPassword || workspace.hasPassword,
+        ownPassword: workspace.hasPassword,
+        presence: workspace.presenceEnabled,
+        unlocked: workspace.state === 'open',
+        // Without a master password the recovery code does not cover a workspace's own password.
+        recovery: state.recoveryConfigured && !workspace.hasPassword,
+        revealRemainingMs: null,
+      })),
+    ],
   };
 }
 
@@ -110,8 +119,9 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     const { reason, password } = (request ?? {}) as Record<string, unknown>;
     const text = typeof reason === 'string' && reason.length > 0 && reason.length <= 200 ? reason : 'confirm this action';
     const { getActiveWorkspaceId } = require('./workspaceHandler');
-    const denied = await confirmOwner(workspaceScope(getActiveWorkspaceId()), password, text);
-    return denied ?? { ok: true };
+    const outcome = await verifyOwner({ password: optionalPassword(password), reason: text }, workspaceOwnerDeps(getActiveWorkspaceId()));
+    if (outcome === 'verified') return { ok: true };
+    return { ok: false, error: outcome === 'password_required' ? 'current_password_required' : 'verification_failed' };
   });
 
   ipcMain.handle('security:status', event => {
@@ -119,20 +129,20 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     return publicStatus();
   });
 
+  // Setting the first master password needs nothing more (whoever is at the computer can open the
+  // data anyway); changing it needs the current one, except right after a recovery-code unlock.
   ipcMain.handle('security:set-master-password', async (event, request: unknown): Promise<Result<{ recoveryReset: boolean }>> => {
     if (!isMainWebContents(event.sender) || !appLock.isReady()) return UNAUTHORIZED;
     const { password, currentPassword } = (request ?? {}) as Record<string, unknown>;
     const next = requiredPassword(password);
     if (!next) return { ok: false, error: 'invalid_argument' };
     try {
-      const hadMaster = keystore.status().appProtected;
-      if (hadMaster) {
-        const denied = await confirmOwner(APP_SCOPE, currentPassword, 'change the GETSSH master password');
-        if (denied) return denied;
-      }
-      await applyStaged(await keystore.setPassword(APP_SCOPE, next));
+      const store = getStore();
+      const hadMaster = store.appState().masterPassword;
+      const { recoveryReset } = await store.setMasterPassword(next, optionalPassword(currentPassword));
       appLock.notifyChanged();
-      return { ok: true, recoveryReset: !hadMaster };
+      // The first master password asks for a recovery code right away, as before.
+      return { ok: true, recoveryReset: recoveryReset || !hadMaster };
     } catch (error) {
       return failure(error);
     }
@@ -140,11 +150,10 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle('security:remove-master-password', async (event, request: unknown): Promise<Result> => {
     if (!isMainWebContents(event.sender) || !appLock.isReady()) return UNAUTHORIZED;
-    const { currentPassword } = (request ?? {}) as Record<string, unknown>;
+    const current = optionalPassword(((request ?? {}) as Record<string, unknown>).currentPassword);
+    if (!current) return { ok: false, error: 'current_password_required' };
     try {
-      const denied = await confirmOwner(APP_SCOPE, currentPassword, 'remove the GETSSH master password');
-      if (denied) return denied;
-      await applyStaged(await keystore.removePassword(APP_SCOPE));
+      await getStore().removeMasterPassword(current);
       appLock.notifyChanged();
       return { ok: true };
     } catch (error) {
@@ -153,22 +162,15 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
   });
 
   /**
-   * Creates or replaces the recovery code. Without a master password anyone at the computer may
-   * use GETSSH, but replacing the code would silently invalidate the owner's copy, so the OS check
-   * is asked for wherever the OS offers one.
+   * Creates or replaces the recovery code. With a master password the current one is required;
+   * without one the store asks the OS to confirm the person where the OS can, because replacing
+   * the code silently invalidates the owner's copy.
    */
   ipcMain.handle('security:setup-recovery', async (event, request: unknown): Promise<Result<{ code: string }>> => {
     if (!isMainWebContents(event.sender) || !appLock.isReady()) return UNAUTHORIZED;
-    const { currentPassword } = (request ?? {}) as Record<string, unknown>;
+    const current = optionalPassword(((request ?? {}) as Record<string, unknown>).currentPassword);
     try {
-      const status = keystore.status();
-      if (status.appProtected) {
-        const denied = await confirmOwner(APP_SCOPE, currentPassword, 'create a new GETSSH recovery code');
-        if (denied) return denied;
-      } else if (status.presenceSupported) {
-        await keystore.verifyPresence('create a new GETSSH recovery code');
-      }
-      const code = await keystore.setupRecovery();
+      const code = await getStore().createRecoveryCode(current);
       appLock.notifyChanged();
       return { ok: true, code };
     } catch (error) {
@@ -176,19 +178,15 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     }
   });
 
+  // One switch for the app (with a master password) and every workspace that has its own password.
   ipcMain.handle('security:set-presence', async (event, request: unknown): Promise<Result> => {
     if (!isMainWebContents(event.sender) || !appLock.isReady()) return UNAUTHORIZED;
     const { workspaceId, enabled } = (request ?? {}) as Record<string, unknown>;
     if (workspaceId !== null && workspaceId !== undefined && !isValidWorkspaceId(workspaceId)) {
       return { ok: false, error: 'invalid_argument' };
     }
-    const scope = typeof workspaceId === 'string' ? workspaceScope(workspaceId) : APP_SCOPE;
     try {
-      if (enabled === true) {
-        await keystore.enablePresence(scope, scope === APP_SCOPE ? 'turn on Touch ID for GETSSH' : 'turn on Touch ID for this workspace');
-      } else {
-        await keystore.disablePresence(scope);
-      }
+      await getStore().setPresence(enabled === true, 'turn on Touch ID for GETSSH');
       appLock.notifyChanged();
       return { ok: true };
     } catch (error) {
@@ -201,19 +199,13 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     const { workspaceId, password, currentPassword } = (request ?? {}) as Record<string, unknown>;
     const next = requiredPassword(password);
     if (!isValidWorkspaceId(workspaceId) || !next) return { ok: false, error: 'invalid_argument' };
-    const scope = workspaceScope(workspaceId);
     try {
-      const status = keystore.status();
-      // Without a master password the main workspace stays open to whoever uses this computer.
-      if (!status.appProtected && isMainWorkspace(workspaceId)) return { ok: false, error: 'main_workspace_needs_master_password' };
-      const entry = status.scopes.find(s => s.id === scope);
-      if (entry?.ownPassword) {
-        const denied = await confirmOwner(scope, currentPassword, 'change the workspace password');
-        if (denied) return denied;
-      }
-      if ((await DatabaseManager.openWorkspace(workspaceId)) !== 'open') return { ok: false, error: 'locked' };
-      await applyStaged(await keystore.setPassword(scope, next));
-      setWorkspacePasswordFlag(workspaceId, true);
+      const store = getStore();
+      // A master password protects every workspace; without one the main workspace stays open
+      // to whoever uses this computer.
+      if (store.appState().masterPassword) return { ok: false, error: 'master_password_protects_workspaces' };
+      if (DatabaseManager.getWorkspace(workspaceId)?.is_main) return { ok: false, error: 'main_workspace_needs_master_password' };
+      await store.setWorkspacePassword(workspaceId, next, optionalPassword(currentPassword));
       appLock.notifyChanged();
       return { ok: true };
     } catch (error) {
@@ -225,14 +217,10 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     if (!isMainWebContents(event.sender) || !appLock.isReady()) return UNAUTHORIZED;
     const { workspaceId, currentPassword } = (request ?? {}) as Record<string, unknown>;
     if (!isValidWorkspaceId(workspaceId)) return { ok: false, error: 'invalid_argument' };
-    const scope = workspaceScope(workspaceId);
+    const current = optionalPassword(currentPassword);
+    if (!current) return { ok: false, error: 'current_password_required' };
     try {
-      const denied = await confirmOwner(scope, currentPassword, 'remove the workspace password');
-      if (denied) return denied;
-      if (!keystore.status().scopes.find(s => s.id === scope)?.unlocked) return { ok: false, error: 'locked' };
-      if ((await DatabaseManager.openWorkspace(workspaceId)) !== 'open') return { ok: false, error: 'locked' };
-      await applyStaged(await keystore.removePassword(scope));
-      setWorkspacePasswordFlag(workspaceId, false);
+      await getStore().removeWorkspacePassword(workspaceId, current);
       appLock.notifyChanged();
       return { ok: true };
     } catch (error) {
@@ -246,19 +234,18 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
     if (!isValidWorkspaceId(workspaceId)) return { ok: false, error: 'invalid_argument' };
     try {
       if ((await DatabaseManager.openWorkspace(workspaceId)) === 'open') return { ok: true };
-      let unlocked: boolean;
       if (method === 'presence') {
-        unlocked = await DatabaseManager.unlockWorkspaceWithPresence(workspaceId, 'unlock this GETSSH workspace');
+        await DatabaseManager.unlockWorkspaceWithPresence(workspaceId, 'unlock this GETSSH workspace');
       } else {
         const typed = requiredPassword(password);
         if (!typed) return { ok: false, error: 'invalid_argument' };
-        unlocked = await DatabaseManager.unlockWorkspaceWithPassword(workspaceId, typed);
-        if (!unlocked) return { ok: false, error: 'wrong_password' };
+        if (!(await DatabaseManager.unlockWorkspaceWithPassword(workspaceId, typed))) return { ok: false, error: 'wrong_password' };
       }
       appLock.notifyChanged();
-      return unlocked ? { ok: true } : { ok: false, error: 'locked' };
+      return { ok: true };
     } catch (error) {
-      if (isKeystoreError(error, 'wrong_password')) return { ok: false, error: 'wrong_password' };
+      // Touch ID / Windows Hello is not turned on for this workspace.
+      if (method === 'presence' && toStoreError(error).code === 'needs_password') return { ok: false, error: 'unavailable' };
       return failure(error);
     }
   });
@@ -266,8 +253,7 @@ export function registerKeystoreHandlers(ipcMain: IpcMain) {
   ipcMain.handle('workspace:lock', (event, workspaceId: unknown) => {
     if (!isMainWebContents(event.sender) || !isValidWorkspaceId(workspaceId)) return false;
     try {
-      keystore.lockScope(workspaceScope(workspaceId));
-      DatabaseManager.closeLockedDatabases();
+      DatabaseManager.lockWorkspace(workspaceId);
       appLock.notifyChanged();
       return true;
     } catch {

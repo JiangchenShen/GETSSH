@@ -8,17 +8,18 @@ import { getRustCorePath } from '../utils/rustCorePath';
 /**
  * The one place in the main process that loads getssh-store (docs/GETSSH_STORE_DESIGN_CN.md).
  *
- * The real module is not loaded yet. Its start() opens keyring.json and main.db, which
- * getssh-keystore and better-sqlite3-multiple-ciphers already hold; two SQLite libraries with the
- * same database files open in one process can corrupt them. It replaces both once DatabaseManager
- * moves onto the store. Until then only the in-memory fake runs, in development with
- * GETSSH_FAKE_STORE=1, so the store screens can be built; every store IPC call answers
- * `unavailable` otherwise.
+ * Normally the native module. In development, GETSSH_FAKE_STORE=1 runs the whole app on the
+ * in-memory fake instead (nothing is read from or written to ~/.getssh); packaged builds never do.
+ *
+ * Until step S6, data written before the keystore existed (GETSSH 2.x) is still moved by
+ * security/keystoreMigration.ts, with getssh-keystore and better-sqlite3-multiple-ciphers. appLock
+ * runs that migration to the end, every file closed again, before configureStore(): two SQLite
+ * libraries holding the same database files at the same time can corrupt them.
  */
 
 export type GetsshStore = typeof StoreModule;
 export type { StoreErrorCode };
-export type StoreMode = 'fake' | 'off';
+export type StoreMode = 'native' | 'fake';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -34,7 +35,7 @@ export class StoreError extends Error {
   /** For rate_limited: how long to wait before the next password attempt. */
   get retryAfterMs(): number | undefined {
     if (this.code !== 'rate_limited') return undefined;
-    const ms = Number.parseInt(this.detail, 10);
+    const ms = Number.parseInt(/\d+/.exec(this.detail)?.[0] ?? '', 10);
     return Number.isFinite(ms) ? ms : undefined;
   }
 }
@@ -49,36 +50,54 @@ export function toStoreError(error: unknown): StoreError {
   return new StoreError(match[1] as StoreErrorCode, match[2]);
 }
 
-export function storeMode(): StoreMode {
-  return process.env.GETSSH_FAKE_STORE && !app.isPackaged ? 'fake' : 'off';
+export function isStoreError(error: unknown, code: StoreErrorCode): boolean {
+  return toStoreError(error).code === code;
 }
 
-let loaded: GetsshStore | null = null;
-let starting: Promise<void> | null = null;
+export function storeMode(): StoreMode {
+  return process.env.GETSSH_FAKE_STORE && !app.isPackaged ? 'fake' : 'native';
+}
 
-/** Loads and starts the store when this build uses one. Later calls return the same promise. */
-export function startStore(): Promise<void> {
-  if (storeMode() === 'off') return Promise.resolve();
-  if (!starting) {
-    starting = (async () => {
-      const store = require(path.join(getRustCorePath('getssh-store'), 'store.fake.js')) as GetsshStore;
-      store.configure(path.join(os.homedir(), '.getssh'), app.getVersion());
-      await store.start();
-      loaded = store;
-      console.warn('[Store] Running on the in-memory fake (GETSSH_FAKE_STORE=1); nothing is saved.');
-    })();
+export function storeBaseDir(): string {
+  return path.join(os.homedir(), '.getssh');
+}
+
+/** Phase B functions the native module does not have yet: they answer `unavailable`. */
+const NOT_YET = ['importSshKey', 'generateSshKey', 'listSshKeys', 'deleteSshKey'] as const;
+
+let loaded: GetsshStore | null = null;
+
+function load(): GetsshStore {
+  if (storeMode() === 'fake') {
+    console.warn('[Store] Running on the in-memory fake (GETSSH_FAKE_STORE=1); nothing is saved.');
+    return require(path.join(getRustCorePath('getssh-store'), 'store.fake.js')) as GetsshStore;
   }
-  return starting;
+  const native = require(getRustCorePath('getssh-store')) as Record<string, unknown>;
+  const store: Record<string, unknown> = { ...native };
+  for (const name of NOT_YET) {
+    if (typeof store[name] !== 'function') {
+      store[name] = () => { throw new Error('[store:unavailable] not in this version of GETSSH'); };
+    }
+  }
+  return store as unknown as GetsshStore;
+}
+
+/** Loads the store and points it at ~/.getssh. Call once, after the legacy migration. */
+export function configureStore(): GetsshStore {
+  if (!loaded) {
+    const store = load();
+    store.configure(storeBaseDir(), app.getVersion());
+    loaded = store;
+  }
+  return loaded;
 }
 
 export function getStore(): GetsshStore {
-  if (storeMode() === 'off') throw new StoreError('unavailable', 'getssh-store is not connected yet');
   if (!loaded) throw new StoreError('not_configured', 'getssh-store has not started');
   return loaded;
 }
 
-/** Tests only: forget the loaded module so the next startStore() loads it again. */
+/** Tests only: forget the loaded module so the next configureStore() loads it again. */
 export function resetStoreForTest(): void {
   loaded = null;
-  starting = null;
 }

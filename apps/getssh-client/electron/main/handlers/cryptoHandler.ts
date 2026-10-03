@@ -2,28 +2,17 @@ import { type IpcMain, type App } from 'electron';
 import crypto from 'node:crypto';
 import { isMainWebContents } from '../windowRegistry';
 import { appLock } from '../security/appLock';
-import { isKeystoreError, keystore, toKeystoreError, workspaceScope } from '../security/keystore';
+import { DatabaseManager } from '../services/DatabaseManager';
+import { toStoreError } from '../services/getsshStore';
 
 /**
- * Profiles of the active workspace. Unlocking goes through the keystore; the renderer never
+ * Profiles of the active workspace. Unlocking goes through getssh-store; the renderer never
  * receives or keeps a workspace password.
  */
 
 function activeWorkspaceId(): string {
   const { getActiveWorkspaceId } = require('./workspaceHandler');
   return getActiveWorkspaceId();
-}
-
-function databaseManager() {
-  return require('../services/DatabaseManager').DatabaseManager;
-}
-
-function scopeStatus(workspaceId: string) {
-  try {
-    return keystore.status().scopes.find(scope => scope.id === workspaceScope(workspaceId));
-  } catch {
-    return undefined;
-  }
 }
 
 export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
@@ -33,13 +22,13 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
     if (!isMainWebContents(event.sender)) return { success: false, reason: 'unauthorized' };
     if (!appLock.isReady()) return { success: false, reason: 'locked' };
     const workspaceId = activeWorkspaceId();
-    if (!scopeStatus(workspaceId)?.presence) return { success: false, reason: 'not_enabled' };
+    if (!DatabaseManager.getWorkspace(workspaceId)?.presenceEnabled) return { success: false, reason: 'not_enabled' };
     try {
-      const unlocked = await databaseManager().unlockWorkspaceWithPresence(workspaceId, 'unlock this GETSSH workspace');
+      await DatabaseManager.unlockWorkspaceWithPresence(workspaceId, 'unlock this GETSSH workspace');
       if (activeWorkspaceId() !== workspaceId) return { success: false, reason: 'workspace_changed' };
-      return unlocked ? { success: true } : { success: false, reason: 'read_failed' };
+      return { success: true };
     } catch (error) {
-      const code = toKeystoreError(error).code;
+      const code = toStoreError(error).code;
       return { success: false, reason: code === 'cancelled' ? 'cancelled' : code === 'unavailable' ? 'unsupported' : 'read_failed' };
     }
   });
@@ -49,13 +38,13 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
     if (!appLock.isReady()) return { status: 'none', biometricEnabled: false, hasPassword: false };
     const workspaceId = activeWorkspaceId();
     try {
-      const state = await databaseManager().openWorkspace(workspaceId);
-      const scope = scopeStatus(workspaceId);
+      const state = await DatabaseManager.openWorkspace(workspaceId);
+      const workspace = DatabaseManager.getWorkspace(workspaceId);
       return {
         status: state === 'open' ? 'plain' : 'encrypted',
-        biometricEnabled: !!scope?.presence,
-        // Pre-3.0 workspaces waiting for their password have no scope yet.
-        hasPassword: scope ? scope.ownPassword : state === 'legacy',
+        biometricEnabled: !!workspace?.presenceEnabled,
+        // Pre-3.0 workspaces waiting for their password have no key scope yet.
+        hasPassword: !!workspace?.hasPassword || state === 'legacy',
       };
     } catch (error) {
       console.warn('Failed to check the workspace lock state:', error);
@@ -68,20 +57,19 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
     // Only the main window mounts workspaces and holds the profile list (torn windows never need it).
     if (!isMainWebContents(event.sender)) throw new Error('Unauthorized sender');
     if (!appLock.isReady()) throw new Error('locked');
-    const DatabaseManager = databaseManager();
     const workspaceId = activeWorkspaceId();
-    let state = await DatabaseManager.openWorkspace(workspaceId);
+    const state = await DatabaseManager.openWorkspace(workspaceId);
     if (state !== 'open') {
       if (typeof password !== 'string' || password.length === 0 || password.length > 4096) throw new Error('locked');
       let unlocked = false;
       try {
         unlocked = await DatabaseManager.unlockWorkspaceWithPassword(workspaceId, password);
       } catch (error) {
-        if (isKeystoreError(error, 'rate_limited')) throw new Error(`rate_limited:${toKeystoreError(error).retryAfterMs ?? 0}`);
+        const failure = toStoreError(error);
+        if (failure.code === 'rate_limited') throw new Error(`rate_limited:${failure.retryAfterMs ?? 0}`);
         throw error;
       }
       if (!unlocked) throw new Error('Invalid master password or corrupted file');
-      state = 'open';
       appLock.notifyChanged();
     }
     return DatabaseManager.getProfiles(workspaceId);
@@ -92,7 +80,6 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
   ipcMain.handle('save-profiles', async (event, { payload, workspaceId: requestedWorkspaceId }) => {
     if (!isMainWebContents(event.sender)) throw new Error('Unauthorized sender');
     if (!appLock.isReady()) throw new Error('locked');
-    const DatabaseManager = databaseManager();
     const workspaceId = activeWorkspaceId();
     // The list was built for another workspace (the active one changed meanwhile): never write it here.
     if (typeof requestedWorkspaceId === 'string' && requestedWorkspaceId && requestedWorkspaceId !== workspaceId) {
@@ -102,7 +89,6 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
 
     const profilesToSave = (payload as any[]).map((p: any) => ({
       id: p.id || crypto.randomUUID(),
-      workspace_id: workspaceId,
       host: p.host,
       username: p.username,
       password: p.password,
@@ -121,13 +107,12 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
       initialDirectory: p.initialDirectory,
       postConnectScript: p.postConnectScript,
       themeOverride: p.themeOverride,
+      keyId: p.keyId,
     }));
 
     if ((await DatabaseManager.openWorkspace(workspaceId)) !== 'open') throw new Error('workspace_locked');
     DatabaseManager.saveProfiles(workspaceId, profilesToSave);
-    try {
-      DatabaseManager.logAudit(workspaceId, 'Profile Saved', 'Batch Save', `${profilesToSave.length} profiles saved/updated`);
-    } catch {}
+    DatabaseManager.logAudit(workspaceId, 'Profile Saved', 'Batch Save', `${profilesToSave.length} profiles saved/updated`);
     return true;
   });
 }

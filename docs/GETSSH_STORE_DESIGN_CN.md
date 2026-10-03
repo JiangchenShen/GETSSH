@@ -281,11 +281,23 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | 10-12 | S5 完成，导出导入跑通 |
 | 10-13 ~ 10-19 | 两个平台的 CI、打包、真机测试（Touch ID、Windows Hello、迁移你的真实数据备份）、修 bug；依赖升级阶段 0 和 Electron 的决定也在这段时间落地 |
 
-10-02 进度：
-- S1、S5 已完成；S2、S3 的 Rust 部分已完成；S4 的应用秘密（`setAppSecret` 等 3 个函数）已完成，10-03。真模块和假实现的对照检查 232 步，零差异。
-- 主进程还没接入，仍在加载 `getssh-keystore`。下一步是主进程接入（S2、S3 的 TS 部分），然后是 S4 的主进程部分：AI Key、插件秘密、MCP token 和界面配置里的秘密从 `safeStorage` 搬到 `setAppSecret`，按 id 连接。都由 Claude 负责。
-- S3 的 Rust 实现里，资产文件夹的排序只做到稳定、接近原来的顺序：原来的 `DatabaseManager` 按用户的语言（`localeCompare`）排，中文环境下按拼音。主进程接入时，由 TS 那层再按 `localeCompare` 排一次。
-- 主进程接入时注意：资产桥（`workspace:bridge:importProfiles`）只复制用户勾选的 Runbook，不能用 `copyProfiles` 的 `includeRunbooks`（它复制源工作区的全部 Runbook），要用 `getRunbooks` 和 `saveRunbooks` 自己合并。
+10-03 进度：
+- S1、S5 已完成；S2、S3 的 Rust 部分已完成；S4 的应用秘密（`setAppSecret` 等 3 个函数）已完成。真模块和假实现的对照检查 232 步，零差异。
+- **主进程已接入 store（10-03）**。`DatabaseManager` 改成转发到 store 的薄包装，应用锁、主密码、恢复码、Touch ID、工作区密码、工作区切换、资产桥、资产文件夹都走 store。具体做法：
+  - 启动时，GETSSH 2.x 的旧数据仍由 `keystoreMigration.ts`（`getssh-keystore` + bsmc）迁移；迁移跑完、文件全部关闭后才加载 store。只在需要迁移时才加载这两个旧模块；
+  - 迁移用到的旧代码挪进 `electron/main/security/legacyDatabase.ts`，S6 时删除；
+  - 资产文件夹在 TS 那层再按 `localeCompare` 排一次；资产桥用 `copyProfiles` 复制服务器配置（凭据在 Rust 里重新封装），Runbook 只复制勾选的；
+  - 过渡做法：`DatabaseManager.getProfiles()` 仍然把密码和口令交给界面（主进程用 `connectSecrets` 解开），界面现在还要靠它们连接。S4 改成按 id 连接后删掉；
+  - 保存服务器配置时，密码字段 `undefined` 表示保留、空字符串或 `null` 表示清除；
+  - 登录后执行的脚本（`postConnectScript`）上限从 4 KiB 放宽到 64 KiB，其他文本字段仍是 4 KiB。
+- 行为变化：
+  - 设了主密码后不能再给工作区单独设密码（`master_password_protects_workspaces`）；第一次设主密码前，有单独密码的工作区必须先解锁，设完后它们改由主密码保护；
+  - 修改或移除主密码、修改或移除工作区密码、设了主密码时生成恢复码，都要输入当前密码，不再接受 Touch ID 代替；
+  - Touch ID / Windows Hello 只有一个总开关，同时管应用和所有设了单独密码的工作区。
+- 手写 SQL 只剩 2.x 迁移（`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts`）、旧的导出导入（`systemHandler.ts`，S5 接入时删）和打包自检。
+- 测试：`npm run test:keystore-e2e` 共 17 个阶段，新增服务器配置、资产桥、IPC 三个阶段；IPC 阶段在隐藏窗口里调用设置页、工作区切换、资产桥用到的通道。
+- **磁盘上的变化**：store 第一次打开工作区时，会把明文密码封装成 `gk1:` 字段，并加上新表和新列。之后再用接入前的版本打开，密码会显示成 `gk1:…`，连接失败。合进 `v3-next` 前负责人先备份。
+- 下一步是 S4 的主进程部分：AI Key、插件秘密、MCP token 和界面配置里的秘密从 `safeStorage` 搬到 `setAppSecret`，按 id 连接，界面不再拿到密码。都由 Claude 负责。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -316,12 +328,15 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
    - 已有的通道继续用，不另起新的：工作区密码解锁用 `workspace.unlock`，改主密码用 `security.setMasterPassword`，强制更换主密码看 `appLock.getState()` 里新加的 `masterPasswordMustChange`。
    - 返回值统一是 `{ ok: true, ... }` 或 `{ ok: false, error }`，`error` 的取值写在 `StoreResult` 的注释里。
    - **开发时**用临时 HOME 和假实现启动：`HOME=$(mktemp -d) GETSSH_FAKE_STORE=1 pnpm run dev`。用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据，用法写在 `store.fake.js` 的文件头部注释里。
-   - **10-02 的限制**：主进程还没接入 store，所以假实现模式下只有 `store` 这组通道走假实现，侧栏、应用锁、`workspace.unlock`、`security.*` 仍然走旧的钥匙库和数据库。因此：
-     - 导出时给带密码的工作区输入密码、强制更换主密码这两条流程，暂时没法对着假实现走通；`masterPasswordMustChange` 现在总是 `false`；
-     - 准备初始数据时不要设 `masterPassword`：没有地方替假实现解锁，`store` 的所有通道都会返回 `locked`；
-     - 要和侧栏显示的工作区对上，初始数据里的工作区 id 用 `default`（旧代码默认选中它）。
-     Claude 下一步就是让整个应用在假实现模式下都走 store，做完后这些限制都会去掉。
-   - 不开假实现时，`store` 这组通道一律返回 `unavailable`：真模块要等主进程接入以后才加载（和旧的钥匙库、数据库同时打开同一批文件会损坏数据）。界面要能处理 `unavailable`，导入完成、重启之前也会返回它。
+   - **10-03 起主进程已接入 store**，开了 `GETSSH_FAKE_STORE=1` 时整个应用（侧栏、应用锁、`workspace.unlock`、`security.*`）都走假实现：
+     - 初始数据里可以设 `masterPassword`，启动后在锁屏输入它；设一个短于 12 个字符的，`masterPasswordMustChange` 就是 `true`；
+     - 工作区 id 不必用 `default`，`is_main: true` 的那个就是主工作区。
+   - 不开假实现时走真模块，数据在 `~/.getssh`，所以开发时一定要用临时 HOME。导入完成、重启之前，`store` 这组通道返回 `unavailable`；SSH 私钥那 4 个函数真模块还没有，也返回 `unavailable`。界面要能处理这个错误码。
+   - 已有界面要跟着改的地方（10-03）：
+     - 设了主密码时，设置页仍然显示工作区的"设置密码"按钮，点了会返回 `master_password_protects_workspaces`，按钮要隐藏；
+     - 强制更换主密码的对话框还没有，`masterPasswordMustChange` 现在是真实值；
+     - Touch ID 开关不再区分工作区，工作区那一栏的开关和应用那一栏是同一个；
+     - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
    - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。其余 4 个是 SSH 私钥的导入、生成、列出、删除（阶段 B），暂时只有假实现。
 4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。

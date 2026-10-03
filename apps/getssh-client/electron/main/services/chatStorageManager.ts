@@ -30,7 +30,8 @@ export class ChatStorageManager {
 
   public static getSessions(): (ChatSession & { messages: ChatMessage[] })[] {
     if (!this.currentWorkspaceId) return [];
-    return DatabaseManager.getAiSessions(this.currentWorkspaceId);
+    // Only user and assistant messages are ever saved through saveMessage().
+    return DatabaseManager.getAiSessions(this.currentWorkspaceId) as unknown as (ChatSession & { messages: ChatMessage[] })[];
   }
 
   public static createSession(id: string, title: string, timestamp: number) {

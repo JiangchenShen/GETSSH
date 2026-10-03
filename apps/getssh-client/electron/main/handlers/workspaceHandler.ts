@@ -5,11 +5,11 @@ import * as os from 'os';
 import { nexusBridge } from '../nexus/nexusBridge';
 import { vaultManager } from '../services/vaultManager';
 import { ChatStorageManager } from '../services/chatStorageManager';
-import { DatabaseManager } from '../services/DatabaseManager';
+import { DatabaseManager, type Workspace } from '../services/DatabaseManager';
+import { getStore, toStoreError } from '../services/getsshStore';
 import { isMainWebContents } from '../windowRegistry';
 import { isValidWorkspaceId, resolveWorkspaceDir } from '../utils/workspaceId';
 import { appLock } from '../security/appLock';
-import { isKeystoreError, keystore, workspaceScope } from '../security/keystore';
 
 /** Workspace state is only changed by the main window; torn windows never need these handlers. */
 const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
@@ -17,19 +17,25 @@ const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
 const INVALID_WORKSPACE_ID = { success: false, error: 'Invalid workspace id' };
 const LOCKED = { success: false, error: 'locked' };
 
-/** Keystore view of a workspace: its own password, Touch ID route, and whether it is open now. */
-function workspaceLockInfo(workspaceId: string, legacyHasPassword: boolean) {
-  let scope: ReturnType<typeof keystore.status>['scopes'][number] | undefined;
-  try {
-    scope = keystore.status().scopes.find(entry => entry.id === workspaceScope(workspaceId));
-  } catch {
-    scope = undefined;
-  }
+/** A workspace's lock: its own password, the Touch ID route, and whether anything protects it. */
+function workspaceLockInfo(workspace: Workspace | undefined) {
+  const masterPassword = getStore().appState().masterPassword;
+  // Without a master password only a workspace with a password can be locked; one that is locked
+  // without one is a pre-3.0 workspace whose password moves it to the store when typed.
+  const hasPassword = !!workspace?.hasPassword || (!masterPassword && workspace?.state === 'locked');
   return {
-    hasPassword: scope ? scope.ownPassword : legacyHasPassword,
-    biometricEnabled: !!scope?.presence,
-    protected: scope ? scope.protected : legacyHasPassword,
+    hasPassword,
+    biometricEnabled: !!workspace?.presenceEnabled,
+    protected: masterPassword || hasPassword,
   };
+}
+
+function parsePreferences(text: string | null | undefined): Record<string, unknown> {
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
 }
 
 export function setupWorkspaceHandlers() {
@@ -41,9 +47,9 @@ export function setupWorkspaceHandlers() {
         visualMeta: {
           name: ws.name,
           themeColor: ws.themeColor,
-          ...workspaceLockInfo(ws.id, ws.hasPassword === 1),
-          isMain: ws.is_main === 1,
-          preferences: ws.preferences ? JSON.parse(ws.preferences) : {}
+          ...workspaceLockInfo(ws),
+          isMain: ws.is_main,
+          preferences: parsePreferences(ws.preferences)
         }
       }));
     } catch (e) {
@@ -60,17 +66,14 @@ export function setupWorkspaceHandlers() {
       if (!appLock.isReady()) return LOCKED;
       const res = await nexusBridge.bootstrapWorkspace(workspaceId);
       if (res && res !== 'skip') {
-        const now = Date.now();
         // A password, if any, is set afterwards through workspace:set-password.
-        DatabaseManager.createWorkspace({
-          id: workspaceId,
-          name: visualMeta?.name || workspaceId,
-          themeColor: visualMeta?.themeColor || '#1e293b',
-          hasPassword: 0,
-          created_at: now,
-          updated_at: now
-        });
-        await DatabaseManager.openWorkspace(workspaceId);
+        const name = typeof visualMeta?.name === 'string' && visualMeta.name.trim() ? visualMeta.name : workspaceId;
+        const themeColor = typeof visualMeta?.themeColor === 'string' ? visualMeta.themeColor : '#1e293b';
+        if (DatabaseManager.getWorkspace(workspaceId)) {
+          getStore().updateWorkspace(workspaceId, { name, themeColor });
+        } else {
+          await DatabaseManager.createWorkspace({ id: workspaceId, name, themeColor });
+        }
         return { success: true, res };
       }
       return { success: false, error: 'bootstrap skipped or failed' };
@@ -97,26 +100,23 @@ export function setupWorkspaceHandlers() {
     if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     // Touch ID / Windows Hello becomes a second way into a workspace that has its own password
     // (a key of its own in the Secure Enclave or Windows Hello; the workspace must be unlocked).
+    // One switch covers the app and every workspace that has its own password (store.d.ts).
     try {
-      const scope = workspaceScope(workspaceId);
-      if (enabled === true) await keystore.enablePresence(scope, 'turn on Touch ID for this workspace');
-      else await keystore.disablePresence(scope);
+      await getStore().setPresence(enabled === true, 'turn on Touch ID for GETSSH');
       appLock.notifyChanged();
       return { success: true };
     } catch (e) {
       console.error('Failed to toggle biometric:', e);
-      return { success: false, error: isKeystoreError(e) ? e.code : String(e) };
+      return { success: false, error: toStoreError(e).code };
     }
   });
 
   ipcMain.handle('workspace:updatePreferences', async (event, workspaceId: string, preferencesStr: string) => {
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
+    if (typeof preferencesStr !== 'string') return { success: false, error: 'invalid_argument' };
     try {
-      const db = DatabaseManager.getDb();
-      if (db) {
-        db.prepare('UPDATE workspaces SET preferences = ? WHERE id = ?').run(preferencesStr, workspaceId);
-      }
+      DatabaseManager.updateWorkspacePreferences(workspaceId, preferencesStr);
       return { success: true };
     } catch (e) {
       console.error('Failed to update workspace preferences:', e);
@@ -145,18 +145,14 @@ export function setupWorkspaceHandlers() {
   });
 
   ipcMain.handle('workspace:bridge:fetchProfiles', async (event, sourceWorkspaceId: string) => {
-    // Returns decrypted profile rows (credentials included): main window only.
+    // Profiles without credentials (the copy happens in the store) and runbooks: main window only.
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(sourceWorkspaceId)) return INVALID_WORKSPACE_ID;
     try {
       // A workspace that is locked stays locked: the owner has to unlock it first.
       if (!appLock.isReady() || (await DatabaseManager.openWorkspace(sourceWorkspaceId)) !== 'open') return LOCKED;
-      const db = DatabaseManager.getWorkspaceDb(sourceWorkspaceId);
-      if (!db) throw new Error('Source workspace DB not found');
-      
-      const profiles = db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(sourceWorkspaceId);
-      const runbooks = db.prepare('SELECT * FROM runbooks WHERE workspace_id = ?').all(sourceWorkspaceId);
-      
+      const profiles = getStore().listProfiles(sourceWorkspaceId);
+      const runbooks = DatabaseManager.getRunbooks(sourceWorkspaceId);
       return { success: true, profiles, runbooks };
     } catch (e) {
       console.error('Bridge fetch failed', e);
@@ -167,39 +163,32 @@ export function setupWorkspaceHandlers() {
   ipcMain.handle('workspace:bridge:importProfiles', async (event, targetWorkspaceId: string, profilesToImport: any[], runbooksToImport: any[]) => {
     if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
     if (!isValidWorkspaceId(targetWorkspaceId)) return INVALID_WORKSPACE_ID;
+    if (!Array.isArray(profilesToImport) || !Array.isArray(runbooksToImport)) return { success: false, error: 'invalid_argument' };
     try {
       if (!appLock.isReady() || (await DatabaseManager.openWorkspace(targetWorkspaceId)) !== 'open') return LOCKED;
-      const db = DatabaseManager.getWorkspaceDb(targetWorkspaceId);
-      if (!db) throw new Error('Target workspace DB not found');
+      // The rows come from workspace:bridge:fetchProfiles; only their ids and source workspace are
+      // used. The store copies the stored rows itself and seals the credentials for the target.
+      const ids = (rows: any[]) => rows.map(row => row?.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+      const sources = new Set([...profilesToImport, ...runbooksToImport].map(row => row?.workspace_id));
+      if (sources.size === 0) return { success: true };
+      const [sourceWorkspaceId] = sources;
+      if (sources.size !== 1 || !isValidWorkspaceId(sourceWorkspaceId) || sourceWorkspaceId === targetWorkspaceId) {
+        return { success: false, error: 'invalid_argument' };
+      }
+      if ((await DatabaseManager.openWorkspace(sourceWorkspaceId)) !== 'open') return LOCKED;
 
-      const importProfile = db.prepare(`
-        INSERT OR REPLACE INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType, protocol, groupName, useKeepAlive, authType, proxyJump, strictHostKeyChecking, initialDirectory, postConnectScript, themeOverride)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      const importRunbook = db.prepare(`
-        INSERT OR REPLACE INTO runbooks (id, workspace_id, title, script, riskLevel, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
+      const profileIds = ids(profilesToImport);
+      if (profileIds.length) getStore().copyProfiles(sourceWorkspaceId, targetWorkspaceId, profileIds);
+      // Only the runbooks the user ticked; a runbook with the same id in the target is replaced.
+      const runbookIds = new Set(ids(runbooksToImport));
+      if (runbookIds.size) {
+        const picked = DatabaseManager.getRunbooks(sourceWorkspaceId).filter(runbook => runbookIds.has(runbook.id));
+        const pickedIds = new Set(picked.map(runbook => runbook.id));
+        const kept = DatabaseManager.getRunbooks(targetWorkspaceId).filter(runbook => !pickedIds.has(runbook.id));
+        DatabaseManager.saveRunbooks(targetWorkspaceId, [...kept, ...picked]);
+      }
 
-      db.transaction(() => {
-        for (const p of profilesToImport) {
-          importProfile.run(
-            p.id, targetWorkspaceId, p.host, p.username, p.password, p.privateKeyPath, p.passphrase,
-            p.port, p.autoStart, p.alias, p.osType, p.protocol || 'ssh', p.groupName || p.group || null,
-            p.useKeepAlive === false || p.useKeepAlive === 0 ? 0 : 1, p.authType || 'password',
-            p.proxyJump || null, p.strictHostKeyChecking ? 1 : 0, p.initialDirectory || null,
-            p.postConnectScript || null, p.themeOverride || null
-          );
-        }
-        for (const r of runbooksToImport) {
-          importRunbook.run(r.id, targetWorkspaceId, r.title, r.script, r.riskLevel, r.created_at);
-        }
-      })();
-
-      try {
-        DatabaseManager.logAudit(targetWorkspaceId, 'Data Import', 'Cross-Workspace Bridge', `Imported ${profilesToImport.length} profiles and ${runbooksToImport.length} runbooks`);
-      } catch(e) {}
+      DatabaseManager.logAudit(targetWorkspaceId, 'Data Import', 'Cross-Workspace Bridge', `Imported ${profileIds.length} profiles and ${runbookIds.size} runbooks`);
 
       return { success: true };
     } catch (e) {
@@ -217,20 +206,8 @@ export function setupWorkspaceHandlers() {
     if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
     try {
       const wsPath = resolveWorkspaceDir(workspaceId);
-      DatabaseManager.deleteWorkspace(workspaceId);
-      try {
-        await keystore.deleteScope(workspaceScope(workspaceId));
-      } catch (e) {
-        if (!isKeystoreError(e, 'unknown_scope')) throw e;
-      }
-      try {
-        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db`), { force: true });
-        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db-wal`), { force: true });
-        fs.rmSync(path.join(DatabaseManager.getBaseDir(), `workspace_${workspaceId}.db-shm`), { force: true });
-      } catch (e) {
-        console.warn(`[Workspace IPC] Failed to delete the database of ${workspaceId}`, e);
-      }
-      // We could also delete the vault file in ~/.getssh/workspaces/<workspaceId> if it still exists
+      // The store removes the database, its key scope and ~/.getssh/workspaces/<id>.
+      await DatabaseManager.deleteWorkspace(workspaceId);
       try {
         await fs.promises.rm(wsPath, { recursive: true, force: true });
       } catch (e) {
@@ -284,12 +261,11 @@ export function setupWorkspaceHandlers() {
       // Phase 3: 剧本与资产盘装载 (Load Storage Assets from DB)
       // ==========================================
       if (!appLock.isReady()) throw new Error('GETSSH is locked');
-      const workspaces = DatabaseManager.getWorkspaces();
-      const wsRow = workspaces.find(w => w.id === targetWorkspaceId);
+      const wsRow = DatabaseManager.getWorkspace(targetWorkspaceId);
       
       let visualMeta = { themeColor: '#1e293b', hasPassword: false, biometricEnabled: false, name: targetWorkspaceId };
       if (wsRow) {
-        const lockInfo = workspaceLockInfo(targetWorkspaceId, wsRow.hasPassword === 1);
+        const lockInfo = workspaceLockInfo(wsRow);
         visualMeta = {
           name: wsRow.name,
           themeColor: wsRow.themeColor || '#1e293b',
@@ -297,24 +273,17 @@ export function setupWorkspaceHandlers() {
           biometricEnabled: lockInfo.biometricEnabled
         };
       } else {
-        // If workspace doesn't exist in DB but folder exists, insert it
-        const now = Date.now();
-        DatabaseManager.createWorkspace({
-          id: targetWorkspaceId,
-          name: targetWorkspaceId,
-          themeColor: '#1e293b',
-          hasPassword: 0,
-          created_at: now,
-          updated_at: now
-        });
+        // The folder exists but the workspace is not listed: give it a database and a key.
+        await DatabaseManager.createWorkspace({ id: targetWorkspaceId, name: targetWorkspaceId, themeColor: '#1e293b' });
       }
       
       // Leaving a workspace that has its own password locks it again.
-      if (previousWorkspaceId !== targetWorkspaceId && workspaceLockInfo(previousWorkspaceId, false).hasPassword) {
+      if (previousWorkspaceId !== targetWorkspaceId && DatabaseManager.getWorkspace(previousWorkspaceId)?.hasPassword) {
         try {
-          keystore.lockScope(workspaceScope(previousWorkspaceId));
-        } catch {}
-        DatabaseManager.closeLockedDatabases();
+          DatabaseManager.lockWorkspace(previousWorkspaceId);
+        } catch (e) {
+          console.warn(`[Workspace IPC] Could not lock ${previousWorkspaceId} again:`, e);
+        }
       }
 
       let profilesToReturn: any[] = [];
@@ -370,20 +339,12 @@ export async function bootstrapAppWorkspace() {
       // Configuration file does not exist or is invalid JSON
     }
 
-    // Check main.db for the designated Main Workspace
-    const { DatabaseManager } = require('../services/DatabaseManager');
-    const mainDb = DatabaseManager.getDb();
-    if (mainDb) {
-      try {
-        const row = mainDb.prepare('SELECT id FROM workspaces WHERE is_main = 1').get() as { id: string } | undefined;
-        if (row && row.id) {
-          config.active_workspace = row.id;
-          await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-          console.log(`[Workspace] Bootstrapped Main Workspace: ${config.active_workspace}`);
-        }
-      } catch (err) {
-        console.error('[Workspace] Failed to read main workspace from DB:', err);
-      }
+    // The designated Main Workspace opens first.
+    const main = DatabaseManager.getWorkspaces().find(workspace => workspace.is_main);
+    if (main) {
+      config.active_workspace = main.id;
+      await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+      console.log(`[Workspace] Bootstrapped Main Workspace: ${config.active_workspace}`);
     }
 
     if (!config.active_workspace) {

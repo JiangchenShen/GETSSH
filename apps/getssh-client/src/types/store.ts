@@ -6,8 +6,9 @@
  * main process, and only that dialog can copy it (see `reveal`). The full interface, which only
  * the main process loads, is rust-core/getssh-store/store.d.ts.
  *
- * Until DatabaseManager moves onto the store, these calls work only in development with
- * GETSSH_FAKE_STORE=1 (an in-memory fake) and answer `unavailable` otherwise.
+ * In development, GETSSH_FAKE_STORE=1 runs the whole app on an in-memory fake. After an import
+ * the calls answer `unavailable` until the app relaunches, and so do the SSH key functions the
+ * native module does not have yet (phase B).
  */
 export type {
   BundleInfo,

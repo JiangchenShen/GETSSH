@@ -1,900 +1,285 @@
-import Database from 'better-sqlite3-multiple-ciphers';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
-import crypto from 'crypto';
-import { type DatabaseKey, keyOpens, openDatabase, rekeyDatabaseFile, rekeyOpenDatabase, wipeKey } from '../security/databaseKeys';
-import { APP_SCOPE, isKeystoreError, keystore, workspaceScope } from '../security/keystore';
-import { migrateLegacyWorkspace } from '../security/keystoreMigration';
+import type {
+  AiMemoryMessage,
+  AiMemoryVector,
+  AiMessage,
+  AiSession,
+  AssetFolderSnapshot,
+  AuditLog,
+  Profile,
+  ProfileInput,
+  Runbook,
+  StoreErrorCode,
+  Workspace,
+  WorkspaceStats,
+} from '../../../../../rust-core/getssh-store/store';
+import { getStore, storeBaseDir, toStoreError } from './getsshStore';
 
-export interface WorkspaceRow {
-  id: string;
-  name: string;
-  themeColor?: string;
-  hasPassword?: number;
-  biometric_enabled?: number;
-  is_main?: number;
-  preferences?: string;
-  created_at: number;
-  updated_at: number;
+/**
+ * The main process's data access, on getssh-store (docs/GETSSH_STORE_DESIGN_CN.md). Every
+ * database, key and SQL statement lives in Rust now; this class keeps the method names the
+ * handlers and services already use, and their old answers for a locked workspace (empty lists,
+ * writes that do nothing) where callers rely on them.
+ */
+
+export type { AssetFolderSnapshot, Workspace, WorkspaceStats };
+export type AiMemoryVectorRow = AiMemoryVector;
+export type AiMemoryMessageRow = AiMemoryMessage;
+
+/**
+ * A profile as the renderer has always received it, credentials included. TRANSITIONAL: S4 moves
+ * connecting to the main process (by profile id) and this shape goes away; the store itself never
+ * returns a secret from a listing.
+ */
+export interface ProfileRow extends Omit<Profile, 'group'> {
+  group?: string;
+  password?: string;
+  passphrase?: string;
 }
 
-export interface ProfileRow {
-  id: string;
-  workspace_id: string; // Kept for interface compatibility
-  host: string;
-  username: string;
-  password?: string | null;
-  privateKeyPath?: string | null;
-  passphrase?: string | null;
-  port?: number;
-  autoStart: number | boolean;
-  alias?: string | null;
-  osType?: string | null;
-  protocol?: 'ssh' | 'local' | 'telnet' | 'auto' | null;
-  groupName?: string | null;
-  group?: string | null;
-  useKeepAlive?: number | boolean | null;
-  authType?: 'password' | 'key' | null;
-  proxyJump?: string | null;
-  strictHostKeyChecking?: number | boolean | null;
-  initialDirectory?: string | null;
-  postConnectScript?: string | null;
-  themeOverride?: string | null;
+/** What callers save: the renderer's profile objects, checked field by field in saveProfiles(). */
+export type ProfileRowInput = { id: string } & Record<string, unknown>;
+
+const PROTOCOLS = new Set(['ssh', 'local', 'telnet', 'auto']);
+const AUTH_TYPES = new Set(['password', 'key', 'agent']);
+
+/** Errors that mean "this workspace is not open now" for callers that read it anyway. */
+const NOT_OPEN: StoreErrorCode[] = ['locked', 'not_found', 'needs_password', 'not_configured'];
+
+function notOpen(error: unknown): boolean {
+  return NOT_OPEN.includes(toStoreError(error).code);
 }
 
-export interface AssetFolderSnapshot {
-  folders: string[];
-  memberships: { id: string; group: string | null }[];
+/** A read that answers `fallback` while the workspace (or the app) is locked. */
+function readOr<T>(fallback: T, read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (notOpen(error)) return fallback;
+    throw error;
+  }
 }
 
-export interface AiMemoryVectorRow {
-  workspace_id: string;
-  message_id: string;
-  session_id: string;
-  role: 'user' | 'assistant';
-  embedding: Buffer;
-  dimensions: number;
-  content_hash: string;
-  timestamp: number;
+/** A write that does nothing while the workspace (or the app) is locked, as before. */
+function writeIfOpen(write: () => void): void {
+  try {
+    write();
+  } catch (error) {
+    if (!notOpen(error)) throw error;
+  }
 }
 
-export interface AiMemoryMessageRow {
-  id: string;
-  session_id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
+/** Folder errors are shown to the user as they are: a sentence, not a store code. */
+function folderError(error: unknown): Error {
+  const failure = toStoreError(error);
+  if (failure.code === 'locked' || failure.code === 'needs_password') return new Error('Workspace is locked. Unlock it first.');
+  const detail = failure.detail || failure.code;
+  return new Error(detail.charAt(0).toUpperCase() + detail.slice(1));
+}
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function flag(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
+/** undefined keeps the stored secret, '' and null clear it, any other string replaces it. */
+function secret(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function port(value: unknown): number | undefined {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : undefined;
+}
+
+/** Display order of the folder tree: the user's language, as DatabaseManager sorted before 3.0. */
+function sortFolders(folders: string[]): string[] {
+  return [...folders].sort((a, b) => a.localeCompare(b));
+}
+
+function sortSnapshot(snapshot: AssetFolderSnapshot): AssetFolderSnapshot {
+  return { folders: sortFolders(snapshot.folders), memberships: snapshot.memberships };
 }
 
 export class DatabaseManager {
-  private static mainDb: Database.Database | null = null;
-  private static workspaceDbs: Map<string, Database.Database> = new Map();
-  private static baseDir: string = '';
-
-  private static readonly SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'utf8');
-
-  public static getDb(): any { return this.mainDb; }
-
-  private static isPlaintextSqliteDatabase(dbPath: string): boolean {
-    if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size < this.SQLITE_HEADER.length) {
-      return false;
-    }
-
-    const fd = fs.openSync(dbPath, 'r');
-    const header = Buffer.alloc(this.SQLITE_HEADER.length);
-    try {
-      const bytesRead = fs.readSync(fd, header, 0, header.length, 0);
-      return bytesRead === header.length && header.equals(this.SQLITE_HEADER);
-    } finally {
-      header.fill(0);
-      fs.closeSync(fd);
-    }
-  }
-
-  private static scopeKey(scope: string, staged = false): DatabaseKey {
-    return { kind: 'raw', key: keystore.databaseKey(scope, { staged }) };
-  }
-
-  private static scopeStatus(scope: string) {
-    return keystore.status().scopes.find(entry => entry.id === scope);
-  }
-
   public static getBaseDir(): string {
-    if (!this.baseDir) this.baseDir = path.join(os.homedir(), '.getssh');
-    return this.baseDir;
+    return storeBaseDir();
   }
 
-  private static workspaceDbPath(workspaceId: string): string {
-    return path.join(this.getBaseDir(), `workspace_${workspaceId}.db`);
+  // --- Workspaces ---
+
+  /** Every workspace, oldest first; empty while the app is locked. */
+  public static getWorkspaces(): Workspace[] {
+    return readOr([], () => getStore().listWorkspaces());
   }
 
-  /**
-   * Brings a pre-3.0 main.db up to date under its legacy key (fission of getssh.db, JSON import)
-   * and closes it again; the keystore migration then moves it to the keystore key.
-   */
-  public static prepareLegacyMainDatabase(legacyKey: Buffer | null): void {
-    const baseDir = this.getBaseDir();
-    fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
-    const mainDbPath = path.join(baseDir, 'main.db');
-    const legacyDbPath = path.join(baseDir, 'getssh.db');
-    const needsFissionMigration = !fs.existsSync(mainDbPath) && fs.existsSync(legacyDbPath);
-    if (needsFissionMigration) {
-      console.log('[DatabaseManager] Legacy getssh.db detected. Starting Fission Migration...');
-      this.performFissionMigration(legacyDbPath, mainDbPath, legacyKey);
-    }
-    const key: DatabaseKey = legacyKey && !this.isPlaintextSqliteDatabase(mainDbPath)
-      ? { kind: 'passphrase', passphrase: legacyKey }
-      : { kind: 'none' };
-    const mainDb = key.kind === 'none' ? new Database(mainDbPath) : openDatabase(mainDbPath, key);
-    try {
-      this.mainDb = mainDb;
-      this.runMainMigrations();
-      if (!needsFissionMigration && !fs.existsSync(legacyDbPath)) {
-        this.migrateLegacyJsonData(baseDir);
-      }
-    } finally {
-      this.mainDb = null;
-      try { mainDb.close(); } catch {}
-      if (legacyKey) legacyKey.fill(0);
-    }
+  public static getWorkspace(workspaceId: string): Workspace | undefined {
+    return this.getWorkspaces().find(workspace => workspace.id === workspaceId);
   }
 
-  /** Opens main.db with the keystore's app key; the app scope must be unlocked. */
-  public static init() {
-    if (this.mainDb) return;
-    const baseDir = this.getBaseDir();
-    fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
-    const mainDbPath = path.join(baseDir, 'main.db');
-    const key = this.scopeKey(APP_SCOPE);
-    let mainDb: Database.Database;
-    try {
-      mainDb = openDatabase(mainDbPath, key);
-    } finally {
-      wipeKey(key);
-    }
-    try {
-      fs.chmodSync(mainDbPath, 0o600);
-      mainDb.pragma('journal_mode = WAL');
-      mainDb.pragma('synchronous = NORMAL');
-      mainDb.pragma('foreign_keys = ON');
-      this.mainDb = mainDb;
-      this.runMainMigrations();
-      this.ensureDefaultWorkspace();
-    } catch (error) {
-      try { mainDb.close(); } catch {}
-      this.mainDb = null;
-      throw error;
-    }
+  /** Creates a workspace (its key and its encrypted database). A password is set afterwards. */
+  public static createWorkspace(input: { id: string; name: string; themeColor?: string }): Promise<Workspace> {
+    return getStore().createWorkspace(input);
   }
 
-  public static isMainDbOpen(): boolean {
-    return !!this.mainDb?.open;
+  /** Creates the workspace unless it is already listed. */
+  public static async ensureWorkspace(input: { id: string; name: string; themeColor?: string }): Promise<void> {
+    if (!this.getWorkspace(input.id)) await this.createWorkspace(input);
   }
 
-  private static ensureDefaultWorkspace(): void {
-    if (!this.mainDb) return;
-    const count = this.mainDb.prepare('SELECT COUNT(*) AS c FROM workspaces').get() as { c: number };
-    if (count.c > 0) return;
-    const now = Date.now();
-    this.createWorkspace({ id: 'default', name: 'Default Workspace', created_at: now, updated_at: now, is_main: 1, hasPassword: 0 });
+  /** Deletes the database, the key scope and the workspace's folder. The MAIN workspace cannot be deleted. */
+  public static deleteWorkspace(workspaceId: string): Promise<void> {
+    return getStore().deleteWorkspace(workspaceId);
+  }
+
+  public static setMainWorkspace(workspaceId: string): void {
+    getStore().setMainWorkspace(workspaceId);
+  }
+
+  public static updateWorkspacePreferences(workspaceId: string, preferences: string): void {
+    getStore().updateWorkspace(workspaceId, { preferences });
   }
 
   /**
-   * Finishes a key rotation the keystore staged for `scope` (a password or master password was
-   * set): the database moves to the staged key, then the rotation is committed. After a crash
-   * between the two steps the database already opens with the staged key and only the commit runs.
-   */
-  public static async completeRotation(scope: string): Promise<void> {
-    if (!this.scopeStatus(scope)?.staged) return;
-    const isApp = scope === APP_SCOPE;
-    const workspaceId = isApp ? null : scope.slice('ws:'.length);
-    const file = isApp ? path.join(this.getBaseDir(), 'main.db') : this.workspaceDbPath(workspaceId!);
-    const open = isApp ? this.mainDb : this.workspaceDbs.get(workspaceId!);
-    const staged = this.scopeKey(scope, true);
-    try {
-      if (open?.open) {
-        rekeyOpenDatabase(open, staged);
-      } else if (fs.existsSync(file) && !keyOpens(file, staged)) {
-        const current = this.scopeKey(scope);
-        try {
-          rekeyDatabaseFile(file, current, staged);
-        } finally {
-          wipeKey(current);
-        }
-      }
-    } finally {
-      wipeKey(staged);
-    }
-    await keystore.commitRotation(scope);
-  }
-
-  /** Finishes every rotation that was interrupted (for scopes whose keys are in memory). */
-  public static async completePendingRotations(): Promise<void> {
-    for (const scope of keystore.status().scopes) {
-      if (scope.staged && scope.unlocked) await this.completeRotation(scope.id);
-    }
-  }
-
-  public static isWorkspaceMounted(workspaceId: string): boolean {
-    return !!this.workspaceDbs.get(workspaceId)?.open;
-  }
-
-  /**
-   * Mounts a workspace whose key is in memory. Returns false while it is locked (or still a
-   * pre-3.0 database waiting for its password); use openWorkspace() to unlock quietly first.
-   */
-  public static mountWorkspace(workspaceId: string): boolean {
-    if (this.workspaceDbs.has(workspaceId)) return true;
-    const scope = workspaceScope(workspaceId);
-    const status = this.scopeStatus(scope);
-    if (!status?.unlocked) return false;
-    const file = this.workspaceDbPath(workspaceId);
-    let db: Database.Database | null = null;
-    const key = this.scopeKey(scope);
-    try {
-      db = openDatabase(file, key);
-      fs.chmodSync(file, 0o600);
-      db.pragma('journal_mode = WAL');
-      db.pragma('synchronous = NORMAL');
-      db.pragma('foreign_keys = ON');
-      this.runWorkspaceMigrations(db);
-      this.workspaceDbs.set(workspaceId, db);
-      return true;
-    } catch (e: any) {
-      try { db?.close(); } catch {}
-      console.error(`[DatabaseManager] Failed to mount workspace ${workspaceId}:`, e.message);
-      return false;
-    } finally {
-      wipeKey(key);
-    }
-  }
-
-  /**
-   * Unlocks a workspace without asking anyone (it has no password of its own, or the master
-   * password already opened it) and mounts it. A workspace without a keystore scope yet (created
-   * by an older GETSSH, or found on disk without a row) gets one here.
+   * Opens a workspace that needs no password (none of its own, or the master password already
+   * opened it). 'legacy' is a pre-3.0 workspace whose password has to be typed once to move it.
    */
   public static async openWorkspace(workspaceId: string): Promise<'open' | 'locked' | 'legacy'> {
-    if (this.isWorkspaceMounted(workspaceId)) return 'open';
-    const scope = workspaceScope(workspaceId);
-    if (!this.scopeStatus(scope)) {
-      const row = this.getWorkspaces().find(entry => entry.id === workspaceId);
-      if (row?.hasPassword) return 'legacy';
-      await keystore.createScope(scope);
-      const file = this.workspaceDbPath(workspaceId);
-      if (fs.existsSync(file) && fs.statSync(file).size > 0) {
-        const key = this.scopeKey(scope);
-        try {
-          rekeyDatabaseFile(file, { kind: 'none' }, key);
-        } finally {
-          wipeKey(key);
-        }
-      }
-    }
     try {
-      await keystore.openScope(scope);
+      return await getStore().openWorkspace(workspaceId);
     } catch (error) {
-      if (isKeystoreError(error, 'locked')) return 'locked';
+      if (toStoreError(error).code === 'needs_password') return 'legacy';
       throw error;
     }
-    await this.completeRotation(scope);
-    return this.mountWorkspace(workspaceId) ? 'open' : 'locked';
+  }
+
+  public static isWorkspaceOpen(workspaceId: string): boolean {
+    return this.getWorkspace(workspaceId)?.state === 'open';
+  }
+
+  /** Unlocks with the workspace's own password (a pre-3.0 workspace moves here). False for a wrong password. */
+  public static async unlockWorkspaceWithPassword(workspaceId: string, password: string): Promise<boolean> {
+    try {
+      await getStore().unlockWorkspace(workspaceId, { password });
+      return true;
+    } catch (error) {
+      if (toStoreError(error).code === 'wrong_password') return false;
+      throw error;
+    }
+  }
+
+  /** Touch ID / Windows Hello; throws StoreError (cancelled, needs_password, unavailable) when it does not verify. */
+  public static async unlockWorkspaceWithPresence(workspaceId: string, reason: string): Promise<boolean> {
+    await getStore().unlockWorkspace(workspaceId, { presence: reason });
+    return true;
+  }
+
+  public static lockWorkspace(workspaceId: string): void {
+    getStore().lockWorkspace(workspaceId);
+  }
+
+  public static getWorkspaceStats(workspaceId: string): WorkspaceStats {
+    return getStore().workspaceStats(workspaceId);
+  }
+
+  // --- Global settings ---
+
+  public static getGlobalSetting(key: string): string | null {
+    return readOr(null, () => getStore().getGlobalSetting(key));
+  }
+
+  public static setGlobalSetting(key: string, value: string): void {
+    writeIfOpen(() => getStore().setGlobalSetting(key, value));
+  }
+
+  // --- Profiles ---
+
+  /**
+   * The workspace's profiles with their passwords and passphrases, opened here in the main
+   * process. TRANSITIONAL (see ProfileRow): the renderer still connects with the credentials it
+   * holds until S4. Empty while the workspace is locked.
+   */
+  public static getProfiles(workspaceId: string): ProfileRow[] {
+    const store = getStore();
+    const profiles = readOr<Profile[]>([], () => store.listProfiles(workspaceId));
+    return profiles.map(({ group, ...profile }) => {
+      const row: ProfileRow = { ...profile, group: group ?? undefined };
+      if (!profile.hasPassword && !profile.hasPassphrase) return row;
+      try {
+        const secrets = store.connectSecrets(workspaceId, profile.id);
+        if (secrets.password) row.password = secrets.password.toString('utf8');
+        if (secrets.passphrase) row.passphrase = secrets.passphrase.toString('utf8');
+        for (const buffer of [secrets.password, secrets.passphrase, secrets.privateKey]) buffer?.fill(0);
+      } catch (error) {
+        // Left out, the stored value is kept on the next save (undefined keeps it).
+        console.warn(`[DatabaseManager] Credentials of profile ${profile.id} could not be read:`, toStoreError(error).code);
+      }
+      return row;
+    });
   }
 
   /**
-   * Unlocks a workspace with its own password (a pre-3.0 workspace moves to the keystore here)
-   * and mounts it. Returns false for a wrong password.
+   * Replaces the workspace's profiles with `rows`. A password or passphrase that is undefined is
+   * kept, '' or null clears it. Silently does nothing while the workspace is locked, as before.
    */
-  public static async unlockWorkspaceWithPassword(workspaceId: string, password: string): Promise<boolean> {
-    const scope = workspaceScope(workspaceId);
-    if (!this.scopeStatus(scope)) {
-      if (!(await migrateLegacyWorkspace(this.getBaseDir(), workspaceId, password))) return false;
-    } else {
-      try {
-        await keystore.unlockWithPassword(scope, password);
-      } catch (error) {
-        if (isKeystoreError(error, 'wrong_password')) return false;
-        throw error;
-      }
-    }
-    await this.completeRotation(scope);
-    return this.mountWorkspace(workspaceId);
-  }
-
-  /** Touch ID / Windows Hello; throws KeystoreError (cancelled, unavailable) when it does not verify. */
-  public static async unlockWorkspaceWithPresence(workspaceId: string, reason: string): Promise<boolean> {
-    const scope = workspaceScope(workspaceId);
-    await keystore.unlockWithPresence(scope, reason);
-    await this.completeRotation(scope);
-    return this.mountWorkspace(workspaceId);
-  }
-
-  /** Closes every database whose key is no longer in memory (after keystore.lockProtected()). */
-  public static closeLockedDatabases(): void {
-    const unlocked = new Set(keystore.status().scopes.filter(scope => scope.unlocked).map(scope => scope.id));
-    for (const workspaceId of [...this.workspaceDbs.keys()]) {
-      if (!unlocked.has(workspaceScope(workspaceId))) this.unmountWorkspace(workspaceId);
-    }
-    if (this.mainDb && !unlocked.has(APP_SCOPE)) {
-      try { this.mainDb.close(); } catch {}
-      this.mainDb = null;
-    }
-  }
-
-  public static unmountWorkspace(workspaceId: string) {
-    const db = this.workspaceDbs.get(workspaceId);
-    if (db) {
-      db.close();
-      this.workspaceDbs.delete(workspaceId);
-    }
-  }
-
-  public static getWorkspaceDb(workspaceId: string): Database.Database | null {
-    if (!this.workspaceDbs.has(workspaceId) && !this.mountWorkspace(workspaceId)) return null;
-    return this.workspaceDbs.get(workspaceId) || null;
-  }
-
-  /** Folder operations never mount a locked workspace: its key is simply not available. */
-  private static requireMountedWorkspaceDb(workspaceId: string): Database.Database {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db || !db.open) throw new Error('Workspace is locked. Unlock it first.');
-    return db;
-  }
-
-  private static performFissionMigration(legacyPath: string, mainPath: string, appKeyBuffer: Buffer | null) {
-    try {
-      // Open legacy DB (assuming it was encrypted with AppKey from previous step if it existed)
-      const legacyDb = new Database(legacyPath);
-      if (appKeyBuffer) {
-        legacyDb.pragma(`cipher = 'sqlcipher'`);
-        legacyDb.key(appKeyBuffer);
-      }
-
-      // Check if it's readable
-      legacyDb.prepare('SELECT 1 FROM workspaces LIMIT 1').get();
-
-      // Create new main DB
-      const mainDb = new Database(mainPath);
-      if (appKeyBuffer) {
-        mainDb.pragma(`cipher = 'sqlcipher'`);
-        mainDb.key(appKeyBuffer);
-      }
-      this.mainDb = mainDb;
-      this.runMainMigrations();
-
-      // Migrate Workspaces
-      const workspaces = legacyDb.prepare('SELECT * FROM workspaces').all() as any[];
-      const insertWs = mainDb.prepare('INSERT INTO workspaces (id, name, themeColor, hasPassword, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-      
-      for (const ws of workspaces) {
-        insertWs.run(ws.id, ws.name, ws.themeColor, ws.hasPassword, ws.is_main, ws.created_at, ws.updated_at);
-
-        // Create Workspace DB (assume no workspace password during fission, because the old DB had column-level encryption or no password)
-        // Wait, if it had column-level encryption, the password field is base64 encrypted string. That's fine, we just migrate it AS-IS.
-        const wsDbPath = path.join(this.baseDir, `workspace_${ws.id}.db`);
-        const wsDb = new Database(wsDbPath);
-        this.runWorkspaceMigrations(wsDb);
-
-        // Migrate Profiles
-        const profiles = legacyDb.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(ws.id) as any[];
-        const insertProfile = wsDb.prepare(`INSERT INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        for (const p of profiles) {
-          insertProfile.run(p.id, p.workspace_id, p.host, p.username, p.password, p.privateKeyPath, p.passphrase, p.port, p.autoStart, p.alias, p.osType);
-        }
-
-        // Migrate Runbooks
-        const runbooks = legacyDb.prepare('SELECT * FROM runbooks WHERE workspace_id = ?').all(ws.id) as any[];
-        const insertRb = wsDb.prepare(`INSERT INTO runbooks (id, workspace_id, title, script, riskLevel, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
-        for (const rb of runbooks) {
-          insertRb.run(rb.id, rb.workspace_id, rb.title, rb.script, rb.riskLevel, rb.created_at);
-        }
-
-        // Migrate AI Sessions
-        const sessions = legacyDb.prepare('SELECT * FROM ai_sessions WHERE workspace_id = ?').all(ws.id) as any[];
-        const insertSess = wsDb.prepare(`INSERT INTO ai_sessions (id, workspace_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`);
-        const insertMsg = wsDb.prepare(`INSERT INTO ai_messages (id, session_id, role, content, raw_content, timestamp) VALUES (?, ?, ?, ?, ?, ?)`);
-        
-        for (const s of sessions) {
-          insertSess.run(s.id, s.workspace_id, s.title, s.created_at, s.updated_at);
-          const messages = legacyDb.prepare('SELECT * FROM ai_messages WHERE session_id = ?').all(s.id) as any[];
-          for (const m of messages) {
-            insertMsg.run(m.id, m.session_id, m.role, m.content, m.raw_content, m.timestamp);
-          }
-        }
-        
-        wsDb.close();
-      }
-
-      legacyDb.close();
-      // Rename legacy db to avoid re-migration
-      fs.renameSync(legacyPath, legacyPath + '.migrated');
-      console.log('[DatabaseManager] Fission Migration successful.');
-      this.mainDb = null; // Let init() open it properly
-    } catch (e) {
-      console.error('[DatabaseManager] Fission Migration failed:', e);
-    }
-  }
-
-  private static migrateLegacyJsonData(baseDir: string) {
-    if (!this.mainDb) return;
-    
-    // Check if we already migrated
-    const workspacesCount = this.mainDb.prepare('SELECT COUNT(*) as c FROM workspaces').get() as { c: number };
-    if (workspacesCount.c > 0) return; // Already initialized
-
-    console.log('[DatabaseManager] Starting JSON to SQLite Migration...');
-    const now = Date.now();
-    try {
-      const configPath = path.join(baseDir, 'app-config.json');
-      let defaultWorkspaceId = 'default';
-      if (fs.existsSync(configPath)) {
-        try {
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          defaultWorkspaceId = config.active_workspace || 'default';
-        } catch {}
-      }
-
-      const workspacesDir = path.join(baseDir, 'workspaces');
-      if (!fs.existsSync(workspacesDir)) {
-        this.createWorkspace({
-          id: 'default',
-          name: 'Default Workspace',
-          created_at: now,
-          updated_at: now,
-          is_main: 1,
-          hasPassword: 0
-        });
-        return;
-      }
-
-      const dirs = fs.readdirSync(workspacesDir);
-      for (const id of dirs) {
-        const wsPath = path.join(workspacesDir, id);
-        if (fs.statSync(wsPath).isDirectory()) {
-          const isMain = id === defaultWorkspaceId ? 1 : 0;
-          this.mainDb.prepare('INSERT INTO workspaces (id, name, created_at, updated_at, is_main, hasPassword) VALUES (?, ?, ?, ?, ?, ?)')
-              .run(id, id === 'default' ? 'Default Workspace' : id, now, now, isMain, 0);
-
-          // Force mount plaintext workspace DB to migrate data
-          const wsDbPath = path.join(this.baseDir, `workspace_${id}.db`);
-          const wsDb = new Database(wsDbPath);
-          this.runWorkspaceMigrations(wsDb);
-
-          // Migrate profiles
-          const plainPath = path.join(wsPath, 'profiles.json');
-          if (fs.existsSync(plainPath)) {
-            try {
-              const profilesRaw = fs.readFileSync(plainPath, 'utf-8');
-              const profiles = JSON.parse(profilesRaw);
-              const insertProfile = wsDb.prepare(`INSERT INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-              for (const p of profiles) {
-                const pId = crypto.createHash('md5').update(`${p.host}:${p.username}`).digest('hex');
-                insertProfile.run(pId, id, p.host, p.username, p.password, p.privateKeyPath, p.passphrase, p.port || 22, p.autoStart ? 1 : 0, p.alias, p.osType);
-              }
-            } catch {}
-          }
-
-          // Migrate runbooks
-          const runbooksPath = path.join(wsPath, 'runbooks.json');
-          if (fs.existsSync(runbooksPath)) {
-            try {
-              const runbooksRaw = fs.readFileSync(runbooksPath, 'utf-8');
-              const runbooks = JSON.parse(runbooksRaw);
-              const insertRb = wsDb.prepare('INSERT INTO runbooks (id, workspace_id, title, script, riskLevel, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-              for (const rb of runbooks) {
-                insertRb.run(rb.id, id, rb.title, rb.script, rb.riskLevel || 'LOW', rb.created_at || now);
-              }
-            } catch {}
-          }
-
-          // Migrate ai_chats
-          const chatsPath = path.join(wsPath, 'ai_chats.json');
-          if (fs.existsSync(chatsPath)) {
-            try {
-              const chatsRaw = fs.readFileSync(chatsPath, 'utf-8');
-              const chats = JSON.parse(chatsRaw);
-              const insertSess = wsDb.prepare('INSERT INTO ai_sessions (id, workspace_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
-              const insertMsg = wsDb.prepare('INSERT INTO ai_messages (id, session_id, role, content, raw_content, timestamp) VALUES (?, ?, ?, ?, ?, ?)');
-              
-              insertSess.run(chats.id, id, chats.title || 'Migration Chat', chats.updatedAt || now, chats.updatedAt || now);
-              for (const m of chats.messages) {
-                insertMsg.run(m.id, chats.id, m.role, m.content, m.raw_content || null, m.timestamp || now);
-              }
-            } catch {}
-          }
-          wsDb.close();
-        }
-      }
-      console.log('[DatabaseManager] JSON migration completed successfully.');
-    } catch (e) {
-      console.error('[DatabaseManager] Failed to migrate legacy JSON data', e);
-    }
-  }
-
-  private static runMainMigrations() {
-    if (!this.mainDb) return;
-    this.mainDb.exec(`
-      CREATE TABLE IF NOT EXISTS workspaces (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        themeColor TEXT,
-        hasPassword INTEGER DEFAULT 0,
-        biometric_enabled INTEGER DEFAULT 0,
-        is_main INTEGER DEFAULT 0,
-        preferences TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-    `);
-
-    this.mainDb.exec(`
-      CREATE TABLE IF NOT EXISTS global_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    `);
-
-    // Local semantic-memory vectors live in the app-key SQLCipher database.
-    // Message text remains in its workspace database; this table contains only
-    // encrypted-at-rest numeric vectors and identifiers used for bounded scans.
-    this.mainDb.exec(`
-      CREATE TABLE IF NOT EXISTS ai_memory_vectors (
-        workspace_id TEXT NOT NULL,
-        message_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-        embedding BLOB NOT NULL,
-        dimensions INTEGER NOT NULL,
-        content_hash TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        PRIMARY KEY (workspace_id, message_id),
-        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
-      );
-      CREATE INDEX IF NOT EXISTS idx_ai_memory_workspace_time
-        ON ai_memory_vectors(workspace_id, timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_ai_memory_workspace_session
-        ON ai_memory_vectors(workspace_id, session_id);
-    `);
-
-    try {
-      this.mainDb.exec(`ALTER TABLE workspaces ADD COLUMN is_main INTEGER DEFAULT 0;`);
-    } catch (e) {
-      // Column already exists
-    }
-
-    try {
-      this.mainDb.exec(`ALTER TABLE workspaces ADD COLUMN preferences TEXT;`);
-    } catch (e) {
-      // Column already exists
-    }
-
-    try {
-      this.mainDb.exec(`ALTER TABLE workspaces ADD COLUMN biometric_enabled INTEGER DEFAULT 0;`);
-    } catch (e) {
-      // Column already exists
-    }
-
-    try {
-      const row = this.mainDb.prepare('SELECT COUNT(*) as c FROM workspaces WHERE is_main = 1').get() as { c: number };
-      if (row.c === 0) {
-        this.mainDb.exec("UPDATE workspaces SET is_main = 1 WHERE id = 'default'");
-      }
-    } catch (e) {}
-  }
-
-  private static runWorkspaceMigrations(db: Database.Database) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS profiles (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        host TEXT NOT NULL,
-        username TEXT NOT NULL,
-        password TEXT,
-        privateKeyPath TEXT,
-        passphrase TEXT,
-        port INTEGER DEFAULT 22,
-        autoStart INTEGER DEFAULT 0,
-        alias TEXT,
-        osType TEXT,
-        protocol TEXT DEFAULT 'ssh',
-        groupName TEXT,
-        useKeepAlive INTEGER DEFAULT 1,
-        authType TEXT DEFAULT 'password',
-        proxyJump TEXT,
-        strictHostKeyChecking INTEGER DEFAULT 0,
-        initialDirectory TEXT,
-        postConnectScript TEXT,
-        themeOverride TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS asset_folders (
-        path TEXT PRIMARY KEY,
-        created_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS runbooks (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        script TEXT NOT NULL,
-        riskLevel TEXT DEFAULT 'LOW',
-        created_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS ai_sessions (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        target TEXT,
-        details TEXT,
-        created_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS ai_messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        raw_content TEXT,
-        timestamp INTEGER NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES ai_sessions(id) ON DELETE CASCADE
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_profiles_workspace_id ON profiles(workspace_id);
-      CREATE INDEX IF NOT EXISTS idx_runbooks_workspace_id ON runbooks(workspace_id);
-      CREATE INDEX IF NOT EXISTS idx_ai_sessions_workspace_id ON ai_sessions(workspace_id);
-      CREATE INDEX IF NOT EXISTS idx_ai_messages_session_id ON ai_messages(session_id);
-      CREATE INDEX IF NOT EXISTS idx_ai_messages_session_id ON ai_messages(session_id);
-    `);
-
-    const profileColumns = [
-      ['passphrase', 'TEXT'],
-      ['protocol', "TEXT DEFAULT 'ssh'"],
-      ['groupName', 'TEXT'],
-      ['useKeepAlive', 'INTEGER DEFAULT 1'],
-      ['authType', "TEXT DEFAULT 'password'"],
-      ['proxyJump', 'TEXT'],
-      ['strictHostKeyChecking', 'INTEGER DEFAULT 0'],
-      ['initialDirectory', 'TEXT'],
-      ['postConnectScript', 'TEXT'],
-      ['themeOverride', 'TEXT'],
-    ] as const;
-    for (const [name, definition] of profileColumns) {
-      try {
-        db.exec(`ALTER TABLE profiles ADD COLUMN ${name} ${definition};`);
-      } catch {
-        // Existing databases already have some or all of these columns.
-      }
-    }
-  }
-
-  // --- Workspaces (Main DB) ---
-
-  public static getWorkspaces(): WorkspaceRow[] {
-    if (!this.mainDb) return [];
-    return this.mainDb.prepare('SELECT * FROM workspaces ORDER BY created_at ASC').all() as WorkspaceRow[];
-  }
-
-  public static createWorkspace(ws: WorkspaceRow) {
-    if (!this.mainDb) return;
-    const stmt = this.mainDb.prepare(`
-      INSERT INTO workspaces (id, name, themeColor, hasPassword, biometric_enabled, is_main, preferences, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name,
-        themeColor = excluded.themeColor,
-        hasPassword = excluded.hasPassword,
-        biometric_enabled = excluded.biometric_enabled,
-        is_main = excluded.is_main,
-        preferences = excluded.preferences,
-        updated_at = excluded.updated_at
-    `);
-    stmt.run(
-      ws.id, 
-      ws.name, 
-      ws.themeColor, 
-      ws.hasPassword, 
-      ws.biometric_enabled || 0, 
-      ws.is_main || 0, 
-      ws.preferences || '{}',
-      ws.created_at, 
-      ws.updated_at
-    );
-  }
-
-  public static deleteWorkspace(workspaceId: string) {
-    if (!this.mainDb) return;
-    const ws = this.mainDb.prepare('SELECT is_main FROM workspaces WHERE id = ?').get(workspaceId) as WorkspaceRow;
-    if (ws && ws.is_main === 1) {
-      throw new Error('Cannot delete main workspace');
-    }
-    
-    const transaction = this.mainDb.transaction(() => {
-      this.mainDb!.prepare('DELETE FROM ai_memory_vectors WHERE workspace_id = ?').run(workspaceId);
-      this.mainDb!.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+  public static saveProfiles(workspaceId: string, rows: ProfileRowInput[]): void {
+    const store = getStore();
+    writeIfOpen(() => {
+      // The renderer does not know about stored SSH keys yet: a row without keyId keeps its key.
+      const keyIds = new Map(store.listProfiles(workspaceId).map(profile => [profile.id, profile.keyId]));
+      const inputs: ProfileInput[] = rows.map(row => ({
+        id: String(row.id),
+        host: typeof row.host === 'string' ? row.host : '',
+        username: typeof row.username === 'string' ? row.username : '',
+        port: port(row.port) ?? 22,
+        protocol: (PROTOCOLS.has(row.protocol as string) ? row.protocol : 'ssh') as ProfileInput['protocol'],
+        authType: (AUTH_TYPES.has(row.authType as string) ? row.authType : 'password') as ProfileInput['authType'],
+        alias: text(row.alias),
+        osType: text(row.osType),
+        groupName: text(row.groupName) ?? text(row.group) ?? text(row.groupId),
+        autoStart: flag(row.autoStart),
+        useKeepAlive: !(row.useKeepAlive === false || row.useKeepAlive === 0),
+        strictHostKeyChecking: flag(row.strictHostKeyChecking),
+        proxyJump: text(row.proxyJump),
+        initialDirectory: text(row.initialDirectory),
+        postConnectScript: text(row.postConnectScript),
+        themeOverride: text(row.themeOverride),
+        keyId: row.keyId === undefined ? keyIds.get(String(row.id)) ?? null : text(row.keyId),
+        privateKeyPath: text(row.privateKeyPath),
+        password: secret(row.password),
+        passphrase: secret(row.passphrase),
+      }));
+      store.saveProfiles(workspaceId, inputs);
     });
-    transaction();
+  }
 
-    // Physically delete the workspace sub-database file
-    this.unmountWorkspace(workspaceId);
+  // --- Asset folders (never on a locked workspace) ---
+
+  private static folders<T>(run: () => T): T {
     try {
-       fs.unlinkSync(path.join(this.baseDir, `workspace_${workspaceId}.db`));
-    } catch (e) {}
-  }
-
-  public static setMainWorkspace(workspaceId: string) {
-    if (!this.mainDb) return;
-    const transaction = this.mainDb.transaction(() => {
-      this.mainDb!.prepare('UPDATE workspaces SET is_main = 0').run();
-      this.mainDb!.prepare('UPDATE workspaces SET is_main = 1 WHERE id = ?').run(workspaceId);
-    });
-    transaction();
-  }
-
-  // --- Global Settings ---
-  public static getGlobalSetting(key: string): string | null {
-    if (!this.mainDb) return null;
-    const row = this.mainDb.prepare('SELECT value FROM global_settings WHERE key = ?').get(key) as { value: string } | undefined;
-    return row ? row.value : null;
-  }
-
-  public static setGlobalSetting(key: string, value: string) {
-    if (!this.mainDb) return;
-    this.mainDb.prepare('INSERT INTO global_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
-  }
-
-  // --- Profiles (Sub DB) ---
-
-  public static getProfiles(workspaceId: string): ProfileRow[] {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return [];
-    const rows = db.prepare('SELECT * FROM profiles WHERE workspace_id = ?').all(workspaceId) as ProfileRow[];
-    return rows.map(profile => ({
-      ...profile,
-      group: profile.groupName || undefined,
-      autoStart: Boolean(profile.autoStart),
-      useKeepAlive: profile.useKeepAlive !== 0,
-      strictHostKeyChecking: Boolean(profile.strictHostKeyChecking),
-    }));
-  }
-
-  public static saveProfiles(workspaceId: string, profiles: ProfileRow[]) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-
-    const transaction = db.transaction(() => {
-      db.prepare('DELETE FROM profiles WHERE workspace_id = ?').run(workspaceId);
-      const insertStmt = db.prepare(`
-        INSERT INTO profiles (id, workspace_id, host, username, password, privateKeyPath, passphrase, port, autoStart, alias, osType, protocol, groupName, useKeepAlive, authType, proxyJump, strictHostKeyChecking, initialDirectory, postConnectScript, themeOverride)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const p of profiles) {
-        insertStmt.run(
-          p.id, p.workspace_id, p.host, p.username, p.password || null, p.privateKeyPath || null,
-          p.passphrase || null, p.port, p.autoStart ? 1 : 0, p.alias || null, p.osType || null,
-          p.protocol || 'ssh', p.groupName || p.group || (p as any).groupId || null, p.useKeepAlive === false || p.useKeepAlive === 0 ? 0 : 1,
-          p.authType || 'password', p.proxyJump || null, p.strictHostKeyChecking ? 1 : 0,
-          p.initialDirectory || null, p.postConnectScript || null, p.themeOverride || null
-        );
-      }
-    });
-    transaction();
-  }
-
-  // --- Asset folders (same workspace SQLCipher database as profiles) ---
-
-  private static assertFolderPath(value: unknown): asserts value is string {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 512 ||
-        value.split('/').some(part => part.length > 128 || !part.trim() || part === '.' || part === '..' || /[\x00-\x1f\x7f]/.test(part))) {
-      throw new Error('Invalid folder path');
+      return run();
+    } catch (error) {
+      throw folderError(error);
     }
-  }
-
-  private static assertFolderName(value: unknown): asserts value is string {
-    if (typeof value !== 'string' || value.includes('/')) throw new Error('Invalid folder name');
-    this.assertFolderPath(value);
-  }
-
-  private static folderPaths(db: Database.Database, workspaceId: string): string[] {
-    const paths = new Set<string>();
-    const includeParents = (path: string) => {
-      const segments = path.split('/');
-      for (let i = 1; i <= segments.length; i++) paths.add(segments.slice(0, i).join('/'));
-    };
-    const explicit = db.prepare('SELECT path FROM asset_folders').all() as { path: string }[];
-    const grouped = db.prepare('SELECT DISTINCT groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { groupName: string }[];
-    for (const { path } of explicit) {
-      try { this.assertFolderPath(path); includeParents(path); } catch { /* Ignore malformed legacy rows. */ }
-    }
-    for (const { groupName } of grouped) {
-      try { this.assertFolderPath(groupName); includeParents(groupName); } catch { /* Legacy labels remain on their profiles. */ }
-    }
-    return [...paths].sort((a, b) => a.localeCompare(b));
   }
 
   public static getAssetFolders(workspaceId: string): string[] {
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    return this.folderPaths(db, workspaceId);
-  }
-
-  private static getAssetFolderSnapshot(workspaceId: string, changedIds: string[] = []): AssetFolderSnapshot {
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    const select = db.prepare('SELECT id, groupName FROM profiles WHERE id = ? AND workspace_id = ?');
-    const rows = changedIds.map(id => select.get(id, workspaceId) as { id: string; groupName: string | null });
-    return { folders: this.folderPaths(db, workspaceId), memberships: rows.map(row => ({ id: row.id, group: row.groupName })) };
+    return this.folders(() => sortFolders(getStore().getAssetFolders(workspaceId)));
   }
 
   public static createAssetFolder(workspaceId: string, folderPath: string): AssetFolderSnapshot {
-    this.assertFolderPath(folderPath);
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    db.transaction(() => {
-      const insert = db.prepare('INSERT OR IGNORE INTO asset_folders (path, created_at) VALUES (?, ?)');
-      const parts = folderPath.split('/');
-      const now = Date.now();
-      for (let i = 1; i <= parts.length; i++) insert.run(parts.slice(0, i).join('/'), now);
-    })();
-    return this.getAssetFolderSnapshot(workspaceId);
+    return this.folders(() => sortSnapshot(getStore().createAssetFolder(workspaceId, folderPath)));
   }
 
   public static renameAssetFolder(workspaceId: string, folderPath: string, newName: string): AssetFolderSnapshot {
-    this.assertFolderPath(folderPath);
-    this.assertFolderName(newName);
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    const nextPath = [...folderPath.split('/').slice(0, -1), newName].join('/');
-    this.assertFolderPath(nextPath);
-    const changedIds: string[] = [];
-    db.transaction(() => {
-      const all = this.folderPaths(db, workspaceId);
-      if (!all.includes(folderPath)) throw new Error('Folder does not exist');
-      if (nextPath === folderPath) return;
-      const source = all.filter(path => path === folderPath || path.startsWith(`${folderPath}/`));
-      const sourceSet = new Set(source);
-      const target = source.map(path => nextPath + path.slice(folderPath.length));
-      for (const path of target) this.assertFolderPath(path);
-      if (target.some(path => all.includes(path) && !sourceSet.has(path))) throw new Error('Destination folder already exists');
-
-      const explicit = db.prepare('SELECT path, created_at FROM asset_folders').all() as { path: string; created_at: number }[];
-      const deleteFolder = db.prepare('DELETE FROM asset_folders WHERE path = ?');
-      const insertFolder = db.prepare('INSERT INTO asset_folders (path, created_at) VALUES (?, ?)');
-      const movedExplicit = explicit.filter(({ path }) => path === folderPath || path.startsWith(`${folderPath}/`));
-      for (const { path } of movedExplicit) deleteFolder.run(path);
-      for (const { path, created_at } of movedExplicit) insertFolder.run(nextPath + path.slice(folderPath.length), created_at);
-
-      const grouped = db.prepare('SELECT id, groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { id: string; groupName: string }[];
-      const updateProfile = db.prepare('UPDATE profiles SET groupName = ? WHERE id = ? AND workspace_id = ?');
-      for (const { id, groupName } of grouped) {
-        if (groupName === folderPath || groupName.startsWith(`${folderPath}/`)) {
-          updateProfile.run(nextPath + groupName.slice(folderPath.length), id, workspaceId);
-          changedIds.push(id);
-        }
-      }
-    })();
-    return this.getAssetFolderSnapshot(workspaceId, changedIds);
+    return this.folders(() => sortSnapshot(getStore().renameAssetFolder(workspaceId, folderPath, newName)));
   }
 
   public static removeAssetFolder(workspaceId: string, folderPath: string): AssetFolderSnapshot {
-    this.assertFolderPath(folderPath);
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    db.transaction(() => {
-      const all = this.folderPaths(db, workspaceId);
-      if (!all.includes(folderPath)) throw new Error('Folder does not exist');
-      if (all.some(path => path.startsWith(`${folderPath}/`))) throw new Error('Move child folders first');
-      const profiles = db.prepare('SELECT groupName FROM profiles WHERE workspace_id = ? AND groupName IS NOT NULL').all(workspaceId) as { groupName: string }[];
-      if (profiles.some(({ groupName }) => groupName === folderPath || groupName.startsWith(`${folderPath}/`))) {
-        throw new Error('Move hosts out of this folder first');
-      }
-      db.prepare('DELETE FROM asset_folders WHERE path = ?').run(folderPath);
-    })();
-    return this.getAssetFolderSnapshot(workspaceId);
+    return this.folders(() => sortSnapshot(getStore().removeAssetFolder(workspaceId, folderPath)));
   }
 
   public static moveProfileToAssetFolder(workspaceId: string, profileId: string, folderPath: string | null): AssetFolderSnapshot {
@@ -902,270 +287,96 @@ export class DatabaseManager {
   }
 
   public static moveProfilesToAssetFolder(workspaceId: string, profileIds: string[], folderPath: string | null): AssetFolderSnapshot {
-    if (!Array.isArray(profileIds) || profileIds.length < 1 || profileIds.length > 500 ||
-        profileIds.some(id => typeof id !== 'string' || !id || id.length > 256 || /[\x00-\x1f\x7f]/.test(id)) ||
-        new Set(profileIds).size !== profileIds.length) {
-      throw new Error('Invalid profile IDs');
-    }
-    if (folderPath !== null) this.assertFolderPath(folderPath);
-    const db = this.requireMountedWorkspaceDb(workspaceId);
-    const changedIds: string[] = [];
-    db.transaction(() => {
-      if (folderPath !== null && !this.folderPaths(db, workspaceId).includes(folderPath)) {
-        throw new Error('Destination folder does not exist');
-      }
-      const exists = db.prepare('SELECT groupName FROM profiles WHERE id = ? AND workspace_id = ?');
-      const rows = profileIds.map(id => exists.get(id, workspaceId) as { groupName: string | null } | undefined);
-      if (rows.some(row => !row)) throw new Error('Saved host does not exist in this workspace');
-      const update = db.prepare('UPDATE profiles SET groupName = ? WHERE id = ? AND workspace_id = ?');
-      for (let i = 0; i < profileIds.length; i++) {
-        if (rows[i]!.groupName !== folderPath) {
-          update.run(folderPath, profileIds[i], workspaceId);
-          changedIds.push(profileIds[i]);
-        }
-      }
-      if (folderPath !== null) {
-        db.prepare('INSERT OR IGNORE INTO asset_folders (path, created_at) VALUES (?, ?)').run(folderPath, Date.now());
-      }
-    })();
-    return this.getAssetFolderSnapshot(workspaceId, changedIds);
+    return this.folders(() => sortSnapshot(getStore().moveProfilesToAssetFolder(workspaceId, profileIds, folderPath)));
   }
 
-  // --- Runbooks (Sub DB) ---
+  // --- Runbooks ---
 
-  public static getRunbooks(workspaceId: string): any[] {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return [];
-    return db.prepare('SELECT * FROM runbooks WHERE workspace_id = ? ORDER BY created_at ASC').all(workspaceId);
+  public static getRunbooks(workspaceId: string): Runbook[] {
+    return readOr([], () => getStore().getRunbooks(workspaceId));
   }
 
-  public static saveRunbooks(workspaceId: string, runbooks: any[]) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-
-    const transaction = db.transaction(() => {
-      db.prepare('DELETE FROM runbooks WHERE workspace_id = ?').run(workspaceId);
-      const insertStmt = db.prepare(`
-        INSERT INTO runbooks (id, workspace_id, title, script, riskLevel, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      for (const rb of runbooks) {
-        insertStmt.run(rb.id, workspaceId, rb.title, rb.script, rb.riskLevel || 'LOW', rb.created_at || Date.now());
-      }
-    });
-    transaction();
+  public static saveRunbooks(workspaceId: string, runbooks: Array<Partial<Runbook> & { id: string; title: string; script: string }>): void {
+    writeIfOpen(() => getStore().saveRunbooks(workspaceId, runbooks.map(runbook => ({
+      id: runbook.id,
+      title: runbook.title,
+      script: runbook.script,
+      riskLevel: runbook.riskLevel || 'LOW',
+      created_at: runbook.created_at || Date.now(),
+    }))));
   }
 
-  // --- AI Chats (Sub DB) ---
+  // --- AI chats ---
 
-  public static getAiSessions(workspaceId: string): any[] {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return [];
-    const sessions = db.prepare('SELECT * FROM ai_sessions WHERE workspace_id = ? ORDER BY updated_at DESC').all(workspaceId) as any[];
-    for (const s of sessions) {
-      s.messages = db.prepare('SELECT * FROM ai_messages WHERE session_id = ? ORDER BY timestamp ASC').all(s.id);
-    }
-    return sessions;
+  public static getAiSessions(workspaceId: string): AiSession[] {
+    return readOr([], () => getStore().getAiSessions(workspaceId));
   }
 
-  public static createAiSession(workspaceId: string, id: string, title: string, timestamp: number) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-    db.prepare('INSERT INTO ai_sessions (id, workspace_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, workspaceId, title, timestamp, timestamp);
+  public static createAiSession(workspaceId: string, id: string, title: string, timestamp: number): void {
+    writeIfOpen(() => getStore().createAiSession(workspaceId, id, title, timestamp));
   }
 
-  public static saveAiMessage(workspaceId: string, msg: any) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-    db.prepare(`
-      INSERT INTO ai_messages (id, session_id, role, content, raw_content, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        content = excluded.content,
-        raw_content = excluded.raw_content
-    `).run(msg.id, msg.session_id, msg.role, msg.content, msg.raw_content || null, msg.timestamp);
-    
-    db.prepare('UPDATE ai_sessions SET updated_at = ? WHERE id = ?').run(msg.timestamp, msg.session_id);
+  public static saveAiMessage(workspaceId: string, message: Omit<AiMessage, 'raw_content'> & { raw_content?: string | null }): void {
+    writeIfOpen(() => getStore().saveAiMessage(workspaceId, { ...message, raw_content: message.raw_content || null }));
   }
 
-  public static updateAiSessionTitle(workspaceId: string, id: string, title: string) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-    db.prepare('UPDATE ai_sessions SET title = ? WHERE id = ?').run(title, id);
+  public static updateAiSessionTitle(workspaceId: string, id: string, title: string): void {
+    writeIfOpen(() => getStore().updateAiSessionTitle(workspaceId, id, title));
   }
 
-  public static deleteAiSession(workspaceId: string, id: string) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
-    db.prepare('DELETE FROM ai_sessions WHERE id = ?').run(id);
+  public static deleteAiSession(workspaceId: string, id: string): void {
+    writeIfOpen(() => getStore().deleteAiSession(workspaceId, id));
   }
 
-  // --- Encrypted local semantic memory (Main SQLCipher DB) ---
+  // --- Encrypted local semantic memory (main.db) ---
 
   public static isEncryptedAiMemoryAvailable(): boolean {
-    return Boolean(this.mainDb?.open);
+    try {
+      return getStore().isEncryptedAiMemoryAvailable();
+    } catch {
+      return false;
+    }
   }
 
   public static upsertAiMemoryVector(row: AiMemoryVectorRow): void {
-    if (!this.mainDb?.open) return;
-    this.mainDb.prepare(`
-      INSERT INTO ai_memory_vectors (
-        workspace_id, message_id, session_id, role, embedding,
-        dimensions, content_hash, timestamp
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(workspace_id, message_id) DO UPDATE SET
-        session_id = excluded.session_id,
-        role = excluded.role,
-        embedding = excluded.embedding,
-        dimensions = excluded.dimensions,
-        content_hash = excluded.content_hash,
-        timestamp = excluded.timestamp
-    `).run(
-      row.workspace_id,
-      row.message_id,
-      row.session_id,
-      row.role,
-      row.embedding,
-      row.dimensions,
-      row.content_hash,
-      row.timestamp
-    );
+    writeIfOpen(() => getStore().upsertAiMemoryVector(row));
   }
 
   public static deleteAiMemoryMessage(workspaceId: string, messageId: string): void {
-    if (!this.mainDb?.open) return;
-    this.mainDb.prepare(
-      'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND message_id = ?'
-    ).run(workspaceId, messageId);
+    writeIfOpen(() => getStore().deleteAiMemoryMessage(workspaceId, messageId));
   }
 
   public static deleteAiMemorySession(workspaceId: string, sessionId: string): void {
-    if (!this.mainDb?.open) return;
-    this.mainDb.prepare(
-      'DELETE FROM ai_memory_vectors WHERE workspace_id = ? AND session_id = ?'
-    ).run(workspaceId, sessionId);
+    writeIfOpen(() => getStore().deleteAiMemorySession(workspaceId, sessionId));
   }
 
-  public static getAiMemoryVectors(
-    workspaceId: string,
-    limit: number,
-    excludeSessionId?: string
-  ): AiMemoryVectorRow[] {
-    if (!this.mainDb?.open) return [];
-    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 2_000));
-    if (excludeSessionId) {
-      return this.mainDb.prepare(`
-        SELECT workspace_id, message_id, session_id, role, embedding,
-               dimensions, content_hash, timestamp
-        FROM ai_memory_vectors
-        WHERE workspace_id = ? AND session_id <> ?
-        ORDER BY timestamp DESC
-        LIMIT ?
-      `).all(workspaceId, excludeSessionId, boundedLimit) as AiMemoryVectorRow[];
-    }
-    return this.mainDb.prepare(`
-      SELECT workspace_id, message_id, session_id, role, embedding,
-             dimensions, content_hash, timestamp
-      FROM ai_memory_vectors
-      WHERE workspace_id = ?
-      ORDER BY timestamp DESC
-      LIMIT ?
-    `).all(workspaceId, boundedLimit) as AiMemoryVectorRow[];
+  public static getAiMemoryVectors(workspaceId: string, limit: number, excludeSessionId?: string): AiMemoryVectorRow[] {
+    return readOr([], () => getStore().getAiMemoryVectors(workspaceId, limit, excludeSessionId));
   }
 
   public static getRecentAiMessagesForMemory(workspaceId: string, limit: number): AiMemoryMessageRow[] {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return [];
-    const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), 2_000));
-    return db.prepare(`
-      SELECT m.id, m.session_id, m.role, m.content, m.timestamp
-      FROM ai_messages m
-      INNER JOIN ai_sessions s ON s.id = m.session_id
-      WHERE s.workspace_id = ? AND m.role IN ('user', 'assistant')
-      ORDER BY m.timestamp DESC
-      LIMIT ?
-    `).all(workspaceId, boundedLimit) as AiMemoryMessageRow[];
+    return readOr([], () => getStore().getRecentAiMessagesForMemory(workspaceId, limit));
   }
 
   public static getAiMessagesByIds(workspaceId: string, messageIds: string[]): AiMemoryMessageRow[] {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db || messageIds.length === 0) return [];
-    const boundedIds = [...new Set(messageIds)].slice(0, 32);
-    const placeholders = boundedIds.map(() => '?').join(',');
-    return db.prepare(`
-      SELECT m.id, m.session_id, m.role, m.content, m.timestamp
-      FROM ai_messages m
-      INNER JOIN ai_sessions s ON s.id = m.session_id
-      WHERE s.workspace_id = ? AND m.id IN (${placeholders})
-    `).all(workspaceId, ...boundedIds) as AiMemoryMessageRow[];
+    if (messageIds.length === 0) return [];
+    return readOr([], () => getStore().getAiMessagesByIds(workspaceId, messageIds));
   }
 
-  public static logAudit(workspaceId: string, action: string, target?: string, details?: string) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return;
+  // --- Audit log ---
+
+  /** Never fails: a missing audit entry must not stop the action it records. */
+  public static logAudit(workspaceId: string, action: string, target?: string, details?: string): void {
     try {
-      db.prepare('INSERT INTO audit_logs (id, workspace_id, action, target, details, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(require('crypto').randomUUID(), workspaceId, action, target || '', details || '', Date.now());
-    } catch(e) {}
+      getStore().logAudit(workspaceId, action, target, details);
+    } catch {}
   }
 
-  public static getAuditLogs(workspaceId: string, limit: number = 50) {
-    const db = this.getWorkspaceDb(workspaceId);
-    if (!db) return [];
+  public static getAuditLogs(workspaceId: string, limit = 50): AuditLog[] {
     try {
-      return db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?').all(limit);
-    } catch(e) {
+      return getStore().getAuditLogs(workspaceId, limit);
+    } catch {
       return [];
     }
-  }
-
-  public static getWorkspaceStats(workspaceId: string) {
-    let sizeMb = 0;
-    let profileCount = 0;
-    let runbookCount = 0;
-    
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-      const wsDir = path.join(os.homedir(), '.getssh', 'workspaces', workspaceId);
-      
-      if (fs.existsSync(wsDir)) {
-        // Calculate size of ai_chats.db if it exists
-        const aiChatsDbPath = path.join(wsDir, 'ai_chats.db');
-        if (fs.existsSync(aiChatsDbPath)) {
-          sizeMb += fs.statSync(aiChatsDbPath).size / (1024 * 1024);
-        }
-        // Calculate size of nexus.db if it exists
-        const nexusDbPath = path.join(wsDir, 'nexus.db');
-        if (fs.existsSync(nexusDbPath)) {
-          sizeMb += fs.statSync(nexusDbPath).size / (1024 * 1024);
-        }
-        
-        // Count profiles
-        const profilesPath = path.join(wsDir, 'profiles.json');
-        if (fs.existsSync(profilesPath)) {
-          try {
-            const data = JSON.parse(fs.readFileSync(profilesPath, 'utf8'));
-            profileCount = Object.keys(data).length;
-          } catch(e) {}
-        }
-        
-        // Count runbooks
-        const runbooksPath = path.join(wsDir, 'runbooks.json');
-        if (fs.existsSync(runbooksPath)) {
-          try {
-            const data = JSON.parse(fs.readFileSync(runbooksPath, 'utf8'));
-            runbookCount = Object.keys(data).length;
-          } catch(e) {}
-        }
-      }
-    } catch (e) {}
-
-    // Ensure sizeMb is at least 0.01 if there are profiles or runbooks, just so it doesn't show 0.00 incorrectly
-    if (sizeMb < 0.01 && (profileCount > 0 || runbookCount > 0)) sizeMb = 0.01;
-
-    return { size: parseFloat(sizeMb.toFixed(2)), profileCount, runbookCount };
   }
 }

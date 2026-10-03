@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BrowserWindow, powerMonitor } from 'electron';
-import { DatabaseManager } from '../services/DatabaseManager';
-import { APP_SCOPE, isKeystoreError, keystore, toKeystoreError, workspaceScope } from './keystore';
-import { hasLegacyData, migrateLegacyData, type MigrationReport } from './keystoreMigration';
+import type { AppState, UnlockRoute } from '../../../../../rust-core/getssh-store/store';
+import { configureStore, getStore, storeBaseDir, storeMode, toStoreError } from '../services/getsshStore';
+import type { MigrationReport } from './keystoreMigration';
 
 /**
  * Whether GETSSH's data is open, and the transitions between locked and ready.
@@ -11,7 +11,8 @@ import { hasLegacyData, migrateLegacyData, type MigrationReport } from './keysto
  * Without a master password the app opens by itself (the quiet device key) and locking only
  * affects workspaces that have their own password. With a master password nothing is readable
  * until it, Touch ID / Windows Hello or the recovery code unlocks the app; idle time, a locked
- * screen and sleep lock it again and close the databases.
+ * screen and sleep lock it again and close the databases. getssh-store does the work; this class
+ * runs the GETSSH 2.x migration first and tells the windows about the state.
  */
 
 export type LockPhase = 'starting' | 'locked' | 'ready' | 'error';
@@ -28,11 +29,11 @@ export interface AppLockState {
   deviceKeyLost: boolean;
   /**
    * Unlocked with a master password shorter than 12 characters (set before 3.0): the renderer
-   * shows a blocking "change your master password" dialog. Always false until getssh-store
-   * replaces the keystore here.
+   * shows a blocking "change your master password" dialog; exports are refused until it changes.
    */
   masterPasswordMustChange: boolean;
   error?: string;
+  /** Set on the start that moved GETSSH 2.x data. */
   migration?: MigrationReport;
 }
 
@@ -48,10 +49,47 @@ const IDLE_POLL_MS = 15_000;
 const MIGRATION_BACKUP = '.keystore-migration-backup';
 export const PRESENCE_REASON = 'unlock GETSSH';
 
+type LockReason = Parameters<typeof import('../../../../../rust-core/getssh-store/store').lockApp>[0];
+
+/**
+ * Whether GETSSH 2.x data still has to move to the keystore: there is no keyring yet but older
+ * files are there, or an earlier attempt was interrupted.
+ */
+function needsLegacyMigration(baseDir: string): boolean {
+  if (fs.existsSync(path.join(baseDir, 'keyring.json'))) {
+    return fs.existsSync(path.join(baseDir, MIGRATION_BACKUP)) ||
+      ['app_key.enc', 'app_key.txt'].some(name => fs.existsSync(path.join(baseDir, name)));
+  }
+  const { hasLegacyData } = require('./keystoreMigration') as typeof import('./keystoreMigration');
+  return hasLegacyData(baseDir);
+}
+
+/**
+ * Runs the 2.x migration with getssh-keystore and better-sqlite3-multiple-ciphers (loaded only
+ * here). Every database it opens is closed again before it returns; getssh-store starts after.
+ */
+async function runLegacyMigration(baseDir: string): Promise<MigrationReport> {
+  const { keystore } = require('./keystore') as typeof import('./keystore');
+  const { migrateLegacyData } = require('./keystoreMigration') as typeof import('./keystoreMigration');
+  const { prepareLegacyMainDatabase } = require('./legacyDatabase') as typeof import('./legacyDatabase');
+  keystore.configure(path.join(baseDir, 'keyring.json'));
+  return migrateLegacyData(baseDir, key => prepareLegacyMainDatabase(baseDir, key));
+}
+
+/** The keystore's old error names, which the lock screen shows. */
+function unlockError(request: UnlockRequest, error: unknown): { ok: false; error: string; retryAfterMs?: number } {
+  const failure = toStoreError(error);
+  let code: string = failure.code;
+  if (request.method === 'recovery' && code === 'wrong_password') code = 'invalid_recovery_code';
+  else if (code === 'unavailable' && /device key/.test(failure.detail)) code = 'device_key_lost';
+  else if (request.method === 'presence' && code === 'needs_password') code = 'unavailable';
+  if (code === 'internal') console.error('[AppLock] Unlock failed:', error);
+  return { ok: false, error: code, retryAfterMs: failure.retryAfterMs };
+}
+
 class AppLock {
   private phase: LockPhase = 'starting';
   private error: string | undefined;
-  private deviceKeyLost = false;
   private migration: MigrationReport | undefined;
   private readyOnce: (() => Promise<void>) | null = null;
   private readyRan = false;
@@ -59,22 +97,24 @@ class AppLock {
   private triggersInstalled = false;
   private lockListeners: Array<() => void> = [];
 
-  state(): AppLockState {
-    let status: ReturnType<typeof keystore.status> | null = null;
+  private storeState(): AppState | null {
     try {
-      status = keystore.status();
+      return getStore().appState();
     } catch {
-      status = null;
+      return null;
     }
-    const app = status?.scopes.find(scope => scope.id === APP_SCOPE);
+  }
+
+  state(): AppLockState {
+    const store = this.storeState();
     return {
       phase: this.phase,
-      appProtected: !!status?.appProtected,
-      presenceSupported: !!status?.presenceSupported,
-      presenceEnabled: !!app?.presence,
-      recoveryConfigured: !!status?.recoveryConfigured,
-      deviceKeyLost: this.deviceKeyLost || !!status?.deviceKeyLost,
-      masterPasswordMustChange: false,
+      appProtected: !!store?.masterPassword,
+      presenceSupported: !!store?.presenceSupported,
+      presenceEnabled: !!store?.presenceEnabled,
+      recoveryConfigured: !!store?.recoveryConfigured,
+      deviceKeyLost: !!store?.deviceKeyLost,
+      masterPasswordMustChange: !!store?.masterPasswordMustChange,
       error: this.error,
       migration: this.migration,
     };
@@ -111,62 +151,40 @@ class AppLock {
 
   async start(): Promise<void> {
     try {
-      const baseDir = DatabaseManager.getBaseDir();
-      fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
-      keystore.configure();
-      const interrupted = fs.existsSync(path.join(baseDir, MIGRATION_BACKUP)) ||
-        ['app_key.enc', 'app_key.txt'].some(name => fs.existsSync(path.join(baseDir, name)));
-      if (!keystore.status().initialized ? hasLegacyData(baseDir) : interrupted) {
-        this.migration = await migrateLegacyData(baseDir, key => DatabaseManager.prepareLegacyMainDatabase(key));
-        if (this.migration.deferredWorkspaces.length) {
-          console.warn('[AppLock] Workspaces waiting for their password to finish moving to the keystore:', this.migration.deferredWorkspaces);
+      const baseDir = storeBaseDir();
+      if (storeMode() === 'native') {
+        fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
+        if (needsLegacyMigration(baseDir)) {
+          this.migration = await runLegacyMigration(baseDir);
+          if (this.migration.deferredWorkspaces.length) {
+            console.warn('[AppLock] Workspaces waiting for their password to finish moving to the keystore:', this.migration.deferredWorkspaces);
+          }
         }
-      } else if (!keystore.status().initialized) {
-        await keystore.initialize();
+      }
+      const store = configureStore();
+      const report = await store.start();
+      if (report.failedWorkspaces.length) {
+        console.error('[AppLock] Workspaces whose database could not be opened (left as they are):', report.failedWorkspaces);
       }
       this.installTriggers();
-      if (keystore.status().appProtected) {
+      if (store.appState().phase !== 'ready') {
         this.setPhase('locked');
         return;
       }
-      try {
-        await keystore.openScope(APP_SCOPE);
-      } catch (error) {
-        // Removing the master password was interrupted before main.db moved to the new key:
-        // the old master password opens it once more and the removal finishes.
-        if (isKeystoreError(error, 'locked')) {
-          this.setPhase('locked');
-          return;
-        }
-        throw error;
-      }
-      await this.openData();
+      this.becomeReady();
     } catch (error) {
-      const failure = toKeystoreError(error);
-      if (failure.code === 'device_key_lost') {
-        this.deviceKeyLost = true;
+      if (this.storeState()?.deviceKeyLost) {
+        this.installTriggers();
         this.setPhase('locked');
         return;
       }
+      const failure = toStoreError(error);
       console.error('[AppLock] GETSSH could not open its data:', error);
       this.setPhase('error', failure.code === 'internal' ? failure.detail : failure.code);
     }
   }
 
-  /** Opens main.db and every workspace that needs no password, then marks the app ready. */
-  private async openData(): Promise<void> {
-    DatabaseManager.init();
-    await DatabaseManager.completeRotation(APP_SCOPE);
-    for (const scope of keystore.status().scopes) {
-      if (scope.id === APP_SCOPE || scope.protected) continue;
-      try {
-        await keystore.openScope(scope.id);
-      } catch (error) {
-        console.warn(`[AppLock] ${scope.id} could not be opened:`, error);
-      }
-    }
-    await DatabaseManager.completePendingRotations();
-    this.deviceKeyLost = false;
+  private becomeReady(): void {
     this.setPhase('ready');
     if (this.readyOnce && !this.readyRan) {
       this.readyRan = true;
@@ -177,29 +195,19 @@ class AppLock {
   async unlock(request: UnlockRequest): Promise<UnlockResult> {
     if (this.phase === 'ready') return { ok: true };
     if (this.phase !== 'locked') return { ok: false, error: this.phase };
+    const route: UnlockRoute = request.method === 'password'
+      ? { password: request.password }
+      : request.method === 'presence'
+        ? { presence: PRESENCE_REASON }
+        : { recoveryCode: request.code };
     try {
-      switch (request.method) {
-        case 'password':
-          await keystore.unlockWithPassword(APP_SCOPE, request.password);
-          break;
-        case 'presence':
-          await keystore.unlockWithPresence(APP_SCOPE, PRESENCE_REASON);
-          break;
-        case 'recovery':
-          await keystore.unlockWithRecovery(request.code);
-          break;
-      }
-      if (!this.appUnlocked()) await keystore.openScope(APP_SCOPE);
-      await this.openData();
+      const state = await getStore().unlockApp(route);
+      if (state.phase !== 'ready') return { ok: false, error: 'locked' };
+      this.becomeReady();
       return { ok: true };
     } catch (error) {
-      const failure = toKeystoreError(error);
-      return { ok: false, error: failure.code, retryAfterMs: failure.retryAfterMs };
+      return unlockError(request, error);
     }
-  }
-
-  private appUnlocked(): boolean {
-    return !!keystore.status().scopes.find(scope => scope.id === APP_SCOPE)?.unlocked;
   }
 
   /**
@@ -215,15 +223,14 @@ class AppLock {
         console.warn('[AppLock] A lock listener failed:', error);
       }
     }
-    const status = keystore.status();
-    if (!status.scopes.some(scope => scope.protected && scope.unlocked)) {
-      keystore.closeReveal();
-      return;
-    }
+    const store = getStore();
+    const appProtected = !!this.storeState()?.masterPassword;
+    const protectedOpen = appProtected || store.listWorkspaces().some(workspace => workspace.hasPassword && workspace.state === 'open');
+    // Also closes every reveal window, protected or not.
+    store.lockApp(lockReason(reason));
+    if (!protectedOpen) return;
     console.log(`[AppLock] Locking (${reason}).`);
-    keystore.lockProtected();
-    DatabaseManager.closeLockedDatabases();
-    if (status.appProtected) {
+    if (appProtected) {
       this.setPhase('locked');
     } else {
       this.broadcast();
@@ -251,17 +258,13 @@ class AppLock {
   }
 }
 
-export const appLock = new AppLock();
-
-/** Scope id for a workspace, or null for an invalid id. */
-export function scopeForWorkspace(workspaceId: unknown): string | null {
-  try {
-    return typeof workspaceId === 'string' ? workspaceScope(workspaceId) : null;
-  } catch {
-    return null;
+function lockReason(reason: string): LockReason {
+  switch (reason) {
+    case 'idle': return 'idle';
+    case 'sleep': return 'sleep';
+    case 'screen locked': return 'screen-locked';
+    default: return 'manual';
   }
 }
 
-export function isLockedError(error: unknown): boolean {
-  return isKeystoreError(error, 'locked');
-}
+export const appLock = new AppLock();

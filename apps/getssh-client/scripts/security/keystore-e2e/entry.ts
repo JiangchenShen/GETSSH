@@ -1,15 +1,22 @@
 // Electron main-process entry for run.mjs; one phase per process (KS_PHASE). Legacy files are
 // written with --use-mock-keychain, never the real Keychain. Nothing here can prompt.
-import { app } from 'electron';
+//
+// The app side of getssh-store: the GETSSH 2.x migration (TypeScript, getssh-keystore) handing
+// over to the store, appLock, and DatabaseManager on top of the store.
+import { app, BrowserWindow, ipcMain } from 'electron';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { registerAssetFolderHandlers } from '../../../electron/main/handlers/assetFolderHandler';
+import { registerCryptoHandlers } from '../../../electron/main/handlers/cryptoHandler';
+import { registerKeystoreHandlers } from '../../../electron/main/handlers/keystoreHandler';
+import { setupWorkspaceHandlers } from '../../../electron/main/handlers/workspaceHandler';
 import { DatabaseManager as DM } from '../../../electron/main/services/DatabaseManager';
+import { setMainWindow } from '../../../electron/main/windowRegistry';
+import { getStore } from '../../../electron/main/services/getsshStore';
 import { appLock } from '../../../electron/main/security/appLock';
-import { keyOpens } from '../../../electron/main/security/databaseKeys';
-import { APP_SCOPE, keystore, workspaceScope } from '../../../electron/main/security/keystore';
 import { writeSecretFile } from '../../../electron/main/security/secretStore';
 
 app.commandLine.appendSwitch('use-mock-keychain');
@@ -30,6 +37,21 @@ function legacyDb(file: string, passphrase: string | null, setup: (db: Database.
   }
   setup(db);
   db.close();
+}
+
+/**
+ * Whether a database file is plain SQLite. Read from the header: opening a file getssh-store has
+ * open with a second SQLite library would drop the store's locks on it.
+ */
+function isPlainSqlite(file: string): boolean {
+  const header = Buffer.alloc(16);
+  const fd = fs.openSync(file, 'r');
+  try {
+    fs.readSync(fd, header, 0, 16, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return header.equals(Buffer.from('SQLite format 3\0', 'utf8'));
 }
 
 /** What GETSSH 2.x / early 3.0 left on disk: app key in safeStorage, workspace passwords in vault.key. */
@@ -81,11 +103,6 @@ function snapshot(dir: string): Map<string, string> {
 }
 
 const hosts = (workspaceId: string) => DM.getProfiles(workspaceId).map(p => `${p.host}:${p.password}`).sort();
-const scope = (id: string) => keystore.status().scopes.find(s => s.id === id);
-
-async function commitAll(staged: string[]) {
-  for (const id of staged) await DM.completeRotation(id);
-}
 
 async function run(): Promise<string> {
   trace('app ready');
@@ -112,8 +129,9 @@ async function run(): Promise<string> {
       }
       assert.equal(await DM.openWorkspace('default'), 'open');
       assert.deepEqual(hosts('default'), ['router.lan:hunter2']);
-      assert.ok(!keyOpens(path.join(base, 'workspace_default.db'), { kind: 'none' }), 'default is encrypted now');
+      assert.ok(!isPlainSqlite(path.join(base, 'workspace_default.db')), 'default is encrypted now');
       assert.equal(await DM.openWorkspace('secret'), 'locked');
+      assert.deepEqual(DM.getProfiles('secret'), [], 'a locked workspace lists nothing');
       assert.equal(await DM.unlockWorkspaceWithPassword('secret', 'wrong-pw'), false);
       assert.equal(await DM.unlockWorkspaceWithPassword('secret', 'secret-pw-1'), true);
       assert.deepEqual(hosts('secret'), ['prod.example:topsecret']);
@@ -121,7 +139,7 @@ async function run(): Promise<string> {
       assert.equal(await DM.unlockWorkspaceWithPassword('lost', 'nope'), false);
       assert.equal(await DM.unlockWorkspaceWithPassword('lost', 'abc'), true, 'short legacy passwords survive');
       assert.deepEqual(hosts('lost'), ['old.example:x']);
-      assert.ok(scope(workspaceScope('lost'))?.ownPassword);
+      assert.ok(DM.getWorkspace('lost')?.hasPassword);
       return 'migrated ' + JSON.stringify(state.migration);
     }
 
@@ -133,40 +151,48 @@ async function run(): Promise<string> {
       assert.equal(await DM.openWorkspace('secret'), 'locked');
       assert.equal(await DM.unlockWorkspaceWithPassword('lost', 'abc'), true);
       appLock.lock('idle');
-      assert.ok(!DM.isWorkspaceMounted('lost'), 'protected workspaces close on idle');
-      assert.ok(DM.isWorkspaceMounted('default'), 'the rest stays open without a master password');
+      assert.ok(!DM.isWorkspaceOpen('lost'), 'protected workspaces close on idle');
+      assert.ok(DM.isWorkspaceOpen('default'), 'the rest stays open without a master password');
       assert.equal(appLock.state().phase, 'ready');
       return 'restart without master password ok';
     }
 
     case 'set-master': {
       await appLock.start();
-      assert.equal(await DM.openWorkspace('default'), 'open');
-      const staged = await keystore.setPassword(APP_SCOPE, 'master-password-1');
-      assert.deepEqual([...staged].sort(), [APP_SCOPE, workspaceScope('default')].sort());
-      await commitAll(staged);
-      assert.ok(!scope(APP_SCOPE)?.staged && !scope(workspaceScope('default'))?.staged);
+      const store = getStore();
+      // The first master password replaces the workspace passwords: those workspaces are unlocked first.
+      await assert.rejects(store.setMasterPassword('master-password-1'), /\[store:locked\]/);
+      assert.equal(await DM.unlockWorkspaceWithPassword('secret', 'secret-pw-1'), true);
+      assert.equal(await DM.unlockWorkspaceWithPassword('lost', 'abc'), true);
+      await assert.rejects(store.setMasterPassword('short-pw'), /\[store:invalid_argument\]/);
+      await store.setMasterPassword('master-password-1');
+      assert.ok(appLock.state().appProtected);
+      assert.deepEqual(DM.getWorkspaces().filter(w => w.hasPassword).map(w => w.id), [], 'no workspace keeps its own password');
       assert.deepEqual(hosts('default'), ['router.lan:hunter2']);
-      assert.ok(!keystore.status().recoveryConfigured, 'setting the master password discards the old code');
-      fs.writeFileSync(marker('recovery.txt'), await keystore.setupRecovery());
+      assert.deepEqual(hosts('secret'), ['prod.example:topsecret']);
+      assert.ok(!appLock.state().recoveryConfigured, 'setting the master password discards the old code');
+      await assert.rejects(store.createRecoveryCode(), /\[store:needs_password\]/);
+      fs.writeFileSync(marker('recovery.txt'), await store.createRecoveryCode('master-password-1'));
       return 'master password set';
     }
 
     case 'restart-master': {
       await appLock.start();
       assert.equal(appLock.state().phase, 'locked');
-      assert.ok(!DM.isMainDbOpen());
-      assert.equal((await appLock.unlock({ method: 'password', password: 'wrong' })).ok, false);
+      assert.deepEqual(DM.getWorkspaces(), [], 'nothing is readable while locked');
+      assert.ok(!DM.isEncryptedAiMemoryAvailable());
+      assert.deepEqual(await appLock.unlock({ method: 'password', password: 'wrong-password-1' }), { ok: false, error: 'wrong_password', retryAfterMs: undefined });
       assert.deepEqual(await appLock.unlock({ method: 'password', password: 'master-password-1' }), { ok: true });
+      assert.ok(DM.isEncryptedAiMemoryAvailable());
       assert.equal(await DM.openWorkspace('default'), 'open', 'one master unlock opens it');
-      assert.deepEqual(hosts('default'), ['router.lan:hunter2']);
-      assert.equal(await DM.openWorkspace('secret'), 'locked', 'its own password, locked while the master password was set');
-      assert.equal(await DM.unlockWorkspaceWithPassword('secret', 'secret-pw-1'), true);
+      assert.equal(await DM.openWorkspace('secret'), 'open', 'and every other workspace');
+      assert.deepEqual(hosts('secret'), ['prod.example:topsecret']);
       appLock.lock('screen locked');
       assert.equal(appLock.state().phase, 'locked');
-      assert.ok(!DM.isMainDbOpen() && !DM.isWorkspaceMounted('default') && !DM.isWorkspaceMounted('secret'));
+      assert.ok(!DM.isEncryptedAiMemoryAvailable() && getStore().appState().phase === 'locked');
+      assert.deepEqual(await appLock.unlock({ method: 'recovery', code: 'GSRC-0000-0000-0000-0000' }), { ok: false, error: 'invalid_recovery_code', retryAfterMs: undefined });
       assert.deepEqual(await appLock.unlock({ method: 'recovery', code: fs.readFileSync(marker('recovery.txt'), 'utf8') }), { ok: true });
-      assert.equal(await DM.openWorkspace('secret'), 'open', 'joined the master password on its unlock above');
+      assert.equal(await DM.openWorkspace('secret'), 'open');
       return 'master password lock/unlock ok';
     }
 
@@ -174,10 +200,9 @@ async function run(): Promise<string> {
       await appLock.start();
       assert.deepEqual(await appLock.unlock({ method: 'password', password: 'master-password-1' }), { ok: true });
       assert.equal(await DM.openWorkspace('default'), 'open');
-      const staged = await keystore.removePassword(APP_SCOPE);
-      assert.deepEqual(staged, [APP_SCOPE]);
-      await commitAll(staged);
-      assert.ok(!keystore.status().appProtected);
+      await assert.rejects(getStore().removeMasterPassword('wrong-password-1'), /\[store:wrong_password\]/);
+      await getStore().removeMasterPassword('master-password-1');
+      assert.ok(!appLock.state().appProtected);
       assert.deepEqual(hosts('default'), ['router.lan:hunter2']);
       return 'master password removed';
     }
@@ -186,8 +211,8 @@ async function run(): Promise<string> {
       await appLock.start();
       assert.equal(appLock.state().phase, 'ready', 'no master password: opens without a prompt');
       assert.equal(await DM.openWorkspace('default'), 'open');
-      assert.equal(await DM.openWorkspace('secret'), 'locked', 'workspace passwords outlive the master password');
-      assert.equal(await DM.unlockWorkspaceWithPassword('secret', 'secret-pw-1'), true);
+      // Its own password went away when the master password took over.
+      assert.equal(await DM.openWorkspace('secret'), 'open');
       assert.deepEqual(hosts('secret'), ['prod.example:topsecret']);
       return 'restart after removing the master password ok';
     }
@@ -198,32 +223,163 @@ async function run(): Promise<string> {
       assert.equal(appLock.state().migration, undefined);
       assert.deepEqual(DM.getWorkspaces().map(w => w.id), ['default']);
       assert.equal(await DM.openWorkspace('default'), 'open');
-      assert.ok(!keyOpens(path.join(base, 'main.db'), { kind: 'none' }));
+      assert.ok(!isPlainSqlite(path.join(base, 'main.db')));
+      assert.ok(!fs.existsSync(path.join(base, '.keystore-migration-backup')));
       return 'fresh install ok';
+    }
+
+    case 'profiles': {
+      // The transitional profile list (credentials included) and its save semantics.
+      await appLock.start();
+      const longScript = 'echo ready\n'.repeat(1000);
+      DM.saveProfiles('default', [
+        { id: 'a', host: 'a.example', username: 'root', password: 'pw-a', passphrase: 'pp-a', port: '2222', group: 'Prod', autoStart: 1, postConnectScript: longScript },
+        { id: 'b', host: 'b.example', username: 'root', password: 'pw-b', protocol: 'bogus', useKeepAlive: 0 },
+      ]);
+      const [a, b] = DM.getProfiles('default');
+      assert.equal(a.password, 'pw-a');
+      assert.equal(a.passphrase, 'pp-a');
+      assert.equal(a.port, 2222);
+      assert.equal(a.groupName, 'Prod');
+      assert.equal(a.group, 'Prod');
+      assert.equal(a.autoStart, true);
+      assert.equal(a.postConnectScript, longScript);
+      assert.equal(b.protocol, 'ssh');
+      assert.equal(b.useKeepAlive, false);
+      // undefined keeps a secret, '' clears it, a string replaces it.
+      DM.saveProfiles('default', [{ ...a, password: undefined, passphrase: '' }, { ...b, password: 'pw-b2' }]);
+      const [a2, b2] = DM.getProfiles('default');
+      assert.equal(a2.password, 'pw-a');
+      assert.equal(a2.passphrase, undefined);
+      assert.ok(!a2.hasPassphrase);
+      assert.equal(b2.password, 'pw-b2');
+      const listed = JSON.stringify(getStore().listProfiles('default'));
+      assert.ok(!listed.includes('pw-a') && !listed.includes('pw-b2'), 'the store itself never lists a secret');
+      return 'profiles round-trip';
+    }
+
+    case 'bridge': {
+      // workspace:bridge:importProfiles copies through the store: credentials are sealed again for the target.
+      await appLock.start();
+      DM.saveProfiles('default', [{ id: 'src', host: 'src.example', username: 'root', password: 'bridge-pw' }]);
+      DM.saveRunbooks('default', [{ id: 'rb1', title: 'Restart', script: 'systemctl restart x' }, { id: 'rb2', title: 'Other', script: 'true' }]);
+      await DM.createWorkspace({ id: 'target', name: 'Target' });
+      getStore().copyProfiles('default', 'target', ['src']);
+      assert.deepEqual(hosts('target'), ['src.example:bridge-pw']);
+      assert.deepEqual(DM.getRunbooks('target'), [], 'runbooks are copied only when picked');
+      await getStore().setWorkspacePassword('target', 'target-password');
+      DM.lockWorkspace('target');
+      assert.deepEqual(DM.getProfiles('target'), []);
+      assert.equal(await DM.unlockWorkspaceWithPassword('target', 'target-password'), true);
+      assert.deepEqual(hosts('target'), ['src.example:bridge-pw']);
+      await DM.deleteWorkspace('target');
+      assert.ok(!fs.existsSync(path.join(base, 'workspace_target.db')));
+      assert.deepEqual(DM.getWorkspaces().map(w => w.id), ['default']);
+      return 'bridge copy ok';
+    }
+
+    case 'ipc': {
+      // The IPC handlers the renderer uses, called as the main window would call them (a hidden
+      // window; nothing is shown). Nothing here asks for Touch ID / Windows Hello.
+      await appLock.start();
+      const win = new BrowserWindow({ show: false });
+      setMainWindow(win);
+      type Handler = (event: unknown, ...args: unknown[]) => any;
+      const handlers = new Map<string, Handler>();
+      const handle = (channel: string, run: Handler) => { handlers.set(channel, run); };
+      // workspaceHandler registers on electron's ipcMain itself.
+      (ipcMain as unknown as { handle: typeof handle }).handle = handle;
+      const fakeIpc = { handle } as unknown as Electron.IpcMain;
+      registerKeystoreHandlers(fakeIpc);
+      registerCryptoHandlers(fakeIpc, app);
+      setupWorkspaceHandlers();
+      registerAssetFolderHandlers(fakeIpc, () => win);
+      const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+      const call = (channel: string, ...args: unknown[]) => {
+        const run = handlers.get(channel);
+        if (!run) throw new Error(`no handler for ${channel}`);
+        return run(event, ...args);
+      };
+      const listed = async () => Object.fromEntries((await call('workspace:list')).map((w: any) => [w.id, w.visualMeta]));
+
+      assert.deepEqual(Object.keys(await listed()), ['default']);
+      assert.equal((await listed()).default.isMain, true);
+      assert.equal(await call('save-profiles', { payload: [{ id: 'web', host: 'web.example', username: 'root', password: 'pw1', group: 'G' }], workspaceId: 'default' }), true);
+      DM.saveRunbooks('default', [{ id: 'rb', title: 'Check', script: 'uptime' }]);
+      assert.equal((await call('unlock-profiles'))[0].password, 'pw1');
+      assert.equal((await call('check-profiles')).status, 'plain');
+      assert.equal((await call('workspace:create', 'team', { name: 'Team' })).success, true);
+      assert.deepEqual(await call('workspace:set-password', { workspaceId: 'default', password: 'main-password' }), { ok: false, error: 'main_workspace_needs_master_password' });
+      assert.deepEqual(await call('workspace:set-password', { workspaceId: 'team', password: 'team-password' }), { ok: true });
+
+      // workspace:switch only enters workspaces whose folder exists (nexus-core made team's).
+      fs.mkdirSync(path.join(base, 'workspaces', 'default'), { recursive: true });
+      const intoTeam = await call('workspace:switch', 'team');
+      assert.equal(intoTeam.isLocked, false);
+      assert.equal(intoTeam.visualMeta.hasPassword, true);
+      const backHome = await call('workspace:switch', 'default');
+      assert.equal(backHome.profiles[0].password, 'pw1');
+      assert.ok(!DM.isWorkspaceOpen('team'), 'leaving a workspace with its own password locks it');
+      assert.equal((await listed()).team.protected, true);
+      assert.deepEqual(await call('workspace:unlock', { workspaceId: 'team', method: 'presence' }), { ok: false, error: 'unavailable' });
+      assert.deepEqual(await call('workspace:unlock', { workspaceId: 'team', method: 'password', password: 'nope-nope' }), { ok: false, error: 'wrong_password' });
+      assert.deepEqual(await call('workspace:unlock', { workspaceId: 'team', method: 'password', password: 'team-password' }), { ok: true });
+
+      const fetched = await call('workspace:bridge:fetchProfiles', 'default');
+      assert.ok(fetched.success && fetched.profiles[0].hasPassword);
+      assert.ok(!JSON.stringify(fetched).includes('pw1'), 'the bridge listing carries no credentials');
+      assert.deepEqual(await call('workspace:bridge:importProfiles', 'team', fetched.profiles, fetched.runbooks), { success: true });
+      assert.deepEqual(hosts('team'), ['web.example:pw1']);
+      assert.deepEqual(DM.getRunbooks('team').map(r => r.id), ['rb']);
+      assert.deepEqual(await call('workspace:bridge:importProfiles', 'team', [{ id: 'web', workspace_id: 'team' }], []), { success: false, error: 'invalid_argument' });
+
+      assert.deepEqual(await call('security:set-master-password', { password: 'master-password-12' }), { ok: true, recoveryReset: true });
+      assert.deepEqual(await call('security:setup-recovery', {}), { ok: false, error: 'current_password_required', retryAfterMs: undefined });
+      assert.equal((await call('security:setup-recovery', { currentPassword: 'master-password-12' })).ok, true);
+      const status = await call('security:status');
+      assert.equal(status.appProtected, true);
+      assert.equal(status.scopes.find((scope: any) => scope.workspaceId === 'team').ownPassword, false);
+      assert.deepEqual(await call('workspace:set-password', { workspaceId: 'team', password: 'team-password' }), { ok: false, error: 'master_password_protects_workspaces' });
+      assert.deepEqual(await call('security:set-master-password', { password: 'master-password-13' }), { ok: false, error: 'current_password_required', retryAfterMs: undefined });
+      assert.deepEqual(await call('security:remove-master-password', {}), { ok: false, error: 'current_password_required' });
+      assert.deepEqual(await call('security:remove-master-password', { currentPassword: 'wrong-password-1' }), { ok: false, error: 'wrong_password', retryAfterMs: undefined });
+      assert.deepEqual(await call('security:remove-master-password', { currentPassword: 'master-password-12' }), { ok: true });
+
+      assert.equal((await call('workspace:updatePreferences', 'default', '{"isolationRules":{"disableSftp":true}}')).success, true);
+      assert.equal((await listed()).default.preferences.isolationRules.disableSftp, true);
+      const stats = await call('workspace:getStats', 'default');
+      assert.equal(stats.stats.profileCount, 1);
+      assert.equal(stats.stats.runbookCount, 1);
+      assert.deepEqual(await call('asset-folders:list', 'default'), { success: true, folders: ['G'] });
+      assert.equal((await call('asset-folders:list', 'team')).success, false, 'only the active workspace');
+      assert.equal(await call('app-lock:lock'), true);
+      assert.deepEqual(await call('workspace:delete', 'team'), { success: true });
+      assert.ok(!fs.existsSync(path.join(base, 'workspace_team.db')) && !fs.existsSync(path.join(base, 'workspaces', 'team')));
+      assert.deepEqual(Object.keys(await listed()), ['default']);
+      win.destroy();
+      return 'IPC handlers ok';
     }
 
     case 'asset-folders': {
       // Folder operations never reach a locked workspace: its key is simply not in memory.
       await appLock.start();
       const plainId = 'plain-folder-smoke';
-      DM.createWorkspace({ id: plainId, name: plainId, hasPassword: 0, created_at: 1, updated_at: 1 });
+      await DM.createWorkspace({ id: plainId, name: plainId });
       assert.equal(await DM.openWorkspace(plainId), 'open');
       assert.deepEqual(DM.getAssetFolders(plainId), []);
       DM.createAssetFolder(plainId, 'Projects/Live');
       assert.deepEqual(DM.getAssetFolders(plainId), ['Projects', 'Projects/Live']);
 
       const id = 'folder-smoke';
-      const wsScope = workspaceScope(id);
-      DM.createWorkspace({ id, name: id, hasPassword: 0, created_at: 1, updated_at: 1 });
+      await DM.createWorkspace({ id, name: id });
       assert.equal(await DM.openWorkspace(id), 'open');
-      await commitAll(await keystore.setPassword(wsScope, 'folder-password'));
-      const db = DM.getWorkspaceDb(id)!;
-      const insert = db.prepare('INSERT INTO profiles (id, workspace_id, host, username, groupName) VALUES (?, ?, ?, ?, ?)');
-      insert.run('db-host', id, 'db.example', 'root', 'Prod/DB');
-      insert.run('web-host', id, 'web.example', 'root', 'Prod/Web');
-      insert.run('legacy-host', id, 'legacy.example', 'root', ' Ops / DB ');
-      insert.run('other-workspace-host', 'another-workspace', 'other.example', 'root', null);
-      const group = (profileId: string) => (db.prepare('SELECT groupName FROM profiles WHERE id = ?').get(profileId) as { groupName: string | null }).groupName;
+      await getStore().setWorkspacePassword(id, 'folder-password');
+      DM.saveProfiles(id, [
+        { id: 'db-host', host: 'db.example', username: 'root', groupName: 'Prod/DB' },
+        { id: 'web-host', host: 'web.example', username: 'root', groupName: 'Prod/Web' },
+        { id: 'legacy-host', host: 'legacy.example', username: 'root', groupName: ' Ops / DB ' },
+      ]);
+      const group = (profileId: string) => DM.getProfiles(id).find(p => p.id === profileId)?.groupName ?? null;
 
       assert.deepEqual(DM.getAssetFolders(id), [' Ops ', ' Ops / DB ', 'Prod', 'Prod/DB', 'Prod/Web']);
       DM.renameAssetFolder(id, ' Ops ', 'Team');
@@ -247,22 +403,15 @@ async function run(): Promise<string> {
       DM.removeAssetFolder(id, 'Empty/Sub');
       assert.throws(() => DM.moveProfileToAssetFolder(id, 'missing', null), /does not exist/);
 
-      keystore.lockScope(wsScope);
-      DM.closeLockedDatabases();
+      DM.lockWorkspace(id);
       assert.throws(() => DM.getAssetFolders(id), /locked/i);
       assert.throws(() => DM.createAssetFolder(id, 'Nope'), /locked/i);
       assert.equal(await DM.unlockWorkspaceWithPassword(id, 'wrong-password'), false);
       assert.throws(() => DM.getAssetFolders(id), /locked/i);
       assert.equal(await DM.unlockWorkspaceWithPassword(id, 'folder-password'), true);
       assert.ok(DM.getAssetFolders(id).includes('Taken'), 'folders survive a lock and unlock');
-      keystore.lockScope(wsScope);
-      DM.closeLockedDatabases();
-      const withoutKey = new Database(path.join(base, `workspace_${id}.db`), { readonly: true });
-      try {
-        assert.throws(() => withoutKey.prepare('SELECT path FROM asset_folders').all(), /encrypted|not a database/i);
-      } finally {
-        withoutKey.close();
-      }
+      DM.lockWorkspace(id);
+      assert.ok(!isPlainSqlite(path.join(base, `workspace_${id}.db`)), 'the folder database is encrypted');
       return 'asset folders respect workspace locks';
     }
 

@@ -1,6 +1,7 @@
-// End-to-end test of the keystore integration (migration, app lock, master password, workspace
-// passwords, rollback) in a real Electron main process. Each phase runs in its own process with
-// HOME pointed at a temporary directory, so nothing touches the real ~/.getssh or Keychain.
+// End-to-end test of the data layer in a real Electron main process: the GETSSH 2.x migration
+// handing over to getssh-store, app lock, master password, workspace passwords, profiles, asset
+// folders, rollback. Each phase runs in its own process with HOME pointed at a temporary
+// directory, so nothing touches the real ~/.getssh or existing Keychain items.
 //
 //   npm run test:keystore-e2e
 import { spawnSync } from 'node:child_process';
@@ -58,8 +59,9 @@ try {
 const electron = require('electron');
 const allSequences = [
   ['legacy', 'migrate', 'restart-plain', 'set-master', 'restart-master', 'remove-master', 'restart-after-removal'],
-  ['fresh'],
+  ['fresh', 'profiles', 'bridge'],
   ['asset-folders'],
+  ['ipc'],
   ['rollback-setup', 'damaged'],
   ['legacy', 'rollback-main', 'rollback'],
 ];
@@ -85,7 +87,9 @@ try {
       for (const dir of Object.values(windowsProfile)) fs.mkdirSync(dir, { recursive: true });
     }
     for (const phase of phases) {
-      const env = { ...process.env, HOME: home, USERPROFILE: home, ...windowsProfile, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' };
+      // The real store, never the in-memory fake.
+      const { GETSSH_FAKE_STORE: _fake, ...inherited } = process.env;
+      const env = { ...inherited, HOME: home, USERPROFILE: home, ...windowsProfile, KS_PHASE: phase, ELECTRON_ENABLE_LOGGING: '0' };
       const result = spawnSync(electron, [bundle], {
         env,
         encoding: 'utf8',

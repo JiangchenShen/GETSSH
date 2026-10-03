@@ -165,17 +165,11 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
           // If workspace doesn't exist locally, create a placeholder
           try {
-            const ws = DatabaseManager.getWorkspaces().find((w: any) => w.id === targetWorkspaceId);
-            if (!ws) {
-              DatabaseManager.createWorkspace({
-                id: targetWorkspaceId,
-                name: targetWorkspaceId === 'default' ? 'Default Workspace' : `Imported: ${targetWorkspaceId}`,
-                themeColor: '#1e293b',
-                hasPassword: 0,
-                created_at: Date.now(),
-                updated_at: Date.now()
-              });
-            }
+            await DatabaseManager.ensureWorkspace({
+              id: targetWorkspaceId,
+              name: targetWorkspaceId === 'default' ? 'Default Workspace' : `Imported: ${targetWorkspaceId}`,
+              themeColor: '#1e293b',
+            });
           } catch (e) {
             console.error('[Import] Failed to ensure workspace exists', e);
           }

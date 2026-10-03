@@ -52,7 +52,7 @@ vi.mock('../windowRegistry', () => ({
   isMainWebContents: (webContents: { id: number } | null | undefined) => webContents?.id === 1,
 }));
 
-import { resetStoreForTest, startStore } from '../services/getsshStore';
+import { configureStore, resetStoreForTest } from '../services/getsshStore';
 import { clearCopiedSecret, registerStoreHandlers, resetStoreHandlersForTest } from './storeHandler';
 
 const fake = createRequire(import.meta.url)(path.resolve(process.cwd(), '../../rust-core/getssh-store/store.fake.js'));
@@ -99,7 +99,7 @@ async function boot(seed: Record<string, unknown> = {}) {
     profiles: { main: [profile({ password: PROFILE_PASSWORD, passphrase: PROFILE_PASSPHRASE })] },
     ...seed,
   });
-  await startStore();
+  await configureStore().start();
 }
 
 /** No IPC result may carry a secret, whatever the channel. */
@@ -138,10 +138,9 @@ afterAll(() => {
 });
 
 describe('access', () => {
-  it('answers unavailable while the store is not connected, before any dialog opens', async () => {
+  it('answers not_configured before the store has started, before any dialog opens', async () => {
     resetStoreForTest();
-    delete process.env.GETSSH_FAKE_STORE;
-    try {
+    {
       const requests: Array<[string, unknown]> = [
         ['store:profiles:list', { workspaceId: 'main' }],
         ['store:reveal:show', { workspaceId: 'main', profileId: 'web', field: 'password' }],
@@ -152,14 +151,12 @@ describe('access', () => {
         ['store:backup:relaunch', {}],
       ];
       for (const [channel, request] of requests) {
-        expect(await call(channel, request), channel).toMatchObject({ ok: false, error: 'unavailable' });
+        expect(await call(channel, request), channel).toMatchObject({ ok: false, error: 'not_configured' });
       }
       expect(mocks.dialog.showOpenDialog).not.toHaveBeenCalled();
       expect(mocks.dialog.showSaveDialog).not.toHaveBeenCalled();
       expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
       expect(mocks.app.relaunch).not.toHaveBeenCalled();
-    } finally {
-      process.env.GETSSH_FAKE_STORE = '1';
     }
   });
 

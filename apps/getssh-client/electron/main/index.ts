@@ -255,7 +255,6 @@ import { killAllSessions } from './handlers/sshHandler'
 import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { appLock } from './security/appLock'
 import { mcpManager } from './services/mcp/McpManager'
-import { startStore } from './services/getsshStore'
 import { clearCopiedSecret } from './handlers/storeHandler'
 import {
   runPackagedStartupSmoke,
@@ -294,8 +293,6 @@ app.whenReady().then(async () => {
   // Setup IPC Handlers before window creation to ensure early IPC works.
   // None of these depend on the database; plugins are only loaded after bootstrap below.
   registerAllIpcHandlers(ipcMain, app, () => getMainWindow());
-  // Only the in-memory fake for now (GETSSH_FAKE_STORE=1 in development); see services/getsshStore.ts.
-  startStore().catch(error => console.error('[Main] getssh-store did not start:', error));
   nexusBridge.setupIpcHandlers();
   nexusBridge.setupStateBroadcaster();
   TornWindowManager.getInstance().init();
@@ -315,7 +312,7 @@ app.whenReady().then(async () => {
     console.warn('[Main] MCP Manager init error:', err);
   });
   
-  // Nothing is decrypted before the keystore says so: without a master password the device key
+  // Nothing is decrypted before getssh-store says so: without a master password the device key
   // opens the data right away; with one, the window shows the lock screen until it is unlocked.
   // Workspace bootstrap and plugins wait for the first unlock.
   appLock.onFirstReady(async () => {

@@ -17,6 +17,7 @@ const RUST_MODULE_EXPORTS: Record<string, readonly string[]> = {
   'audit-stream': ['AuditStream'],
   'getssh-sentinel': ['sanitize', 'rehydrate'],
   'getssh-keystore': ['configure', 'status', 'initialize', 'openScope', 'databaseKey', 'sealField', 'openField', 'probeDevice'],
+  'getssh-store': ['configure', 'start', 'appState', 'listProfiles', 'saveProfiles', 'connectSecrets', 'setAppSecret', 'getAppSecret'],
 };
 
 export interface PackagedStartupSmokeResult {
@@ -78,6 +79,38 @@ async function testKeystore(keystore: any): Promise<string> {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Opens a fresh data directory with the packaged getssh-store (this OS's real device key, a temporary
+ * directory, nothing that can prompt) and round-trips a sealed credential and an app secret. The
+ * directory stays behind: the store keeps its databases open until the process exits, and Windows
+ * cannot delete open files.
+ */
+async function testStore(store: any): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-store-'));
+  store.configure(dir, 'startup-smoke');
+  await store.start();
+  const state = store.appState();
+  if (state.phase !== 'ready') throw new Error('getssh-store did not open a fresh data directory');
+  const marker = 'GETSSH_STORE_SMOKE_OK';
+  store.saveProfiles('default', [{ id: 'startup-smoke', host: '127.0.0.1', username: 'smoke', password: marker }]);
+  const [profile] = store.listProfiles('default');
+  if (!profile?.hasPassword || JSON.stringify(profile).includes(marker)) throw new Error('getssh-store listed a profile wrongly');
+  const secrets = store.connectSecrets('default', 'startup-smoke');
+  try {
+    if (secrets.password?.toString('utf8') !== marker) throw new Error('getssh-store credentials did not round-trip');
+  } finally {
+    secrets.password?.fill(0);
+  }
+  store.setAppSecret('startup-smoke', marker);
+  const secret: Buffer | null = store.getAppSecret('startup-smoke');
+  try {
+    if (secret?.toString('utf8') !== marker) throw new Error('getssh-store app secrets did not round-trip');
+  } finally {
+    secret?.fill(0);
+  }
+  return state.deviceBackend;
 }
 
 function assertNativeTool(fileName: string): void {
@@ -245,6 +278,8 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
     assertExports(moduleName, loaded, expectedExports);
     if (moduleName === 'getssh-keystore') {
       loadedModules.push(`${moduleName} (${await testKeystore(loaded)})`);
+    } else if (moduleName === 'getssh-store') {
+      loadedModules.push(`${moduleName} (${await testStore(loaded)})`);
     } else {
       loadedModules.push(moduleName);
     }

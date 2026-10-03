@@ -125,6 +125,21 @@ fn saving_keeps_clears_and_replaces_secrets() {
 }
 
 #[test]
+fn scripts_after_connecting_may_be_long_other_text_may_not() {
+    let env = Env::new();
+    let store = env.started();
+    let mut long_script = profile("script", SecretUpdate::Keep);
+    long_script.post_connect_script = Some("echo ready\n".repeat(2000));
+    store.save_profiles("default", &[long_script.clone()]).unwrap();
+    assert_eq!(store.list_profiles("default").unwrap()[0].post_connect_script, long_script.post_connect_script);
+    long_script.post_connect_script = Some("x".repeat(64 * 1024 + 1));
+    assert_eq!(store.save_profiles("default", &[long_script]).unwrap_err().code, Code::InvalidArgument);
+    let mut long_alias = profile("alias", SecretUpdate::Keep);
+    long_alias.alias = Some("x".repeat(4097));
+    assert_eq!(store.save_profiles("default", &[long_alias]).unwrap_err().code, Code::InvalidArgument);
+}
+
+#[test]
 fn a_sealed_secret_does_not_open_under_another_profile() {
     let env = Env::new();
     let store = env.started();
