@@ -96,6 +96,7 @@ class AppLock {
   private idleTimer: NodeJS.Timeout | null = null;
   private triggersInstalled = false;
   private lockListeners: Array<() => void> = [];
+  private settledWaiters: Array<() => void> = [];
 
   private storeState(): AppState | null {
     try {
@@ -129,6 +130,15 @@ class AppLock {
     this.lockListeners.push(listener);
   }
 
+  /**
+   * Resolves once the data is open, or once starting failed ('error'). Stays pending while the
+   * app waits for its master password.
+   */
+  whenOpen(): Promise<void> {
+    if (this.phase === 'ready' || this.phase === 'error') return Promise.resolve();
+    return new Promise(resolve => this.settledWaiters.push(resolve));
+  }
+
   /** Runs once, the first time the data opens (workspace bootstrap, plugins). */
   onFirstReady(task: () => Promise<void>): void {
     this.readyOnce = task;
@@ -147,6 +157,9 @@ class AppLock {
     this.phase = phase;
     this.error = error;
     this.broadcast();
+    if (phase === 'ready' || phase === 'error') {
+      for (const resolve of this.settledWaiters.splice(0)) resolve();
+    }
   }
 
   async start(): Promise<void> {

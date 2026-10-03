@@ -1,7 +1,4 @@
-import { app } from 'electron';
-import { isSecretStoreAvailable, readSecretFile } from '../../security/secretStore';
-import fs from 'fs';
-import path from 'path';
+import { getAiApiKey } from '../../security/appSecrets';
 import { McpSamplingParams, McpSamplingResult } from './mcpTypes';
 import { streamLLM } from '../llmService';
 import { SecureCenter } from '../../security/SecureCenter';
@@ -58,20 +55,9 @@ export class McpSamplingBridge {
       return this.aiConfigProvider();
     }
 
-    // 2. Fallback: read API key from encrypted vault, use defaults for provider/model
-    let apiKey = '';
+    // 2. Fallback: the stored API key, default provider and model
     const provider = 'gemini';
-    try {
-      let vaultPath = path.join(app.getPath('userData'), `ai_vault_${provider}.enc`);
-      if (!fs.existsSync(vaultPath)) {
-        vaultPath = path.join(app.getPath('userData'), 'ai_vault.enc');
-      }
-      if (fs.existsSync(vaultPath) && isSecretStoreAvailable()) {
-        apiKey = readSecretFile(vaultPath);
-      }
-    } catch (e: any) {
-      console.warn('[McpSamplingBridge] Failed to read AI vault:', e.message);
-    }
+    const apiKey = getAiApiKey(provider);
 
     return {
       endpoint: '',

@@ -322,7 +322,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
             parsed.globalHotkey = 'Control+`';
           }
           set({ appConfig: { ...DEFAULT_CONFIG, ...parsed } });
-          
+          // Theme and colours apply now. The sensitive settings below arrive once the data is open
+          // (after the master password when one is set); nothing is saved before they do.
+          set({ isDark: applyConfigVisuals(get().appConfig, get().systemIsDark), isConfigLoaded: true });
+
           // Load secure fields
           if (window.electronAPI?.decryptConfig) {
             const secureData = localStorage.getItem('appConfig_secure');
@@ -355,7 +358,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!isInitialLoadDone) return;
     const { appConfig, systemIsDark } = get();
     
-    const { initScript, proxyHost, proxyPort, ...safeConfig } = appConfig;
+    const { initScript, proxyHost, proxyPort, aiApiKey: _aiApiKey, ...safeConfig } = appConfig;
     const sensitive = { initScript, proxyHost, proxyPort, aiEndpoint: appConfig.aiEndpoint, aiApiKey: appConfig.aiApiKey, aiProvider: appConfig.aiProvider, aiModel: appConfig.aiModel };
     
     localStorage.setItem('appConfig', JSON.stringify(safeConfig));

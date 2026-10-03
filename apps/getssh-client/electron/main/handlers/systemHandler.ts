@@ -455,32 +455,21 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     }
   });
 
-  // Config Encryption
-  ipcMain.handle('encrypt-config', async (_e, data: any) => {
-    try {
-      const { encryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
-      if (isSecretStoreAvailable()) {
-        return encryptSecret(JSON.stringify(data), 'config').toString('base64');
-      }
-    } catch (err) {}
-    // Fallback to base64 if no encryption available
-    return Buffer.from(JSON.stringify(data)).toString('base64');
+  // The main window's sensitive settings, kept as an app secret in getssh-store. The renderer
+  // stores only a marker in localStorage. An old safeStorage blob is moved into the store the
+  // first time it is read (and re-saved right after, which replaces it with the marker).
+  const fromMainFrame = (event: Electron.IpcMainInvokeEvent) =>
+    isMainWebContents(event.sender) && !!event.senderFrame && event.senderFrame.parent === null;
+  ipcMain.handle('encrypt-config', (event, data: unknown) => {
+    if (!fromMainFrame(event)) return null;
+    const { saveRendererConfig } = require('../security/appSecrets');
+    return saveRendererConfig(data);
   });
 
-  // Blobs from the mock-keychain era still decrypt; the renderer re-encrypts the config right after
-  // loading it, which upgrades them.
-  ipcMain.handle('decrypt-config', async (_e, base64: string) => {
-    try {
-      const { decryptSecret, isSecretStoreAvailable } = require('../security/secretStore');
-      const buf = Buffer.from(base64, 'base64');
-      if (isSecretStoreAvailable()) {
-        return JSON.parse(decryptSecret(buf, undefined, 'config').value);
-      }
-      return JSON.parse(buf.toString('utf-8'));
-    } catch (err) {
-      // Return null if decryption fails
-      return null;
-    }
+  ipcMain.handle('decrypt-config', (event, blob: unknown) => {
+    if (!fromMainFrame(event)) return null;
+    const { readRendererConfig } = require('../security/appSecrets');
+    return readRendererConfig(blob);
   });
   
   // Periodic background update check

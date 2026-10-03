@@ -1,5 +1,5 @@
-import { IpcMainInvokeEvent, BrowserWindow, app } from 'electron';
-import { isSecretStoreAvailable, readSecretFile, writeSecretFile } from '../security/secretStore';
+import { IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { deleteAiApiKey, getAiApiKey, setAiApiKey } from '../security/appSecrets';
 import { streamLLM, fetchAvailableModels } from '../services/llmService';
 import { AgentEngine } from '../services/AgentEngine';
 import { MicroContextAssembler } from '../services/MicroContextAssembler';
@@ -7,37 +7,12 @@ import { ChatStorageManager } from '../services/chatStorageManager';
 import { LocalMemoryService, formatLocalMemoryContext } from '../services/LocalMemoryService';
 import { SearchEngine } from '../services/SearchEngine';
 import { SentinelGateway } from '../services/SentinelGateway';
-import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 
 const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
-/**
- * Per-provider vault path. Each provider stores its API Key separately.
- * Format: ai_vault_${provider}.enc (e.g. ai_vault_gemini.enc)
- * Legacy fallback: ai_vault.enc (pre-multi-provider)
- */
-const getAiVaultPath = (provider = 'default') =>
-  join(app.getPath('userData'), `ai_vault_${provider.toLowerCase()}.enc`);
-
-function getSecureApiKey(provider = 'default'): string {
-  // Per-provider vault (new format)
-  let vaultPath = getAiVaultPath(provider);
-  // Legacy fallback: read ai_vault.enc if per-provider file doesn't exist yet
-  if (!fs.existsSync(vaultPath)) {
-    vaultPath = join(app.getPath('userData'), 'ai_vault.enc');
-  }
-  if (!fs.existsSync(vaultPath)) return '';
-  try {
-    if (isSecretStoreAvailable()) {
-      return readSecretFile(vaultPath);
-    }
-  } catch (e) {
-    console.error('[AI Gateway] Failed to decrypt AI API Key:', e);
-  }
-  return '';
-}
+/** Each provider's API key is an app secret in getssh-store (security/appSecrets.ts). */
+const getSecureApiKey = (provider = 'default') => getAiApiKey(provider);
 
 /**
  * AI CENTER Proxy Gateway (Workspace 2.0)
@@ -53,13 +28,10 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     if (event.senderFrame && event.senderFrame.parent !== null) {
       throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
     }
-    if (!apiKey) return { success: false };
+    if (typeof apiKey !== 'string' || !apiKey || apiKey.length > 16 * 1024) return { success: false };
     try {
-      if (isSecretStoreAvailable()) {
-        writeSecretFile(getAiVaultPath(provider), apiKey);
-        return { success: true };
-      }
-      return { success: false, error: 'OS Keychain encryption unavailable' };
+      setAiApiKey(provider, apiKey);
+      return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -71,11 +43,7 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
       throw new Error('Security Violation: Unauthorized AI invocation from sandbox.');
     }
     try {
-      const vaultPath = getAiVaultPath(provider);
-      if (fs.existsSync(vaultPath)) fs.unlinkSync(vaultPath);
-      // Also clean up legacy vault
-      const legacyVaultPath = join(app.getPath('userData'), 'ai_vault.enc');
-      if (fs.existsSync(legacyVaultPath)) fs.unlinkSync(legacyVaultPath);
+      deleteAiApiKey(provider);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };

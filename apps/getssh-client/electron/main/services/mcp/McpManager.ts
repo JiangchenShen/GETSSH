@@ -15,8 +15,23 @@ import { normalizeMcpServerConfig } from './McpProcessSandbox';
 import { McpToolWrapper } from './McpToolWrapper';
 import { mcpSamplingBridge } from './McpSamplingBridge';
 import { toolRegistry } from '../agent/ToolRegistry';
+import { appLock } from '../../security/appLock';
+import { getStore } from '../getsshStore';
 
 const MAX_MCP_SAMPLING_REQUESTS_PER_MINUTE = 10;
+/** App secrets holding each server's environment variables and HTTP headers (tokens). */
+const SECRET_PREFIX = 'mcp/';
+
+type McpSecrets = Pick<McpServerConfig, 'env' | 'headers'>;
+
+/** A configuration without its environment and headers, and those two (null when both are empty). */
+function splitSecrets(config: McpServerConfig): { plain: McpServerConfig; secrets: McpSecrets | null } {
+  const { env, headers, ...plain } = config;
+  const secrets: McpSecrets = {};
+  if (env && Object.keys(env).length) secrets.env = env;
+  if (headers && Object.keys(headers).length) secrets.headers = headers;
+  return { plain, secrets: secrets.env || secrets.headers ? secrets : null };
+}
 
 /**
  * McpManager — Master controller for all Model Context Protocol (MCP) integrations
@@ -28,6 +43,12 @@ export class McpManager {
   private serverConfigs: McpServerConfig[] = [];
   private registeredToolNames = new Map<string, string[]>(); // serverId -> toolNames[]
   private configPath: string;
+  /**
+   * Environment variables and headers live in getssh-store (main.db), not in mcp_servers.json.
+   * They are merged in once the data is open; until then the configurations lack them and a save
+   * leaves the stored ones alone.
+   */
+  private secretsLoaded = false;
 
   private constructor() {
     const configDir = path.join(app.getPath('home'), '.getssh');
@@ -87,10 +108,60 @@ export class McpManager {
     }
   }
 
+  /**
+   * Merges each server's stored environment and headers. A file written before they moved into
+   * the store still holds them: they are kept and moved now.
+   */
+  private async loadSecrets(): Promise<void> {
+    await appLock.whenOpen();
+    if (!appLock.isReady() || this.secretsLoaded) return;
+    const store = getStore();
+    let inline = false;
+    this.serverConfigs = this.serverConfigs.map(config => {
+      if (splitSecrets(config).secrets) {
+        inline = true;
+        return config;
+      }
+      const stored = store.getAppSecret(SECRET_PREFIX + config.id);
+      if (!stored) return config;
+      try {
+        return normalizeMcpServerConfig({ ...config, ...JSON.parse(stored.toString('utf8')) }, config.id);
+      } catch (error: any) {
+        console.warn(`[McpManager] The stored secrets of '${config.name}' are unusable:`, error.message);
+        return config;
+      } finally {
+        stored.fill(0);
+      }
+    });
+    this.secretsLoaded = true;
+    if (inline) this.saveConfigs();
+  }
+
+  /**
+   * Writes mcp_servers.json without environment variables and headers, and those to the store.
+   * Before the stored ones were merged in, a configuration that has some cannot be saved (they
+   * would land in the file), and the stored ones are left as they are.
+   */
   public saveConfigs() {
+    const parts = this.serverConfigs.map(splitSecrets);
+    const storeOpen = this.secretsLoaded && appLock.isReady();
+    if (!storeOpen && parts.some(part => part.secrets)) {
+      throw new Error('GETSSH is locked: MCP environment variables and headers can be saved once it is unlocked.');
+    }
+    if (storeOpen) {
+      const store = getStore();
+      const ids = new Set(this.serverConfigs.map(config => config.id));
+      this.serverConfigs.forEach((config, i) => {
+        const secrets = parts[i].secrets;
+        store.setAppSecret(SECRET_PREFIX + config.id, secrets ? JSON.stringify(secrets) : null);
+      });
+      for (const name of store.listAppSecretNames(SECRET_PREFIX)) {
+        if (!ids.has(name.slice(SECRET_PREFIX.length))) store.setAppSecret(name, null);
+      }
+    }
     const tempPath = `${this.configPath}.${process.pid}.tmp`;
     try {
-      fs.writeFileSync(tempPath, JSON.stringify(this.serverConfigs, null, 2), {
+      fs.writeFileSync(tempPath, JSON.stringify(parts.map(part => part.plain), null, 2), {
         encoding: 'utf-8',
         mode: 0o600,
         flag: 'w'
@@ -105,7 +176,9 @@ export class McpManager {
     }
   }
 
+  /** Starts the enabled servers once the data is open (their tokens are in the store). */
   public async init() {
+    await this.loadSecrets();
     console.log(`[McpManager] Initializing ${this.serverConfigs.length} configured MCP servers...`);
     for (const config of this.serverConfigs) {
       if (config.enabled) {
