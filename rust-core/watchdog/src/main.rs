@@ -1,8 +1,13 @@
+mod supervisor;
+
 use std::env;
 use std::io::{Read, Write};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use supervisor::{Effect, Supervisor, HEARTBEAT_TIMEOUT, LOCKDOWN_GRACE};
 
 #[cfg(target_os = "macos")]
 use std::os::unix::net::UnixStream;
@@ -102,7 +107,7 @@ fn exit_on_pipe_closed(pid: u32) -> ! {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: watchdog <pid> <pipe_path> [exec_path]");
+        eprintln!("Usage: watchdog <pid> <pipe_path> [exec_path] [locale]");
         std::process::exit(1);
     }
 
@@ -117,9 +122,11 @@ fn main() {
     };
     let pipe_path = &args[2];
     let exec_path = if args.len() > 3 { Some(args[3].clone()) } else { None };
+    // The app's locale (app.getLocale()), so the freeze dialog speaks the user's language.
+    let chinese = args.get(4).is_some_and(|locale| locale.starts_with("zh"));
 
     let mut stream = connect_pipe(pipe_path);
-    let mut write_stream = stream.try_clone().expect("Failed to clone stream for writing");
+    let write_stream = stream.try_clone().expect("Failed to clone stream for writing");
 
     let (tx, rx) = mpsc::channel();
     let tx_read = tx.clone();
@@ -205,146 +212,114 @@ fn main() {
         });
     }
 
-    let mut lockdown_mode = false;
-    let mut lockdown_timer = 60;
-    let mut sleep_mode = false;
-    let mut ui_alive = false;
-    let mut is_yellow = false;
-    // Limit how many times the user can extend the countdown via SAVE-15S.
-    // Without this, a compromised Electron process could send SAVE-15S in a loop
-    // to prevent Watchdog from ever executing the kill.
-    let mut save_extensions_used = 0u32;
-    const MAX_SAVE_EXTENSIONS: u32 = 3;
+    let mut supervisor = Supervisor::new();
+    let mut out = Outlet { pid, exec_path, chinese, write_stream, freeze_dialog: None };
 
     loop {
-        if sleep_mode {
-            // Sleep mode: do nothing, just keep the pipe open so it doesn't crash the JS side
-            // Can check if pipe disconnects to eventually exit
-            match rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
-                Ok(_) => {} // Ignore all other messages
-                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
-                Err(mpsc::RecvTimeoutError::Timeout) => {} // Do nothing
-            }
-        } else if !lockdown_mode {
-            match rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
-                Ok(msg) => {
-                    if msg.starts_with("LOCKDOWN_TRIGGER:") {
-                        let mut parts = msg.splitn(3, ':');
-                        let _ = parts.next(); // LOCKDOWN_TRIGGER
-                        let level = parts.next().unwrap_or("RED");
-                        let reason = parts.next().unwrap_or("UNKNOWN").to_string();
-                        lockdown_mode = true;
-                        ui_alive = true;
-                        is_yellow = level == "YELLOW";
-                        lockdown_timer = 60;
-                        save_extensions_used = 0;
-                        let _ = write_stream.write_all(format!("LOCKDOWN_TRIGGER:{}:{}\n", level, reason).as_bytes());
-                    } else if msg.starts_with("LOCKDOWN:UI_ALIVE") {
-                        lockdown_mode = true;
-                        ui_alive = true;
-                        lockdown_timer = 60;
-                        save_extensions_used = 0;
-                    } else if msg == "PING" {
-                        // All good
-                    } else if msg == "ACTION:SLEEP" || msg == "ACTION:IGNORE" {
-                        sleep_mode = true;
-                    } else if msg == "ACTION:QUIT" {
-                        eprintln!("Watchdog: Graceful shutdown requested. Exiting safely.");
-                        std::process::exit(0);
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Missed heartbeat
-                    eprintln!("Watchdog: 5 seconds timeout. Missing heartbeat from PID {}", pid);
-                    
-                    // Enter lockdown mode instead of immediate kill
-                    lockdown_mode = true;
-                    ui_alive = false;
-                    is_yellow = false;
-                    lockdown_timer = 60;
-                    save_extensions_used = 0;
+        // The deadline is acted on before waiting again, so a late message cannot undo a kill
+        // that is already decided, nor delay one.
+        let due = supervisor.poll(Instant::now());
+        out.apply(due, &supervisor);
+        let effects = match rx.recv_timeout(supervisor.wait(Instant::now())) {
+            Ok(msg) if msg == PIPE_CLOSED => out.pipe_closed(),
+            Ok(msg) => supervisor.on_message(&msg, Instant::now()),
+            Err(mpsc::RecvTimeoutError::Timeout) => supervisor.on_silence(Instant::now()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => out.pipe_closed(),
+        };
+        out.apply(effects, &supervisor);
+    }
+}
 
-                    // Trigger OS native popup for frozen process (macOS)
-                    #[cfg(target_os = "macos")]
-                    {
-                        let script = "display dialog \"GETSSH Core Engine is frozen or unresponsive.\\n\\nInitiating physical memory kill and restarting in Safe Mode in 60 seconds...\" with title \"GETSSH Watchdog Alert\" buttons {\"I Understand\"} default button \"I Understand\" giving up after 60 with icon caution";
-                        if let Ok(mut child) = std::process::Command::new("osascript")
-                            .stdin(std::process::Stdio::piped())
-                            .spawn()
-                        {
-                            if let Some(mut stdin) = child.stdin.take() {
-                                let _ = std::io::Write::write_all(&mut stdin, script.as_bytes());
-                            }
-                        }
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
-            }
-        } else {
-            // Lockdown mode: Tick every 1 second
-            if ui_alive {
-                let _ = write_stream.write_all(format!("TICK:{}\n", lockdown_timer).as_bytes());
-            }
+/// Carries out what the supervisor decided: messages to the app, the dialog, the kill.
+struct Outlet<W: Write> {
+    pid: u32,
+    exec_path: Option<String>,
+    chinese: bool,
+    write_stream: W,
+    freeze_dialog: Option<Child>,
+}
 
-            // Check if any override command came in (wait up to 1 second)
-            match rx.recv_timeout(Duration::from_secs(1)) {
-                Ok(msg) if msg == PIPE_CLOSED => exit_on_pipe_closed(pid),
-                Ok(msg) => {
-                    if msg == "ACTION:RESTART-SAFE" {
-                        // User verified and resolved
-                        lockdown_mode = false;
-                        let _ = write_stream.write_all(b"RESOLVED\n");
-                    } else if msg == "ACTION:IGNORE" || msg == "ACTION:SLEEP" {
-                        lockdown_mode = false;
-                        sleep_mode = true;
-                        let _ = write_stream.write_all(b"RESOLVED\n");
-                    } else if msg == "ACTION:CONTINUE" {
-                        lockdown_mode = false;
-                        let _ = write_stream.write_all(b"RESOLVED\n");
-                    } else if msg == "ACTION:SAVE-15S" {
-                        // Cap SAVE-15S extensions to prevent infinite countdown reset.
-                        if save_extensions_used < MAX_SAVE_EXTENSIONS {
-                            lockdown_timer = 15;
-                            save_extensions_used += 1;
-                            eprintln!("Watchdog: SAVE-15S granted ({}/{} max).", save_extensions_used, MAX_SAVE_EXTENSIONS);
-                        } else {
-                            eprintln!("Watchdog: SAVE-15S denied — max {} extensions reached. Countdown continues.", MAX_SAVE_EXTENSIONS);
-                        }
-                    } else if msg == "ACTION:QUIT" {
-                        eprintln!("Watchdog: Graceful shutdown requested during lockdown. Exiting safely.");
-                        std::process::exit(0);
-                    }
+impl<W: Write> Outlet<W> {
+    fn pipe_closed(&mut self) -> ! {
+        close_dialog(&mut self.freeze_dialog);
+        exit_on_pipe_closed(self.pid);
+    }
+
+    fn apply(&mut self, effects: Vec<Effect>, supervisor: &Supervisor) {
+        let pid = self.pid;
+        for effect in effects {
+            match effect {
+                Effect::Send(line) => {
+                    let _ = self.write_stream.write_all(format!("{line}\n").as_bytes());
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if lockdown_timer > 0 {
-                        lockdown_timer -= 1;
+                Effect::ShowFreezeDialog => {
+                    eprintln!("Watchdog: no heartbeat from PID {pid} for {} s.", HEARTBEAT_TIMEOUT.as_secs());
+                    close_dialog(&mut self.freeze_dialog);
+                    self.freeze_dialog = show_freeze_dialog(self.chinese);
+                }
+                Effect::CloseFreezeDialog => {
+                    if supervisor.is_watching() {
+                        eprintln!("Watchdog: PID {pid} responds again.");
                     }
-                    if lockdown_timer <= 0 {
-                        if is_yellow {
-                            // Yellow alerts just stay frozen waiting for user
-                        } else {
-                            eprintln!("Watchdog: 60s countdown expired. Terminating PID {}", pid);
-                            kill_process(pid);
-                            
-                            // Restart in safe mode if it was a freeze
-                            if !ui_alive {
-                                if let Some(ref exec) = exec_path {
-                                    eprintln!("Watchdog: Restarting {} in safe-mode...", exec);
-                                    let _ = std::process::Command::new(exec)
-                                        .arg("--safe-mode")
-                                        .spawn();
-                                }
-                            }
-                            
-                            std::process::exit(1);
+                    close_dialog(&mut self.freeze_dialog);
+                }
+                Effect::Kill { restart_safe } => {
+                    eprintln!("Watchdog: deadline passed. Terminating PID {pid}.");
+                    kill_process(pid);
+                    if restart_safe {
+                        if let Some(exec) = &self.exec_path {
+                            eprintln!("Watchdog: restarting {exec} in safe mode.");
+                            let _ = Command::new(exec).arg("--safe-mode").spawn();
                         }
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Disconnected) => exit_on_pipe_closed(pid),
+                Effect::Exit(code) => {
+                    if code == 0 {
+                        eprintln!("Watchdog: shutdown requested. Exiting.");
+                    }
+                    std::process::exit(code);
+                }
             }
         }
+    }
+}
+
+/// The warning shown while the app does not respond. It closes by itself once the app responds.
+#[cfg(target_os = "macos")]
+fn show_freeze_dialog(chinese: bool) -> Option<Child> {
+    let (title, text, button) = if chinese {
+        (
+            "GETSSH 没有响应",
+            "GETSSH 已经 5 秒没有响应。\\n\\n如果 60 秒内仍未恢复，GETSSH 会被强制退出，并以安全模式重新打开。恢复后这个提示会自动关闭。",
+            "好",
+        )
+    } else {
+        (
+            "GETSSH is not responding",
+            "GETSSH has not responded for 5 seconds.\\n\\nIf it does not recover within 60 seconds, it will be force-quit and reopened in safe mode. This message closes by itself once GETSSH responds.",
+            "OK",
+        )
+    };
+    let script = format!(
+        "display dialog \"{text}\" with title \"{title}\" buttons {{\"{button}\"}} default button \"{button}\" giving up after {} with icon caution",
+        LOCKDOWN_GRACE.as_secs()
+    );
+    let mut child = Command::new("osascript").stdin(Stdio::piped()).spawn().ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(script.as_bytes());
+    }
+    Some(child)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_freeze_dialog(_chinese: bool) -> Option<Child> {
+    None
+}
+
+fn close_dialog(dialog: &mut Option<Child>) {
+    if let Some(mut child) = dialog.take() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 

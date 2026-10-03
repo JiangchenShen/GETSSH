@@ -193,7 +193,8 @@ export class SecureCenter {
             this.watchdogDisabled = true;
             // Notice: we do NOT return here if we want manual RASP alerts to still show up as fallback
         } else {
-          this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath], {
+          // The locale lets the watchdog's own "not responding" dialog speak the user's language.
+          this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath, app.getLocale()], {
             stdio: 'inherit',
             windowsHide: true,
           });
