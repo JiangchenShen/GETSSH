@@ -5,13 +5,16 @@
 // over to the store, appLock, and DatabaseManager on top of the store.
 import { app, BrowserWindow, ipcMain } from 'electron';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3-multiple-ciphers';
+import { Server as SshServer, utils as sshUtils } from 'ssh2';
 import { registerAssetFolderHandlers } from '../../../electron/main/handlers/assetFolderHandler';
 import { registerCryptoHandlers } from '../../../electron/main/handlers/cryptoHandler';
 import { registerKeystoreHandlers } from '../../../electron/main/handlers/keystoreHandler';
+import { registerSshHandlers } from '../../../electron/main/handlers/sshHandler';
 import { bootstrapAppWorkspace, setupWorkspaceHandlers } from '../../../electron/main/handlers/workspaceHandler';
 import { DatabaseManager as DM } from '../../../electron/main/services/DatabaseManager';
 import { setMainWindow } from '../../../electron/main/windowRegistry';
@@ -102,7 +105,11 @@ function snapshot(dir: string): Map<string, string> {
   return out;
 }
 
-const hosts = (workspaceId: string) => DM.getProfiles(workspaceId).map(p => `${p.host}:${p.password}`).sort();
+/** host:password of every profile; the password as the main process gets it to connect. */
+const hosts = (workspaceId: string) => DM.getProfiles(workspaceId).map(p => {
+  const secrets = getStore().connectSecrets(workspaceId, p.id);
+  return `${p.host}:${secrets.password?.toString('utf8')}`;
+}).sort();
 
 async function run(): Promise<string> {
   trace('app ready');
@@ -237,8 +244,8 @@ async function run(): Promise<string> {
         { id: 'b', host: 'b.example', username: 'root', password: 'pw-b', protocol: 'bogus', useKeepAlive: 0 },
       ]);
       const [a, b] = DM.getProfiles('default');
-      assert.equal(a.password, 'pw-a');
-      assert.equal(a.passphrase, 'pp-a');
+      assert.ok(a.hasPassword && a.hasPassphrase && !JSON.stringify(DM.getProfiles('default')).includes('pw-'), 'no credentials reach the renderer');
+      assert.deepEqual(hosts('default'), ['a.example:pw-a', 'b.example:pw-b']);
       assert.equal(a.port, 2222);
       assert.equal(a.groupName, 'Prod');
       assert.equal(a.group, 'Prod');
@@ -248,11 +255,9 @@ async function run(): Promise<string> {
       assert.equal(b.useKeepAlive, false);
       // undefined keeps a secret, '' clears it, a string replaces it.
       DM.saveProfiles('default', [{ ...a, password: undefined, passphrase: '' }, { ...b, password: 'pw-b2' }]);
-      const [a2, b2] = DM.getProfiles('default');
-      assert.equal(a2.password, 'pw-a');
-      assert.equal(a2.passphrase, undefined);
-      assert.ok(!a2.hasPassphrase);
-      assert.equal(b2.password, 'pw-b2');
+      const [a2] = DM.getProfiles('default');
+      assert.ok(a2.hasPassword && !a2.hasPassphrase);
+      assert.deepEqual(hosts('default'), ['a.example:pw-a', 'b.example:pw-b2']);
       const listed = JSON.stringify(getStore().listProfiles('default'));
       assert.ok(!listed.includes('pw-a') && !listed.includes('pw-b2'), 'the store itself never lists a secret');
       return 'profiles round-trip';
@@ -309,7 +314,8 @@ async function run(): Promise<string> {
       assert.equal((await listed()).default.isMain, true);
       assert.equal(await call('save-profiles', { payload: [{ id: 'web', host: 'web.example', username: 'root', password: 'pw1', group: 'G' }], workspaceId: 'default' }), true);
       DM.saveRunbooks('default', [{ id: 'rb', title: 'Check', script: 'uptime' }]);
-      assert.equal((await call('unlock-profiles'))[0].password, 'pw1');
+      const unlocked = await call('unlock-profiles');
+      assert.ok(unlocked[0].hasPassword && !JSON.stringify(unlocked).includes('pw1'), 'unlock-profiles carries no password');
       assert.equal((await call('check-profiles')).status, 'plain');
       assert.equal((await call('workspace:create', 'team', { name: 'Team' })).success, true);
       assert.deepEqual(await call('workspace:set-password', { workspaceId: 'default', password: 'main-password' }), { ok: false, error: 'main_workspace_needs_master_password' });
@@ -323,7 +329,7 @@ async function run(): Promise<string> {
       assert.equal(intoTeam.isLocked, false);
       assert.equal(intoTeam.visualMeta.hasPassword, true);
       const backHome = await call('workspace:switch', 'default');
-      assert.equal(backHome.profiles[0].password, 'pw1');
+      assert.ok(backHome.profiles[0].hasPassword && !JSON.stringify(backHome).includes('pw1'), 'workspace:switch carries no password');
       assert.ok(!DM.isWorkspaceOpen('team'), 'leaving a workspace with its own password locks it');
       assert.equal((await listed()).team.protected, true);
       assert.deepEqual(await call('workspace:unlock', { workspaceId: 'team', method: 'presence' }), { ok: false, error: 'unavailable' });
@@ -363,6 +369,72 @@ async function run(): Promise<string> {
       assert.deepEqual(Object.keys(await listed()), ['default']);
       win.destroy();
       return 'IPC handlers ok';
+    }
+
+    case 'connect': {
+      // Connecting by profile id against an SSH server on 127.0.0.1: the saved address and
+      // credentials are used whatever the request says; typed credentials still work.
+      fs.mkdirSync(path.join(os.homedir(), 'user-data'), { recursive: true });
+      app.setPath('userData', path.join(os.homedir(), 'user-data'));
+      await appLock.start();
+      const win = new BrowserWindow({ show: false });
+      setMainWindow(win);
+      type Handler = (event: unknown, ...args: unknown[]) => any;
+      const handlers = new Map<string, Handler>();
+      const fakeIpc = { handle: (channel: string, run: Handler) => handlers.set(channel, run), on: (channel: string, run: Handler) => handlers.set(channel, run) } as unknown as Electron.IpcMain;
+      registerSshHandlers(fakeIpc, app, () => win);
+      const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+      const connect = (request: Record<string, unknown>) => handlers.get('ssh-connect')!(event, { protocol: 'ssh', keepaliveInterval: 0, ...request });
+
+      const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const hostKey = privateKey.export({ type: 'pkcs1', format: 'pem' }) as string;
+      const logins: string[] = [];
+      const server = new SshServer({ hostKeys: [hostKey] }, connection => {
+        connection.on('authentication', context => {
+          if (context.method !== 'password') return context.reject(['password']);
+          logins.push(`${context.username}:${context.password}`);
+          context.accept();
+        });
+        connection.on('session', accept => {
+          const session = accept();
+          session.on('pty', acceptPty => acceptPty?.());
+          session.on('shell', acceptShell => acceptShell().write('ready\n'));
+        });
+        connection.on('error', () => {});
+      });
+      const port = await new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)));
+      // The server is known already, so no host-key prompt is needed.
+      const parsedKey = sshUtils.parseKey(hostKey);
+      if (parsedKey instanceof Error || Array.isArray(parsedKey)) throw new Error('could not read the test host key');
+      const fingerprint = 'SHA256:' + crypto.createHash('sha256').update(parsedKey.getPublicSSH()).digest('base64').replace(/=*$/, '');
+      fs.writeFileSync(path.join(app.getPath('userData'), 'known_hosts.json'), JSON.stringify({ [`127.0.0.1:${port}`]: { host: '127.0.0.1', port, fingerprint, trustedAt: 1 } }));
+
+      DM.saveProfiles('default', [{ id: 'srv', host: '127.0.0.1', port, username: 'saved-user', password: 'saved-pw' }]);
+      const byId = await connect({ profileId: 'srv', workspaceId: 'default', host: 'attacker.invalid', port: 1, username: 'attacker' });
+      assert.ok(byId.success, JSON.stringify(byId));
+      assert.deepEqual(logins, ['saved-user:saved-pw'], 'the saved address and credentials, not the request\'s');
+
+      const typed = await connect({ profileId: 'srv', workspaceId: 'default', host: '127.0.0.1', port, username: 'typed-user', password: 'typed-pw' });
+      assert.ok(typed.success, JSON.stringify(typed));
+      assert.deepEqual(logins.slice(1), ['typed-user:typed-pw'], 'typed credentials are used as they are');
+
+      const reconnected = await handlers.get('ssh-reconnect')!(event, byId.sessionId);
+      assert.ok(reconnected.success, JSON.stringify(reconnected));
+      assert.deepEqual(logins.slice(2), ['saved-user:saved-pw'], 'a reconnect takes the credentials from the store again');
+
+      await DM.createWorkspace({ id: 'vault', name: 'Vault' });
+      DM.saveProfiles('vault', [{ id: 'srv2', host: '127.0.0.1', port, username: 'vault-user', password: 'vault-pw' }]);
+      await getStore().setWorkspacePassword('vault', 'vault-password');
+      DM.lockWorkspace('vault');
+      const locked = await connect({ profileId: 'srv2', workspaceId: 'vault', host: '127.0.0.1', port, username: 'x' });
+      assert.equal(locked.success, false);
+      assert.match(locked.error, /locked/);
+      assert.equal(logins.length, 3, 'nothing is sent for a locked workspace');
+
+      for (const id of [byId.sessionId, typed.sessionId, reconnected.sessionId]) handlers.get('ssh-disconnect')!(event, id);
+      server.close();
+      win.destroy();
+      return 'connecting by profile id ok';
     }
 
     case 'asset-folders': {

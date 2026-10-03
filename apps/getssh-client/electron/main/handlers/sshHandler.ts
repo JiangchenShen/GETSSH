@@ -4,6 +4,8 @@ import http from 'node:http';
 import { Client, ConnectConfig } from 'ssh2';
 import { SocksClient } from 'socks';
 import { connectionManager } from '../services/ConnectionManager';
+import { savedConnection, type SavedConnection } from '../services/savedConnection';
+import { toStoreError } from '../services/getsshStore';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
@@ -364,7 +366,33 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
    * The one connect path of every protocol, shared by 'ssh-connect' and 'ssh-reconnect'. `invoker`
    * is the (already verified) window that asked; an SSH host-key prompt is shown there.
    */
-  const connectSession = async (config: any, invoker: Electron.WebContents): Promise<ConnectResult> => {
+  /**
+   * A request that names a saved profile and brings no credentials of its own connects with the
+   * profile's address and credentials from the store (services/savedConnection.ts). The key and
+   * passphrase are wiped once the handshake is over.
+   */
+  const connectSession = async (request: any, invoker: Electron.WebContents): Promise<ConnectResult> => {
+    let config = request;
+    let saved: SavedConnection | null = null;
+    if ((config.protocol || 'ssh') === 'ssh') {
+      try {
+        saved = savedConnection(config);
+      } catch (error) {
+        return { success: false, error: `The saved credentials could not be read (${toStoreError(error).code})` };
+      }
+      if (saved) {
+        const { password: _password, passphrase: _passphrase, ...rest } = config;
+        config = { ...rest, host: saved.host, port: saved.port, username: saved.username };
+      }
+    }
+    try {
+      return await dialSession(config, invoker, saved);
+    } finally {
+      saved?.wipe();
+    }
+  };
+
+  const dialSession = async (config: any, invoker: Electron.WebContents, saved: SavedConnection | null): Promise<ConnectResult> => {
     if (typeof config.host === 'string') {
         // Sanitize host input: remove 'ssh://', 'http://', trailing slashes, and spaces
         config.host = config.host.replace(/^(https?|ssh):\/\//i, '').replace(/[\/\\\s]+$/g, '').trim();
@@ -429,7 +457,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
     let privateKeyData: Buffer | undefined;
 
-    if (config.privateKeyPath) {
+    if (config.privateKeyPath && !saved) {
       try {
         const keyPath = config.privateKeyPath.replace(/^~/, app.getPath('home'));
         privateKeyData = await fs.promises.readFile(keyPath);
@@ -552,13 +580,16 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           }
         };
 
-        if (privateKeyData) {
+        if (saved?.privateKey) {
+          connectConfig.privateKey = saved.privateKey;
+          if (saved.passphrase) connectConfig.passphrase = saved.passphrase;
+        } else if (privateKeyData) {
           connectConfig.privateKey = privateKeyData;
           if (config.passphrase) {
             connectConfig.passphrase = config.passphrase;
           }
         } else {
-          connectConfig.password = config.password;
+          connectConfig.password = saved ? saved.password : config.password;
         }
 
         // Proxy Attachment

@@ -82,9 +82,13 @@ export interface SessionProfile {
   protocol?: 'ssh' | 'local' | 'telnet' | 'auto';
   host: string;
   username: string;
+  /** Only what the user typed in this window. A saved one stays in the main process: see hasPassword. */
   password?: string;
   privateKeyPath?: string;
   passphrase?: string;
+  /** A password / passphrase is saved for this profile; connecting by its id uses it. */
+  hasPassword?: boolean;
+  hasPassphrase?: boolean;
   autoStart?: boolean;
   port?: number;
   useKeepAlive?: boolean;

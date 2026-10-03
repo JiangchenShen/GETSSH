@@ -62,6 +62,7 @@ const allSequences = [
   ['fresh', 'profiles', 'bridge'],
   ['asset-folders'],
   ['ipc'],
+  ['connect'],
   ['rollback-setup', 'damaged'],
   ['legacy', 'rollback-main', 'rollback'],
 ];

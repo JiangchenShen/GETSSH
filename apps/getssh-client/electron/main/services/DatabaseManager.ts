@@ -26,14 +26,12 @@ export type AiMemoryVectorRow = AiMemoryVector;
 export type AiMemoryMessageRow = AiMemoryMessage;
 
 /**
- * A profile as the renderer has always received it, credentials included. TRANSITIONAL: S4 moves
- * connecting to the main process (by profile id) and this shape goes away; the store itself never
- * returns a secret from a listing.
+ * A profile as the renderer receives it: no password, passphrase or key, only hasPassword /
+ * hasPassphrase. Connecting by profile id takes the credentials from the store in the main
+ * process (services/savedConnection.ts).
  */
 export interface ProfileRow extends Omit<Profile, 'group'> {
   group?: string;
-  password?: string;
-  passphrase?: string;
 }
 
 /** What callers save: the renderer's profile objects, checked field by field in saveProfiles(). */
@@ -197,28 +195,10 @@ export class DatabaseManager {
 
   // --- Profiles ---
 
-  /**
-   * The workspace's profiles with their passwords and passphrases, opened here in the main
-   * process. TRANSITIONAL (see ProfileRow): the renderer still connects with the credentials it
-   * holds until S4. Empty while the workspace is locked.
-   */
+  /** The workspace's profiles, without credentials. Empty while the workspace is locked. */
   public static getProfiles(workspaceId: string): ProfileRow[] {
-    const store = getStore();
-    const profiles = readOr<Profile[]>([], () => store.listProfiles(workspaceId));
-    return profiles.map(({ group, ...profile }) => {
-      const row: ProfileRow = { ...profile, group: group ?? undefined };
-      if (!profile.hasPassword && !profile.hasPassphrase) return row;
-      try {
-        const secrets = store.connectSecrets(workspaceId, profile.id);
-        if (secrets.password) row.password = secrets.password.toString('utf8');
-        if (secrets.passphrase) row.passphrase = secrets.passphrase.toString('utf8');
-        for (const buffer of [secrets.password, secrets.passphrase, secrets.privateKey]) buffer?.fill(0);
-      } catch (error) {
-        // Left out, the stored value is kept on the next save (undefined keeps it).
-        console.warn(`[DatabaseManager] Credentials of profile ${profile.id} could not be read:`, toStoreError(error).code);
-      }
-      return row;
-    });
+    const profiles = readOr<Profile[]>([], () => getStore().listProfiles(workspaceId));
+    return profiles.map(({ group, ...profile }) => ({ ...profile, group: group ?? undefined }));
   }
 
   /**

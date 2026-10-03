@@ -39,6 +39,12 @@ interface ConnectFormProps {
 
 type DisplayProtocol = 'auto' | 'ssh' | 'local' | 'telnet';
 
+/**
+ * A saved password or passphrase never comes to this window. Typing replaces it; an empty field
+ * (also after typing and deleting) keeps it, which undefined means when the profile is saved.
+ */
+const secretInput = (value: string, saved?: boolean) => (saved && value === '' ? undefined : value);
+
 export const ConnectForm: React.FC<ConnectFormProps> = ({
   session,
   index,
@@ -49,7 +55,8 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   onConnect,
   onUpdateSession,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const savedSecretHint = i18n.language.startsWith('zh') ? '已保存，留空则不修改' : 'Saved. Leave empty to keep it';
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
@@ -279,11 +286,11 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     <button type="button" onClick={() => handleUpdate({ authType: 'key' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${localSession.authType === 'key' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
-                    <label><span className={labelClass}>{t('connection.password')}</span><input value={localSession.password || ''} onChange={(event) => handleUpdate({ password: event.target.value })} className={inputClass} type="password" autoComplete="current-password" placeholder={t('connection.password')} /></label>
+                    <label><span className={labelClass}>{t('connection.password')}</span><input value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword ? savedSecretHint : t('connection.password')} /></label>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => { const path = await window.electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-line bg-surf text-ink-3 transition-colors hover:border-primary/50 hover:text-primary" aria-label={t('common.selectFile')}><FileKey2 className="h-4 w-4" /></button></div></label>
-                      <label><span className={labelClass}>Passphrase</span><input value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: event.target.value })} className={inputClass} type="password" placeholder={t('connection.optional')} /></label>
+                      <label><span className={labelClass}>Passphrase</span><input value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase ? savedSecretHint : t('connection.optional')} /></label>
                     </div>
                   )}
                 </>}
