@@ -297,7 +297,16 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 - 手写 SQL 只剩 2.x 迁移（`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts`）、旧的导出导入（`systemHandler.ts`，S5 接入时删）和打包自检。
 - 测试：`npm run test:keystore-e2e` 共 17 个阶段，新增服务器配置、资产桥、IPC 三个阶段；IPC 阶段在隐藏窗口里调用设置页、工作区切换、资产桥用到的通道。
 - **磁盘上的变化**：store 第一次打开工作区时，会把明文密码封装成 `gk1:` 字段，并加上新表和新列。之后再用接入前的版本打开，密码会显示成 `gk1:…`，连接失败。合进 `v3-next` 前负责人先备份。
-- 下一步是 S4 的主进程部分：AI Key、插件秘密、MCP token 和界面配置里的秘密从 `safeStorage` 搬到 `setAppSecret`，按 id 连接，界面不再拿到密码。都由 Claude 负责。
+- **S4 的主进程部分（10-03）**：
+  - AI Key（`ai/<服务商>`）、界面配置里的敏感项（`config/renderer`：启动脚本、代理、AI 地址和模型）、MCP 服务器的 `env` 和 `headers`（`mcp/<id>`）都存进 `setAppSecret`。旧的 `safeStorage` 文件和 localStorage 里的密文在第一次用到时搬进来，然后删除。启动时不再访问钥匙串；
+  - 界面配置的敏感项和 MCP 服务器要等应用解锁后才读取、启动。设了主密码时，它们也受主密码保护；
+  - 按 id 连接：连接请求里带了已保存配置的 id、又没有带密码时，主进程从 store 取主机、端口、用户名和凭据，不用请求里的地址。界面临时输入的密码照旧使用；
+  - 界面不再拿到已保存的密码：`unlock-profiles`、`workspace:switch` 的配置只带 `hasPassword` / `hasPassphrase`；
+  - 测试：`keystore-e2e` 18 个阶段，新增的 `connect` 阶段在本机起一个 SSH 服务器真连；`appSecrets`、MCP 秘密各有单元测试。
+- S4 还没做的：
+  - 终端粘贴改走主进程，并拒绝读回刚复制的密码（第 6 节的剩余风险）。要改 `TerminalPane.tsx`，等 Codex / Gemini 的改名提交后再做；
+  - 插件的 `safeStorage.encrypt` 只能加密、不能解密，没有动；换成插件秘密接口要先定插件 API；
+  - `mcp:*` 通道仍把 `env` / `headers` 返回给界面（MCP 设置页要显示它们），也没有检查发送方。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -336,7 +345,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - 设了主密码时，设置页仍然显示工作区的"设置密码"按钮，点了会返回 `master_password_protects_workspaces`，按钮要隐藏；
      - 强制更换主密码的对话框还没有，`masterPasswordMustChange` 现在是真实值；
      - Touch ID 开关不再区分工作区，工作区那一栏的开关和应用那一栏是同一个；
-     - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单。
+     - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
+     - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
    - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。其余 4 个是 SSH 私钥的导入、生成、列出、删除（阶段 B），暂时只有假实现。
 4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。
