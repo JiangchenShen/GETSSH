@@ -22,8 +22,8 @@ GETSSH 是一款面向**专业开发者、DevOps 工程师与信息安全研究�
 
 | 能力维度 | GETSSH 方案 | 行业通行方案 |
 |---|---|---|
-| 安全架构 | Rust 独立 Watchdog + RASP 主动防御 + 内存即焚（ZeroizeOnDrop）| 依赖 OS 权限隔离，无运行态防御 |
-| 布局引擎 | Rust Nexus Core 状态机驱动的递归二叉树分屏 | 传统 CSS Flex/Grid，无底层状态持久化 |
+| 安全架构 | Ocean Sentinel 独立看门狗 + RASP 主动防御 + 内存即焚（ZeroizeOnDrop）| 依赖 OS 权限隔离，无运行态防御 |
+| 布局引擎 | Rust Tidal Engine 状态机驱动的递归二叉树分屏 | 传统 CSS Flex/Grid，无底层状态持久化 |
 | 加密引擎 | Rust AES-256-GCM + PBKDF2（10 万次迭代），密文不过 V8 堆 | Node.js `crypto`，受 V8 GC 调度影响 |
 | 大文件 I/O | Rust 零拷贝（Zero-copy）SFTP 流，绕过 V8 OOM 限制 | Node.js Buffer，受堆内存上限约束 |
 | 跨平台字体 | 全离线本地化「双子星」字体栈（Reddit Sans + MiSans）| 依赖 CDN Google Fonts，离线不可用 |
@@ -131,9 +131,9 @@ interface SessionProfile {
 - **CSS 常驻挂载策略**：Tab 切换时，终端 DOM 节点不执行卸载，而是通过 `display:none` 保持隐藏态，完整保活 xterm.js 实例与 SSH 连接。该策略彻底解决了 React 重渲染触发连接中断的问题。
 - **后台节流禁用**：应用启动时主动向 Chromium 注入命令行参数（`disable-renderer-backgrounding` 等），防止应用最小化后 SSH 连接因心跳超时断开。
 
-#### 2.2.2 Nexus 工作区引擎（分屏架构）
+#### 2.2.2 Tidal Engine 工作区引擎（分屏架构）
 
-v2.0 引入了 **Nexus Core（基于 Rust + NAPI-RS 的工作区状态机）** 作为分屏引擎的唯一状态权威（Single Source of Truth, SSOT），彻底解决了 React 侧状态与底层引擎状态脱节所导致的一系列"幽灵"级 Bug。
+v2.0 引入的工作区状态机现统一命名为 **Tidal Engine（基于 Rust + NAPI-RS 的工作区状态机）**，作为分屏引擎的唯一状态权威（Single Source of Truth, SSOT），彻底解决了 React 侧状态与底层引擎状态脱节所导致的一系列"幽灵"级 Bug。
 
 ##### 架构核心：递归二叉树 Pane 模型
 
@@ -148,21 +148,21 @@ type PaneNode = PaneLeaf | PaneSplit;
 | 水平分割 (hsplit) | 左右并排分屏，各窗格独立持有 SSH 会话 |
 | 垂直分割 (vsplit) | 上下叠加分屏 |
 | 任意深度嵌套 | 支持 N 层递归分屏，每个叶节点独立连接不同目标主机 |
-| 可拖拽调整比例 | `SplitEngine.tsx` 支持鼠标拖拽分隔线实时调整尺寸百分比，并实时回写 Rust 状态（`nexusUpdateSizes`）|
+| 可拖拽调整比例 | `SplitEngine.tsx` 支持鼠标拖拽分隔线实时调整尺寸百分比，并实时回写 Rust 状态（`tidalUpdateSizes`）|
 | 内容类型混合 | 任意窗格可承载：终端 / 插件面板 / Command Center 欢迎页 |
 | 分离窗口（Tear-off）| 任意窗格可被「撕出」为独立的原生系统窗口，上下文与 Rust 状态机完整同步 |
 
-##### Nexus Core 状态同步机制
+##### Tidal Engine 状态同步机制
 
 | IPC 信令 | 触发时机 | 作用 |
 |---|---|---|
-| `nexus:split` | 用户点击分屏按钮 | 通知 Rust 引擎执行分裂操作，获取新树结构 |
-| `nexus:replace-pane` | 窗格类型变更（如 Welcome → Terminal）| 在 Rust 状态树中更新叶节点类型与配置 |
-| `nexus:register-tab` | 新标签页创建 | 在 Rust 引擎中注册新的 Tab 根节点 |
-| `nexus:update-sizes` | 拖拽分隔线结束 | 将新的尺寸比例持久化到 Rust 状态树 |
-| `nexus:set-disconnected` | SSH 连接断开检测 | 修改 Rust 中对应叶节点的 `disconnected` 状态标记 |
-| `nexus:close-tab` | 用户关闭标签页 | 从 Rust 状态树中删除整个 Tab 根节点，防止幽灵复活 |
-| `nexus:tear-off` | 用户点击弹出按钮 | 触发 Rust 执行窗格分离，在新窗口中重建上下文 |
+| `tidal:split` | 用户点击分屏按钮 | 通知 Rust 引擎执行分裂操作，获取新树结构 |
+| `tidal:replace-pane` | 窗格类型变更（如 Welcome → Terminal）| 在 Rust 状态树中更新叶节点类型与配置 |
+| `tidal:register-tab` | 新标签页创建 | 在 Rust 引擎中注册新的 Tab 根节点 |
+| `tidal:update-sizes` | 拖拽分隔线结束 | 将新的尺寸比例持久化到 Rust 状态树 |
+| `tidal:set-disconnected` | SSH 连接断开检测 | 修改 Rust 中对应叶节点的 `disconnected` 状态标记 |
+| `tidal:close-tab` | 用户关闭标签页 | 从 Rust 状态树中删除整个 Tab 根节点，防止幽灵复活 |
+| `window:tear-off` | 用户点击弹出按钮 | 触发 Rust 执行窗格分离，在新窗口中重建上下文 |
 
 > **工程价值**：通过将布局状态的权威来源下沉至 Rust，从根本上杜绝了过去在 React 侧关闭标签页后、Rust 侧状态未同步而导致的「幽灵标签页」自动复活现象，以及由拖拽调整大小后状态回弹引发的「弹簧 Bug」。
 
@@ -205,7 +205,7 @@ type PaneNode = PaneLeaf | PaneSplit;
 | 快速直连 | P0 | 搜索框直接输入 `user@host` 形式的地址后回车，无需预先保存配置 |
 | 插件入口聚合 | P1 | 「本地工具与插件」区域列出所有已激活插件，支持一键唤起 |
 | 实时时钟仪表盘 | P2 | 跟随 `i18n.language` 实时格式化的日期和时间展示 |
-| 安全污染告警横幅 | P1 | 检测到 RASP 告警时，顶部显示红色（内存级）或黄色（插件级）安全警告横幅，附带 Watchdog 给出的人类可读风险原因 |
+| 安全污染告警横幅 | P1 | 检测到 RASP 告警时，顶部显示红色（内存级）或黄色（插件级）安全警告横幅，附带 Ocean Sentinel 给出的人类可读风险原因 |
 | 快捷操作入口 | P2 | 一键直达「新建连接」「偏好设置」功能入口 |
 
 ---
@@ -302,7 +302,7 @@ type PaneNode = PaneLeaf | PaneSplit;
 
 | 序号 | 屏障名称 | 核心组件 | 技术描述 |
 |---|---|---|---|
-| ① | **Rust 系统级看门狗（Watchdog）** | `rust-core/watchdog` 独立二进制 | 独立于 Electron 进程运行，通过 Unix Domain Socket（macOS）或 Named Pipe（Windows）进行心跳通信。主进程 60 秒内未响应心跳，Watchdog 通过 OS API 对父进程群发出终止信号强制退出。同时支持 SAFE MODE 自动识别，崩溃恢复时不误杀 |
+| ① | **Ocean Sentinel 系统级看门狗** | `rust-core/ocean-sentinel` 的独立 `watchdog` 二进制 | 独立于 Electron 进程运行，通过 Unix Domain Socket（macOS）或 Named Pipe（Windows）进行心跳通信。主进程 60 秒内未响应心跳，Ocean Sentinel 看门狗通过 OS API 对父进程群发出终止信号强制退出。同时支持 SAFE MODE 自动识别，崩溃恢复时不误杀 |
 | ② | **内存即焚引擎（Zeroize）** | `getssh-vault` Rust N-API | `ZeroizeOnDrop` 在 Rust 对象离开作用域时自动以 0x00 覆写 AES 密钥与密文缓冲区；TypeScript 层 `finally` 块调用 `buffer.fill(0)` 执行二次擦除 |
 | ③ | **金库级加密引擎（Vault）** | `getssh-vault` Rust N-API | PBKDF2-HMAC-SHA256（100,000 次）+ AES-256-GCM 认证加密，全程在 Rust 密闭空间执行，密钥材料绝不进入 V8 GC 管辖的堆内存 |
 | ④ | **零拷贝网络 I/O 引擎** | `sftp-stream` Rust N-API | SFTP 大文件传输由 Rust 直接接管磁盘 I/O，Zero-copy 绕过 V8 堆内存，从根本上杜绝大文件操作的 OOM 风险 |
@@ -311,18 +311,18 @@ type PaneNode = PaneLeaf | PaneSplit;
 
 #### 2.7.2 安全告警覆层（SecurityOverlay）
 
-当 Watchdog 通过 IPC 上报 `LOCKDOWN_TRIGGER` 事件时，渲染层全屏渲染锁定覆层：
+当 Ocean Sentinel 看门狗通过 IPC 上报 `LOCKDOWN_TRIGGER` 事件时，渲染层全屏渲染锁定覆层：
 
 | 告警级别 | 触发条件 | 用户操作选项 |
 |---|---|---|
 | 🔴 红色警报（内存级）| 检测到内存完整性异常或底层威胁 | 「立刻重启安全模式」/ 「15 秒抢救性存盘」/ 「忽略」|
 | 🟡 黄色警告（插件级）| 插件触发了 RASP 高危行为被阻断 | 「关闭异常插件」/ 「继续执行」/ 「忽略」|
 
-> 覆层附带 `00:XX` 格式倒计时，超时后 Watchdog 自动执行强制关闭操作。
+> 覆层附带 `00:XX` 格式倒计时，超时后 Ocean Sentinel 看门狗自动执行强制关闭操作。
 
 #### 2.7.3 安全中心仪表盘
 
-- Watchdog 实时连接状态与心跳延迟可视化
+- Ocean Sentinel 实时连接状态与心跳延迟可视化
 - 安全等级图形化仪表（绿色/黄色/红色盾牌）
 - 六大安全屏障的详情展开说明与工作状态说明
 - 子页面导航层级：`dashboard` → `rasp` / `privacy` / `safestorage` / `known_hosts` / `shield_details`
@@ -406,7 +406,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | 英语（en-US）| 全量翻译，系统默认语言 |
 | 实时语言切换 | 偏好设置 → 外观 → 语言，切换即时生效，无需重启应用，`react-i18next` 驱动 |
 | 时间格式本地化 | 所有时间戳跟随 `i18n.language` 进行本地化格式化 |
-| 安全告警本地化 | 全部 RASP 告警与 Watchdog 风险描述均提供中英双语版本 |
+| 安全告警本地化 | 全部 RASP 告警与 Ocean Sentinel 风险描述均提供中英双语版本 |
 
 ---
 
@@ -474,7 +474,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | macOS DMG 格式 | ULFO 高效压缩，arm64 / x64 独立安装包 |
 | Windows NSIS 格式 | x64 / arm64 独立安装包 |
 | Rust 原生模块（`.node`）| 通过 `asarUnpack: ["**/*.node"]` 从 ASAR 包中解出，在文件系统中直接 `require()`；加载器严格按 macOS / Windows 平台、架构与 ABI 精确映射文件名（Windows 使用 `-msvc` 后缀）|
-| Watchdog 守护进程 | 通过 `extraResources` 打包至 `resources/watchdog`（macOS）和 `resources/watchdog.exe`（Windows）|
+| Ocean Sentinel 看门狗守护进程 | 通过 `extraResources` 打包至 `resources/watchdog`（macOS）和 `resources/watchdog.exe`（Windows）|
 
 ---
 
@@ -497,8 +497,8 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 | Rust 加密核心 | `getssh-vault` N-API | aes-gcm + pbkdf2 + zeroize |
 | Rust 系统监控 | `getssh-sysprobe` N-API | sysinfo crate 系统指标采集 |
 | Rust SFTP 流 | `sftp-stream` N-API | Zero-copy 上传 / 下载 |
-| Rust 工作区引擎 | `nexus-core` N-API | 分屏布局状态机，SSOT 架构 |
-| Rust 看门狗 | `watchdog` 独立二进制 | 无 V8 依赖，系统级熔断机制 |
+| Rust 工作区引擎 | `tidal-engine` N-API | 分屏布局状态机，SSOT 架构 |
+| Rust Ocean Sentinel | `ocean-sentinel` N-API + 独立二进制 | 数据脱敏/还原、看门狗监控、进程沙箱隔离 |
 | Rust 插件存储 | `getssh-kv` N-API | 插件隔离 KV 持久化存储 |
 | Rust 归档处理 | `getssh-unarchive` N-API | ZIP 解压，ZipSlip 防御 |
 | 自动化测试 | Vitest + Playwright | 单元测试 + E2E 集成测试 |
@@ -508,13 +508,13 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 
 | 模块 | 路径 | 类型 | 核心职责 |
 |---|---|---|---|
-| `nexus-core` | `rust-core/nexus-core` | N-API `.node` | 工作区分屏布局状态机（SSOT），递归二叉树管理 |
+| `tidal-engine` | `rust-core/tidal-engine` | N-API `.node` | 工作区分屏布局状态机（SSOT），递归二叉树管理 |
 | `getssh-vault` | `rust-core/getssh-vault` | N-API `.node` | AES-256-GCM 加解密，PBKDF2 密钥派生，ZeroizeOnDrop |
 | `getssh-sysprobe` | `rust-core/getssh-sysprobe` | N-API `.node` | 系统 CPU / 内存 / 网络 / 磁盘实时采集 |
 | `sftp-stream` | `rust-core/sftp-stream` | N-API `.node` | SFTP 零拷贝上传 / 下载，全平台 ABI 精确映射 |
 | `getssh-kv` | `rust-core/getssh-kv` | N-API `.node` | 插件隔离 KV 持久化存储 |
 | `getssh-unarchive` | `rust-core/getssh-unarchive` | N-API `.node` | ZIP 插件包解压（含 ZipSlip 目录穿越防御）|
-| `watchdog` | `rust-core/watchdog` | 独立二进制 | 主进程心跳监控，跨平台系统级熔断，SAFE MODE 识别 |
+| `ocean-sentinel` | `rust-core/ocean-sentinel` | N-API `.node` + 独立 `watchdog` / `getssh-sandbox` 二进制 | 数据脱敏/还原、主进程心跳监控、跨平台系统级熔断、SAFE MODE 识别、进程沙箱隔离 |
 
 ### 4.3 主进程模块结构
 
@@ -522,8 +522,8 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 electron/main/
 ├── index.ts                 # 入口：IPC 全局补丁、getssh-plugin:// 协议注册、窗口创建
 ├── PluginManager.ts         # 插件完整生命周期管理（激活/停用/安装/卸载）
-├── nexus/
-│   └── nexusBridge.ts       # Nexus Core NAPI 封装：IPC 信令路由、PTY 流绑定
+├── tidal/
+│   └── tidalBridge.ts       # Tidal Engine NAPI 封装：IPC 信令路由、PTY 流绑定
 ├── handlers/
 │   ├── index.ts             # 所有 handler 统一注册入口
 │   ├── sshHandler.ts        # SSH 连接、Known Hosts 管理、审计日志、代理
@@ -535,7 +535,7 @@ electron/main/
 │   ├── windowHandler.ts     # 窗口安全策略、CSP 头注入、导航拦截
 │   └── themeHandler.ts      # 操作系统主题检测（深色 / 浅色模式）
 ├── security/
-│   └── SecureCenter.ts      # RASP 主动防御、Watchdog IPC 通信、安全锁定覆层触发
+│   └── SecureCenter.ts      # RASP 主动防御、Ocean Sentinel 看门狗 IPC 通信、安全锁定覆层触发
 └── services/
     ├── SSHBridge.ts         # SSH 数据跨进程事件总线
     ├── ConnectionManager.ts # 活跃 SSH 会话 Map 管理及生命周期
@@ -563,7 +563,7 @@ electron/main/
 | v1.2.1 | 主进程模块化重构 | 主进程按领域模块化重构 + SFTP 健壮性修复 + 静默后台更新 | ✅ 已发布 |
 | v1.3.0 | 安全审计 V3.0 | 安全审计全量修复（5 个 CRITICAL 漏洞）+ RASP 沙盒实装 + 设置中心 UI 全面重设计 | ✅ 已发布 |
 | v1.3.x | 键盘体验与协议扩展 | Command Center 完整键盘导航 + 插件 UI 优化 + Telnet 协议支持 | ✅ 已发布 |
-| **v3.0.0（R7K4S）** | **Rust 全栈整合与双子星视觉** | **Nexus Core 工作区引擎（Rust SSOT 分屏状态机）+ 全离线双子星字体栈（Reddit Sans + MiSans）+ Rust Vault + Sysprobe + SFTP-Stream + Watchdog 全面量产 + React 19 + Tailwind v4 + 32 个历史漏洞全量修复 + 六大安全防御纵深屏障 + 全平台 NAPI 精确 ABI 映射修复** | 🚀 **当前正式版本** |
+| **v3.0.0（R7K4S）** | **Rust 全栈整合与双子星视觉** | **Tidal Engine 工作区引擎（Rust SSOT 分屏状态机）+ 全离线双子星字体栈（Reddit Sans + MiSans）+ Rust Vault + Sysprobe + SFTP-Stream + Ocean Sentinel 全面量产 + React 19 + Tailwind v4 + 32 个历史漏洞全量修复 + 六大安全防御纵深屏障 + 全平台 NAPI 精确 ABI 映射修复** | 🚀 **当前正式版本** |
 | v3.1.0（规划中）| 安全加固与工作区 | CSP 全面收紧（移除 `unsafe-eval`）+ Windows 正式代码签名发布 + Workspace 工作区上下文隔离 | 📋 规划中 |
 | v3.2.0（规划中）| 生态与跳板机 | Plugin Marketplace 插件市场 + SSH Jump Host 多级跳板机 + 终端内容实时搜索 | 📋 规划中 |
 
@@ -572,7 +572,7 @@ electron/main/
 ## 6. 产品设计哲学
 
 > **「机制即防御，而非单靠加密」**
-> 安全性通过架构机制保障：IPC 帧来源校验、Watchdog 强制熔断、Rust 内存即焚，而非单纯依赖通信加密层。
+> 安全性通过架构机制保障：IPC 帧来源校验、Ocean Sentinel 看门狗强制熔断、Rust 内存即焚，而非单纯依赖通信加密层。
 
 > **「开发者工具首先应该是工具，其次才是视觉体验」**
 > UI 以极简为基调，在不损失信息密度的前提下，融入精致的过渡动效与毛玻璃材质美学。

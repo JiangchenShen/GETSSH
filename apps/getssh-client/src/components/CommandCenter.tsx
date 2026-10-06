@@ -45,7 +45,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
   const isPolluted = useAppStore(state => state.isPolluted);
-  const watchdogStatus = useAppStore(state => state.watchdogStatus);
+  const sentinelStatus = useAppStore(state => state.sentinelStatus);
   const runbooks = useWorkspaceStore(state => state.runbooks);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,7 +73,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
   useEffect(() => {
     if (isPolluted && window.electronAPI?.invoke) {
-      window.electronAPI.invoke('get-watchdog-status').then(() => {
+      window.electronAPI.invoke('get-sentinel-status').then(() => {
         // Status retrieved
       });
     }
@@ -513,12 +513,12 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
           {isPolluted && (
             <div className={`flex w-full items-center gap-2 border-b px-4 py-2 text-xs font-medium ${
-              watchdogStatus?.level === 'red' ? 'bg-down/10 text-down border-down/25' : 'bg-warn/10 text-warn border-warn/25'
+              sentinelStatus?.level === 'red' ? 'bg-down/10 text-down border-down/25' : 'bg-warn/10 text-warn border-warn/25'
             }`}>
               <ShieldAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              {watchdogStatus?.level === 'red'
-                ? (zh ? 'Watchdog 报告高危系统状态' : 'Watchdog reports a high-risk system state')
-                : (zh ? 'Watchdog 已阻断插件高危操作' : 'Watchdog blocked a high-risk plugin operation')}
+              {sentinelStatus?.level === 'red'
+                ? (zh ? `${t('statusBar.secure')}报告高危系统状态` : `${t('statusBar.secure')} reports a high-risk system state`)
+                : (zh ? `${t('statusBar.secure')}已阻断插件高危操作` : `${t('statusBar.secure')} blocked a high-risk plugin operation`)}
             </div>
           )}
 

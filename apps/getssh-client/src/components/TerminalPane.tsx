@@ -36,7 +36,7 @@ const rectStyle = (r: Rect): React.CSSProperties => ({
   left: lenToCss(r.left), top: lenToCss(r.top), width: lenToCss(r.width), height: lenToCss(r.height),
 });
 
-// Depth-first, so leaves come out in tree order. nexus-core only inserts or removes leaves (never reorders them),
+// Depth-first, so leaves come out in tree order. tidal-engine only inserts or removes leaves (never reorders them),
 // so React never has to move an existing wrapper in the DOM (a moved iframe would reload).
 function layoutTree(node: PaneNode, rect: Rect, parentDirection: LeafSlot['parentDirection'], leaves: LeafSlot[], splits: SplitSlot[]) {
   if (node.type === 'leaf') {
@@ -91,7 +91,7 @@ const SplitDivider: React.FC<{
   isDark: boolean;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }> = ({ node, rect, gutter, tabId, isDark, containerRef }) => {
-  const patchNexusSizes = useSessionStore(s => s.patchNexusSizes);
+  const patchTidalSizes = useSessionStore(s => s.patchTidalSizes);
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -110,7 +110,7 @@ const SplitDivider: React.FC<{
     const startPos = isHorizontal ? e.clientX : e.clientY;
     const startSizes: [number, number] = [...node.sizes] as [number, number];
 
-    // Drag updates only the local tree (one store write per frame); nexus-core gets the final sizes on release.
+    // Drag updates only the local tree (one store write per frame); tidal-engine gets the final sizes on release.
     let latest: [number, number] | null = null;
     let frame: number | null = null;
 
@@ -122,7 +122,7 @@ const SplitDivider: React.FC<{
       if (frame === null) {
         frame = requestAnimationFrame(() => {
           frame = null;
-          if (latest) patchNexusSizes(tabId, node.paneId, latest);
+          if (latest) patchTidalSizes(tabId, node.paneId, latest);
         });
       }
     };
@@ -134,13 +134,13 @@ const SplitDivider: React.FC<{
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       target.removeEventListener('pointercancel', onUp);
-      if (latest) patchNexusSizes(tabId, node.paneId, latest, true);
+      if (latest) patchTidalSizes(tabId, node.paneId, latest, true);
     };
 
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
-  }, [node, rect, tabId, patchNexusSizes, containerRef]);
+  }, [node, rect, tabId, patchTidalSizes, containerRef]);
 
   return <Divider direction={node.type} isDark={isDark} style={rectStyle(gutter)} onDragStart={handleDragStart} />;
 };

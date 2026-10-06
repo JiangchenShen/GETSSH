@@ -7,9 +7,9 @@ import { useAppStore } from '../store/appStore';
  * 底部状态条。
  *
  * 底栏只保留跨工作区的常用目的地。当前工作区由左侧导轨管理，
- * 安全设置归入设置页；Watchdog 在右侧报告实际状态。
+ * 安全设置归入设置页；Ocean Sentinel 在右侧报告实际状态。
  *
- * 右侧只放真有数据源的东西：Watchdog 取 appStore.watchdogStatus。
+ * 右侧只放真有数据源的东西：Ocean Sentinel 取 appStore.sentinelStatus。
  * 原型里画的「Rust Core 运行中」现在没有对应信号，不编。
  */
 
@@ -46,11 +46,10 @@ export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
   const isMac = useAppStore(state => state.isMac);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
-  const watchdogStatus = useAppStore(state => state.watchdogStatus);
+  const sentinelStatus = useAppStore(state => state.sentinelStatus);
 
   const ico = 'w-3.5 h-3.5';
-  const wd = watchdogStatus;
-  const wdOk = !!wd && wd.status === 'secure' && !wd.watchdogDisabled;
+  const sentinelOk = !!sentinelStatus && sentinelStatus.status === 'secure' && sentinelStatus.daemonState === 'running' && !sentinelStatus.sentinelDisabled;
 
   return (
     <div
@@ -81,18 +80,18 @@ export const StatusBar: React.FC = () => {
 
       <div className="flex-1 min-w-[8px]" />
 
-      {wd && (
+      {sentinelStatus && (
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
             detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'Security' },
           }))}
           className="flex-none flex items-center gap-[7px] max-w-[190px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap rounded-md hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-          aria-label={`${t('statusBar.secure')} · Watchdog`}
+          aria-label={`${t('statusBar.secure')} · ${sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full flex-none ${wdOk ? 'bg-ok' : 'bg-warn'}`} />
-          <span className="truncate" title={wdOk ? t('statusBar.wdOk') : (wd.reason || t('statusBar.wdBad'))}>
-            Watchdog · {wdOk ? t('statusBar.wdOk') : (wd.reason || t('statusBar.wdBad'))}
+          <span className={`w-1.5 h-1.5 rounded-full flex-none ${sentinelOk ? 'bg-ok' : 'bg-warn'}`} />
+          <span className="truncate" title={sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}>
+            {t('statusBar.secure')} · {sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}
           </span>
         </button>
       )}

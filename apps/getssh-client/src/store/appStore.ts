@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { useAiStore } from './aiStore';
+import type { OceanSentinelStatus } from '../types/ipc';
+
+let pendingSentinelPoll: Promise<OceanSentinelStatus | null> | null = null;
 
 export interface AiPrompt {
   id: string;
@@ -170,9 +173,10 @@ interface AppStore {
   resolveSecurityPrompt: (result: 'accept-save' | 'accept-once' | 'reject') => void;
   isPolluted: boolean;
   setIsPolluted: (polluted: boolean) => void;
-  watchdogStatus: { status: 'secure' | 'warning', level?: 'red' | 'yellow', reason?: string, lastPing: number, watchdogDisabled?: boolean } | null;
-  setWatchdogStatus: (status: { status: 'secure' | 'warning', level?: 'red' | 'yellow', reason?: string, lastPing: number, watchdogDisabled?: boolean } | null) => void;
-  pollWatchdogStatus: () => void;
+  sentinelStatus: OceanSentinelStatus | null;
+  sentinelStatusError: string | null;
+  setSentinelStatus: (status: OceanSentinelStatus | null) => void;
+  pollSentinelStatus: () => Promise<OceanSentinelStatus | null>;
   loadStoredConfig: () => void;
   syncConfigEffects: () => void;
   // Torn windows only: read the config the main window stored and apply its visuals,
@@ -183,8 +187,11 @@ interface AppStore {
 
 let isInitialLoadDone = false;
 
-// Applies the config's colors and dark class to the document; returns the effective isDark.
+// Applies the config's appearance to the document; returns the effective isDark.
 function applyConfigVisuals(appConfig: AppConfig, systemIsDark: boolean): boolean {
+  const opacity = Number.isFinite(appConfig.bgOpacity) ? Math.min(1, Math.max(0.25, appConfig.bgOpacity)) : DEFAULT_CONFIG.bgOpacity;
+  document.documentElement.dataset.glass = String(appConfig.enableGlassmorphism);
+  document.documentElement.style.setProperty('--sidebar-opacity', `${opacity * 100}%`);
   const defaultDuoTone = appConfig.duoTone?.colorA === '0 212 255' && appConfig.duoTone.colorB === '44 44 52';
   const centerAccent = appConfig.duoTone?.colorA ?? appConfig.themeColor;
   const accentRgb = centerAccent?.trim().split(/\s+/).map(Number);
@@ -235,7 +242,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: 'default',
   isPolluted: false,
-  watchdogStatus: null,
+  sentinelStatus: null,
+  sentinelStatusError: null,
   isAppBootLocked: false,
   isAppBootLoading: true,
   isConfigLoaded: false,
@@ -298,17 +306,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
   
-  setWatchdogStatus: (status) => set({ watchdogStatus: status }),
+  setSentinelStatus: (status) => set({ sentinelStatus: status, sentinelStatusError: null }),
   
-  pollWatchdogStatus: async () => {
-    if (window.electronAPI?.getWatchdogStatus) {
+  pollSentinelStatus: () => {
+    if (pendingSentinelPoll) return pendingSentinelPoll;
+    pendingSentinelPoll = (async () => {
       try {
-        const status = await window.electronAPI.getWatchdogStatus();
-        set({ watchdogStatus: status });
+        if (!window.electronAPI?.getSentinelStatus) throw new Error('Ocean Sentinel status API is unavailable');
+        const status = await window.electronAPI.getSentinelStatus();
+        const nonnegativeInteger = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
+        const optionalTime = (value: unknown) => value === null || nonnegativeInteger(value);
+        const gateway = status?.gateway;
+        const stats = status?.stats;
+        if (!status || (status.status !== 'secure' && status.status !== 'warning')
+          || !Number.isFinite(status.lastPing) || status.lastPing < 0
+          || (status.daemonState !== undefined && !['running', 'starting', 'disabled', 'unavailable'].includes(status.daemonState))
+          || (status.supervisorPid !== undefined && status.supervisorPid !== null && (!nonnegativeInteger(status.supervisorPid) || status.supervisorPid === 0))
+          || (status.supervisedPid !== undefined && (!nonnegativeInteger(status.supervisedPid) || status.supervisedPid === 0))
+          || (gateway !== undefined && (!gateway || !['native', 'fallback'].includes(gateway.mode)
+            || !['ready', 'faulted'].includes(gateway.state) || !optionalTime(gateway.lastSanitizedAt) || !optionalTime(gateway.lastFailureAt)))
+          || (stats !== undefined && (!stats || !nonnegativeInteger(stats.runtimeHits)
+            || !optionalTime(stats.todayHits) || !optionalTime(stats.totalHits)
+            || !['available', 'unavailable'].includes(stats.persistence) || !nonnegativeInteger(stats.startedAt)
+            || typeof stats.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(stats.day)
+            || !optionalTime(stats.recordedSince) || !optionalTime(stats.lastFilteredAt)
+            || (stats.todayHits !== null && stats.totalHits !== null && stats.todayHits > stats.totalHits)))) {
+          throw new Error('Invalid Ocean Sentinel status response');
+        }
+        set({ sentinelStatus: status, sentinelStatusError: null });
+        return status;
       } catch (e) {
-        console.error("Failed to fetch watchdog status", e);
+        console.error("Failed to fetch Ocean Sentinel status", e);
+        set({ sentinelStatus: null, sentinelStatusError: e instanceof Error ? e.message : String(e) });
+        return null;
       }
-    }
+    })().finally(() => { pendingSentinelPoll = null; });
+    return pendingSentinelPoll;
   },
 
   loadStoredConfig: async () => {

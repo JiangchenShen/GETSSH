@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Bot, User, RefreshCcw } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
@@ -14,7 +14,9 @@ export const ChatView: React.FC<{
   onRetry: (msgId: string, text: string) => void;
   onServerSelect: (msgId: string, serverId: string, serverName: string) => void;
 }> = ({ onPaperPlane, onRetry, onServerSelect }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const zh = i18n.language.startsWith('zh');
+  const reduceMotion = useReducedMotion();
   const isDark = useAppStore(state => state.isDark);
   const conversations = useAiChatStore(s => s.conversations);
   const activeConversationId = useAiChatStore(s => s.activeConversationId);
@@ -24,45 +26,45 @@ export const ChatView: React.FC<{
   const messages = activeConv?.messages ?? [];
 
   useEffect(() => {
-    scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, messages[messages.length - 1]?.content]);
+    scrollEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [messages.length, messages[messages.length - 1]?.content, reduceMotion]);
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <Bot className={`w-16 h-16 mb-4 ${isDark ? 'text-white/10' : 'text-slate-200'}`} />
-        <div className={`text-lg font-bold mb-2 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
-          {t('ai.waitingInstruction', '有什么我可以帮您的？')}
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <Bot className="mb-2 h-8 w-8 text-ink-3" />
+        <div className="text-base font-medium text-ink-2">
+          {zh ? '想从哪里开始？' : 'Where would you like to start?'}
         </div>
-        <p className={`text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-          直接在下方输入指令或上下文开始对话。<br/>提示：您可以随时向我求助服务器排障或脚本编写。
+        <p className="max-w-sm text-xs leading-relaxed text-ink-3">
+          {zh ? '可以问服务器排障、日志分析或脚本编写。需要终端上下文时，请先选定目标。' : 'Ask about troubleshooting, logs or scripts. Select a target when you need terminal context.'}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6 scrollbar-hide">
+    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
       {messages.map(msg => (
         <motion.div
           key={msg.id}
-          initial={{ opacity: 0, y: 10, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.3 }}
+          initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.15 }}
           className={`group flex gap-3 w-full ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
         >
-          <div className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-full shadow-sm mt-1 ${
+          <div className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
             msg.role === 'user'
-              ? 'bg-primary text-white shadow-primary/30'
-              : (isDark ? 'bg-white/10 text-white/80' : 'bg-slate-200 text-slate-700')
+              ? 'bg-primary/15 text-primary'
+              : 'bg-surf-2 text-ink-2'
           }`}>
             {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
           </div>
           
-          <div className={`flex flex-col gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+          <div className={`flex min-w-0 max-w-[85%] flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-bold px-1 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-                {msg.role === 'user' ? 'YOU' : 'GETSSH AI'} • {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+              <span className="px-1 text-[10px] text-ink-3">
+                {msg.role === 'user' ? (zh ? '你' : 'You') : 'GETSSH AI'} · {new Date(msg.timestamp).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
               </span>
               {msg.role === 'assistant' && !msg.isThinking && !msg.isStreaming && (
                 <button
@@ -74,8 +76,10 @@ export const ChatView: React.FC<{
                       onRetry(msg.id, lastUser.content);
                     }
                   }}
-                  className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-black/5 dark:hover:bg-white/10 ${isDark ? 'text-white/40 hover:text-white' : 'text-slate-400 hover:text-slate-700'}`}
+                  type="button"
+                  className="rounded p-1 text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-primary"
                   title={t('ai.retry', '重试 (Retry)')}
+                  aria-label={t('ai.retry', '重试 (Retry)')}
                 >
                   <RefreshCcw size={12} />
                 </button>
@@ -83,36 +87,36 @@ export const ChatView: React.FC<{
             </div>
             
             {msg.isThinking ? (
-              <div className={`px-4 py-3 rounded-2xl rounded-tl-sm border shadow-sm ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+              <div className="rounded-md border border-line bg-surf px-3 py-2">
                 <ThinkingIndicator />
               </div>
             ) : (() => {
               const { thoughtProcess, actualContent, isThinkingDone } = parseThoughtProcess(msg.content);
               return (
-              <div className={`px-5 py-3.5 text-sm leading-relaxed break-words shadow-md flex-col flex ${
+              <div className={`flex min-w-0 max-w-full flex-col break-words rounded-lg px-4 py-3 text-sm leading-relaxed ${
                 msg.role === 'user'
-                  ? 'bg-primary text-white rounded-3xl rounded-tr-sm shadow-primary/20'
-                  : (isDark ? 'bg-[#1a1b26] border border-white/10 text-neutral-200 rounded-3xl rounded-tl-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-3xl rounded-tl-sm')
+                  ? 'bg-primary/10 text-ink'
+                  : 'border border-line bg-surf text-ink'
               }`}>
                 {msg.role === 'assistant' && thoughtProcess && (
                   <ThoughtProcessBlock thoughtProcess={thoughtProcess} isDark={isDark} isThinkingDone={isThinkingDone} />
                 )}
                 {msg.role === 'user'
                   ? <p className="whitespace-pre-wrap break-words">{actualContent}</p>
-                  : (actualContent ? <MarkdownRenderer content={actualContent} onPaperPlane={onPaperPlane} /> : null)
+                  : (actualContent ? <MarkdownRenderer content={actualContent} onPaperPlane={onPaperPlane} className="min-w-0 max-w-full" /> : null)
                 }
                 {msg.isStreaming && <StreamCursor />}
                 
                 {msg.approvalRequest && <ApprovalCard msg={msg} activeConversationId={activeConversationId} />}
 
                 {msg.serverSelectionRequest && (
-                  <div className={`mt-4 p-4 border rounded-xl ${isDark ? 'border-indigo-500/30 bg-indigo-500/10' : 'border-indigo-200 bg-indigo-50'}`}>
-                    <div className="font-bold text-sm mb-3 flex items-center gap-2 text-indigo-500">
-                      <Bot size={16} /> 检测到多个终端环境，请选择目标：
+                  <div className="mt-4 rounded-md border border-line bg-panel p-3">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
+                      <Bot size={16} /> {zh ? '选择目标终端' : 'Select a target terminal'}
                     </div>
                     {msg.serverSelectionRequest.status === 'resolved' ? (
                       <div className="text-xs opacity-70">
-                        ✓ 已选择: {msg.serverSelectionRequest.availableServers.find((s: any) => s.id === msg.serverSelectionRequest!.selectedServerId)?.name}
+                        ✓ {zh ? '已选择' : 'Selected'}: {msg.serverSelectionRequest.availableServers.find((s: any) => s.id === msg.serverSelectionRequest!.selectedServerId)?.name}
                       </div>
                     ) : (
                       <div className="flex flex-col gap-2">
@@ -120,9 +124,10 @@ export const ChatView: React.FC<{
                           <button
                             key={server.id}
                             onClick={() => onServerSelect(msg.id, server.id, server.name)}
-                            className={`px-4 py-2.5 text-left text-xs font-bold rounded-lg transition-all ${isDark ? 'bg-black/20 hover:bg-white/10 text-white/80' : 'bg-white hover:bg-indigo-100 text-slate-700 shadow-sm'} flex items-center gap-2`}
+                            type="button"
+                            className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-left text-xs text-ink-2 transition-colors hover:bg-surf-2 focus-visible:outline-2 focus-visible:outline-primary"
                           >
-                            <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                            <Bot size={13} className="shrink-0 text-ink-3" />
                             {server.name}
                           </button>
                         ))}

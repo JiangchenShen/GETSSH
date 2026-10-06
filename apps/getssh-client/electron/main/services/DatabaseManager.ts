@@ -1137,10 +1137,10 @@ export class DatabaseManager {
         if (fs.existsSync(aiChatsDbPath)) {
           sizeMb += fs.statSync(aiChatsDbPath).size / (1024 * 1024);
         }
-        // Calculate size of nexus.db if it exists
-        const nexusDbPath = path.join(wsDir, 'nexus.db');
-        if (fs.existsSync(nexusDbPath)) {
-          sizeMb += fs.statSync(nexusDbPath).size / (1024 * 1024);
+        // Calculate size of tidal.db if it exists
+        const tidalDbPath = path.join(wsDir, 'tidal.db');
+        if (fs.existsSync(tidalDbPath)) {
+          sizeMb += fs.statSync(tidalDbPath).size / (1024 * 1024);
         }
         
         // Count profiles

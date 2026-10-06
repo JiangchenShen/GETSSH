@@ -44,6 +44,10 @@ await build({
 // (on Windows that dialog blocks until the timeout).
 fs.writeFileSync(bundle, `const trace = step => { if (process.env.KS_TRACE) process.stderr.write('[' + process.env.KS_PHASE + '] trace: ' + step + '\\n'); };
 try {
+  const { app } = require('electron');
+  app.commandLine.appendSwitch('use-mock-keychain');
+  app.setPath('home', process.env.HOME);
+  app.setPath('userData', require('node:path').join(process.env.HOME, 'electron-test-data'));
   trace('loading better-sqlite3-multiple-ciphers');
   require('better-sqlite3-multiple-ciphers');
   trace('loading the test bundle');

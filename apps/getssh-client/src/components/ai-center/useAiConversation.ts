@@ -5,7 +5,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useAiInteraction } from './useAiInteraction';
 
 /** One conversation flow shared by the full AI workbench and its floating companion. */
-export function useAiConversation() {
+export function useAiConversation(targetSessionId?: string) {
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const loadWorkspaceChats = useAiChatStore(state => state.loadWorkspaceChats);
   const activeConversationId = useAiChatStore(state => state.activeConversationId);
@@ -15,7 +15,7 @@ export function useAiConversation() {
   const setView = useAiChatStore(state => state.setView);
   const [isGenerating, setIsGenerating] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const { getSessionContext, handlePaperPlane, generateResponse } = useAiInteraction(setIsGenerating);
+  const { getSessionContext, handlePaperPlane, generateResponse } = useAiInteraction(setIsGenerating, targetSessionId);
 
   useEffect(() => {
     if (activeWorkspaceId) void loadWorkspaceChats();
@@ -37,7 +37,7 @@ export function useAiConversation() {
     addMessage(convId, { id: `user-${Date.now()}`, role: 'user', content: currentPrompt, timestamp: Date.now() });
 
     const { activeSession, allSessions } = getSessionContext();
-    if (!activeSession && allSessions.length > 1) {
+    if (!activeSession && targetSessionId === undefined && allSessions.length > 1) {
       addMessage(convId, {
         id: `ai-${Date.now() + 1}`, role: 'assistant', content: '', timestamp: Date.now(),
         serverSelectionRequest: { availableServers: allSessions, pendingPrompt: currentPrompt, status: 'pending' },

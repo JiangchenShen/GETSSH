@@ -1,4 +1,4 @@
-// Pane configs are stored in nexus-core and broadcast to every window: they must never carry credentials.
+// Pane configs are stored in tidal-engine and broadcast to every window: they must never carry credentials.
 import { describe, it, expect } from 'vitest';
 import { stripConnectionSecrets } from './connectionProfile';
 

@@ -18,12 +18,12 @@ export function SettingsSection({ title, description, children, className = '' }
 
 export function SettingsRow({ label, description, children, stacked = false }: { label: string; description?: string; children?: ReactNode; stacked?: boolean }) {
   return (
-    <div className={`gap-3 border-b border-line-soft px-1 py-3 last:border-b-0 ${stacked ? 'flex flex-col' : 'flex flex-col sm:flex-row sm:items-center sm:justify-between'}`}>
+    <div className={`settings-row gap-3 border-b border-line-soft px-1 py-3 last:border-b-0 ${stacked ? 'flex flex-col' : 'flex flex-col sm:flex-row sm:items-center sm:justify-between'}`}>
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink">{label}</div>
         {description && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{description}</p>}
       </div>
-      {children && <div className={`min-w-0 shrink-0 ${stacked ? 'w-full' : 'sm:max-w-[54%]'}`}>{children}</div>}
+      {children && <div className={`settings-row-control min-w-0 shrink-0 ${stacked ? 'w-full' : 'sm:max-w-[54%]'}`}>{children}</div>}
     </div>
   );
 }

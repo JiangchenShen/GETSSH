@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Send, Copy, Check, Terminal, PlayCircle, AlertTriangle } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
+import { useTranslation } from 'react-i18next';
 
 interface MarkdownRendererProps {
   content: string;
@@ -14,6 +15,8 @@ interface MarkdownRendererProps {
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPaperPlane, className = '' }) => {
   const isDark = useAppStore(state => state.isDark);
+  const { i18n } = useTranslation();
+  const zh = i18n.language.startsWith('zh');
   const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
 
   const handleCopy = (code: string) => {
@@ -27,6 +30,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onP
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          pre({ children }) {
+            return <div className="not-prose min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap">{children}</div>;
+          },
           code({ node, inline, className: childClassName, children, ...props }: any) {
             const match = /language-(\w+)/.exec(childClassName || '');
             const codeString = String(children).replace(/\n$/, '');
@@ -102,17 +108,21 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onP
                     <div className="flex items-center gap-1">
                       {onPaperPlane && (
                         <button
+                          type="button"
                           onClick={() => onPaperPlane(codeString)}
-                          className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isDark ? 'hover:bg-white/10 text-cyan-400' : 'hover:bg-black/5 text-cyan-600'}`}
-                          title="Inject to Terminal"
+                          className="rounded p-1 text-ink-2 hover:bg-surf-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
+                          title={zh ? '注入目标终端' : 'Inject to terminal'}
+                          aria-label={zh ? '注入目标终端' : 'Inject to terminal'}
                         >
                           <Send size={12} />
                         </button>
                       )}
                       <button
+                        type="button"
                         onClick={() => handleCopy(codeString)}
-                        className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${isDark ? 'hover:bg-white/10 text-white/70' : 'hover:bg-black/5 text-slate-600'}`}
-                        title="Copy code"
+                        className="rounded p-1 text-ink-2 hover:bg-surf-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-primary"
+                        title={zh ? '复制代码' : 'Copy code'}
+                        aria-label={zh ? '复制代码' : 'Copy code'}
                       >
                         {copiedCode === codeString ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
                       </button>

@@ -6,15 +6,17 @@ import { AiBridge } from '../../services/aiBridge';
 import { getPersonaContent } from '../../utils/persona';
 import { ContextService } from '../../services/contextService';
 
-export function useAiInteraction(setIsGenerating: (val: boolean) => void) {
+export function useAiInteraction(setIsGenerating: (val: boolean) => void, targetSessionId?: string) {
   const getSessionContext = () => {
-    return ContextService.getTerminalSessionContext();
+    if (targetSessionId === undefined) return ContextService.getTerminalSessionContext();
+    const { allSessions } = ContextService.getTerminalSessionContext(true);
+    return { activeSession: allSessions.find(session => session.id === targetSessionId) || null, allSessions };
   };
 
   const handlePaperPlane = (code: string) => {
     const { activeSession, allSessions } = getSessionContext();
-    if (!activeSession?.id && allSessions.length !== 1) {
-      useAppStore.getState().addToast('多个终端环境可用，请先在此框外激活一个目标', 'warning');
+    if (!activeSession?.id && (targetSessionId !== undefined || allSessions.length !== 1)) {
+      useAppStore.getState().addToast(useAppStore.getState().appConfig.language.startsWith('zh') ? '请先选择一个已连接的目标终端' : 'Select a connected target terminal first', 'warning');
       return;
     }
     const session = activeSession || allSessions[0];
@@ -43,7 +45,9 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void) {
     const workspaceName = activeWs?.name || activeWsId;
     
     const runbooks = useWorkspaceStore.getState().runbooks || [];
-    const snapshot = ContextService.getActiveTerminalSnapshot(overrideSessionId);
+    // The full-page center never implicitly targets a background server.
+    const requestedTarget = overrideSessionId ?? targetSessionId;
+    const snapshot = requestedTarget === '' ? null : ContextService.getActiveTerminalSnapshot(requestedTarget);
     
     const sessionId = snapshot?.sessionId || '';
     const sessionName = snapshot?.name || '';

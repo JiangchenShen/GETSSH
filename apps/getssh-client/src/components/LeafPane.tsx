@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { PaneLeaf, PaneNode, useSessionStore, isSSHConfig, type SSHConnectConfig } from '../store/sessionStore';
+import { PaneLeaf, PaneNode, useSessionStore, callTidal, isSSHConfig, type SSHConnectConfig } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink, ArrowDownToLine, HardDrive } from 'lucide-react';
@@ -10,12 +10,7 @@ import { isSftpCapable } from './SplitPane';
 import { SFTP_PANEL_ID } from './SFTPManager';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { buildConnectionConfig, stripConnectionSecrets } from '../utils/connectionProfile';
-
-function countLeaves(node: PaneNode | undefined): number {
-  if (!node) return 0;
-  if (node.type === 'leaf') return 1;
-  return countLeaves(node.children[0]) + countLeaves(node.children[1]);
-}
+import { countLeaves } from '../utils/paneHelpers';
 
 export const LeafPane: React.FC<{
   node: PaneLeaf;
@@ -36,7 +31,9 @@ export const LeafPane: React.FC<{
   const welcomeRef = useRef<HTMLDivElement>(null);
   const lastSplitTime = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [canSplit, setCanSplit] = useState(true);
+  const [paneSize, setPaneSize] = useState({ width: 0, height: 0 });
+  const canSplitRight = paneSize.width >= 200;
+  const canSplitDown = paneSize.height >= 200;
 
   // Anti-collapse protection
   useEffect(() => {
@@ -45,7 +42,7 @@ export const LeafPane: React.FC<{
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        setCanSplit(width >= 200 && height >= 200);
+        setPaneSize({ width, height });
       }
     });
     observer.observe(el);
@@ -85,6 +82,20 @@ export const LeafPane: React.FC<{
   const isMaxPanes = totalPanes >= 4;
 
   const isZoomed = node.isZoomed;
+
+  const handlePaneAction = async (message: string, call: Promise<{ success: boolean; error?: string }> | undefined, automatic = false) => {
+    const result = await callTidal(message, call);
+    // Terminal exit may race the native pane retirement that already closed it.
+    if (!result.success && !(automatic && result.error === 'not_found')) {
+      useAppStore.getState().addToast(`${message}: ${result.error}`, 'error');
+    }
+  };
+
+  const closePane = (automatic = false) => handlePaneAction(
+    t('pane.closeFailed', 'Could not close the pane'),
+    window.electronAPI?.tidalClosePane?.(node.paneId),
+    automatic,
+  );
 
   const handleTearOff = async () => {
     try {
@@ -149,11 +160,11 @@ export const LeafPane: React.FC<{
       } else {
         throw new Error(res.error || 'Connection failed');
       }
-      const replaced = await window.electronAPI.nexusReplacePane(node.paneId, 'terminal', newSessionId, JSON.stringify(stripConnectionSecrets(paneConfig)));
+      const replaced = await window.electronAPI.tidalReplacePane(node.paneId, 'terminal', newSessionId, JSON.stringify(stripConnectionSecrets(paneConfig)));
       if (!replaced.success) throw new Error(replaced.error || 'replace_failed');
     } catch (err: any) {
       if (newSessionId) window.electronAPI.sshDisconnect(newSessionId);
-      useSessionStore.getState().patchNexusLeaf(node.paneId, { isDisconnected: true });
+      useSessionStore.getState().patchTidalLeaf(node.paneId, { isDisconnected: true });
       useAppStore.getState().addToast(`${t('pane.reconnectFailed', 'Reconnect failed')}: ${err?.message || err}`, 'error');
     }
   };
@@ -186,9 +197,9 @@ export const LeafPane: React.FC<{
               {parentDirection !== 'hsplit' && (
                 <button
                   title={t('pane.splitRight', 'Split Right')}
-                  disabled={!canSplit}
+                  disabled={!canSplitRight}
                   onClick={(e) => { e.stopPropagation(); handleSplit('hsplit'); }}
-                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplit ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
+                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplitRight ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
                   <Columns className="w-3 h-3" />
                 </button>
@@ -196,9 +207,9 @@ export const LeafPane: React.FC<{
               {parentDirection !== 'vsplit' && (
                 <button
                   title="Split Down"
-                  disabled={!canSplit}
+                  disabled={!canSplitDown}
                   onClick={(e) => { e.stopPropagation(); handleSplit('vsplit'); }}
-                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplit ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
+                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplitDown ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
                   <Rows className="w-3 h-3" />
                 </button>
@@ -225,7 +236,7 @@ export const LeafPane: React.FC<{
             title={isZoomed ? "Exit Zen Mode" : "Zen Mode"}
             onClick={(e) => { 
               e.stopPropagation(); 
-              window.electronAPI.nexusToggleZoom(node.paneId).catch(console.error);
+              void handlePaneAction(t('pane.zoomFailed', 'Could not change Zen Mode'), window.electronAPI?.tidalToggleZoom?.(node.paneId));
             }}
             className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${isZoomed ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
           >
@@ -258,7 +269,7 @@ export const LeafPane: React.FC<{
             title="Close Pane"
             onClick={(e) => { 
               e.stopPropagation(); 
-              window.electronAPI.nexusClosePane(node.paneId).catch(console.error); 
+              void closePane();
             }}
             className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-down/15 hover:text-down"
           >
@@ -275,10 +286,10 @@ export const LeafPane: React.FC<{
         isTabActive,
         isActive,
         onDisconnectedChange: (val) => {
-          useSessionStore.getState().patchNexusLeaf(node.paneId, { isDisconnected: val });
+          useSessionStore.getState().patchTidalLeaf(node.paneId, { isDisconnected: val });
         },
         onClosePane: () => {
-          window.electronAPI?.nexusClosePane(node.paneId).catch(console.error);
+          void closePane(true);
         },
         onReconnect: () => { void handleReconnect(); }
       })}

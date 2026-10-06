@@ -32,8 +32,8 @@ export const buildConnectionConfig = (session: Partial<SessionProfile>, appConfi
 };
 
 /**
- * Pane configs go to nexus-core, which keeps them in global state and broadcasts them to every window.
- * They must never carry credentials: use this for every nexusRegisterTab / nexusReplacePane configJson
+ * Pane configs go to tidal-engine, which keeps them in global state and broadcasts them to every window.
+ * They must never carry credentials: use this for every tidalRegisterTab / tidalReplacePane configJson
  * and for local paneTree leaf configs. Credentials stay in the vault and in the main process.
  */
 export const stripConnectionSecrets = <T extends object | null>(config: T): T => {

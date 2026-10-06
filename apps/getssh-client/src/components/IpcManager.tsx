@@ -18,26 +18,26 @@ export const IpcManager: React.FC = () => {
   const enqueueSecurityPrompt = useAppStore(state => state.enqueueSecurityPrompt);
 
   // --------------------------------------------------------------------------
-  // Nexus Core Sync (rev-ordered tab snapshots from the Rust core)
+  // Tidal Engine Sync (rev-ordered tab snapshots from the Rust core)
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (!window.electronAPI?.onNexusSyncTree) return;
-    const cleanup = window.electronAPI.onNexusSyncTree((payload) => {
-      useSessionStore.getState().syncNexusTree(payload);
+    if (!window.electronAPI?.onTidalSyncTree) return;
+    const cleanup = window.electronAPI.onTidalSyncTree((payload) => {
+      useSessionStore.getState().syncTidalTree(payload);
     });
     return cleanup;
   }, []);
 
   // Focus request after a torn window was attached back (the pane may have been re-docked into another tab).
   useEffect(() => {
-    if (!window.electronAPI?.onNexusFocusPane) return;
-    return window.electronAPI.onNexusFocusPane(async ({ tabId, paneId }) => {
+    if (!window.electronAPI?.onTidalFocusPane) return;
+    return window.electronAPI.onTidalFocusPane(async ({ tabId, paneId }) => {
       const findTab = () => useSessionStore.getState().tabs.find(t => t.id === tabId);
       const initial = findTab();
       if (!initial?.paneTree || !findLeaf(initial.paneTree, paneId)) {
         // The focus request can overtake the sync broadcast; pull the tab so the pane exists first.
-        const snapshot = await window.electronAPI.nexusGetTab(tabId).catch(() => null);
-        if (snapshot) useSessionStore.getState().syncNexusTree(snapshot);
+        const snapshot = await window.electronAPI.tidalGetTab(tabId).catch(() => null);
+        if (snapshot) useSessionStore.getState().syncTidalTree(snapshot);
       }
       const tab = findTab();
       const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;

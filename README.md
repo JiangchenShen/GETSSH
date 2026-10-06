@@ -12,7 +12,7 @@
 
 **GETSSH** is a next-generation SSH terminal client for macOS and Windows, built for developers and DevOps engineers. It is designed around three uncompromising principles: **defense-in-depth security**, **a GPU-accelerated terminal experience**, and **a Glassmorphism UI that makes you actually want to open your terminal**.
 
-Under the hood, GETSSH v3.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and the OS-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
+Under the hood, GETSSH v3.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and Ocean Sentinel's OS-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
 
 📢 **[View Full Changelog (v3.0)](docs/CHANGELOG_EN.md)**
 
@@ -23,7 +23,7 @@ Under the hood, GETSSH v3.0 is a full **TypeScript + Rust** hybrid. Five Rust na
 v3.0 is a ground-up architectural overhaul — not just a feature release:
 
 - 🦀 **Full Rust Native Core** — Five production Rust N-API addons replace the entire JS-layer crypto, SFTP I/O, and system monitoring stack
-- 🛡 **Six-Layer Defense-in-Depth Architecture** — Watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
+- 🛡 **Six-Layer Defense-in-Depth Architecture** — Ocean Sentinel watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
 - 🔒 **32 Security Vulnerabilities Fixed** — Full internal security audit covering Critical, High, Medium, and Low severity findings, all resolved
 - ⚛️ **React 19 + Electron 42** — Rebuilt on the latest stable foundation
 - 🎨 **Tailwind CSS v4** — Complete style system overhaul
@@ -42,11 +42,11 @@ GETSSH v3.0 implements a **six-layer defense-in-depth architecture** extending f
 
 | Layer | Component | What It Does |
 |---|---|---|
-| **1. Rust Watchdog** | `rust-core/watchdog` — standalone binary | Runs independently from Electron. Monitors the main process via IPC heartbeat. If the heartbeat is missed for >5s, it calls OS-level APIs to forcibly kill the entire Node.js process — bypassing JavaScript entirely. |
+| **1. Ocean Sentinel Watchdog** | `rust-core/ocean-sentinel` — standalone `watchdog` binary | Runs independently from Electron. Monitors the main process via IPC heartbeat. If the heartbeat is missed for >5s, it calls OS-level APIs to forcibly kill the entire Node.js process — bypassing JavaScript entirely. |
 | **2. Memory Zeroize** | `getssh-vault` Rust N-API | All AES keys and decrypted credential buffers are wrapped in `ZeroizeOnDrop`. TypeScript's `finally` blocks call `buffer.fill(0)` as a second pass. No plaintext ever lingers in heap. |
 | **3. Crypto Vault** | `getssh-vault` Rust N-API | AES-256-GCM authenticated encryption. Key derived via PBKDF2-HMAC-SHA256 with 100,000 iterations and a 32-byte salt (NIST SP 800-132). V2 format with magic header for safe migration. |
 | **4. Zero-Copy Network** | `sftp-stream` Rust N-API | SFTP large-file transfers bypass the V8 heap entirely. Rust owns the disk I/O. No OOM from large file transfers. |
-| **5. RASP Defense** | `SecureCenter.ts` | Runtime Application Self-Protection. Audits plugin shell commands for fork bombs, `rm -rf /`, `mkfs`, and disk-destroying `dd`. Triggers the Watchdog lockdown protocol on detection. |
+| **5. RASP Defense** | `SecureCenter.ts` | Runtime Application Self-Protection. Audits plugin shell commands for fork bombs, `rm -rf /`, `mkfs`, and disk-destroying `dd`. Triggers the Ocean Sentinel watchdog lockdown protocol on detection. |
 | **6. Memory Scanner** | `getssh-sysprobe` Rust N-API | Periodically validates the first bytes of critical system function memory to detect Inline Hook attempts. Requires elevated privileges. |
 
 ### IPC Security
@@ -102,7 +102,7 @@ See the [GETSSH 3.0 Plugin SDK Guide](docs/PLUGIN_SDK_INTERNAL.md) for manifests
 
 ### Command Center
 
-A Raycast/Spotlight-style launcher: full-text fuzzy search across all saved sessions (alias/host/username), keyboard-driven navigation (↑/↓/Enter/Esc), one-line `user@host` quick connect without saving a profile first. Security warnings from the Watchdog appear as inline banners.
+A Raycast/Spotlight-style launcher: full-text fuzzy search across all saved sessions (alias/host/username), keyboard-driven navigation (↑/↓/Enter/Esc), one-line `user@host` quick connect without saving a profile first. Security warnings from Ocean Sentinel appear as inline banners.
 
 ### SafeStorage Credential Vault
 
@@ -141,7 +141,7 @@ Read-only connection metadata logging (alias, host, connected/disconnected times
 | SFTP Engine | Rust (sftp-stream) | Zero-copy N-API |
 | Plugin Storage | Rust (getssh-kv) | Isolated KV |
 | Unarchiver | Rust (getssh-unarchive) | ZipSlip-hardened |
-| Watchdog | Rust (standalone binary) | OS-level kill |
+| Ocean Sentinel Watchdog | Rust (`ocean-sentinel`, standalone `watchdog` binary) | OS-level kill |
 | i18n | react-i18next | en-US, zh-CN |
 | DOM Security | DOMPurify | 3.x |
 | Testing | Vitest + Playwright | Unit + E2E |
@@ -166,7 +166,7 @@ cd GETSSH
 # Install dependencies
 pnpm install
 
-# Build the Rust Watchdog binary (required for SecureCenter)
+# Build the Ocean Sentinel watchdog binary (required for SecureCenter)
 pnpm run build:watchdog
 
 # Start Vite dev server + Electron with HMR
@@ -192,7 +192,7 @@ pnpm run build -- --win      # Windows NSIS — x64 + arm64
 
 | | **GETSSH** | Termius | Tabby | iTerm2 |
 |---|---|---|---|---|
-| **Security** | Rust AES-256-GCM + Watchdog daemon + RASP + Zeroize | Closed-source cloud sync | Open source, no hardware security | Open source, no encryption layer |
+| **Security** | Rust AES-256-GCM + Ocean Sentinel daemon + RASP + Zeroize | Closed-source cloud sync | Open source, no hardware security | Open source, no encryption layer |
 | **SFTP** | Zero-copy Rust engine, real-time local edit sync | Paid tier only | Basic | Requires plugin |
 | **Architecture** | TS + Rust hybrid, 6 native addons | Proprietary | Electron + TS | Objective-C |
 | **Plugins** | OS-confined backend processes + sandboxed UI, capability-gated | Limited | Theme-focused | Scripting API |

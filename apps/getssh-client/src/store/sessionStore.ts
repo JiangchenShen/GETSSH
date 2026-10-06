@@ -140,11 +140,11 @@ interface SessionStore {
   updateSessionOsType: (host: string, username: string, osType: OsType) => void;
   switchWorkspace: (targetWorkspaceId: string) => Promise<boolean>;
 
-  // ⚡ NEXUS CORE SYNC RECEIVERS (Dumb terminal architecture)
-  syncNexusTree: (payload: NexusTabSync) => void;
-  patchNexusLeaf: (paneId: string, updates: Partial<PaneLeaf>) => void;
-  /** Local-only while dragging; pass `commit` once (pointerup) to persist the sizes in nexus-core. */
-  patchNexusSizes: (tabId: string, splitPaneId: string, sizes: [number, number], commit?: boolean) => void;
+  // ⚡ TIDAL ENGINE SYNC RECEIVERS (Dumb terminal architecture)
+  syncTidalTree: (payload: TidalTabSync) => void;
+  patchTidalLeaf: (paneId: string, updates: Partial<PaneLeaf>) => void;
+  /** Local-only while dragging; pass `commit` once (pointerup) to persist the sizes in tidal-engine. */
+  patchTidalSizes: (tabId: string, splitPaneId: string, sizes: [number, number], commit?: boolean) => void;
   
   // Internal Legacy overrides (for compat)
   closeTab: (tabId: string) => void;
@@ -174,26 +174,26 @@ export function firstLeafId(node: PaneNode): string {
 }
 
 /**
- * nexus:* handlers resolve to `{ success:false, error }` instead of throwing (e.g. native module missing).
+ * tidal:* handlers resolve to `{ success:false, error }` instead of throwing (e.g. native module missing).
  * Normalise both failure shapes and log them so a failed layout call is never silent.
  */
-export async function callNexus<T extends { success: boolean; error?: string }>(
+export async function callTidal<T extends { success: boolean; error?: string }>(
   action: string,
   call: Promise<T> | undefined,
 ): Promise<Partial<T> & { success: boolean; error?: string }> {
   try {
     const res = await call;
     if (res?.success) return res;
-    console.error(`[Nexus] ${action} failed:`, res?.error ?? 'no result');
+    console.error(`[Tidal] ${action} failed:`, res?.error ?? 'no result');
     return { ...res, success: false, error: res?.error ?? 'no_result' } as Partial<T> & { success: boolean; error?: string };
   } catch (e: any) {
-    console.error(`[Nexus] ${action} failed:`, e);
+    console.error(`[Tidal] ${action} failed:`, e);
     return { success: false, error: e?.message || String(e) } as Partial<T> & { success: boolean; error?: string };
   }
 }
 
 // Highest applied sync revision per tab; payloads can arrive out of order across IPC paths.
-const lastNexusRev = new Map<string, number>();
+const lastTidalRev = new Map<string, number>();
 // Last pane the user focused in each tab, restored when the tab is re-selected.
 const lastPaneByTab = new Map<string, string>();
 
@@ -288,7 +288,7 @@ export const useSessionStore = create<SessionStore>()(
       try {
         const currentTabs = get().tabs;
         const disconnectPromises = currentTabs.map(async (tab) => {
-          return window.electronAPI.nexusCloseTab(tab.id);
+          return window.electronAPI.tidalCloseTab(tab.id);
         });
         await Promise.all(disconnectPromises);
 
@@ -326,12 +326,12 @@ export const useSessionStore = create<SessionStore>()(
       }
     },
 
-    // ⚡ NEXUS RECEIVERS
-    syncNexusTree: (payload) => set(state => {
+    // ⚡ TIDAL RECEIVERS
+    syncTidalTree: (payload) => set(state => {
       const { tabId, rev, tree, title, isTornOff, workspaceId } = payload;
       if (typeof rev === 'number') {
-        if (rev <= (lastNexusRev.get(tabId) ?? 0)) return;
-        lastNexusRev.set(tabId, rev);
+        if (rev <= (lastTidalRev.get(tabId) ?? 0)) return;
+        lastTidalRev.set(tabId, rev);
       }
       const tabIndex = state.tabs.findIndex(t => t.id === tabId);
 
@@ -378,7 +378,7 @@ export const useSessionStore = create<SessionStore>()(
       reconcileActivePane(state);
     }),
 
-    patchNexusLeaf: (paneId, updates) => set(state => {
+    patchTidalLeaf: (paneId, updates) => set(state => {
       let patched = false;
       state.tabs.forEach(tab => {
         if (tab.paneTree) {
@@ -386,16 +386,16 @@ export const useSessionStore = create<SessionStore>()(
         }
       });
       if (patched && updates.isDisconnected !== undefined) {
-          void callNexus('set-disconnected', window.electronAPI.nexusSetDisconnected(paneId, updates.isDisconnected));
+          void callTidal('set-disconnected', window.electronAPI.tidalSetDisconnected(paneId, updates.isDisconnected));
       }
     }),
 
-    patchNexusSizes: (tabId, splitPaneId, sizes, commit = false) => {
+    patchTidalSizes: (tabId, splitPaneId, sizes, commit = false) => {
       set(state => {
         const tab = state.tabs.find(t => t.id === tabId);
         if (tab?.paneTree) mutateSizesInTree(tab.paneTree, splitPaneId, sizes);
       });
-      if (commit) void callNexus('update-sizes', window.electronAPI.nexusUpdateSizes(splitPaneId, sizes));
+      if (commit) void callTidal('update-sizes', window.electronAPI.tidalUpdateSizes(splitPaneId, sizes));
     },
 
     closeTab: (tabId) => {
@@ -408,9 +408,9 @@ export const useSessionStore = create<SessionStore>()(
         if (state.activeTabId === tabId) state.activeTabId = pickReplacementTab(state);
         reconcileActivePane(state);
       });
-      // nexus-core closes the tab and the main process disconnects its sessions.
+      // tidal-engine closes the tab and the main process disconnects its sessions.
       // Disconnect here only when that path is unavailable.
-      void callNexus('close-tab', window.electronAPI.nexusCloseTab(tabId)).then(res => {
+      void callTidal('close-tab', window.electronAPI.tidalCloseTab(tabId)).then(res => {
         if (!res.success) sessionIds.forEach(sid => window.electronAPI.sshDisconnect(sid));
       });
     },
@@ -424,7 +424,7 @@ export const useSessionStore = create<SessionStore>()(
       const panel = registeredPanels[panelId];
       if (!panel) return;
       const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-      // Tab ids are global in nexus-core, so one panel tab per workspace.
+      // Tab ids are global in tidal-engine, so one panel tab per workspace.
       const tabId = `panel-${workspaceId}-${pluginId}-${panelId}`;
       const paneId = `${tabId}-pane`;
       if (get().tabs.some(t => t.id === tabId)) {
@@ -448,11 +448,11 @@ export const useSessionStore = create<SessionStore>()(
         state.activeTabId = tabId;
         state.activePaneId = paneId;
       });
-      // Registered like every other tab so the pane's close/zoom buttons reach nexus-core.
-      void callNexus('register plugin panel tab', window.electronAPI.nexusRegisterTab(tabId, paneId, '', 'plugin', JSON.stringify(stripConnectionSecrets({ pluginUrl: panel.renderUrl })), panel.title, workspaceId));
+      // Registered like every other tab so the pane's close/zoom buttons reach tidal-engine.
+      void callTidal('register plugin panel tab', window.electronAPI.tidalRegisterTab(tabId, paneId, '', 'plugin', JSON.stringify(stripConnectionSecrets({ pluginUrl: panel.renderUrl })), panel.title, workspaceId));
     }
   }))
 );
 
-export function patchLeafDisconnected() { throw new Error('Legacy function removed. Use syncNexusTree instead.'); }
-export function patchLeafZoom() { throw new Error('Legacy function removed. Use syncNexusTree instead.'); }
+export function patchLeafDisconnected() { throw new Error('Legacy function removed. Use syncTidalTree instead.'); }
+export function patchLeafZoom() { throw new Error('Legacy function removed. Use syncTidalTree instead.'); }

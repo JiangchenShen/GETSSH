@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Loader2 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useSessionStore } from '../../store/sessionStore';
 
 export const AssetBridgeTab: React.FC = () => {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ export const AssetBridgeTab: React.FC = () => {
     if (sourceWorkspaceId === activeWorkspaceId) setSourceWorkspaceId('');
     setSelectedProfiles(new Set());
     setSelectedRunbooks(new Set());
+    setImportSuccess(false);
   }, [activeWorkspaceId]);
 
   useEffect(() => {
@@ -58,17 +60,43 @@ export const AssetBridgeTab: React.FC = () => {
     setImporting(true);
     setError('');
     setImportSuccess(false);
+    const targetWorkspaceId = activeWorkspaceId;
+    const canRefresh = () => {
+      const workspace = useWorkspaceStore.getState();
+      return workspace.activeWorkspaceId === targetWorkspaceId && !workspace.isSwitching && !workspace.isVaultLocked;
+    };
     try {
       const result = await window.electronAPI.bridgeImportProfiles(
-        activeWorkspaceId,
+        targetWorkspaceId,
         profiles.filter(profile => selectedProfiles.has(profile.id)),
         runbooks.filter(runbook => selectedRunbooks.has(runbook.id))
       );
       if (!result.success) throw new Error(result.error || 'Failed to import assets.');
+      await useWorkspaceStore.getState().initWorkspaces();
+      if (!canRefresh()) return;
+      // unlockProfiles returns normalized connection configs; the bridge reads raw SQL rows.
+      const [currentProfiles, currentAssets] = await Promise.all([
+        window.electronAPI.unlockProfiles(''),
+        window.electronAPI.bridgeFetchProfiles(targetWorkspaceId),
+      ]);
+      if (!canRefresh()) return;
+      if (!currentAssets.success) throw new Error(currentAssets.error || 'Failed to load assets.');
+      const sessions = useSessionStore.getState();
+      const selected = sessions.sessions[sessions.selectedSessionIndex ?? -1];
+      const updated = [...currentProfiles, ...sessions.sessions.filter(profile => profile.isDraft || profile.isQuickConnect)];
+      const selectedIndex = selected ? updated.findIndex(profile => profile === selected || (profile.id && profile.id === selected.id)) : -1;
+      sessions.setSessions(updated);
+      sessions.setSelectedSessionIndex(selectedIndex >= 0 ? selectedIndex : null);
+      useWorkspaceStore.setState({ runbooks: (currentAssets.runbooks || []).map(runbook => ({
+        ...runbook,
+        name: runbook.name ?? runbook.title,
+        command: runbook.command ?? runbook.script,
+        dangerLevel: String(runbook.dangerLevel ?? runbook.riskLevel).toLowerCase() === 'low' ? 'low' : 'high',
+        requireMfa: runbook.requireMfa ?? Boolean(runbook.requiresApproval || runbook.forceMFAVerification),
+      })) });
       setImportSuccess(true);
       setSelectedProfiles(new Set());
       setSelectedRunbooks(new Set());
-      await useWorkspaceStore.getState().initWorkspaces();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -77,7 +105,7 @@ export const AssetBridgeTab: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full min-w-0 max-w-3xl">
       <p className="mb-5 text-sm leading-6 text-ink-2">
         {t('workspaceCenter.assetBridgeDesc', 'Import connection profiles and runbooks from another workspace.')}
       </p>
@@ -89,7 +117,7 @@ export const AssetBridgeTab: React.FC = () => {
           {t('workspaceCenter.selectSourceWorkspace', 'Source Workspace')}
         </label>
         <select id="bridge-source-workspace" value={sourceWorkspaceId} onChange={event => setSourceWorkspaceId(event.target.value)}
-          className="min-h-10 w-full max-w-sm rounded-md border border-line bg-surf px-3 text-sm text-ink outline-none focus:border-[var(--center-accent)]">
+          className="min-h-10 w-full min-w-0 max-w-sm rounded-md border border-line bg-surf px-3 text-sm text-ink outline-none focus:border-[var(--center-accent)]">
           <option value="">{t('workspaceCenter.chooseWorkspace', 'Choose a workspace')}</option>
           {otherWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name || workspace.id}</option>)}
         </select>
@@ -101,8 +129,8 @@ export const AssetBridgeTab: React.FC = () => {
           {loadingAssets ? (
             <p role="status" className="flex items-center gap-2 text-sm text-ink-2"><Loader2 className="h-4 w-4 animate-spin" />{t('workspaceCenter.loadingAssets', 'Loading assets…')}</p>
           ) : (
-            <div className="grid gap-6 md:grid-cols-2">
-              <section>
+            <div className="center-columns grid gap-6 md:grid-cols-2">
+              <section className="min-w-0">
                 <h3 className="mb-2 text-sm font-medium">{t('workspaceCenter.serverProfiles', 'Server Profiles')} <span className="text-ink-3">({profiles.length})</span></h3>
                 {profiles.length === 0 ? (
                   <p className="py-3 text-sm text-ink-3">{t('workspaceCenter.noProfilesFound', 'No profiles found.')}</p>
@@ -115,13 +143,13 @@ export const AssetBridgeTab: React.FC = () => {
                         <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedProfiles.has(profile.id) ? 'border-[var(--center-accent)] bg-[var(--center-accent)] text-white' : 'border-line'}`}>
                           {selectedProfiles.has(profile.id) && <Check className="h-3 w-3" />}
                         </span>
-                        <span className="min-w-0"><span className="block truncate text-sm font-medium">{profile.alias || profile.host}</span><span className="block truncate font-mono text-xs text-ink-3">{profile.username}@{profile.host}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{profile.alias || profile.host}</span><span className="block truncate font-mono text-xs text-ink-3">{profile.username}@{profile.host}</span></span>
                       </button>
                     ))}
                   </div>
                 )}
               </section>
-              <section>
+              <section className="min-w-0">
                 <h3 className="mb-2 text-sm font-medium">{t('workspaceCenter.runbooksTitle', 'Runbooks')} <span className="text-ink-3">({runbooks.length})</span></h3>
                 {runbooks.length === 0 ? (
                   <p className="py-3 text-sm text-ink-3">{t('workspaceCenter.noRunbooksFound', 'No runbooks found.')}</p>
@@ -134,7 +162,7 @@ export const AssetBridgeTab: React.FC = () => {
                         <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedRunbooks.has(runbook.id) ? 'border-[var(--center-accent)] bg-[var(--center-accent)] text-white' : 'border-line'}`}>
                           {selectedRunbooks.has(runbook.id) && <Check className="h-3 w-3" />}
                         </span>
-                        <span className="min-w-0"><span className="block truncate text-sm font-medium">{runbook.title || runbook.name}</span><span className="block text-xs text-ink-3">{runbook.riskLevel || 'LOW'}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{runbook.title || runbook.name}</span><span className="block text-xs text-ink-3">{runbook.riskLevel || 'LOW'}</span></span>
                       </button>
                     ))}
                   </div>

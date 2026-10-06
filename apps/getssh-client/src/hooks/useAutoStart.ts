@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { callNexus, useSessionStore, type PaneLeaf } from '../store/sessionStore';
+import { callTidal, useSessionStore, type PaneLeaf } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { buildConnectionConfig, buildStartupCommand, stripConnectionSecrets } from '../utils/connectionProfile';
@@ -29,8 +29,8 @@ export const useAutoStart = () => {
             window.electronAPI.sshConnect(payload).then(res => {
                if (res.success && res.sessionId) {
                  const tabTitle = autoSession.alias || `${config.username}@${config.host}`;
-                 // Same shape as handleConnect: the local tree renders the terminal even before (or without) nexus-core.
-                 // Leaf configs reach nexus-core and every window, so they never carry credentials.
+                 // Same shape as handleConnect: the local tree renders the terminal even before (or without) tidal-engine.
+                 // Leaf configs reach tidal-engine and every window, so they never carry credentials.
                  const paneConfig = stripConnectionSecrets(config);
                  const paneTree: PaneLeaf = { type: 'leaf', paneId: res.sessionId, paneType: 'terminal', sessionId: res.sessionId, config: paneConfig };
                  setTabs([...useSessionStore.getState().tabs, {
@@ -43,7 +43,7 @@ export const useAutoStart = () => {
                  if (useWorkspaceStore.getState().activeWorkspaceId === connectionWorkspaceId) {
                    setActiveTabId(res.sessionId);
                  }
-                 void callNexus('register auto-start tab', window.electronAPI.nexusRegisterTab(res.sessionId, res.sessionId, res.sessionId, 'terminal', JSON.stringify(paneConfig), tabTitle, connectionWorkspaceId));
+                 void callTidal('register auto-start tab', window.electronAPI.tidalRegisterTab(res.sessionId, res.sessionId, res.sessionId, 'terminal', JSON.stringify(paneConfig), tabTitle, connectionWorkspaceId));
                  const startupCommand = [appConfig.initScript?.trim(), buildStartupCommand(autoSession)].filter(Boolean).join('\n');
                  if (startupCommand && res.sessionId) {
                      const sessionId = res.sessionId;

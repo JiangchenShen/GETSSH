@@ -1,11 +1,35 @@
+import { app } from 'electron';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3-multiple-ciphers';
+import type Database from 'better-sqlite3-multiple-ciphers';
 import { getRustCorePath } from './utils/rustCorePath';
 
 const TOKEN_PATTERN = /^[a-f0-9]{32}$/;
+
+// The runner owns the root; create a fresh child before backend imports can resolve user paths.
+let smokeHome: string | undefined;
+if (shouldRunPackagedStartupSmoke(app.isPackaged)) {
+  const root = path.join(os.tmpdir(), `getssh-startup-smoke-${getSmokeToken()}`);
+  if (process.env.HOME !== root || process.env.USERPROFILE !== root) {
+    throw new Error('Packaged-startup smoke requires the isolated runner');
+  }
+  const rootStat = fs.lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error('Invalid packaged-startup temporary root');
+  }
+  smokeHome = path.join(root, 'home');
+  fs.mkdirSync(smokeHome, { mode: 0o700 });
+  const userData = path.join(smokeHome, 'user-data');
+  fs.mkdirSync(userData, { mode: 0o700 });
+  process.env.HOME = smokeHome;
+  process.env.USERPROFILE = smokeHome;
+  app.setPath('home', smokeHome);
+  app.setPath('userData', userData);
+  app.setPath('sessionData', userData);
+  app.commandLine.appendSwitch('use-mock-keychain');
+}
 
 const RUST_MODULE_EXPORTS: Record<string, readonly string[]> = {
   'getssh-kv': ['initDb', 'getVal', 'setVal'],
@@ -13,10 +37,11 @@ const RUST_MODULE_EXPORTS: Record<string, readonly string[]> = {
   'getssh-unarchive': ['extractPlugin'],
   'getssh-vault': ['encryptVault', 'decryptVault'],
   'sftp-stream': ['SftpDownloader', 'SftpUploader'],
-  'nexus-core': ['initNexusCore', 'bootstrapWorkspace'],
+  'tidal-engine': ['initTidalEngine', 'bootstrapWorkspace'],
   'audit-stream': ['AuditStream'],
-  'getssh-sentinel': ['sanitize', 'rehydrate'],
+  'ocean-sentinel': ['sanitize', 'rehydrate'],
   'getssh-keystore': ['configure', 'status', 'initialize', 'openScope', 'databaseKey', 'sealField', 'openField', 'probeDevice'],
+  'getssh-store': ['configure', 'appState', 'engineVersion'],
 };
 
 export interface PackagedStartupSmokeResult {
@@ -211,6 +236,12 @@ export function shouldRunPackagedStartupSmoke(isPackaged: boolean): boolean {
 }
 
 export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeResult> {
+  if (!smokeHome || os.homedir() !== smokeHome || app.getPath('home') !== smokeHome ||
+      app.getPath('userData') !== path.join(smokeHome, 'user-data') ||
+      !app.commandLine.hasSwitch('use-mock-keychain')) {
+    throw new Error('Packaged-startup smoke is not isolated from user data');
+  }
+  const Database = require('better-sqlite3-multiple-ciphers') as typeof import('better-sqlite3-multiple-ciphers');
   const loadedModules: string[] = [];
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-db-'));
   const key = Buffer.from(randomBytes(32).toString('hex'), 'utf8');
@@ -245,6 +276,11 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
     assertExports(moduleName, loaded, expectedExports);
     if (moduleName === 'getssh-keystore') {
       loadedModules.push(`${moduleName} (${await testKeystore(loaded)})`);
+    } else if (moduleName === 'getssh-store') {
+      if (!/^SQLite \d+\.\d+\.\d+/.test(loaded.engineVersion())) {
+        throw new Error('getssh-store SQLite engine did not report its version');
+      }
+      loadedModules.push(moduleName);
     } else {
       loadedModules.push(moduleName);
     }

@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('node:path');
-const sentinel = require(path.resolve(__dirname, '../../../../rust-core/getssh-sentinel'));
+const sentinel = require(path.resolve(__dirname, '../../../../rust-core/ocean-sentinel'));
 
 const original = 'export GITHUB_TOKEN=ghp_aBcDeF1234567890';
 const sanitized = sentinel.sanitize(original);

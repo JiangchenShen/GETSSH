@@ -88,7 +88,7 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
                   {index === 0 ? t('workspaceCenter.sidebar.overview', 'Overview') : `${t('workspaceCenter.current', 'Current')} · ${activeWorkspaceName}`}
                 </p>
               )}
-              <button type="button" onClick={() => setPage(id)} aria-current={page === id ? 'page' : undefined}
+              <button type="button" onClick={() => setPage(id)} aria-current={page === id ? 'page' : undefined} title={label}
                 className={`flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--center-accent)] ${page === id ? 'bg-surf-2 font-medium text-[var(--center-accent)]' : 'text-ink-2 hover:bg-surf hover:text-ink'}`}>
                 <Icon className="h-4 w-4 shrink-0" /> <span className="truncate">{label}</span>
               </button>
@@ -98,9 +98,9 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl px-7 py-7 max-[820px]:px-5">
+        <div className="center-content mx-auto max-w-4xl px-7 py-7 max-[820px]:px-5">
           <header className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
-            <div>
+            <div className="min-w-0 max-w-full">
               <h1 className="text-[22px] font-semibold tracking-tight">{activeNav.label}</h1>
               <p className="mt-1 text-sm text-ink-2">
                 {page === 'all' ? t('workspaceCenter.subtitle', 'Manage your separate workspaces.') : `${t('workspaceCenter.current', 'Current')}: ${activeWorkspaceName}`}
@@ -121,7 +121,7 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
               {workspaces.length === 0 && <p className="px-5 py-8 text-sm text-ink-2">{t('workspaceCenter.noWorkspaces', 'No workspaces yet.')}</p>}
               {workspaces.map(workspace => {
                 const isActive = workspace.id === activeWorkspaceId;
-                const isMain = workspace.isMain || workspace.id === 'default';
+                const isMain = workspace.isMain ?? (workspace.id === 'default');
                 const name = workspace.id === 'default' ? t('sidebar.defaultWorkspace') : workspace.name || workspace.id;
                 return (
                   <div key={workspace.id} className="flex min-h-17 items-center gap-3 border-b border-line-soft px-4 py-3 last:border-0">

@@ -61,10 +61,10 @@ jobs:
           RUST_TARGET: ${{ matrix.rust_target }}
 
       - name: Build native process tools
-        run: cargo build --release -p watchdog -p getssh-process-sandbox
+        run: cargo build --release -p ocean-sentinel --no-default-features --bins
 
       - name: Check native sandbox launcher
-        run: cargo test -p getssh-process-sandbox
+        run: cargo test -p ocean-sentinel --no-default-features --bin getssh-sandbox
 
       - name: Build Electron security workers
         working-directory: apps/getssh-client
@@ -104,7 +104,7 @@ jobs:
 
       - name: Test hardened native modules
         if: runner.os == 'macOS'
-        run: cargo test -p getssh-unarchive -p getssh-sentinel -p getssh-kv -p audit-stream -p nexus-core
+        run: cargo test -p getssh-unarchive -p ocean-sentinel -p getssh-kv -p audit-stream -p tidal-engine
 
       - name: Test the keystore (protection policy and this OS's device keys)
         run: cargo test -p getssh-keystore

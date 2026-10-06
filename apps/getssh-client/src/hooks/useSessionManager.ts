@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { unlockActiveWorkspaceWithPassword } from '../lib/workspaceUnlock';
-import { callNexus, savedProfiles, useSessionStore, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
+import { callTidal, savedProfiles, useSessionStore, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { useCryptoStore } from '../store/cryptoStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -91,7 +91,7 @@ export const useSessionManager = () => {
       }
       const tabTitle = targetSession.alias || `${config.username}@${config.host}`;
       const rootPaneId = res.sessionId;
-      // Leaf configs reach nexus-core and every window: never with credentials (the tab config may keep them).
+      // Leaf configs reach tidal-engine and every window: never with credentials (the tab config may keep them).
       const paneConfig = stripConnectionSecrets(config);
       const paneTree: PaneLeaf = { type: 'leaf', paneId: rootPaneId, paneType: 'terminal', sessionId: res.sessionId, config: paneConfig };
 
@@ -121,8 +121,8 @@ export const useSessionManager = () => {
             paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'terminal', sessionId: res.sessionId, config: paneConfig }),
           };
         }));
-        // The local tree already shows the terminal; a nexus failure is logged by callNexus.
-        await callNexus('replace pane with terminal', window.electronAPI.nexusReplacePane(targetPaneId, 'terminal', res.sessionId, JSON.stringify(paneConfig)));
+        // The local tree already shows the terminal; a tidal failure is logged by callTidal.
+        await callTidal('replace pane with terminal', window.electronAPI.tidalReplacePane(targetPaneId, 'terminal', res.sessionId, JSON.stringify(paneConfig)));
       } else {
         setTabs([...latestTabs, {
           id: res.sessionId,
@@ -136,7 +136,7 @@ export const useSessionManager = () => {
           setActivePaneId(rootPaneId);
           setSelectedSessionIndex(null);
         }
-        await callNexus('register terminal tab', window.electronAPI.nexusRegisterTab(res.sessionId, rootPaneId, res.sessionId, 'terminal', JSON.stringify(paneConfig), tabTitle, connectionWorkspaceId));
+        await callTidal('register terminal tab', window.electronAPI.tidalRegisterTab(res.sessionId, rootPaneId, res.sessionId, 'terminal', JSON.stringify(paneConfig), tabTitle, connectionWorkspaceId));
       }
       if (targetSession.isQuickConnect) {
         const current = useSessionStore.getState();
@@ -192,7 +192,7 @@ export const useSessionManager = () => {
            paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'plugin', sessionId: null, config }),
          };
        }));
-       void callNexus('replace pane with plugin', window.electronAPI.nexusReplacePane(targetPaneId, 'plugin', null, JSON.stringify(stripConnectionSecrets(config))));
+       void callTidal('replace pane with plugin', window.electronAPI.tidalReplacePane(targetPaneId, 'plugin', null, JSON.stringify(stripConnectionSecrets(config))));
      } else {
        const newTabId = `plugin-${pluginId}-${Date.now()}`;
        const newPaneId = `pane-${Date.now()}`;
@@ -204,27 +204,27 @@ export const useSessionManager = () => {
          paneTree: { type: 'leaf', paneId: newPaneId, paneType: 'plugin', sessionId: null, config }
        }]);
        setActiveTabId(newTabId);
-       void callNexus('register plugin tab', window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'plugin', JSON.stringify(stripConnectionSecrets(config)), title, workspaceId));
+       void callTidal('register plugin tab', window.electronAPI.tidalRegisterTab(newTabId, newPaneId, "", 'plugin', JSON.stringify(stripConnectionSecrets(config)), title, workspaceId));
      }
   };
 
-  // nexus-core owns the layout: it creates the new welcome leaf and broadcasts the tree.
+  // tidal-engine owns the layout: it creates the new welcome leaf and broadcasts the tree.
   // The user then connects inside that leaf (handleConnect replaces it).
   const splitPane = async (paneId: string, direction: 'hsplit' | 'vsplit'): Promise<void> => {
-    const res = await callNexus('split pane', window.electronAPI.nexusSplit(paneId, direction === 'hsplit' ? 'horizontal' : 'vertical'));
+    const res = await callTidal('split pane', window.electronAPI.tidalSplit(paneId, direction === 'hsplit' ? 'horizontal' : 'vertical'));
     if (!res.success || !res.newPaneId) {
       const reason = res.error || 'unknown';
       const message = reason === 'max_panes' ? t('pane.splitMaxPanes', 'A tab can hold at most 4 panes')
         : reason === 'direction_not_allowed' ? t('pane.splitDirectionNotAllowed', 'This pane cannot be split in that direction')
-        : reason === 'nexus_core_unavailable' ? t('pane.layoutEngineUnavailable', 'Pane layout engine is unavailable')
+        : reason === 'tidal_engine_unavailable' ? t('pane.layoutEngineUnavailable', 'Pane layout engine is unavailable')
         : t('pane.splitFailed', { defaultValue: 'Split failed: {{reason}}', reason });
       useAppStore.getState().addToast(message, 'error');
       return;
     }
     // The invoke reply can overtake the sync broadcast; pull the tab so the new pane exists before focusing it.
     if (res.tabId) {
-      const snapshot = await window.electronAPI.nexusGetTab(res.tabId).catch(() => null);
-      if (snapshot) useSessionStore.getState().syncNexusTree(snapshot);
+      const snapshot = await window.electronAPI.tidalGetTab(res.tabId).catch(() => null);
+      if (snapshot) useSessionStore.getState().syncTidalTree(snapshot);
     }
     const state = useSessionStore.getState();
     const activeTab = state.tabs.find(t => t.id === state.activeTabId);

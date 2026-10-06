@@ -21,7 +21,7 @@ import { useSessionManager } from './hooks/useSessionManager';
 // Components
 import { GlobalWorkspaceBar } from './components/GlobalWorkspaceBar';
 import { ContextSidebar } from './components/ContextSidebar';
-import { NexusDashboard } from './components/NexusDashboard';
+import { TidalDashboard } from './components/TidalDashboard';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
 import { AiCenter } from './components/AiCenter';
 import { UnlockVaultModal } from './components/UnlockVaultModal';
@@ -34,6 +34,7 @@ import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
 import { StatusBar } from './components/StatusBar';
 import { SplitPane } from './components/SplitPane';
+import { getAvailableSplitDirection } from './utils/paneHelpers';
 
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
@@ -102,6 +103,7 @@ function AppMain() {
       ? lastActiveTab.id
       : null;
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
+  const splitDirection = getAvailableSplitDirection(workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree, activePaneId);
 
 
 
@@ -241,7 +243,7 @@ function AppMain() {
           )}
         </AnimatePresence>
 
-        {/* ── STANDARD LOCK SCREEN MOVED TO NEXUS DASHBOARD ── */}
+        {/* ── STANDARD LOCK SCREEN MOVED TO TIDAL DASHBOARD ── */}
         {/* Main application grid */}
           <div 
             className="w-full h-full bg-transparent"
@@ -282,8 +284,8 @@ function AppMain() {
               onCloseTab={closeTab}
               onHomeClick={handleHomeClick}
               isHomeActive={selectedSessionIndex === null && !activeTabId}
-              onSplit={() => { if (activePaneId) splitPane(activePaneId, 'hsplit'); }}
-              canSplit={!!activeTabId && !!activePaneId}
+              onSplit={() => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
+              canSplit={splitDirection !== null}
             />
 
             <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
@@ -300,7 +302,7 @@ function AppMain() {
                     <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={(paneId, direction) => splitPane(paneId, direction)} />
                   ) : (
                     <div className="flex-1 flex items-center justify-center text-white/50">
-                      Waiting for Nexus Core...
+                      Waiting for Tidal Engine...
                     </div>
                   )}
                 </div>
@@ -318,7 +320,7 @@ function AppMain() {
                     transition={{ duration: 0.4, ease: DASHBOARD_EASE }}
                     className="absolute inset-0 z-20 bg-transparent"
                   >
-                    <NexusDashboard onConnect={handleConnect} resumeTabId={resumeTabId} />
+                    <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId} />
                   </motion.div>
                 )}
               </AnimatePresence>

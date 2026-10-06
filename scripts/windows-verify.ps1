@@ -111,8 +111,8 @@ $steps = @(
     } }
     @{ Name = 'install';              Run = { Invoke-Native 'pnpm install --frozen-lockfile' } }
     @{ Name = 'build-native';         Run = { Invoke-Native 'node scripts/build-native.js' } }
-    @{ Name = 'build-tools';          Run = { Invoke-Native 'cargo build --release -p watchdog -p getssh-process-sandbox' } }
-    @{ Name = 'cargo-sandbox';        Run = { Invoke-Native 'cargo test -p getssh-process-sandbox' } }
+    @{ Name = 'build-tools';          Run = { Invoke-Native 'cargo build --release -p ocean-sentinel --no-default-features --bins' } }
+    @{ Name = 'cargo-sandbox';        Run = { Invoke-Native 'cargo test -p ocean-sentinel --no-default-features --bin getssh-sandbox' } }
     @{ Name = 'vite-build';           Run = { Invoke-Native 'pnpm exec vite build' $Client } }
     @{ Name = 'tsc';                  Run = { Invoke-Native 'pnpm exec tsc -b tsconfig.json --force --pretty false' $Client } }
     @{ Name = 'plugin-sandbox';       Run = { Invoke-Native 'npm run test:plugin-sandbox' $Client } }
@@ -123,7 +123,7 @@ $steps = @(
     @{ Name = 'local-memory';         Run = { Invoke-Native 'npm run test:local-memory' $Client } }
     @{ Name = 'security-vitest';      Run = { Invoke-Native 'pnpm exec vitest run electron/main/security --environment node' $Client } }
     @{ Name = 'keystore-cargo';       Run = { Invoke-Native "cargo test -p getssh-keystore$keystoreSkip" } }
-    @{ Name = 'cargo-other';          Run = { Invoke-Native 'cargo test -p getssh-store -p getssh-vault -p getssh-unarchive -p getssh-sentinel -p getssh-kv -p audit-stream -p nexus-core' } }
+    @{ Name = 'cargo-other';          Run = { Invoke-Native 'cargo test -p getssh-store -p getssh-vault -p getssh-unarchive -p ocean-sentinel -p getssh-kv -p audit-stream -p tidal-engine' } }
     @{ Name = 'keystore-e2e';         Run = { Invoke-Native 'npm run test:keystore-e2e' $Client } }
     @{ Name = 'store-conformance';    Run = {
         $env:GETSSH_STORE_CONFORMANCE = '1'

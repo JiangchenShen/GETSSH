@@ -77,7 +77,7 @@ jobs:
 
       - name: Build Native Process Tools
         run: |
-          cargo build --release --target ${{ matrix.rust_target }} -p watchdog -p getssh-process-sandbox
+          cargo build --release --target ${{ matrix.rust_target }} -p ocean-sentinel --no-default-features --bins
           mkdir -p target/release
           if [ -f "target/${{ matrix.rust_target }}/release/watchdog.exe" ]; then
             cp "target/${{ matrix.rust_target }}/release/watchdog.exe" "target/release/watchdog.exe"

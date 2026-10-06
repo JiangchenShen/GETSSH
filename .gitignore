@@ -2,6 +2,8 @@ node_modules/
 dist/
 dist-electron/
 build/
+# Installer artwork, templates and entitlements are source resources.
+!/apps/getssh-client/build/
 release/
 .DS_Store
 profiles.enc
@@ -31,6 +33,35 @@ target/
 .pnpm-store/
 _ui_snapshot.tgz
 *.zip
+
+# Native libraries and installer output (rebuilt for each OS/architecture).
+*.node
+*.dll
+*.exe
+*.dmg
+*.blockmap
+*.app/
+
+# Local tools, editor settings and credentials.
+.local/
+.codex/
+.vscode/
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Local research and unreviewed security experiments.
+/GETSSH_v3.0_*.md
+/docs/dependency-licenses.md
+/docs/dependency-update-report.md
+/apps/getssh-client/scripts/security/*chaos*
+/apps/getssh-client/scripts/security/*stress*
+
+# Debug captures; final UI validation screenshots stay in docs.
+/docs/screenshots/*failure*.png
+/docs/screenshots/about-fusion-rc-zh-dark.png
+/docs/screenshots/about-fusion-rc-en-dark.png
 
 # TypeScript declarations generated in electron
 apps/getssh-client/electron/**/*.d.ts
