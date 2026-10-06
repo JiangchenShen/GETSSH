@@ -189,6 +189,30 @@ test('configure + start create the MAIN workspace; before start() only appState 
   assert.equal(typeof state.deviceBackend, 'string');
 });
 
+test('start(legacy) checks LegacySecrets like the real module and ignores them; needsLegacyMigration() is false', async () => {
+  fake.reset();
+  throwsWith(() => store.needsLegacyMigration(), 'not_configured');
+  store.configure(freshBaseDir());
+  assert.equal(store.needsLegacyMigration(), false);
+  const empty = { migratedWorkspaces: [], deferredWorkspaces: [], presenceToReenable: [], failedWorkspaces: [] };
+  for (const bad of [
+    'x', [], { appKey: 'x' }, { appKey: 'ab'.repeat(31) }, { appKey: 'g'.repeat(64) }, { appKey: `${'a'.repeat(63)}é` }, { appKey: 42 },
+    { appKey: null }, { workspacePasswords: null },
+    { workspacePasswords: [] }, { workspacePasswords: { secret: 1 } },
+  ]) {
+    await rejectsWith(() => store.start(bad), 'invalid_argument', JSON.stringify(bad));
+  }
+  throwsWith(() => store.listWorkspaces(), 'not_configured', 'a rejected start() starts nothing');
+  assert.deepEqual(await store.start({ appKey: 'AB'.repeat(32), workspacePasswords: { secret: 'secret-pw-1' } }), empty);
+  // Entries the store cannot use are left out, as by the real module: no start fails over them.
+  assert.deepEqual(await store.start({ workspacePasswords: { '../x': 'pw', 'x\u0085': 'pw', secret: '' } }), empty);
+  assert.equal(store.listWorkspaces().length, 1);
+  await rejectsWith(() => store.start({ appKey: 'zz' }), 'invalid_argument', 'checked on every call');
+  assert.deepEqual(await store.start({}), empty);
+  assert.deepEqual(await store.start(null), empty);
+  assert.equal(store.needsLegacyMigration(), false);
+});
+
 // ──────────────────────────────── profiles and secrets ────────────────────────────────
 
 test('profile reads never return secrets; hasPassword/hasPassphrase/keyId describe them; group mirrors groupName', async () => {

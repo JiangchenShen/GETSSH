@@ -294,6 +294,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       import: (request: { fileId: string; password: string }) => ipcRenderer.invoke('store:backup:import', request),
       relaunch: () => ipcRenderer.invoke('store:backup:relaunch'),
     },
+    // Servers saved by GETSSH 2.0 (handlers/legacyImportHandler.ts).
+    legacyV2: {
+      status: () => ipcRenderer.invoke('legacy-v2:status'),
+      import: (request: { password?: string; defaultPort?: number }) => ipcRenderer.invoke('legacy-v2:import', request),
+      applyDefaultPort: (request: { port: number }) => ipcRenderer.invoke('legacy-v2:apply-default-port', request),
+    },
   },
 
   // Model Context Protocol (MCP) API

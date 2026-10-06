@@ -93,6 +93,17 @@ pub fn rekey_file(file: &Path, from: &Key<'_>, to: &Key<'_>) -> StoreResult<()> 
     result
 }
 
+/// Moves `file` from `from` to `to` unless it is missing or already opens with `to`, so a move
+/// that stopped after its key was created runs again safely (keystoreMigration.ts moveToScopeKey).
+/// Returns whether the file was re-encrypted.
+pub fn move_to_key(file: &Path, from: &Key<'_>, to: &Key<'_>) -> StoreResult<bool> {
+    if !file.exists() || Connection::open(file, to, Mode::ReadOnly).is_ok() {
+        return Ok(false);
+    }
+    rekey_file(file, from, to)?;
+    Ok(true)
+}
+
 /// Changes the key of an open connection in place.
 pub fn rekey_open(conn: &Connection, to: &Key<'_>) -> StoreResult<()> {
     conn.execute_batch("PRAGMA journal_mode = DELETE")?;
@@ -135,6 +146,25 @@ mod tests {
         }
         let before = fs::read(&file).unwrap();
         assert!(rekey_file(&file, &Key::Raw(&[9; 32]), &Key::Raw(&[2; 32])).is_err());
+        assert_eq!(fs::read(&file).unwrap(), before);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_move_runs_once_and_skips_missing_files() {
+        let dir = std::env::temp_dir().join(format!("gs-rekey-{}", getssh_keystore::crypto::random_id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.db");
+        assert!(!move_to_key(&file, &Key::Plain, &Key::Raw(&[2; 32])).unwrap(), "a missing file is not created");
+        assert!(!file.exists());
+        {
+            let conn = Connection::open(&file, &Key::Plain, Mode::Create).unwrap();
+            conn.execute_batch("CREATE TABLE t (v); INSERT INTO t VALUES (1);").unwrap();
+        }
+        assert!(move_to_key(&file, &Key::Plain, &Key::Raw(&[2; 32])).unwrap());
+        // Again, as after a crash before the caller recorded the move: the file already uses the key.
+        let before = fs::read(&file).unwrap();
+        assert!(!move_to_key(&file, &Key::Plain, &Key::Raw(&[2; 32])).unwrap());
         assert_eq!(fs::read(&file).unwrap(), before);
         let _ = fs::remove_dir_all(&dir);
     }

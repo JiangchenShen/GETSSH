@@ -16,24 +16,24 @@ use crate::store::{Store, UnlockRoute, WorkspaceChanges};
 
 const FAST: Argon2Params = Argon2Params { m_kib: 8 * 1024, t: 1, p: 1 };
 
-struct Env {
-    dir: PathBuf,
-    machine: [u8; 32],
+pub(crate) struct Env {
+    pub(crate) dir: PathBuf,
+    pub(crate) machine: [u8; 32],
 }
 
 impl Env {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("gs-store-{}", crypto::random_id()));
         std::fs::create_dir_all(&dir).unwrap();
         Env { dir, machine: crypto::random_array() }
     }
 
-    fn open(&self) -> Store<FakeDevice> {
+    pub(crate) fn open(&self) -> Store<FakeDevice> {
         let ks = Keystore::with_options(FakeDevice::new(self.machine), self.dir.join("keyring.json"), FAST, Arc::new(Instant::now)).unwrap();
         Store::with_keystore(ks, self.dir.clone())
     }
 
-    fn started(&self) -> Store<FakeDevice> {
+    pub(crate) fn started(&self) -> Store<FakeDevice> {
         let store = self.open();
         store.start().unwrap();
         store
@@ -46,11 +46,11 @@ impl Drop for Env {
     }
 }
 
-fn pw(s: &str) -> UnlockRoute {
+pub(crate) fn pw(s: &str) -> UnlockRoute {
     UnlockRoute::Password(Zeroizing::new(s.to_string()))
 }
 
-fn profile(id: &str, password: SecretUpdate) -> ProfileInput {
+pub(crate) fn profile(id: &str, password: SecretUpdate) -> ProfileInput {
     ProfileInput {
         id: id.into(),
         host: format!("{id}.example"),
@@ -269,10 +269,16 @@ fn short_master_passwords_are_flagged_for_a_change() {
 fn workspace_ids_are_file_names_only() {
     let env = Env::new();
     let store = env.started();
-    for bad in ["..", "../x", "a/b", "a\\b", "CON", "lpt1.txt", " x", "x.", "", "a:b"] {
+    for bad in ["..", "../x", "a/b", "a\\b", "CON", "lpt1.txt", " x", "x.", "", "a:b", "\u{feff}x", "x\u{3000}", "x\u{85}", "a\u{9f}b"] {
         assert_eq!(store.create_workspace(Some(bad), "Bad", None, None).err().unwrap().code, Code::InvalidArgument, "{bad:?}");
     }
     store.create_workspace(Some("工作区 1"), "工作区", None, None).unwrap();
+    // Refused by the store itself, not only by the keystore underneath (rows read from old data
+    // never reach the keystore's check).
+    for bad in ["x\u{85}", "a\u{9f}b", "\u{feff}x", "a\u{7f}", "con.a\u{2028}b", "LPT1.x\u{2029}"] {
+        assert!(crate::store::validate_workspace_id(bad).is_err(), "{bad:?}");
+    }
+    assert!(crate::store::validate_workspace_id("a\u{a0}b").is_ok(), "inner spaces stay allowed");
 }
 
 #[test]
@@ -367,10 +373,11 @@ fn workspace_updates_and_settings_persist() {
 }
 
 #[test]
-fn legacy_layouts_are_left_for_the_typescript_migration() {
+fn legacy_layouts_need_their_secrets_to_start() {
     let env = Env::new();
     std::fs::write(env.dir.join("app_key.enc"), b"x").unwrap();
     assert_eq!(env.open().start().err().unwrap().code, Code::Unavailable);
+    assert!(!env.dir.join("keyring.json").exists(), "nothing changes");
 }
 
 // ───────────────────────────── export bundles ─────────────────────────────
@@ -465,6 +472,8 @@ fn a_subset_export_carries_only_the_chosen_workspaces() {
     let source = source_with_data(&a);
     source.create_workspace(Some("team"), "Team", None, None).unwrap();
     source.save_profiles("team", &[profile("t", set("team-secret"))]).unwrap();
+    // An adoption mark of a workspace that is not chosen stays behind too.
+    source.with_main(|c| { c.execute("INSERT INTO adopting_workspaces (id) VALUES ('private-project')", &[])?; Ok(()) }).unwrap();
     let bundle = export_to(&source, &a, &["team"]);
     assert!(source.list_profiles("default").is_ok() && source.workspace("default").unwrap().is_main, "exporting does not touch the source");
 
@@ -475,6 +484,18 @@ fn a_subset_export_carries_only_the_chosen_workspaces() {
     assert!(workspaces[0].id == "team" && workspaces[0].is_main, "the only workspace becomes main");
     assert_eq!(store.connect_secrets("team", "t").unwrap().password.unwrap().as_slice(), b"team-secret");
     assert!(!b.dir.join("workspace_default.db").exists());
+    let marks = store.with_main(|c| Ok(c.query_row("SELECT count(*) FROM adopting_workspaces", &[], |r| r.integer(0))?)).unwrap();
+    assert_eq!(marks, 0);
+}
+
+#[test]
+fn creating_a_workspace_clears_a_stale_adoption_mark() {
+    let env = Env::new();
+    let store = env.started();
+    store.with_main(|c| { c.execute("INSERT INTO adopting_workspaces (id) VALUES ('w')", &[])?; Ok(()) }).unwrap();
+    store.create_workspace(Some("w"), "W", None, None).unwrap();
+    let marks = store.with_main(|c| Ok(c.query_row("SELECT count(*) FROM adopting_workspaces WHERE id = 'w'", &[], |r| r.integer(0))?)).unwrap();
+    assert_eq!(marks, 0);
 }
 
 #[test]

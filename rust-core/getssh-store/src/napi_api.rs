@@ -2,6 +2,7 @@
 //! validation and behaviour live in store.rs and profiles.rs. Functions that may prompt, run
 //! Argon2 or rekey a database run on the libuv thread pool (AsyncTask).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
@@ -15,6 +16,7 @@ use zeroize::Zeroizing;
 use crate::error::{Code, StoreError, StoreResult};
 use crate::bundle::ExportCandidate as RsExportCandidate;
 use crate::folders::FolderSnapshot;
+use crate::legacy::LegacySecrets as RsLegacySecrets;
 use crate::profiles::{Profile as RsProfile, ProfileInput as RsProfileInput, SecretField, SecretUpdate};
 use crate::records::{
     AiMemoryMessage as RsAiMemoryMessage, AiMemoryVector as RsAiMemoryVector, AiMessage as RsAiMessage, AiSession as RsAiSession,
@@ -138,10 +140,30 @@ pub fn configure(base_dir: String, app_version: Option<String>) -> napi::Result<
     Ok(())
 }
 
-#[napi(ts_return_type = "Promise<StartReport>")]
-pub fn start() -> AsyncTask<Job<StartReport>> {
-    job(|s| {
-        let r = s.start()?;
+/// What only Electron can decrypt in the layout of GETSSH 3.0 development builds (store.d.ts).
+#[napi(object)]
+pub struct LegacySecrets {
+    pub app_key: Option<String>,
+    pub workspace_passwords: Option<HashMap<String, String>>,
+}
+
+#[napi]
+pub fn needs_legacy_migration() -> napi::Result<bool> {
+    sync(|s| {
+        s.check_live()?;
+        Ok(s.needs_legacy_migration())
+    })
+}
+
+#[napi(ts_args_type = "legacy?: LegacySecrets", ts_return_type = "Promise<StartReport>")]
+pub fn start(legacy: Option<LegacySecrets>) -> AsyncTask<Job<StartReport>> {
+    // JavaScript strings cannot be wiped; the copies Rust owns are, from here on.
+    let legacy = legacy.map(|l| RsLegacySecrets {
+        app_key: l.app_key.map(Zeroizing::new),
+        workspace_passwords: l.workspace_passwords.unwrap_or_default().into_iter().map(|(id, password)| (id, Zeroizing::new(password))).collect(),
+    });
+    job(move |s| {
+        let r = s.start_with(legacy.as_ref())?;
         Ok(StartReport {
             migrated_workspaces: r.migrated_workspaces,
             deferred_workspaces: r.deferred_workspaces,

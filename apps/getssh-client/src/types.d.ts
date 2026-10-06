@@ -223,6 +223,24 @@ declare global {
           import: (request: { fileId: string; password: string }) => Promise<import('./types/store').StoreResult<{ report: import('./types/store').ImportReport }>>;
           relaunch: () => Promise<import('./types/store').StoreResult>;
         };
+        /**
+         * Servers saved by GETSSH 2.0. The app imports them by itself when no password is needed.
+         * `import` (with the 2.0 master password the user typed) and `applyDefaultPort` (with
+         * appConfig.defaultPort, the Default Port 2.0 used for servers without one) answer with the
+         * active workspace's new list: replace the window's list with it, or its next save would
+         * drop the imported servers again.
+         */
+        legacyV2: {
+          status: () => Promise<import('./types/store').StoreResult<import('./types/store').LegacyV2Status>>;
+          import: (request: { password?: string; defaultPort?: number }) => Promise<import('./types/store').StoreResult<{
+            status: import('./types/store').LegacyV2ImportStatus; imported: number; skipped: number; error?: string;
+            workspaceId: string; profiles: import('./store/sessionStore').SessionProfile[];
+          }>>;
+          applyDefaultPort: (request: { port: number }) => Promise<import('./types/store').StoreResult<{
+            status: 'applied' | 'nothing' | 'failed'; changed: number; error?: string;
+            workspaceId: string; profiles: import('./store/sessionStore').SessionProfile[];
+          }>>;
+        };
       };
       ai: {
         invokePrivileged: (payload: any) => Promise<{ success: boolean; data?: any; _audit?: { sanitizedPrompt: string; sanitizedContext: string } }>;

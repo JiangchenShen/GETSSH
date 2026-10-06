@@ -66,12 +66,20 @@ if (mode !== '--child') {
   };
 
   await step('appState before configure', () => s.appState(), v => v.phase);
+  await step('needsLegacyMigration before configure', () => s.needsLegacyMigration());
   s.configure(dir, '3.0.0');
+  await step('needsLegacyMigration', () => s.needsLegacyMigration(), v => v);
   await step('listWorkspaces before start', () => s.listWorkspaces());
   await step('getRunbooks before start', () => s.getRunbooks('default'));
   await step('setAppSecret before start', () => s.setAppSecret('a', 'b'));
   await step('isEncryptedAiMemoryAvailable before start', () => s.isEncryptedAiMemoryAvailable(), v => v);
+  await step('start malformed legacy', () => s.start({ appKey: 'zz' }));
+  await step('start legacy bad workspace id', () => s.start({ workspacePasswords: { '../x': 'pw' } }));
+  await step('start legacy empty password', () => s.start({ workspacePasswords: { w1: '' } }));
   await step('start', () => s.start());
+  await step('start again with legacy', () => s.start({ appKey: 'AB'.repeat(32), workspacePasswords: { w1: 'pw' } }));
+  await step('start again with null', () => s.start(null));
+  await step('start again malformed legacy', () => s.start({ appKey: 'ab' }));
   await step('appState', () => s.appState());
   await step('appState backend', () => s.appState(), v => ['secure-enclave', 'keychain', 'tpm', 'dpapi', 'unsupported'].includes(v.deviceBackend));
   await step('listWorkspaces', () => s.listWorkspaces());

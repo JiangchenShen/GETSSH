@@ -11,10 +11,8 @@ import { getRustCorePath } from '../utils/rustCorePath';
  * Normally the native module. In development, GETSSH_FAKE_STORE=1 runs the whole app on the
  * in-memory fake instead (nothing is read from or written to ~/.getssh); packaged builds never do.
  *
- * Until step S6, data written before the keystore existed (GETSSH 2.x) is still moved by
- * security/keystoreMigration.ts, with getssh-keystore and better-sqlite3-multiple-ciphers. appLock
- * runs that migration to the end, every file closed again, before configureStore(): two SQLite
- * libraries holding the same database files at the same time can corrupt them.
+ * Data written by GETSSH 3.0 development builds is moved by the store itself (start(legacy));
+ * appLock only decrypts the safeStorage blobs it needs.
  */
 
 export type GetsshStore = typeof StoreModule;

@@ -21,8 +21,12 @@ import { setMainWindow } from '../../../electron/main/windowRegistry';
 import { getStore } from '../../../electron/main/services/getsshStore';
 import { appLock } from '../../../electron/main/security/appLock';
 import { writeSecretFile } from '../../../electron/main/security/secretStore';
+import { safeStorage } from 'electron';
 
 app.commandLine.appendSwitch('use-mock-keychain');
+// Electron's own profile (userData: Local State, safeStorage's Windows key, the GETSSH 2.0 files
+// the import looks for) lives in the temporary home too, never in the real Application Support.
+app.setPath('userData', path.join(os.homedir(), 'electron-user-data'));
 
 const phase = process.env.KS_PHASE ?? '';
 const base = path.join(os.homedir(), '.getssh');
@@ -374,8 +378,6 @@ async function run(): Promise<string> {
     case 'connect': {
       // Connecting by profile id against an SSH server on 127.0.0.1: the saved address and
       // credentials are used whatever the request says; typed credentials still work.
-      fs.mkdirSync(path.join(os.homedir(), 'user-data'), { recursive: true });
-      app.setPath('userData', path.join(os.homedir(), 'user-data'));
       await appLock.start();
       const win = new BrowserWindow({ show: false });
       setMainWindow(win);
@@ -490,6 +492,62 @@ async function run(): Promise<string> {
       DM.lockWorkspace(id);
       assert.ok(!isPlainSqlite(path.join(base, `workspace_${id}.db`)), 'the folder database is encrypted');
       return 'asset folders respect workspace locks';
+    }
+
+    case 'v2-setup': {
+      // What GETSSH 2.0 left in userData with a master password: profiles.enc (getssh-vault V2:
+      // 'GETSSH_V2' | salt32 | iv12 | tag16 | ct, PBKDF2-SHA256 100000, AES-256-GCM) and the master
+      // password in profiles.key, written by safeStorage (under the mock keychain, as 2.0 ran).
+      const userData = app.getPath('userData');
+      fs.mkdirSync(userData, { recursive: true });
+      const master = 'v2pw';
+      const rows = [
+        { host: 'old-web.example', username: 'root', password: 'old-pw', port: 2222, alias: 'Old web' },
+        { host: 'old-db.example', username: 'dba', privateKeyPath: '~/.ssh/id_ed25519', autoStart: true },
+        { host: '', username: '', password: '' },
+      ];
+      const salt = crypto.randomBytes(32);
+      const iv = crypto.randomBytes(12);
+      const key = crypto.pbkdf2Sync(Buffer.from(master, 'utf8'), salt, 100000, 32, 'sha256');
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+      const ct = Buffer.concat([cipher.update(JSON.stringify(rows), 'utf8'), cipher.final()]);
+      fs.writeFileSync(path.join(userData, 'profiles.enc'), Buffer.concat([Buffer.from('GETSSH_V2'), salt, iv, cipher.getAuthTag(), ct]));
+      fs.writeFileSync(path.join(userData, 'profiles.key'), safeStorage.encryptString(master));
+      fs.writeFileSync(marker('v2-snapshot.json'), JSON.stringify([...snapshot(userData)].filter(([name]) => name.startsWith('profiles'))));
+      return 'GETSSH 2.0 files written';
+    }
+
+    case 'v2-import': {
+      await appLock.start();
+      assert.equal(appLock.state().phase, 'ready');
+      const imported = DM.getProfiles('default');
+      assert.deepEqual(imported.map(p => p.host).sort(), ['old-db.example', 'old-web.example'], 'the blank row is skipped');
+      const web = imported.find(p => p.host === 'old-web.example')!;
+      assert.equal(getStore().connectSecrets('default', web.id).password?.toString('utf8'), 'old-pw');
+      assert.equal(web.port, 2222);
+      assert.equal(web.alias, 'Old web');
+      const db = imported.find(p => p.host === 'old-db.example')!;
+      assert.equal(db.authType, 'key');
+      assert.equal(db.privateKeyPath, '~/.ssh/id_ed25519');
+      assert.equal(db.autoStart, true);
+      const before = new Map<string, string>(JSON.parse(fs.readFileSync(marker('v2-snapshot.json'), 'utf8')));
+      const after = snapshot(app.getPath('userData'));
+      for (const [file, content] of before) assert.equal(after.get(file), content, `${file} left as it was`);
+      return 'GETSSH 2.0 servers imported';
+    }
+
+    case 'v2-again': {
+      // The next start finds the record of the import and adds nothing, even after edits.
+      await appLock.start();
+      DM.saveProfiles('default', DM.getProfiles('default').filter(p => p.host !== 'old-db.example'));
+      assert.equal(DM.getProfiles('default').length, 1);
+      return 'GETSSH 2.0 import runs once';
+    }
+
+    case 'v2-again-check': {
+      await appLock.start();
+      assert.deepEqual(DM.getProfiles('default').map(p => p.host), ['old-web.example'], 'a deleted server does not come back');
+      return 'GETSSH 2.0 import not repeated';
     }
 
     case 'rollback-setup':

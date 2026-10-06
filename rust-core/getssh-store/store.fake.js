@@ -57,6 +57,10 @@
  *     seeded), deviceKeyLost is always false and importBundle's backupPath is a made-up path next to
  *     baseDir; no backup is made. The real app relaunches after an import (app.relaunch()); with
  *     the fake that relaunch loses everything, so tests use __fake.restart() instead.
+ *   - needsLegacyMigration() is always false, since the fake never reads baseDir. start(legacy)
+ *     makes the real module's checks (invalid_argument for a malformed appKey or workspacePasswords
+ *     entry) and then ignores `legacy`; the real module also requires it while legacy data is on
+ *     disk and migrates that data.
  *   - Bundles use scrypt + AES-256-GCM (no Argon2id, no 64 KiB chunks); the layout is
  *     "GETSSHBK" | u16 version | u32 n | header JSON | u32 n | key area | payload.
  *   - SSH keys: only the public half is parsed (OpenSSH and PuTTY public blobs; PEM through
@@ -68,8 +72,9 @@
  *   - Rate limits are per scope here; the real keystore counts wrong passwords across all scopes.
  *
  * DECISIONS WHERE store.d.ts IS SILENT (the real module should match them or the d.ts should say otherwise)
- *   - Before start() every call except configure(), start(), appState(), isRecoveryCodeWellFormed()
- *     and isEncryptedAiMemoryAvailable() fails with not_configured; appState() reports 'locked'.
+ *   - Before start() every call except configure(), needsLegacyMigration(), start(), appState(),
+ *     isRecoveryCodeWellFormed() and isEncryptedAiMemoryAvailable() fails with not_configured;
+ *     appState() reports 'locked'.
  *   - While the app is locked (master password set), every main.db function (workspace list,
  *     settings, app secrets, AI memory, export, import) fails with locked;
  *     isEncryptedAiMemoryAvailable() returns false and inspectBundle() still works.
@@ -144,8 +149,8 @@ const MEMORY_ROLES = new Set(['user', 'assistant']);
 const REVEAL_FIELDS = new Set(['password', 'passphrase']);
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const MAX_WORKSPACE_ID_LENGTH = 128;
-const WORKSPACE_ID_FORBIDDEN = /[/\\:*?"<>|\u0000-\u001f\u007f]/;
-const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+const WORKSPACE_ID_FORBIDDEN = /[/\\:*?"<>|\u0000-\u001f\u007f-\u009f]/;
+const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/is;
 const BUNDLE_MAGIC = Buffer.from('GETSSHBK', 'latin1');
 const BUNDLE_FORMAT_VERSION = 1;
 const BUNDLE_KDF = { name: 'scrypt', N: 1 << 14, r: 8, p: 1 };
@@ -642,9 +647,34 @@ function configure(baseDir, appVersion) {
   }
 }
 
-async function start() {
+/**
+ * Same checks as LegacySecrets::validate in legacy.rs. `legacy` itself may be null or undefined;
+ * its fields may be left out but not null (the real module refuses null there too).
+ */
+function checkLegacySecrets(legacy) {
+  if (legacy === undefined || legacy === null) return;
+  if (!isPlainObject(legacy)) fail('invalid_argument', 'legacy must be an object');
+  const { appKey, workspacePasswords } = legacy;
+  if (appKey !== undefined && (typeof appKey !== 'string' || !/^[0-9a-f]{64}$/i.test(appKey))) {
+    fail('invalid_argument', 'appKey must be 64 hex characters');
+  }
+  if (workspacePasswords === undefined) return;
+  if (!isPlainObject(workspacePasswords)) fail('invalid_argument', 'workspacePasswords must be an object');
+  // An entry the store cannot use (an invalid id, an empty password) is left out, not refused.
+  for (const password of Object.values(workspacePasswords)) {
+    if (typeof password !== 'string') fail('invalid_argument', 'workspacePasswords values must be strings');
+  }
+}
+
+function needsLegacyMigration() {
+  requireConfigured();
+  return false;
+}
+
+async function start(legacy) {
   await pause();
   requireConfigured();
+  checkLegacySecrets(legacy);
   const report = { migratedWorkspaces: [], deferredWorkspaces: [], presenceToReenable: [], failedWorkspaces: [] };
   if (S.started) return report;
   if (S.workspaces.length === 0) {
@@ -2119,6 +2149,7 @@ if (process.env.GETSSH_FAKE_STORE_SEED) pendingEnvSeed = process.env.GETSSH_FAKE
 
 module.exports = {
   configure,
+  needsLegacyMigration,
   start,
   appState,
   unlockApp,

@@ -14,6 +14,7 @@ import { registerAgentHandlers } from '../services/AgentExecutor';
 import { registerAppHandlers } from './appHandler';
 import { registerMcpHandlers } from './mcpHandler';
 import { registerAssetFolderHandlers } from './assetFolderHandler';
+import { registerLegacyImportHandlers } from './legacyImportHandler';
 
 /**
  * Central Registry for all Main Process IPC handlers.
@@ -32,6 +33,8 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
   // Storage Handlers
   registerProfileHandlers(ipcMain);
   registerAssetFolderHandlers(ipcMain, getWin);
+  // Server profiles saved by GETSSH 2.0
+  registerLegacyImportHandlers(ipcMain);
   
   // System/App Lifecycle Handlers
   registerSystemHandlers(ipcMain, app, getWin);

@@ -63,6 +63,7 @@ const allSequences = [
   ['asset-folders'],
   ['ipc'],
   ['connect'],
+  ['v2-setup', 'v2-import', 'v2-again', 'v2-again-check'],
   ['rollback-setup', 'damaged'],
   ['legacy', 'rollback-main', 'rollback'],
 ];

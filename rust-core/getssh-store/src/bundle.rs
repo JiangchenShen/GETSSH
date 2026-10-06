@@ -434,7 +434,8 @@ impl<D: Device> Store<D> {
             let keep: Vec<String> = workspace_ids.iter().map(|id| format!("'{}'", id.replace('\'', "''"))).collect();
             let keep = keep.join(",");
             conn.execute_batch(&format!(
-                "DELETE FROM ai_memory_vectors WHERE workspace_id NOT IN ({keep}); DELETE FROM workspaces WHERE id NOT IN ({keep}); VACUUM;"
+                "DELETE FROM ai_memory_vectors WHERE workspace_id NOT IN ({keep}); DELETE FROM workspaces WHERE id NOT IN ({keep}); \
+                 DELETE FROM adopting_workspaces WHERE id NOT IN ({keep}); VACUUM;"
             ))?;
             if !workspace_ids.iter().any(|id| all.iter().any(|w| &w.id == id && w.is_main)) {
                 // MAIN never has its own password: promote the oldest chosen workspace without one,

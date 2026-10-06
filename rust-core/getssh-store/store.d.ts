@@ -19,15 +19,31 @@ export type StoreErrorCode =
 
 // ─────────────────────────────── lifecycle and app lock ───────────────────────────────
 
+/**
+ * What start() did with the workspaces. The first three lists are filled only by the start that
+ * migrates the data of GETSSH 3.0 development builds (see LegacySecrets). An id appears in one
+ * list at most (presenceToReenable aside): the first classification wins.
+ */
 export interface StartReport {
-  /** Workspaces migrated from a GETSSH 2.x layout during this start. */
+  /** Workspaces moved from the layout of GETSSH 3.0 development builds to the keystore during this start. */
   migratedWorkspaces: string[];
-  /** Legacy password workspaces without vault.key: migrated when their password is typed. */
+  /** Password workspaces of those builds whose password was not available (no vault.key, or it did not open the database): migrated when the password is typed. */
   deferredWorkspaces: string[];
-  /** Workspaces whose legacy Touch ID / Windows Hello setting must be enabled again. */
+  /** Migrated workspaces that had Touch ID / Windows Hello in those builds: it must be enabled again. */
   presenceToReenable: string[];
-  /** Workspaces whose database could not be opened; they are skipped, not deleted. */
+  /** Workspaces whose database could not be moved or opened; they are skipped, not deleted. */
   failedWorkspaces: string[];
+}
+
+/**
+ * What only Electron can decrypt (safeStorage) in the ~/.getssh layout of GETSSH 3.0 development
+ * builds. Added after the freeze (10-03), with needsLegacyMigration() and start(legacy).
+ */
+export interface LegacySecrets {
+  /** app_key.enc, decrypted: 64 hex characters. Required when app_key.enc exists, ignored otherwise. */
+  appKey?: string;
+  /** workspaces/<id>/vault.key, decrypted, by workspace id. Used while that vault.key exists; leave out the files that could not be decrypted (those workspaces are deferred). */
+  workspacePasswords?: Record<string, string>;
 }
 
 export interface AppState {
@@ -60,8 +76,24 @@ export type UnlockRoute =
  * optional, so older callers keep working.
  */
 export function configure(baseDir: string, appVersion?: string): void;
-/** Migrates legacy data if present, then opens everything that needs no password. */
-export function start(): Promise<StartReport>;
+/**
+ * Whether the data directory still holds data of GETSSH 3.0 development builds, or a migration
+ * of it was interrupted. Call after configure(); when true, decrypt LegacySecrets and pass them
+ * to start(). Only checks which files exist.
+ */
+export function needsLegacyMigration(): boolean;
+/**
+ * Opens everything that needs no password. While needsLegacyMigration() is true, `legacy` is
+ * required (without it: unavailable) and the old data is migrated first: backed up to
+ * ~/.getssh/.keystore-migration-backup, moved, and the backup deleted. If the migration fails,
+ * the old files are restored and start() fails; the next start tries again. A getssh.db that was
+ * never split is kept, with the app key that opens it, in ~/.getssh/.pre-keystore-kept. Under a
+ * master password nothing is migrated (it was set after a finished start): what is left is moved
+ * to .pre-keystore-kept and start() goes on to the locked state. `legacy` is checked on every
+ * call: an appKey that is not 64 hex characters fails with invalid_argument; a workspacePasswords
+ * entry with an invalid id or an empty password is left out.
+ */
+export function start(legacy?: LegacySecrets): Promise<StartReport>;
 export function appState(): AppState;
 export function unlockApp(route: UnlockRoute): Promise<AppState>;
 /** Drops every key that a password protects and closes those databases. */

@@ -51,6 +51,10 @@ pub fn migrate_main(conn: &Connection) -> SqlResult<()> {
             name TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL
+        );
+        -- Workspaces adopt_workspace (store.rs) has started encrypting and not mounted yet.
+        CREATE TABLE IF NOT EXISTS adopting_workspaces (
+            id TEXT PRIMARY KEY
         );",
     )?;
     add_column(conn, "workspaces", "is_main", "INTEGER DEFAULT 0")?;

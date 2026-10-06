@@ -164,6 +164,9 @@ description: GETSSH 3.0 加密与数据层（getssh-store）的设计、冻结�
 - **导入后必须重启**：`importBundle` 成功后，模块拒绝一切调用（`unavailable`），主进程要 `app.relaunch(); app.exit()`。
 - **`configure(baseDir, appVersion?)`**：第二个参数是冻结后加的可选参数，传 `app.getVersion()`，写进导出包。
 - **改接口**：必须先改本文档和 `store.d.ts`，由 Claude 提交，并通知负责人和 Codex。
+- **冻结后的改动**（都只增不减，原来的调用照常可用）：
+  - 10-01：`configure(baseDir, appVersion?)` 加了第二个参数；
+  - 10-03：`start(legacy?: LegacySecrets)` 加了可选参数，新增 `needsLegacyMigration()`，用于迁移 3.0 开发版的旧数据（第 7 节）。只有主进程调用，界面不受影响。
 
 ## 5. 加密导出包
 
@@ -245,7 +248,39 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | S6 | 删掉 `databaseKey` 导出、bsmc 依赖和旧的导入导出代码；整理打包配置 | 安装包里不再有 `better_sqlite3.node`，启动自检通过 |
 | B | 私钥导入和生成、恢复码引导、重新开启迁移来的 Touch ID | 按产能决定是否进 3.0 |
 
-旧的 2.x 数据（`app_key` / `vault.key`）迁移继续由 keystore 迁移代码处理。到 S6 时改由 Rust 用 SQLCipher 直接打开旧库，彻底去掉 bsmc。
+**两种旧数据，不要混淆**（10-03 查清）：
+
+| 来源 | 位置和格式 | 处理 |
+|---|---|---|
+| 3.0 开发版（从未发布） | `~/.getssh` 下的 `app_key.enc` / `app_key.txt`、用口令加密的 `main.db`、`getssh.db`、`workspaces/<id>/vault.key`、`workspaces/<id>/*.json` | S6 起由 Rust 迁移（`start(legacy)`，见下）。代码和注释里以前叫它"2.x"，是错的 |
+| 2.0 正式版 | Electron 的 userData（macOS 是 `~/Library/Application Support/getssh`）下的 `profiles.enc`（getssh-vault 加密）、`profiles.json`（明文）、`profiles.key`（主密码，safeStorage） | 第一次启动时自动导入到主工作区，原文件不动（`services/legacyV2Profiles.ts`） |
+
+- **开发版数据的迁移（S6）**：`app_key.enc` 和 `vault.key` 是 safeStorage 加密的，只有 Electron 能解开。主进程先用 `needsLegacyMigration()` 判断，需要时把解开的钥匙传给 `start(legacy)`，其余步骤都在 Rust 里做：备份、拆分 `getssh.db`、导入 JSON、换钥匙、失败时还原。备份目录名和 TS 版一样，TS 版迁移到一半的数据可以由 Rust 接着做完。
+- **2.0 的导入**：macOS 上 2.0 一直用 Chromium 的 mock keychain，`profiles.key` 用一把公开的固定钥匙加密，不访问钥匙串就能解开；Windows 上是 DPAPI，也不弹窗。所以多数用户不用输入任何密码。`profiles.key` 不在时，要用户输入一次 2.0 的主密码（界面待做）。按 (协议, 主机, 端口, 用户名) 跳过已有的配置，只导入一次。
+  - 2.0 的服务器大多没存端口，连接时用 2.0 设置里的"默认端口"（`appConfig.defaultPort`，在窗口的 localStorage 里，主进程读不到）。自动导入先填 22，并按导入时所在的工作区记下这些服务器；窗口启动后把自己的默认端口传给 `legacy-v2:apply-default-port`，只改仍是 22 的那几条，只改一次。之后主工作区换了也照样改在原来的工作区；那个工作区锁着时什么都不改，下次再试。
+  - 服务器的 id 用它自己的端口算，没有端口时用 `default`，和传进来的默认端口无关。所以先自动导入、后来又带着默认端口手动导入时，已经导入过的服务器会被认出来跳过，不会重复。
+- **10-06 / 10-07 审查后改的地方**（三轮审查。第一轮 10 条、第三轮 11 条，都由另外的 agent 逐条核实；第二轮 TS 部分 5 条，由 Claude 写测试复现后修复）：
+  - `main.db` 旁边还有一个没拆分的 `getssh.db` 时，迁移把它和能打开它的 `app_key.*` 一起移到 `~/.getssh/.pre-keystore-kept/`。原来它们留在原处，每次启动都会重新迁移一遍；设了主密码后，每次启动都失败。
+  - 设了主密码后，启动时如果还发现迁移剩下的文件，不再迁移，也不再报错，而是把它们移到 `.pre-keystore-kept/`。主密码只能在应用启动成功后设置，所以这时迁移一定已经做完；这时如果还留着备份，那是旧的，恢复它会把新数据盖掉。
+  - 备份第一次做完时写一个完成标记，之后不再往里加文件。迁移失败要还原时，失败那次新建的数据库会被删掉，文件回到迁移前的样子。没有完成标记的备份（TS 版做的，或者 Rust 版做到一半）要先补全：缺的文件补进去；备份里已有的，只要原文件还能用旧钥匙打开（说明还没被迁移动过），就重新复制一份。TS 版是直接覆盖复制的，中途崩溃会留下不完整的副本。
+  - 还原时先写临时文件再改名，崩溃不会留下只写了一半的数据库。
+  - 开发版的工作区设了密码，迁移时 scope 已经建好，但数据库还没换钥匙就失败或中断了：现在这个工作区显示为"等待密码"（设了主密码时也一样），输入原来的密码就能接着迁移完。原来在主密码下它会一直报"数据库损坏"。设主密码时，这样的工作区暂时保留自己的密码，迁移完成后再去掉。
+  - 解锁成功后总会删掉已经没用的 `vault.key`；每次启动先清理上次中断留下的 `.keystore-migration-backup.delete`、`.partial`，以及还原（`*.restoring`）和换钥匙（`*.rekey-*`）中断留下的临时文件，其中可能有明文副本。
+  - 迁移时没有密码的工作区，先在 `adopting_workspaces` 里记一行再换钥匙。换钥匙失败（磁盘满、文件被别的程序占着）时，以后启动会接着做完。旧 TS 版这种情况会让工作区永远打不开。
+  - 接管到一半的工作区碰上设主密码（所有 scope 都要换钥匙）时，直接从明文加密到新钥匙。原来设主密码会报错，工作区也打不开。
+  - 没有完成标记的备份：工作区还没有 scope 时，说明它的数据库一定没被动过，副本一律重新复制。被推迟的密码工作区不知道旧密码，原来没法判断，可能用截断的副本把好文件盖掉。
+  - `.pre-keystore-kept/` 里已有的文件不会被覆盖，同名的加时间后缀。
+  - 移除工作区密码时，如果它迁移到一半，先用这个密码把迁移做完。
+  - 只导出部分工作区时，没选的工作区的接管标记不会跟着带出去；新建工作区时清掉同 id 的旧标记。
+  - 工作区数据库被换成一个明文 SQLite 文件时，不再自动接管，而是报 `corrupt`。只有 `adopt_workspace` 中断后留下的文件会被接着加密：它开始前在 `main.db` 新表 `adopting_workspaces` 里记一行，挂载成功后删掉。
+  - 工作区 id 的规则三处统一（`workspaceId.ts`、Rust、假实现）：任何位置都不能有控制字符（包括 C1，钥匙串库本来就拒绝），首尾空白按 JavaScript 的 `trim` 判断。
+  - 旧版本接受、store 不接受的工作区 id（早期直接用输入的名字，可能带 `/`、`:`，或是 `con` 这类保留名）：拆分 `getssh.db` 和导入 JSON 时换成合法的 id（`ws-` 加原 id 的 MD5 前 12 位，重跑结果一样），原来的名字保留，数据照常加密。原来带 `/` 的会让每次启动都失败，带 `:` 的会留下明文数据库。隐藏目录不当作工作区。已经写进 `main.db` 的不合法 id，启动时记为 `failedWorkspaces`，可以删除这一行（文件不动）。
+  - `start(legacy)` 里不能用的 `workspacePasswords` 条目（id 不合法、密码为空）直接跳过，不再让启动失败。
+  - TS：两个解锁请求排队执行，第二个等第一个结束；2.0 的自动导入只跑一次，所有调用都等它完成，导入保存完之前不会通知 `ready`。
+  - TS：解锁还没走完（store 已经打开、导入还在跑）时屏幕锁定或电脑睡眠，原来这个锁定请求会被丢掉，现在先记下来。设了主密码时直接保持锁定，不通知 `ready`；没设主密码时照常打开，再锁上有密码的工作区。store 还没打开（还在验密码、Touch ID 还在等）时的锁定请求不用记，应用本来就锁着；解锁失败时清掉记下的请求，不会带到下一次解锁。启动过程中的锁定请求在进入锁屏时清掉。
+  - TS：`app_key.enc` 解不开（钥匙串条目被重置、数据从别的电脑拷来）时不再直接让启动失败，而是不传应用钥匙，由 store 判断：真要迁移时 store 拒绝启动，和原来一样，错误信息写 `app_key_unreadable` 和原因；设了主密码、只需要把剩下的文件移开时，照常启动。
+  - TS：2.0 里没存端口的服务器，id 里用 `default` 代替端口，不会和存了端口 22 的同一台服务器混在一起。
+  - 保留设备名（`con.<扩展名>` 等）的判断三处统一：扩展名里有 U+2028 / U+2029 时，JavaScript 的正则原来匹配不上。
 
 ## 8. 协作规则（10-02 调整）
 
@@ -284,7 +319,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 10-03 进度：
 - S1、S5 已完成；S2、S3 的 Rust 部分已完成；S4 的应用秘密（`setAppSecret` 等 3 个函数）已完成。真模块和假实现的对照检查 232 步，零差异。
 - **主进程已接入 store（10-03）**。`DatabaseManager` 改成转发到 store 的薄包装，应用锁、主密码、恢复码、Touch ID、工作区密码、工作区切换、资产桥、资产文件夹都走 store。具体做法：
-  - 启动时，GETSSH 2.x 的旧数据仍由 `keystoreMigration.ts`（`getssh-keystore` + bsmc）迁移；迁移跑完、文件全部关闭后才加载 store。只在需要迁移时才加载这两个旧模块；
+  - 启动时，3.0 开发版写的旧数据仍由 `keystoreMigration.ts`（`getssh-keystore` + bsmc）迁移；迁移跑完、文件全部关闭后才加载 store。只在需要迁移时才加载这两个旧模块（S6 改由 Rust 迁移）；
   - 迁移用到的旧代码挪进 `electron/main/security/legacyDatabase.ts`，S6 时删除；
   - 资产文件夹在 TS 那层再按 `localeCompare` 排一次；资产桥用 `copyProfiles` 复制服务器配置（凭据在 Rust 里重新封装），Runbook 只复制勾选的；
   - 过渡做法：`DatabaseManager.getProfiles()` 仍然把密码和口令交给界面（主进程用 `connectSecrets` 解开），界面现在还要靠它们连接。S4 改成按 id 连接后删掉；
@@ -294,7 +329,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 设了主密码后不能再给工作区单独设密码（`master_password_protects_workspaces`）；第一次设主密码前，有单独密码的工作区必须先解锁，设完后它们改由主密码保护；
   - 修改或移除主密码、修改或移除工作区密码、设了主密码时生成恢复码，都要输入当前密码，不再接受 Touch ID 代替；
   - Touch ID / Windows Hello 只有一个总开关，同时管应用和所有设了单独密码的工作区。
-- 手写 SQL 只剩 2.x 迁移（`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts`）、旧的导出导入（`systemHandler.ts`，S5 接入时删）和打包自检。
+- 手写 SQL 只剩开发版数据的迁移（`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts`）、旧的导出导入（`systemHandler.ts`，S5 接入时删）和打包自检。
 - 测试：`npm run test:keystore-e2e` 共 17 个阶段，新增服务器配置、资产桥、IPC 三个阶段；IPC 阶段在隐藏窗口里调用设置页、工作区切换、资产桥用到的通道。
 - **磁盘上的变化**：store 第一次打开工作区时，会把明文密码封装成 `gk1:` 字段，并加上新表和新列。之后再用接入前的版本打开，密码会显示成 `gk1:…`，连接失败。合进 `v3-next` 前负责人先备份。
 - **S4 的主进程部分（10-03）**：
@@ -307,6 +342,11 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 终端粘贴改走主进程，并拒绝读回刚复制的密码（第 6 节的剩余风险）。要改 `TerminalPane.tsx`，等 Codex / Gemini 的改名提交后再做；
   - 插件的 `safeStorage.encrypt` 只能加密、不能解密，没有动；换成插件秘密接口要先定插件 API；
   - `mcp:*` 通道仍把 `env` / `headers` 返回给界面（MCP 设置页要显示它们），也没有检查发送方。
+
+10-06 进度：
+- S6 的核心部分已完成（在 `feat/master-key-store`，还没合进 `v3-next`）：开发版数据由 Rust 迁移，`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts` 已删除，主进程启动时不再加载 bsmc；2.0 的服务器配置自动导入。两轮审查发现的问题都已修复，见第 7 节。
+- 测试：Rust 107 个，clippy 无警告；对照检查 240 步，零差异；假实现 48 个；主进程单元测试 361 个；`keystore-e2e` 21 个阶段。每个修复都故意改坏一次，测试都报了错（Rust 26 处，TS 18 处）。
+- S6 还没做的：`package.json` 去掉 bsmc、`build-native.js`、启动自检和打包配置。Codex 的改名也改了这几个文件，等它提交后再做。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -347,6 +387,11 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Touch ID 开关不再区分工作区，工作区那一栏的开关和应用那一栏是同一个；
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
+   - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：
+     - 应用变成 `ready` 后调一次 `status()`；
+     - `imported.portDefaulted > 0` 时，用 `appConfig.defaultPort` 调 `applyDefaultPort({ port })`，然后用返回的 `profiles` 替换窗口里的列表。默认端口是 22 时也要调一次，之后就不会再提示；
+     - `needsPassword` 为 `true` 时，提示用户输入 2.0 的主密码，调 `import({ password, defaultPort })`。返回 `wrong_password` 时让用户重输，`imported` 时同样用返回的 `profiles` 替换列表；
+     - 不替换列表的话，窗口下一次保存（整个列表一起保存）会把刚导入的服务器删掉。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
    - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。其余 4 个是 SSH 私钥的导入、生成、列出、删除（阶段 B），暂时只有假实现。
 4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。

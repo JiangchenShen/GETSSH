@@ -20,6 +20,7 @@ use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 use crate::error::{Code, StoreError, StoreResult};
+use crate::legacy::LegacySecrets;
 use crate::rekey;
 use crate::schema;
 use crate::sqlite::{Connection, Key, Mode};
@@ -39,7 +40,15 @@ pub fn master_password_too_short(password: &str) -> bool {
     password.nfc().count() < MIN_MASTER_PASSWORD_CHARS
 }
 
-/// The same rules as utils/workspaceId.ts: ids are file and directory names.
+/// What String.prototype.trim removes: JavaScript's WhiteSpace and LineTerminator. Rust's trim
+/// differs by U+0085 (a control character, refused anyway) and U+FEFF, which JavaScript trims:
+/// so an id is refused here exactly when utils/workspaceId.ts refuses it.
+fn is_js_space(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// The same rules as utils/workspaceId.ts: ids are file and directory names. Control characters
+/// (C0 and C1) are refused anywhere, as the keystore refuses them in scope ids.
 pub fn validate_workspace_id(id: &str) -> StoreResult<()> {
     let len = id.encode_utf16().count();
     let reserved = {
@@ -50,10 +59,10 @@ pub fn validate_workspace_id(id: &str) -> StoreResult<()> {
     };
     let valid = len > 0
         && len <= MAX_WORKSPACE_ID_UTF16
-        && id == id.trim()
+        && id == id.trim_matches(is_js_space)
         && !id.starts_with('.')
         && !id.ends_with('.')
-        && !id.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || (c as u32) < 0x20 || c == '\u{7f}')
+        && !id.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
         && !reserved;
     if valid {
         Ok(())
@@ -67,12 +76,22 @@ pub fn workspace_scope(id: &str) -> StoreResult<String> {
     Ok(format!("ws:{id}"))
 }
 
+/// What start() did with each workspace (store.d.ts StartReport). The first three lists come from
+/// migrating the data of GETSSH 3.0 development builds (legacy.rs). An id is in one of migrated,
+/// deferred and failed at most.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StartReport {
     pub migrated_workspaces: Vec<String>,
     pub deferred_workspaces: Vec<String>,
     pub presence_to_reenable: Vec<String>,
     pub failed_workspaces: Vec<String>,
+}
+
+impl StartReport {
+    /// Whether the migration already reported `id` (as migrated, deferred or failed).
+    fn lists(&self, id: &str) -> bool {
+        [&self.migrated_workspaces, &self.deferred_workspaces, &self.failed_workspaces].iter().any(|list| list.iter().any(|w| w == id))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +157,8 @@ pub struct Store<D: Device> {
     replaced: AtomicBool,
     /// start() ran; before that, calls fail with not_configured rather than locked.
     started: AtomicBool,
+    /// Held for the whole of start(): two starts at once must not both migrate legacy data.
+    starting: Mutex<()>,
     /// The app was unlocked with the recovery code: a new master password may be set without
     /// the current one (it was forgotten). Cleared by locking or by setting the password.
     recovery_unlock: AtomicBool,
@@ -158,7 +179,7 @@ fn owner_only(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
-fn is_plain_sqlite(path: &Path) -> bool {
+pub(crate) fn is_plain_sqlite(path: &Path) -> bool {
     use std::io::Read;
     let mut header = [0u8; 16];
     fs::File::open(path).and_then(|mut f| f.read_exact(&mut header)).is_ok() && &header == b"SQLite format 3\0"
@@ -182,6 +203,7 @@ impl<D: Device> Store<D> {
             must_change_master: AtomicBool::new(false),
             replaced: AtomicBool::new(false),
             started: AtomicBool::new(false),
+            starting: Mutex::new(()),
             recovery_unlock: AtomicBool::new(false),
         }
     }
@@ -226,6 +248,13 @@ impl<D: Device> Store<D> {
 
     fn db_key(&self, scope: &str, staged: bool) -> StoreResult<Key32> {
         Ok(self.ks.database_key(scope, DATABASE_LABEL, staged)?)
+    }
+
+    /// Re-encrypts a database that still uses its pre-keystore key (`from`) with the scope's key;
+    /// nothing happens when the file is missing or already moved. Returns whether it moved.
+    pub(crate) fn move_to_scope_key(&self, file: &Path, scope: &str, from: &Key<'_>) -> StoreResult<bool> {
+        let key = self.db_key(scope, false)?;
+        rekey::move_to_key(file, from, &Key::Raw(&key))
     }
 
     fn scope_status(&self, scope: &str) -> Option<ScopeStatus> {
@@ -346,18 +375,39 @@ impl<D: Device> Store<D> {
 
     /// Opens everything that needs no password. A first run creates the keyring and main.db.
     pub fn start(&self) -> StoreResult<StartReport> {
+        self.start_with(None)
+    }
+
+    /// start() for a data directory that may still hold data from GETSSH 3.0 development builds:
+    /// with `legacy` (what only Electron can decrypt) it is migrated first (legacy.rs); without
+    /// it, start fails with unavailable while such data is there.
+    pub fn start_with(&self, legacy: Option<&LegacySecrets>) -> StoreResult<StartReport> {
         self.check_live()?;
-        let keyring = self.base.join("keyring.json");
-        if !keyring.exists() {
-            let legacy = ["app_key.enc", "app_key.txt", "getssh.db"].iter().any(|n| self.base.join(n).exists()) || self.main_path().exists();
-            if legacy {
-                // The 2.x / early-3.0 migration still runs in keystoreMigration.ts until step S6.
-                return Err(StoreError::new(Code::Unavailable, "legacy data must be migrated first"));
+        if let Some(secrets) = legacy {
+            secrets.validate()?;
+        }
+        let _starting = self.starting.lock().unwrap_or_else(|e| e.into_inner());
+        let mut report = StartReport::default();
+        if !self.is_started() {
+            crate::legacy::remove_leftovers(&self.base);
+        }
+        if !self.is_started() && self.needs_legacy_migration() {
+            if self.base.join("keyring.json").exists() && self.ks.status().app_protected {
+                // The master password is set from inside the app, which a migration that has not
+                // finished never lets start: what is left over is not resumed (it would need the
+                // locked app key) and stays on disk, away from the detection.
+                crate::legacy::set_aside_after_start(&self.base)?;
+            } else {
+                let Some(secrets) = legacy else {
+                    return Err(StoreError::new(Code::Unavailable, "legacy data must be migrated first"));
+                };
+                report = self.migrate_legacy(secrets)?;
             }
+        }
+        if !self.base.join("keyring.json").exists() {
             self.ks.initialize()?;
         }
         self.started.store(true, Ordering::SeqCst);
-        let mut report = StartReport::default();
         match self.ks.open_scope(APP) {
             Ok(()) => {}
             Err(error) if is_locked(&error) => return Ok(report),
@@ -368,14 +418,18 @@ impl<D: Device> Store<D> {
         Ok(report)
     }
 
-    /// Finishes rotations and opens every workspace that needs nothing more.
+    /// Finishes rotations and opens every workspace that needs nothing more. A workspace the
+    /// migration already reported keeps that entry and is not reported again.
     fn after_unlock(&self, report: &mut StartReport) -> StoreResult<()> {
         self.complete_pending_rotations()?;
         for id in self.workspace_ids()? {
             match self.open_workspace(&id) {
                 Ok(_) => {}
+                Err(_) if report.lists(&id) => {}
                 Err(error) if error.code == Code::NeedsPassword => report.deferred_workspaces.push(id),
-                Err(error) if matches!(error.code, Code::Corrupt | Code::Io) => report.failed_workspaces.push(id),
+                // InvalidArgument: a row whose id is not a valid file name (an old build imported it);
+                // it must not keep the app from starting.
+                Err(error) if matches!(error.code, Code::Corrupt | Code::Io | Code::InvalidArgument) => report.failed_workspaces.push(id),
                 Err(error) => return Err(error),
             }
         }
@@ -456,8 +510,14 @@ impl<D: Device> Store<D> {
             }
         };
         if !rekeyed_open && file.exists() && Connection::open(&file, &to, Mode::ReadOnly).is_err() {
-            let current = self.db_key(scope, false)?;
-            rekey::rekey_file(&file, &Key::Raw(&current), &to)?;
+            if scope != APP && is_plain_sqlite(&file) && self.adopting(&scope["ws:".len()..]) {
+                // An adoption that stopped before encrypting the file (a master password set since
+                // stages every scope): it is encrypted straight to the new key.
+                rekey::rekey_file(&file, &Key::Plain, &to)?;
+            } else {
+                let current = self.db_key(scope, false)?;
+                rekey::rekey_file(&file, &Key::Raw(&current), &to)?;
+            }
         }
         self.ks.commit_rotation(scope)?;
         Ok(())
@@ -615,7 +675,9 @@ impl<D: Device> Store<D> {
             .map(|(id, name, theme_color, is_main, preferences, created_at, updated_at)| {
                 let scope = status.scopes.iter().find(|s| s.id == format!("ws:{id}"));
                 WorkspaceInfo {
-                    open: scope.is_some_and(|s| s.unlocked),
+                    // A scope with its own password is unlocked but not mounted while its database
+                    // waits for that password (mount_unlocked): not open for the windows.
+                    open: scope.is_some_and(|s| s.unlocked && (!s.own_password || self.is_mounted(&id))),
                     has_password: scope.is_some_and(|s| s.own_password),
                     presence_enabled: scope.is_some_and(|s| s.presence),
                     id,
@@ -654,6 +716,12 @@ impl<D: Device> Store<D> {
         if path.exists() {
             return Err(StoreError::invalid(format!("a database for workspace {id} already exists")));
         }
+        // A stale adoption mark (a deleted workspace of the same id, an imported bundle) would let
+        // a plaintext file put in place of the new database be taken over.
+        self.with_main(|conn| {
+            conn.execute("DELETE FROM adopting_workspaces WHERE id = ?", &[id.as_str().into()])?;
+            Ok(())
+        })?;
         self.ks.create_scope(&scope, password)?;
         let created = (|| -> StoreResult<()> {
             self.mount(&id)?;
@@ -723,12 +791,26 @@ impl<D: Device> Store<D> {
         if workspace.is_main {
             return Err(StoreError::invalid("the main workspace cannot be deleted"));
         }
+        if validate_workspace_id(id).is_err() {
+            // A row an old build wrote with an id that is no file name: only the row goes (its
+            // id could point anywhere as a path, so no file is touched).
+            return self.with_main(|conn| {
+                conn.transaction(|c| {
+                    c.execute("DELETE FROM ai_memory_vectors WHERE workspace_id = ?", &[id.into()])?;
+                    c.execute("DELETE FROM workspaces WHERE id = ?", &[id.into()])?;
+                    c.execute("DELETE FROM adopting_workspaces WHERE id = ?", &[id.into()])?;
+                    Ok(())
+                })?;
+                Ok(())
+            });
+        }
         let scope = workspace_scope(id)?;
         self.workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
         self.with_main(|conn| {
             conn.transaction(|c| {
                 c.execute("DELETE FROM ai_memory_vectors WHERE workspace_id = ?", &[id.into()])?;
                 c.execute("DELETE FROM workspaces WHERE id = ?", &[id.into()])?;
+                c.execute("DELETE FROM adopting_workspaces WHERE id = ?", &[id.into()])?;
                 Ok(())
             })?;
             Ok(())
@@ -758,7 +840,14 @@ impl<D: Device> Store<D> {
         match self.ks.open_scope(&scope) {
             Ok(()) => {
                 self.complete_rotation(&scope)?;
-                self.mount(id)?;
+                let path = self.workspace_path(id);
+                // adopt_workspace stopped between creating the scope and encrypting the file. Any
+                // other plaintext file in its place is refused (mount reports it as corrupt).
+                if is_plain_sqlite(&path) && self.adopting(id) {
+                    self.move_to_scope_key(&path, &scope, &Key::Plain)?;
+                }
+                self.mount_unlocked(id, &scope)?;
+                self.end_adoption(id)?;
                 Ok(true)
             }
             Err(error) if is_locked(&error) => Ok(false),
@@ -766,30 +855,66 @@ impl<D: Device> Store<D> {
         }
     }
 
-    /// A workspace row without a key scope: created by an older GETSSH, or found on disk. A plain
-    /// (2.x, no password) database is encrypted here; an encrypted one waits for its password.
+    /// A workspace row without a key scope: written before the keystore, or found on disk. A plain
+    /// (no password) database is encrypted here; an encrypted one waits for its password. The
+    /// scope stays if encrypting fails: the file may already use its key. The row is marked in
+    /// main.db (adopting_workspaces) until the database is mounted, so that open_workspace finishes
+    /// a plain one the next time, and only then.
     fn adopt_workspace(&self, id: &str) -> StoreResult<bool> {
         let scope = workspace_scope(id)?;
         let path = self.workspace_path(id);
         if path.exists() && !is_plain_sqlite(&path) {
             return Err(StoreError::new(Code::NeedsPassword, format!("workspace {id} still uses its pre-3.0 password")));
         }
+        self.with_main(|conn| {
+            conn.execute("INSERT INTO adopting_workspaces (id) VALUES (?) ON CONFLICT(id) DO NOTHING", &[id.into()])?;
+            Ok(())
+        })?;
         self.ks.create_scope(&scope, None)?;
-        if path.exists() {
-            let key = self.db_key(&scope, false)?;
-            if let Err(error) = rekey::rekey_file(&path, &Key::Plain, &Key::Raw(&key)) {
-                let _ = self.ks.delete_scope(&scope);
-                return Err(error);
-            }
-        }
+        self.move_to_scope_key(&path, &scope, &Key::Plain)?;
         self.mount(id)?;
+        self.end_adoption(id)?;
         Ok(true)
+    }
+
+    /// Whether adopt_workspace started on `id` and has not mounted it yet.
+    fn adopting(&self, id: &str) -> bool {
+        self.with_main(|conn| Ok(conn.query_optional("SELECT 1 FROM adopting_workspaces WHERE id = ?", &[id.into()], |_| Ok(()))?.is_some()))
+            .unwrap_or(false)
+    }
+
+    fn end_adoption(&self, id: &str) -> StoreResult<()> {
+        if !self.adopting(id) {
+            return Ok(());
+        }
+        self.with_main(|conn| {
+            conn.execute("DELETE FROM adopting_workspaces WHERE id = ?", &[id.into()])?;
+            Ok(())
+        })
+    }
+
+    /// mount() for a workspace whose scope is unlocked. A database that does not open with the
+    /// scope key while the scope has a password of its own is one migrate_legacy_workspace left
+    /// half done: the scope exists, the file still uses that password as its SQLCipher passphrase.
+    /// It is reported as waiting for the password (also when the master password opened the
+    /// scope), and unlock_workspace finishes the move with it.
+    fn mount_unlocked(&self, id: &str, scope: &str) -> StoreResult<()> {
+        match self.mount(id) {
+            Err(error) if error.code == Code::Corrupt && self.awaits_legacy_move(id, scope) => {
+                Err(StoreError::new(Code::NeedsPassword, format!("workspace {id} still uses its pre-3.0 password")))
+            }
+            other => other,
+        }
+    }
+
+    fn awaits_legacy_move(&self, id: &str, scope: &str) -> bool {
+        let path = self.workspace_path(id);
+        self.scope_status(scope).is_some_and(|s| s.own_password) && path.exists() && !is_plain_sqlite(&path)
     }
 
     pub fn unlock_workspace(&self, id: &str, route: UnlockRoute) -> StoreResult<()> {
         let scope = workspace_scope(id)?;
-        // Already open, or opens without asking: nothing to unlock.
-        if self.is_mounted(id) || (self.scope_status(&scope).is_some() && self.open_workspace(id)?) {
+        if self.is_mounted(id) {
             return Ok(());
         }
         if self.scope_status(&scope).is_none() {
@@ -799,8 +924,20 @@ impl<D: Device> Store<D> {
             };
             return self.migrate_legacy_workspace(id, &password);
         }
+        // Opens without asking: nothing to unlock. NeedsPassword: the scope opened, but the
+        // database waits for the password to finish moving (mount_unlocked).
+        match self.open_workspace(id) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) if error.code == Code::NeedsPassword => {}
+            Err(error) => return Err(error),
+        }
+        let mut legacy_password = None;
         match route {
-            UnlockRoute::Password(password) => self.ks.unlock_with_password(&scope, &password)?,
+            UnlockRoute::Password(password) => {
+                self.ks.unlock_with_password(&scope, &password)?;
+                legacy_password = Some(password);
+            }
             UnlockRoute::Presence(reason) => {
                 self.require_presence(&scope)?;
                 self.ks.unlock_with_presence(&scope, &reason)?
@@ -810,7 +947,15 @@ impl<D: Device> Store<D> {
             }
         }
         self.complete_rotation(&scope)?;
-        self.mount(id)?;
+        if let Some(password) = legacy_password {
+            // migrate_legacy_workspace stopped (or failed) between creating the scope and
+            // re-encrypting the file, which still uses the password as its SQLCipher passphrase.
+            self.move_to_scope_key(&self.workspace_path(id), &scope, &Key::Passphrase(password.as_bytes()))?;
+        }
+        self.mount_unlocked(id, &scope)?;
+        // The database opens with its scope key, so an old vault.key is of no use any more; a move
+        // that stopped before deleting it left it behind. Best effort: the unlock has succeeded.
+        let _ = self.remove_vault_key(id);
         // A master password replaces workspace passwords. One can survive here only if the app
         // stopped between setting the master password and dropping it (or came from 2.x).
         self.drop_workspace_password_under_master(id)
@@ -826,10 +971,11 @@ impl<D: Device> Store<D> {
     }
 
     /// Under a master password, an unlocked workspace that still has its own password loses it
-    /// and is protected by the master password instead.
+    /// and is protected by the master password instead. Only once its database is mounted: one
+    /// that waits for its legacy move (mount_unlocked) needs that password to finish.
     fn drop_workspace_password_under_master(&self, id: &str) -> StoreResult<()> {
         let scope = workspace_scope(id)?;
-        if !self.app_protected() || !self.scope_status(&scope).is_some_and(|s| s.own_password && s.unlocked) {
+        if !self.app_protected() || !self.is_mounted(id) || !self.scope_status(&scope).is_some_and(|s| s.own_password && s.unlocked) {
             return Ok(());
         }
         let staged = self.ks.remove_password(&scope)?;
@@ -840,6 +986,11 @@ impl<D: Device> Store<D> {
         })
     }
 
+    /// A password workspace written before the keystore, unlocked for the first time: its scope
+    /// gets the same password (the raw UTF-8 bytes were the SQLCipher passphrase; the keystore
+    /// normalizes to NFC itself). The scope stays if re-encrypting fails (deleting it is unsafe
+    /// once the file may use its key): the workspace then reports needs_password, also under a
+    /// master password, and unlock_workspace finishes the move with the next correct password.
     fn migrate_legacy_workspace(&self, id: &str, password: &str) -> StoreResult<()> {
         let scope = workspace_scope(id)?;
         let path = self.workspace_path(id);
@@ -850,13 +1001,20 @@ impl<D: Device> Store<D> {
             Err(error) => return Err(error.into()),
         }
         self.ks.create_scope_with_legacy_password(&scope, password)?;
-        let key = self.db_key(&scope, false)?;
-        if let Err(error) = rekey::rekey_file(&path, &legacy, &Key::Raw(&key)) {
-            let _ = self.ks.delete_scope(&scope);
-            return Err(error);
-        }
+        self.move_to_scope_key(&path, &scope, &legacy)?;
+        self.remove_vault_key(id)?;
         self.mount(id)?;
         self.drop_workspace_password_under_master(id)
+    }
+
+    /// Deletes workspaces/<id>/vault.key, the password that early 3.0 builds kept for a workspace
+    /// (safeStorage, readable without the password on some setups). Kept until the move is done.
+    pub(crate) fn remove_vault_key(&self, id: &str) -> StoreResult<()> {
+        validate_workspace_id(id)?;
+        match fs::remove_file(self.base.join("workspaces").join(id).join("vault.key")) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
+        }
     }
 
     /// One Touch ID / Windows Hello prompt per workspace that has it enabled (see store.d.ts).
@@ -927,8 +1085,12 @@ impl<D: Device> Store<D> {
         let scope = workspace_scope(id)?;
         self.ks.verify_password(&scope, current)?;
         if !self.is_mounted(id) {
-            self.ks.unlock_with_password(&scope, current)?;
-            self.mount(id)?;
+            // Also finishes a legacy move left half done (mount_unlocked).
+            self.unlock_workspace(id, UnlockRoute::Password(Zeroizing::new(current.to_string())))?;
+            // Under a master password, unlocking it already replaced its own password.
+            if !self.scope_status(&scope).is_some_and(|s| s.own_password) {
+                return Ok(());
+            }
         }
         let staged = self.ks.remove_password(&scope)?;
         self.complete_rotations(staged)?;

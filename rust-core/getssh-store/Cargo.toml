@@ -18,6 +18,8 @@ unicode-normalization = "0.1.24"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.0"
+# Profile ids of the JSON import of early builds (md5 of "host:username"); same digest 0.11 as sha2.
+md-5 = "0.11.0"
 
 [dev-dependencies]
 getssh-keystore = { path = "../getssh-keystore", features = ["fake-device"] }

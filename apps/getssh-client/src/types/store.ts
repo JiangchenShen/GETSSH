@@ -39,3 +39,23 @@ export type RevealRoute = { method: 'presence' } | { method: 'password'; passwor
 
 /** Language of the system dialog that shows a secret; its words are fixed in the main process. */
 export type RevealLanguage = 'zh-CN' | 'en-US';
+
+/** What GETSSH 2.0 left in userData, and what was imported (handlers/legacyImportHandler.ts). */
+export interface LegacyV2Status {
+  kind: 'encrypted' | 'plain' | 'unreadable' | 'none';
+  /** A list is there that only the 2.0 master password opens: ask for it, then call `import`. */
+  needsPassword: boolean;
+  imported: {
+    /** Epoch milliseconds. */
+    at: number;
+    source: string;
+    imported: number;
+    skipped: number;
+    /** The 2.0 file changed since; `import` adds what is new. */
+    changed: boolean;
+    /** Imported servers that had no port in 2.0 and got 22: call `applyDefaultPort` once. */
+    portDefaulted: number;
+  } | null;
+}
+
+export type LegacyV2ImportStatus = 'imported' | 'nothing' | 'already' | 'needs_password' | 'wrong_password' | 'unreadable' | 'failed';

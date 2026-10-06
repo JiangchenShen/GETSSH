@@ -9,8 +9,10 @@ import os from 'node:os';
  * file name on macOS / Windows; everything else, including CJK names and inner spaces, stays allowed.
  */
 const MAX_WORKSPACE_ID_LENGTH = 128;
-const FORBIDDEN_CHARS = /[/\\:*?"<>|\u0000-\u001f\u007f]/;
-const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+// C0 and C1 control characters as well: the keystore refuses them in its scope ids.
+const FORBIDDEN_CHARS = /[/\\:*?"<>|\u0000-\u001f\u007f-\u009f]/;
+// `s`: the extension may hold U+2028 / U+2029, which `.` does not match otherwise.
+const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/is;
 
 export function isValidWorkspaceId(id: unknown): id is string {
   if (typeof id !== 'string') return false;
