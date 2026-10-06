@@ -39,7 +39,7 @@ export const AboutTab: React.FC = () => {
 
   return <div className="space-y-8">
     <div className="flex items-center gap-4">
-      <img src={logoSrc} alt="" className="h-14 w-14 object-contain" />
+      <img src={logoSrc} alt="" className="h-14 w-14 rounded-xl border border-line object-cover" />
       <div className="min-w-0">
         <h2 className="break-words text-lg font-semibold text-ink">{buildConfig.productName} {releaseVersion} {getsshRelease.stage}</h2>
         <p className="mt-1 text-xs text-ink-3">{getsshRelease.edition} · {releaseProgram}</p>

@@ -145,7 +145,6 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
 
   return {
     title: 'GETSSH',
-    icon: process.env.VITE_PUBLIC ? path.join(process.env.VITE_PUBLIC, 'logo.png') : undefined,
     width,
     height,
     resizable: false,

@@ -106,8 +106,7 @@
       "files": [
         "package.json",
         "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/darwin*"
-      ],
-      "icon": "build/icon.ico"
+      ]
     },
     "directories": {
       "buildResources": "build",
@@ -252,8 +251,6 @@
     ],
     "files": [
       "dist/index.html",
-      "dist/favicon.ico",
-      "dist/logo.png",
       "dist/assets/**/*",
       "dist/plugins/**/*",
       "!dist/plugins/test-plugin/**/*",
@@ -298,8 +295,7 @@
       "files": [
         "package.json",
         "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/win32*"
-      ],
-      "icon": "build/icon.icns"
+      ]
     },
     "dmg": {
       "title": "Install GETSSH",
