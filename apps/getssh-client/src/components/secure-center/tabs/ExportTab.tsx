@@ -30,7 +30,11 @@ export const ExportTab: React.FC = () => {
   };
 
   const exportAll = () => run('exportAll', async () => {
-    if (!window.electronAPI?.exportDatabaseAll) return;
+    // Stopgap until this page uses window.electronAPI.store.backup: the 2.x export is gone.
+    if (!window.electronAPI?.exportDatabaseAll) {
+      setStatus({ type: 'error', message: copy('已改为加密备份，新的界面马上就到', 'Moved to encrypted backups; the new screen is on its way') });
+      return;
+    }
     let confirmed: boolean;
     try {
       confirmed = await promptWebAuthn();

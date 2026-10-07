@@ -17,7 +17,7 @@
     "build": "pnpm run build:native-tools && vite build && electron-builder",
     "build:native-tools": "cargo build --release -p ocean-sentinel --no-default-features --bins",
     "build:watchdog": "cargo build --release -p ocean-sentinel --no-default-features --bin watchdog",
-    "build:plugin": "node scripts/package-plugin.js",
+    "build:plugin": "node scripts/package-plugin.mjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:plugin-isolation": "electron scripts/security/plugin-host-smoke.cjs",

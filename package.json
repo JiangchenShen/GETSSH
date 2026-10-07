@@ -5,6 +5,6 @@
   "scripts": {
     "dev": "pnpm --filter getssh dev",
     "build": "pnpm --filter getssh build",
-    "build:plugin": "node scripts/package-plugin.js"
+    "build:plugin": "node apps/getssh-client/scripts/package-plugin.mjs"
   }
 }

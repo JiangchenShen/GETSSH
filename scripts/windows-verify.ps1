@@ -155,8 +155,9 @@ $steps = @(
         if (Test-Path $bsmc) { Write-Host 'better-sqlite3-multiple-ciphers is still in the package'; return 1 }
         if (Test-Path $keystore) { Write-Host 'the standalone getssh-keystore module is still in the package'; return 1 }
         if (-not (Test-Path (Join-Path $resources 'rust-core\getssh-store'))) { Write-Host 'getssh-store is missing from the package'; return 1 }
-        Write-Host 'package: getssh-store only, no better-sqlite3-multiple-ciphers or getssh-keystore'
-        return 0
+        # The archive check: forbidden packages (adm-zip and the like, which stay inside app.asar),
+        # better_sqlite3.node from any package, and the architecture of every native binary.
+        return (Invoke-Native 'node scripts/check-package.cjs ..\..\dist\win-unpacked\resources\app.asar win32 x64' $Client)
     } }
 )
 

@@ -358,7 +358,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 应用里不再有 bsmc：`better-sqlite3-multiple-ciphers` 改成开发依赖，只给 `keystore-e2e` 写开发版的旧数据用；`adm-zip` 去掉；
   - 单独的 `getssh-keystore.node` 不再编译、打包，`security/keystore.ts` 删除；`getssh-keystore` 只作为 Rust 库给 store 用（去掉了 `napi` 特性）；
   - 2.x 的数据库导出导入（`export-database-all`、`export-database-workspace`、`import-database`、`import-database-confirm`）删除。它们导出的是只有本机钥匙才能打开的文件，导入写的是 store 不读的 `getssh.db`，在 store 接入后已经不能用了。备份改用 `store:backup:*`；
-  - 打包检查（`scripts/check-package.cjs`）确认包里没有 `better-sqlite3-multiple-ciphers`、`better_sqlite3.node`、`adm-zip` 和 `getssh-keystore`；Windows 的 `windows-verify.ps1` 同样检查；
+  - 打包检查（`scripts/check-package.cjs`）确认包里没有 `better-sqlite3-multiple-ciphers`、`better_sqlite3.node`、`adm-zip` 和 `getssh-keystore`；Windows 的 `windows-verify.ps1` 打包后也跑这个检查（`win32 x64`）；
   - 验证：本机打了 `.app`（`electron-builder --dir`），打包检查通过；`test:packaged-startup` 通过，11 个原生和运行时模块，store 用本机真实的设备钥匙；Rust（store 113 个、keystore 70 个）、客户端 523 个、`keystore-e2e` 21 个阶段都通过。
 
 阶段 B 视进度决定是否进入 3.0。
