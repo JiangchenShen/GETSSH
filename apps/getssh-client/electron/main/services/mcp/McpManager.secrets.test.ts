@@ -39,6 +39,7 @@ vi.mock('../agent/ToolRegistry', () => ({ toolRegistry: { register: vi.fn(), unr
 
 import { configureStore, getStore, resetStoreForTest } from '../getsshStore';
 import { McpManager } from './McpManager';
+import type { McpServerConfig } from './mcpTypes';
 
 const fake = createRequire(import.meta.url)(path.resolve(process.cwd(), '../../rust-core/getssh-store/store.fake.js'));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-mcp-secrets-'));
@@ -114,6 +115,51 @@ describe('MCP secrets', () => {
     open('ready');
     await init;
     expect(configs(manager).github.env).toEqual({ GITHUB_TOKEN: TOKEN });
+  });
+
+  it('drops a server\'s tokens when its command or address changes, unless the update sets them', async () => {
+    const changes: Array<[string, Partial<McpServerConfig>, 'env' | 'headers']> = [
+      ['github', { command: '/bin/echo' }, 'env'],
+      ['github', { args: ['--verbose'] }, 'env'],
+      ['github', { cwd: os.tmpdir() }, 'env'],
+      ['remote', { url: 'https://elsewhere.example' }, 'headers'],
+      ['remote', { transport: 'sse' }, 'headers'],
+    ];
+    for (const [id, change, field] of changes) {
+      fake.__fake.reset();
+      resetStoreForTest();
+      await configureStore().start();
+      fs.writeFileSync(configFile(), JSON.stringify(legacyServers));
+      const manager = fresh();
+      await manager.init();
+      await manager.updateServer(id, change);
+      expect(configs(manager)[id][field], JSON.stringify(change)).toBeUndefined();
+      expect(getStore().listAppSecretNames('mcp/')).not.toContain(`mcp/${id}`);
+    }
+
+    const manager = fresh();
+    await manager.init();
+    await manager.updateServer('github', { name: 'GitHub (work)', enabled: false });
+    expect(configs(manager).github.env).toEqual({ GITHUB_TOKEN: TOKEN });
+    await manager.updateServer('github', { command: '/bin/echo', env: { GITHUB_TOKEN: 'ghp_for_echo' } });
+    const restarted = fresh();
+    await restarted.init();
+    expect(configs(restarted).github.env).toEqual({ GITHUB_TOKEN: 'ghp_for_echo' });
+  });
+
+  it('refuses to change a command or address before the stored tokens are merged in', async () => {
+    await fresh().init();
+    const notMerged = fresh();
+    await expect(notMerged.updateServer('remote', { url: 'https://elsewhere.example' })).rejects.toThrow(/locked/);
+    expect(configs(notMerged).remote.url).toBe('https://mcp.example.com/');
+
+    const relocked = fresh();
+    await relocked.init();
+    open('locked');
+    await expect(relocked.updateServer('remote', { url: 'https://elsewhere.example' })).rejects.toThrow(/locked/);
+    expect(configs(relocked).remote.url).toBe('https://mcp.example.com/');
+    open('ready');
+    expect(getStore().listAppSecretNames('mcp/')).toEqual(['mcp/github', 'mcp/remote']);
   });
 
   it('updates and removes a server\'s stored secrets with it', async () => {

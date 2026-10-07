@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import { isDeepStrictEqual } from 'node:util';
 import {
   McpServerConfig,
   McpServerState,
@@ -23,6 +24,13 @@ const MAX_MCP_SAMPLING_REQUESTS_PER_MINUTE = 10;
 const SECRET_PREFIX = 'mcp/';
 
 type McpSecrets = Pick<McpServerConfig, 'env' | 'headers'>;
+
+/**
+ * Where a server's tokens go. When one of these changes, its environment variables and headers are
+ * kept only if the update sets them again: a new command or address must not receive the tokens
+ * entered for the old one.
+ */
+const TARGET_FIELDS = ['transport', 'command', 'args', 'cwd', 'url'] as const;
 
 /** A configuration without its environment and headers, and those two (null when both are empty). */
 function splitSecrets(config: McpServerConfig): { plain: McpServerConfig; secrets: McpSecrets | null } {
@@ -307,10 +315,19 @@ export class McpManager {
     const idx = this.serverConfigs.findIndex(s => s.id === id);
     if (idx === -1) throw new Error(`MCP Server not found: ${id}`);
 
-    this.serverConfigs[idx] = normalizeMcpServerConfig(
-      { ...this.serverConfigs[idx], ...updates, id },
-      id
-    );
+    const current = this.serverConfigs[idx];
+    const next = normalizeMcpServerConfig({ ...current, ...updates, id }, id);
+    if (TARGET_FIELDS.some(field => !isDeepStrictEqual(current[field], next[field]))) {
+      // While the store is closed, dropping them here would leave the stored ones, which the next
+      // start merges into the new command or address.
+      if (!this.secretsLoaded || !appLock.isReady()) {
+        throw new Error('GETSSH is locked: an MCP server\'s command or address can be changed once it is unlocked.');
+      }
+      const supplied = updates && typeof updates === 'object' ? updates : {};
+      if (!('env' in supplied)) delete next.env;
+      if (!('headers' in supplied)) delete next.headers;
+    }
+    this.serverConfigs[idx] = next;
     this.saveConfigs();
 
     const updated = this.serverConfigs[idx];

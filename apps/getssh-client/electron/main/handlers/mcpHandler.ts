@@ -4,6 +4,17 @@ import { isKnownTopLevelSender, isMainWebContents } from '../windowRegistry';
 
 const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
 
+/**
+ * A server's settings as the settings page gets them: without environment variables and headers,
+ * which hold tokens. The page can set them; only the main process reads them back.
+ */
+function withoutSecrets<T extends { env?: unknown; headers?: unknown }>(config: T): Omit<T, 'env' | 'headers'> {
+  const plain = { ...config };
+  delete plain.env;
+  delete plain.headers;
+  return plain;
+}
+
 /** Server settings carry tokens (env, headers) and start processes: the main window's top frame only. */
 const fromMainFrame = (event: IpcMainInvokeEvent) =>
   isMainWebContents(event.sender) && !!event.senderFrame && event.senderFrame.parent === null;
@@ -13,7 +24,7 @@ export function registerMcpHandlers(ipcMain: IpcMain) {
   ipcMain.handle('mcp:get-servers', async (event) => {
     if (!fromMainFrame(event)) return UNAUTHORIZED;
     try {
-      const servers = mcpManager.getAllServersState();
+      const servers = mcpManager.getAllServersState().map(state => ({ ...state, config: withoutSecrets(state.config) }));
       return { success: true, servers };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -25,7 +36,7 @@ export function registerMcpHandlers(ipcMain: IpcMain) {
     if (!fromMainFrame(event)) return UNAUTHORIZED;
     try {
       const server = await mcpManager.addServer(config);
-      return { success: true, server };
+      return { success: true, server: withoutSecrets(server) };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -36,7 +47,7 @@ export function registerMcpHandlers(ipcMain: IpcMain) {
     if (!fromMainFrame(event)) return UNAUTHORIZED;
     try {
       const server = await mcpManager.updateServer(payload.id, payload.updates);
-      return { success: true, server };
+      return { success: true, server: withoutSecrets(server) };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

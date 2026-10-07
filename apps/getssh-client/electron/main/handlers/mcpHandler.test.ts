@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 // top frame only; prompts and resources from the top frame of any GETSSH window.
 
 const manager = vi.hoisted(() => ({
-  getAllServersState: vi.fn(() => [{ config: { id: 's', env: { TOKEN: 'secret-token' } } }]),
-  addServer: vi.fn(async () => ({ id: 'new' })),
-  updateServer: vi.fn(async () => ({ id: 's' })),
+  getAllServersState: vi.fn(() => [{ config: { id: 's', name: 'S', env: { TOKEN: 'secret-token' }, headers: { Authorization: 'Bearer secret-token' } }, status: 'connected', tools: [] }]),
+  addServer: vi.fn(async () => ({ id: 'new', env: { TOKEN: 'secret-token' } })),
+  updateServer: vi.fn(async () => ({ id: 's', headers: { Authorization: 'Bearer secret-token' } })),
   removeServer: vi.fn(),
   startServer: vi.fn(async () => ({})),
   getAllResources: vi.fn(() => []),
@@ -53,6 +53,16 @@ describe('MCP IPC senders', () => {
     }
     expect(manager.addServer).toHaveBeenCalledTimes(1);
     expect(manager.removeServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('never sends a server\'s environment variables or headers to the page', async () => {
+    const servers = await call('mcp:get-servers', MAIN);
+    expect(servers).toEqual({ success: true, servers: [{ config: { id: 's', name: 'S' }, status: 'connected', tools: [] }] });
+    expect(JSON.stringify(await call('mcp:add-server', MAIN, { name: 'x' }))).not.toContain('secret-token');
+    expect(JSON.stringify(await call('mcp:update-server', MAIN, { id: 's', updates: {} }))).not.toContain('secret-token');
+    // The manager keeps them: restart still starts the server with its tokens.
+    await call('mcp:restart-server', MAIN, 's');
+    expect(manager.startServer).toHaveBeenLastCalledWith(expect.objectContaining({ env: { TOKEN: 'secret-token' } }));
   });
 
   it('lets any GETSSH window read prompts and resources, but no subframe', async () => {
