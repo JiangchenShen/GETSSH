@@ -354,7 +354,12 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 10-06 进度：
 - S6 的核心部分已完成（在 `feat/master-key-store`，还没合进 `v3-next`）：开发版数据由 Rust 迁移，`keystoreMigration.ts`、`legacyDatabase.ts`、`databaseKeys.ts` 已删除，主进程启动时不再加载 bsmc；2.0 的服务器配置自动导入。两轮审查发现的问题都已修复，见第 7 节。
 - 测试：Rust 113 个，clippy 无警告；对照检查 240 步，零差异；假实现 48 个；主进程单元测试 361 个；`keystore-e2e` 21 个阶段。每个修复都故意改坏一次，测试都报了错（Rust 36 处，TS 18 处）。
-- S6 还没做的：`package.json` 去掉 bsmc、`build-native.js`、启动自检和打包配置。Codex 的改名也改了这几个文件，等它提交后再做。
+- **S6 收尾（10-07）**：
+  - 应用里不再有 bsmc：`better-sqlite3-multiple-ciphers` 改成开发依赖，只给 `keystore-e2e` 写开发版的旧数据用；`adm-zip` 去掉；
+  - 单独的 `getssh-keystore.node` 不再编译、打包，`security/keystore.ts` 删除；`getssh-keystore` 只作为 Rust 库给 store 用（去掉了 `napi` 特性）；
+  - 2.x 的数据库导出导入（`export-database-all`、`export-database-workspace`、`import-database`、`import-database-confirm`）删除。它们导出的是只有本机钥匙才能打开的文件，导入写的是 store 不读的 `getssh.db`，在 store 接入后已经不能用了。备份改用 `store:backup:*`；
+  - 打包检查（`scripts/check-package.cjs`）确认包里没有 `better-sqlite3-multiple-ciphers`、`better_sqlite3.node`、`adm-zip` 和 `getssh-keystore`；Windows 的 `windows-verify.ps1` 同样检查；
+  - 验证：本机打了 `.app`（`electron-builder --dir`），打包检查通过；`test:packaged-startup` 通过，11 个原生和运行时模块，store 用本机真实的设备钥匙；Rust（store 113 个、keystore 70 个）、客户端 523 个、`keystore-e2e` 21 个阶段都通过。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -395,6 +400,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Touch ID 开关不再区分工作区，工作区那一栏的开关和应用那一栏是同一个；
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
+   - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了没反应；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
    - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：
      - 应用变成 `ready` 后调一次 `status()`；
      - `imported.portDefaulted > 0` 时，用 `appConfig.defaultPort` 调 `applyDefaultPort({ port })`，然后用返回的 `profiles` 替换窗口里的列表。默认端口是 22 时也要调一次，之后就不会再提示；

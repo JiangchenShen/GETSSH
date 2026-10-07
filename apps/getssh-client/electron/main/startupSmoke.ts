@@ -1,9 +1,8 @@
 import { app } from 'electron';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type Database from 'better-sqlite3-multiple-ciphers';
 import { getRustCorePath } from './utils/rustCorePath';
 
 const TOKEN_PATTERN = /^[a-f0-9]{32}$/;
@@ -40,7 +39,6 @@ const RUST_MODULE_EXPORTS: Record<string, readonly string[]> = {
   'tidal-engine': ['initTidalEngine', 'bootstrapWorkspace'],
   'audit-stream': ['AuditStream'],
   'ocean-sentinel': ['sanitize', 'rehydrate'],
-  'getssh-keystore': ['configure', 'status', 'initialize', 'openScope', 'databaseKey', 'sealField', 'openField', 'probeDevice'],
   'getssh-store': ['configure', 'start', 'appState', 'engineVersion', 'listProfiles', 'saveProfiles', 'connectSecrets', 'setAppSecret', 'getAppSecret'],
 };
 
@@ -73,35 +71,6 @@ function assertExports(moduleName: string, loaded: unknown, expected: readonly s
     if (typeof (loaded as Record<string, unknown>)[exportName] !== 'function') {
       throw new Error(`${moduleName} is missing native export ${exportName}`);
     }
-  }
-}
-
-/**
- * Exercises this OS's real device key (Secure Enclave or Keychain, TPM or DPAPI) through the
- * packaged keystore, with a keyring in a temporary directory. Nothing here can prompt.
- */
-async function testKeystore(keystore: any): Promise<string> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-keystore-'));
-  try {
-    keystore.configure(path.join(dir, 'keyring.json'));
-    const backend: string = await keystore.probeDevice();
-    await keystore.initialize();
-    await keystore.createScope('ws:startup-smoke');
-    const key: Buffer = keystore.databaseKey('ws:startup-smoke', 'database');
-    try {
-      if (key.length !== 32) throw new Error('keystore returned a database key of the wrong length');
-    } finally {
-      key.fill(0);
-    }
-    const marker = 'GETSSH_KEYSTORE_SMOKE_OK';
-    const sealed: string = keystore.sealField('ws:startup-smoke', 'startup-smoke', marker);
-    if (sealed.includes(marker) || keystore.openField('ws:startup-smoke', 'startup-smoke', sealed) !== marker) {
-      throw new Error('keystore field encryption did not round-trip');
-    }
-    if (keystore.status().quietBackend !== backend) throw new Error('keystore used an unexpected device key backend');
-    return backend;
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -273,25 +242,7 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
       !app.commandLine.hasSwitch('use-mock-keychain')) {
     throw new Error('Packaged-startup smoke is not isolated from user data');
   }
-  const Database = require('better-sqlite3-multiple-ciphers') as typeof import('better-sqlite3-multiple-ciphers');
   const loadedModules: string[] = [];
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-db-'));
-  const key = Buffer.from(randomBytes(32).toString('hex'), 'utf8');
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(path.join(tempDir, 'startup.db'));
-    db.pragma("cipher = 'sqlcipher'");
-    db.key(key);
-    db.exec('CREATE TABLE startup_smoke (value INTEGER NOT NULL)');
-    db.prepare('INSERT INTO startup_smoke (value) VALUES (?)').run(3);
-    const row = db.prepare('SELECT value FROM startup_smoke').get() as { value?: number } | undefined;
-    if (row?.value !== 3) throw new Error('SQLCipher runtime query returned an unexpected value');
-    loadedModules.push('better-sqlite3-multiple-ciphers');
-  } finally {
-    key.fill(0);
-    db?.close();
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
 
   const nodePty = require('node-pty');
   assertExports('node-pty', nodePty, ['spawn']);
@@ -306,9 +257,7 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
   for (const [moduleName, expectedExports] of Object.entries(RUST_MODULE_EXPORTS)) {
     const loaded = require(getRustCorePath(moduleName));
     assertExports(moduleName, loaded, expectedExports);
-    if (moduleName === 'getssh-keystore') {
-      loadedModules.push(`${moduleName} (${await testKeystore(loaded)})`);
-    } else if (moduleName === 'getssh-store') {
+    if (moduleName === 'getssh-store') {
       if (!/^SQLite \d+\.\d+\.\d+/.test(loaded.engineVersion())) {
         throw new Error('getssh-store SQLite engine did not report its version');
       }

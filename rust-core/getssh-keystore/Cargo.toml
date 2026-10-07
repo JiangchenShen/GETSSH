@@ -3,19 +3,11 @@ name = "getssh-keystore"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [features]
-# The standalone getssh-keystore.node (scripts/build-native.js passes --features napi).
-# getssh-store links this crate without it, so the N-API exports are not registered twice.
-napi = ["dep:napi", "dep:napi-derive"]
 # The software device from src/device/fake.rs, for getssh-store's tests. Never in a build.
 fake-device = []
 
 [dependencies]
-napi = { version = "3.14.0", optional = true }
-napi-derive = { version = "3.6.10", optional = true }
 aes-gcm = { version = "0.11.1", features = ["zeroize"] }
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
 base64 = "0.23"
@@ -47,6 +39,3 @@ windows = { version = "0.62.2", features = [
 ] }
 # WinRT async operations (IAsyncOperation, .join()) live here since windows 0.59.
 windows-future = "0.3.2"
-
-[build-dependencies]
-napi-build = "2.3.2"

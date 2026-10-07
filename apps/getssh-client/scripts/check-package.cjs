@@ -42,14 +42,19 @@ function windowsArchiveBinary(entry) {
   windowsBinary(path.join(`${archive}.unpacked`, entry));
 }
 
+// better-sqlite3-multiple-ciphers and adm-zip went with step S6: getssh-store is the only database
+// engine, and nothing else may open the data directory's files.
 const forbidden = ['src', 'electron', 'scripts', ...[
   'react-icons', 'framer-motion', 'fuse.js', 'immer', 'react-markdown',
   'react-syntax-highlighter', 'remark-gfm', '@xterm/addon-serialize', '@types',
+  'better-sqlite3-multiple-ciphers', 'adm-zip',
 ].map(name => `node_modules/${name}`)];
 for (const entry of entries) {
   assert(!forbidden.some(prefix => entry === prefix || entry.startsWith(`${prefix}/`)), `Unneeded package entry: ${entry}`);
   assert(!entry.endsWith('.tsbuildinfo'), `Unneeded TypeScript build state: ${entry}`);
+  assert(!/(^|\/)better_sqlite3\.node$/.test(entry), `Unneeded SQLite engine: ${entry}`);
 }
+assert(!fs.existsSync(path.join(resources, 'rust-core', 'getssh-keystore')), 'The standalone getssh-keystore module must not be packaged');
 
 for (const entry of [
   'package.json', 'dist/index.html', 'dist-electron/main/index.js',
@@ -70,15 +75,13 @@ for (const pattern of [
   matches.forEach(archiveFile);
 }
 
-for (const name of ['adm-zip', 'electron-updater', 'ssh2', 'node-pty', 'better-sqlite3-multiple-ciphers']) {
+for (const name of ['electron-updater', 'ssh2', 'node-pty']) {
   const directory = `node_modules/${name}`;
   archiveFile(`${directory}/package.json`);
   const metadata = JSON.parse(asar.extractFile(archive, `${directory}/package.json`));
   archiveFile(path.posix.join(directory, metadata.main || 'index.js'));
 }
-archiveFile(`node_modules/better-sqlite3-multiple-ciphers/prebuilds/${platform}-${arch}.node`);
 if (platform === 'win32') {
-  windowsArchiveBinary(`node_modules/better-sqlite3-multiple-ciphers/prebuilds/${platform}-${arch}.node`);
   for (const name of [
     'pty.node', 'conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll',
     'conpty/OpenConsole.exe', 'conpty/conpty.dll',
@@ -87,7 +90,7 @@ if (platform === 'win32') {
 
 for (const name of [
   'getssh-kv', 'getssh-sysprobe', 'getssh-vault', 'getssh-unarchive', 'sftp-stream',
-  'tidal-engine', 'audit-stream', 'ocean-sentinel', 'getssh-keystore', 'getssh-store',
+  'tidal-engine', 'audit-stream', 'ocean-sentinel', 'getssh-store',
 ]) {
   const directory = path.join(resources, 'rust-core', name);
   const metadataFile = path.join(directory, 'package.json');

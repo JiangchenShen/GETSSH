@@ -9,12 +9,12 @@
 | 成员 | 负责 | 不碰 |
 |---|---|---|
 | 负责人 | 产品方向、文案定稿、发版；决定谁做什么；合并到 `main` | — |
-| Claude | 全部深层后端：`rust-core/**`、`apps/getssh-client/electron/main/**`、`electron/preload/**`（IPC 边界）、数据迁移、导出导入、原生模块构建和打包；审查别人的后端改动；把后端改动合并到 `v3-next` | 界面的组件和样式，除非负责人指定 |
+| Claude | 全部深层后端：`rust-core/**`、`apps/getssh-client/electron/main/**`、`electron/preload/**`（IPC 边界）、数据迁移、导出导入、原生模块构建和打包；审查别人的后端改动；把后端改动合并到 `v3-next`；QA（10-07 起，见第 5 节） | 界面的组件和样式，除非负责人指定 |
 | ChatGPT（Codex） | 产品界面 `apps/getssh-client/src/**`；官网 `GETSSH-WEBSITE`；存储相关的界面（导出导入、查看密码、强制更换主密码、私钥管理） | `rust-core/**`、`electron/main/**`、`electron/preload/**`，第 4 节的试用任务除外 |
-| Gemini | QA：写测试、跑测试、报 bug；配合 Codex 做界面；改文案第二版 | 后端生产代码。发现问题写报告，不直接改 |
+| Gemini | 配合 Codex 做界面；改文案第二版 | 后端代码和测试；不跑破坏性的测试脚本 |
 
 - 界面由 Codex 主导，Gemini 配合。两人不同时改同一个文件，具体分到哪个组件由负责人定。
-- 写测试用 Gemini 3.8 Flash。Gemini 3.1 Pro 不再用来写代码和测试。
+- 10-07 起 QA 由 Claude 负责：Gemini 的压力测试会直接攻击工程文件，弄坏过开发环境。Gemini 不再写测试、跑测试；Gemini 3.1 Pro 也不再用来写代码。
 - Gemini 4 Argon 要参与写代码，先走第 4 节同样的试用流程。
 
 ## 2. 工作区和分支
@@ -26,7 +26,7 @@
    | `/Volumes/Developer/GETSSH` | `v3-next` | 负责人每天在这里跑 `pnpm run dev`；只有负责人和 Claude 在这里合并 |
    | `/Volumes/Developer/GETSSH-store` | `feat/master-key-store` | Claude 的存储层开发 |
    | `/Volumes/Developer/GETSSH-codex` | `feat/ui-<主题>` | Codex（需要时新建） |
-   | `/Volumes/Developer/GETSSH-gemini` | `qa/<主题>` | Gemini（需要时新建） |
+   | `/Volumes/Developer/GETSSH-gemini` | `ui/<主题>` | Gemini 配合界面时（需要时新建） |
    | `/Volumes/Developer/GETSSH-v2` | `V2` | 2.x 维护（需要时新建） |
    | `/Volumes/Developer/GETSSH-WEBSITE` | 官网仓库 | Codex |
 
@@ -57,7 +57,7 @@
 | 谁 | 至少跑这些 |
 |---|---|
 | Codex、Gemini（界面） | 在 `apps/getssh-client` 下跑 `pnpm exec tsc -b tsconfig.json --force --pretty false` 和 `pnpm exec vite build`；改了文案，再在仓库根目录跑 `node scripts/copy-lint.js --strict <改过的文件>` |
-| Gemini（测试） | 新测试先对当前代码跑一遍，失败的要说明是测试写错了还是发现了 bug；再故意改坏被测的那行代码，确认测试会失败 |
+| 写测试的一方（10-07 起是 Claude） | 新测试先对当前代码跑一遍，失败的要说明是测试写错了还是发现了 bug；再故意改坏被测的那行代码，确认测试会失败 |
 | Claude（后端） | `cargo test` 跑改到的 crate；`apps/getssh-client` 下的 `npm run test:keystore-e2e`；仓库根目录下的 `GETSSH_STORE_CONFORMANCE=1 node rust-core/getssh-store/store.conformance.mjs`；改到哪部分，就跑对应的 `test:*` 脚本。发版前在 macOS 和 Windows 上跑 `npm run test:packaged-startup` |
 
 ## 4. Codex 参与后端：先试用一次
@@ -82,7 +82,9 @@ Codex 先把前端的问题修完，然后参与后端。第一次只给一个�
   - 返工多，后端仍由 Claude 负责，Codex 回到界面。
 - **反过来也可以**：Claude 的大改动，负责人可以请 Codex 只读复审。Codex 只提问题，不改代码。
 
-## 5. QA 和测试（Gemini）
+## 5. QA 和测试（Claude，10-07 起）
+
+QA 原来由 Gemini 做。它的压力测试脚本直接拿工程文件和真实目录开刀，弄坏过开发环境，所以改由 Claude 负责。下面的规则对任何跑测试的人都适用；测试在临时 HOME 和临时副本里跑，不在别人的工作区里装依赖。
 
 1. **测试必须和真实数据隔离。** 负责人每天用 v3 开发版处理真实数据，碰坏了就是真的丢数据。
    - `HOME` 和 `USERPROFILE` 指向临时目录；启动 Electron 时加 `--use-mock-keychain`；

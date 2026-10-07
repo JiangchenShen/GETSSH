@@ -176,7 +176,7 @@
 
 #### 测试
 
-- 两个平台都跑 `test:database-encryption`、`test:keystore-e2e`、`test:packaged-startup`。
+- 两个平台都跑 `test:keystore-e2e`、`test:packaged-startup`。
 - 用 v12 写出的**测试库副本**验证 v13 能打开。
 - 在 Intel Mac 和 Windows arm64 上检查 WebGL 终端渲染：44 把 ANGLE 改成了静态链接。
 

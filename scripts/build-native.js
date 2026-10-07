@@ -10,15 +10,8 @@ const modules = [
   'tidal-engine',
   'audit-stream',
   'ocean-sentinel',
-  'getssh-keystore',
   'getssh-store'
 ];
-
-// Extra cargo features per module. getssh-keystore is also a plain Rust library inside
-// getssh-store; only its standalone .node carries the N-API exports.
-const features = {
-  'getssh-keystore': 'napi'
-};
 
 const target = process.env.RUST_TARGET;
 if (!target) {
@@ -58,9 +51,7 @@ for (const mod of modules) {
   try {
     const pkg = JSON.parse(fs.readFileSync(`${cwd}/package.json`, 'utf8'));
     const isPlatform = pkg.napi ? '--platform' : '';
-    
-    const featureArgs = features[mod] ? `--features ${features[mod]}` : '';
-    execSync(`pnpm exec napi build ${isPlatform} ${crossCompile} --release --target ${target} --no-js ${featureArgs}`, {
+    execSync(`pnpm exec napi build ${isPlatform} ${crossCompile} --release --target ${target} --no-js`, {
       cwd, 
       stdio: 'inherit',
       shell: true,

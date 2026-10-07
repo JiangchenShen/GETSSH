@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { SysmonData, OsFingerprintData, HostVerificationData, BackendConfig, ExportPayload, ImportPayload, SshConnectConfig } from '../../src/types/ipc'
 
+const REPLACED_BY_BACKUP = '已改为加密备份，新的界面马上就到 / Moved to encrypted backups; the new screen is on its way';
+
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: () => ipcRenderer.invoke('select-file'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
@@ -78,10 +80,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showContextMenu: (payload?: any) => ipcRenderer.send('show-context-menu', payload),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  exportDatabaseAll: () => ipcRenderer.invoke('export-database-all'),
-  exportDatabaseWorkspace: () => ipcRenderer.invoke('export-database-workspace'),
-  importDatabase: () => ipcRenderer.invoke('import-database'),
-  confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => ipcRenderer.invoke('import-database-confirm', sourcePath, strategy),
+  // The 2.x database export and import are gone (step S6); backups are store.backup. Until the
+  // settings page uses it, these answer with a failure that says so, and exportDatabaseAll is left
+  // out so its button does not ask for Touch ID first. Remove all four with the old buttons.
+  exportDatabaseWorkspace: async () => ({ success: false, error: REPLACED_BY_BACKUP }),
+  importDatabase: async () => ({ success: false, error: REPLACED_BY_BACKUP }),
+  confirmImportDatabase: async (_sourcePath: string, _strategy: 'overwrite' | 'merge') => ({ success: false, error: REPLACED_BY_BACKUP }),
   getGlobalSetting: (key: string) => ipcRenderer.invoke('app:getGlobalSetting', key),
   setGlobalSetting: (key: string, value: string) => ipcRenderer.invoke('app:setGlobalSetting', key, value),
   deleteWorkspace: (id: string) => ipcRenderer.invoke('workspace:delete', id),

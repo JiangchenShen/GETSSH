@@ -54,7 +54,7 @@ export default defineConfig({
           build: {
             minify: true,
             rollupOptions: {
-              external: ['ssh2', 'node-pty', /rust-core/, 'better-sqlite3-multiple-ciphers'],
+              external: ['ssh2', 'node-pty', /rust-core/],
             },
             outDir: 'dist-electron/main',
           },

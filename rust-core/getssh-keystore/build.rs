@@ -1,11 +1,8 @@
-extern crate napi_build;
-
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-  napi_build::setup();
   if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
     build_swift_shim();
   }

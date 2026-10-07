@@ -23,7 +23,6 @@
     "test:plugin-isolation": "electron scripts/security/plugin-host-smoke.cjs",
     "test:plugin-network": "vitest run electron/main/services/plugin/PluginNetworkGateway.test.ts --environment node",
     "test:plugin-sandbox": "vitest run electron/main/services/plugin/PluginProcessSandbox.test.ts --environment node",
-    "test:database-encryption": "electron scripts/security/database-key-smoke.cjs",
     "test:asset-folders": "node scripts/security/keystore-e2e/run.mjs asset-folders",
     "test:local-memory": "vitest run electron/main/services/LocalMemoryService.test.ts --environment node",
     "test:sentinel": "vitest run electron/main/services/OceanSentinel.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
@@ -34,8 +33,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "adm-zip": "^0.6.1",
-    "better-sqlite3-multiple-ciphers": "^13.0.3",
     "electron-updater": "^6.8.9",
     "node-pty": "^1.1.0",
     "ssh2": "^1.17.0"
@@ -57,6 +54,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "archiver": "^8.0.0",
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
     "electron": "44.5.1",
     "electron-builder": "^26.15.3",
     "framer-motion": "13.4.6",
@@ -102,10 +100,6 @@
             "arm64"
           ]
         }
-      ],
-      "files": [
-        "package.json",
-        "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/darwin*"
       ],
       "icon": "build/icon.ico"
     },
@@ -224,18 +218,6 @@
         ]
       },
       {
-        "from": "../../rust-core/getssh-keystore",
-        "to": "rust-core/getssh-keystore",
-        "filter": [
-          "*.node",
-          "*.js",
-          "package.json",
-          "!node_modules",
-          "!src",
-          "!target"
-        ]
-      },
-      {
         "from": "../../rust-core/getssh-store",
         "to": "rust-core/getssh-store",
         "filter": [
@@ -277,9 +259,6 @@
       "!**/node_env/**",
       "!**/sftp-mock-plugin/**",
       "!**/@types/**",
-      "!**/node_modules/better-sqlite3-multiple-ciphers/{deps,src,build}/**",
-      "!**/node_modules/better-sqlite3-multiple-ciphers/binding.gyp",
-      "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/linux*",
       "!**/.DS_Store",
       "!src/**/*"
     ],
@@ -295,10 +274,6 @@
       ],
       "category": "public.app-category.developer-tools",
       "minimumSystemVersion": "13.0",
-      "files": [
-        "package.json",
-        "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/win32*"
-      ],
       "icon": "build/icon.icns"
     },
     "dmg": {

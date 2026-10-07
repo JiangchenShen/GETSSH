@@ -14,12 +14,6 @@ importers:
 
   apps/getssh-client:
     dependencies:
-      adm-zip:
-        specifier: ^0.6.1
-        version: 0.6.1
-      better-sqlite3-multiple-ciphers:
-        specifier: ^13.0.3
-        version: 13.0.3
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
@@ -78,6 +72,9 @@ importers:
       archiver:
         specifier: ^8.0.0
         version: 8.0.0
+      better-sqlite3-multiple-ciphers:
+        specifier: ^13.0.3
+        version: 13.0.3
       electron:
         specifier: 44.5.1
         version: 44.5.1
@@ -149,12 +146,6 @@ importers:
         version: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
 
   rust-core/audit-stream:
-    devDependencies:
-      '@napi-rs/cli':
-        specifier: ^3.10.5
-        version: 3.10.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.19.1)
-
-  rust-core/getssh-keystore:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^3.10.5
@@ -1424,10 +1415,6 @@ packages:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
     engines: {node: '>=0.4.0'}
     hasBin: true
-
-  adm-zip@0.6.1:
-    resolution: {integrity: sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ==}
-    engines: {node: '>=14.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -4566,8 +4553,6 @@ snapshots:
       event-target-shim: 5.0.1
 
   acorn@8.18.0: {}
-
-  adm-zip@0.6.1: {}
 
   agent-base@7.1.4: {}
 

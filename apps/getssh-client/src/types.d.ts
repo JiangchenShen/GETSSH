@@ -131,7 +131,12 @@ declare global {
       /** Current plugin UI extensions / settings schemas, for windows created after the last broadcast. */
       getPluginUiExtensions: () => Promise<{ terminal: any[]; sftp: any[] }>;
       getPluginSettingsSchemas: () => Promise<Record<string, any[]>>;
-      exportDatabaseAll: () => Promise<{ success: boolean; path?: string; error?: string }>;
+      /**
+       * The 2.x database export and import, gone since step S6 (backups are `store.backup`). The last
+       * three answer `{ success: false }` with a message saying so; exportDatabaseAll is absent.
+       * Remove all four once the settings page uses `store.backup`.
+       */
+      exportDatabaseAll?: () => Promise<{ success: boolean; path?: string; error?: string }>;
       exportDatabaseWorkspace: () => Promise<{ success: boolean; path?: string; error?: string }>;
       importDatabase: () => Promise<{ success: boolean; requiresConfirmation?: boolean; sourcePath?: string; merged?: boolean; error?: string }>;
       confirmImportDatabase: (sourcePath: string, strategy: 'overwrite' | 'merge') => Promise<{ success: boolean; merged?: boolean; error?: string }>;

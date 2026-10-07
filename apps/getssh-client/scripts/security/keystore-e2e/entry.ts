@@ -1,8 +1,9 @@
 // Electron main-process entry for run.mjs; one phase per process (KS_PHASE). Legacy files are
 // written with --use-mock-keychain, never the real Keychain. Nothing here can prompt.
 //
-// The app side of getssh-store: the GETSSH 2.x migration (TypeScript, getssh-keystore) handing
-// over to the store, appLock, and DatabaseManager on top of the store.
+// The app side of getssh-store: appLock (with the migration of 3.0 development-build data and the
+// GETSSH 2.0 import), and DatabaseManager on top of the store. better-sqlite3-multiple-ciphers (a
+// devDependency since step S6) only writes the development-build layouts these phases migrate.
 import { app, BrowserWindow, ipcMain } from 'electron';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';

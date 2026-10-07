@@ -18,8 +18,8 @@
 
 .NOTES
   Needs Git, Node.js 24, Python 3 and the Visual Studio 2022 C++ Build Tools with the
-  Spectre-mitigated libraries, installed machine-wide: electron-builder rebuilds node-pty and
-  better-sqlite3-multiple-ciphers with node-gyp. The tests use temporary directories; the
+  Spectre-mitigated libraries, installed machine-wide: electron-builder rebuilds node-pty with
+  node-gyp. The tests use temporary directories; the
   packaged-app step also gets temporary profile variables (run it from an account without GETSSH
   data to be certain). Never prompts for Windows Hello.
   DPAPI needs a full logon: over a key-based SSH session the preflight fails, so run this through
@@ -97,7 +97,7 @@ $steps = @(
         }
         $major = [int](((& node --version) -replace '^v', '') -split '\.')[0]
         if ($major -ne 24) { Write-Host "Node $major found; GETSSH builds with Node 24"; return 1 }
-        if (-not $env:PYTHON) { Write-Host 'missing: Python 3 (node-gyp rebuilds node-pty and bsmc for Electron)'; return 1 }
+        if (-not $env:PYTHON) { Write-Host 'missing: Python 3 (node-gyp rebuilds node-pty for Electron)'; return 1 }
         Write-Host "python $env:PYTHON"
         $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
         $vc = if (Test-Path $vswhere) { & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre -property installationPath } else { $null }
@@ -148,10 +148,14 @@ $steps = @(
         }
     } }
     @{ Name = 'packaged-contents';    Run = {
-        $unpacked = Join-Path $Repo 'dist\win-unpacked\resources\app.asar.unpacked\node_modules\better-sqlite3-multiple-ciphers\prebuilds'
-        $found = @(Get-ChildItem $unpacked -Filter '*.node' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-        Write-Host "bsmc prebuilds in the package: $($found -join ', ')"
-        if (-not ($found -contains 'win32-x64.node') -or ($found | Where-Object { $_ -notlike 'win32-*' })) { return 1 }
+        # Since step S6 getssh-store is the only database engine in the package.
+        $resources = Join-Path $Repo 'dist\win-unpacked\resources'
+        $bsmc = Join-Path $resources 'app.asar.unpacked\node_modules\better-sqlite3-multiple-ciphers'
+        $keystore = Join-Path $resources 'rust-core\getssh-keystore'
+        if (Test-Path $bsmc) { Write-Host 'better-sqlite3-multiple-ciphers is still in the package'; return 1 }
+        if (Test-Path $keystore) { Write-Host 'the standalone getssh-keystore module is still in the package'; return 1 }
+        if (-not (Test-Path (Join-Path $resources 'rust-core\getssh-store'))) { Write-Host 'getssh-store is missing from the package'; return 1 }
+        Write-Host 'package: getssh-store only, no better-sqlite3-multiple-ciphers or getssh-keystore'
         return 0
     } }
 )
