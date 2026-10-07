@@ -76,7 +76,16 @@ impl Supervisor {
     pub fn wait(&self, now: Instant) -> Duration {
         match self.mode {
             Mode::Watching => HEARTBEAT_TIMEOUT,
-            Mode::Lockdown { deadline, .. } => deadline.saturating_duration_since(now).clamp(Duration::from_millis(10), TICK_INTERVAL),
+            Mode::Lockdown { deadline, yellow, .. } => {
+                let left = deadline.saturating_duration_since(now);
+                // A yellow alert past its deadline waits for the user and has nothing left to do
+                // on its own; waking every 10 ms until they answer would only burn CPU.
+                if yellow && left.is_zero() {
+                    IDLE_WAIT
+                } else {
+                    left.clamp(Duration::from_millis(10), TICK_INTERVAL)
+                }
+            }
             Mode::Sleeping => IDLE_WAIT,
         }
     }
@@ -288,5 +297,15 @@ mod tests {
         assert_eq!(s.wait(t0), TICK_INTERVAL);
         assert_eq!(s.wait(t0 + Duration::from_millis(59_700)), Duration::from_millis(300));
         assert_eq!(s.wait(t0 + Duration::from_secs(61)), Duration::from_millis(10));
+    }
+
+    #[test]
+    fn a_yellow_alert_past_its_deadline_does_not_spin() {
+        let t0 = Instant::now();
+        let mut s = Supervisor::new();
+        s.on_message("LOCKDOWN_TRIGGER:YELLOW:risky command", t0);
+        assert_eq!(s.wait(t0 + Duration::from_millis(59_700)), Duration::from_millis(300));
+        assert_eq!(s.wait(t0 + LOCKDOWN_GRACE + Duration::from_secs(5)), IDLE_WAIT);
+        assert_eq!(kills(&s.poll(t0 + LOCKDOWN_GRACE + Duration::from_secs(5))), None, "it still waits for the user");
     }
 }

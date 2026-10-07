@@ -207,6 +207,23 @@ describe('Ocean Sentinel status IPC', () => {
     expect(readStatus()).toMatchObject({ status: 'warning', daemonState: 'disabled', sentinelDisabled: true, lastPing: 0 });
   });
 
+  it('keeps sending heartbeats during a lockdown, so a Windows watchdog can write its replies', async () => {
+    await start();
+    const socket = newSocket();
+    acceptSocket(socket);
+    socket.emit('data', Buffer.from('LOCKDOWN_TRIGGER:YELLOW:blocked command\n'));
+    vi.advanceTimersByTime(3000);
+    expect(socket.write.mock.calls.filter(([line]) => line === 'PING\n')).toHaveLength(3);
+  });
+
+  it('starts no watchdog in safe mode, which a freeze would otherwise kill and restart in a loop', async () => {
+    process.argv.push('--safe-mode');
+    await start();
+    expect(mocks.createServer).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(mocks.backend.pluginSecurityMode).toBe('safe');
+  });
+
   it('reports server startup errors as unavailable', async () => {
     await start();
     server.emit('error', new Error('listen failed'));

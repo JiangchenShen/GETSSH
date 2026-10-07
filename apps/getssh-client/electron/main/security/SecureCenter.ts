@@ -68,7 +68,7 @@ export class SecureCenter {
     if (process.argv.includes('--safe-mode')) {
         console.warn('[SecureCenter] Booting in SAFE MODE due to Ocean Sentinel recovery.');
         this.isPolluted = true;
-        this.sentinelDisabled = true; // Ocean Sentinel shouldn't kill safe mode
+        this.sentinelDisabled = true; // no watchdog in safe mode (see the end of start())
         getBackendConfig().pluginSecurityMode = 'safe';
     }
 
@@ -122,7 +122,10 @@ export class SecureCenter {
       };
     });
 
-    this.initSentinelWatchdog();
+    // Safe mode is where the watchdog sends the app after a freeze. A watchdog here would kill it
+    // again at the next long stall (a modal prompt, a startup error left open) and relaunch it in
+    // safe mode, over and over; safe mode runs without one.
+    if (!this.sentinelDisabled) this.initSentinelWatchdog();
   }
 
   private initSentinelWatchdog() {
@@ -239,9 +242,11 @@ export class SecureCenter {
           });
         }
 
-        // Start PING interval
+        // Start PING interval. It keeps running during a lockdown: the watchdog ignores heartbeats
+        // in an alert, and on Windows its reader and writer share one synchronous pipe handle, so
+        // each line it sends (the alert echo, TICK, RESOLVED) goes out only once a PING arrives.
         this.monitorInterval = setInterval(() => {
-          if (this.socket && !this.socket.destroyed && !this.lockdownMode && !this.sentinelDisabled) {
+          if (this.socket && !this.socket.destroyed && !this.sentinelDisabled) {
             const socket = this.socket;
             try {
               socket.write('PING\n', (err) => {
@@ -252,7 +257,7 @@ export class SecureCenter {
                   this.sentinelLifecycle = 'running';
                 }
               });
-              this.runLegacyHealthCheck();
+              if (!this.lockdownMode) this.runLegacyHealthCheck();
             } catch (err) {
               this.sentinelLifecycle = 'unavailable';
             }

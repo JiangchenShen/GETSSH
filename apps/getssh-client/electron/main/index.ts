@@ -329,10 +329,14 @@ app.whenReady().then(async () => {
   });
   appLock.start().then(() => {
     if (appLock.state().phase === 'error') {
-      dialog.showErrorBox(
-        'GETSSH could not open its data',
-        'GETSSH could not open its encrypted data. Nothing was changed. Details: ' + (appLock.state().error || 'unknown error'),
-      );
+      // Not showErrorBox: it blocks the main thread, so the watchdog would take a box left open
+      // for a minute as a freeze, kill the app and restart it.
+      void dialog.showMessageBox({
+        type: 'error',
+        title: 'GETSSH',
+        message: 'GETSSH could not open its data',
+        detail: 'GETSSH could not open its encrypted data. Nothing was changed. Details: ' + (appLock.state().error || 'unknown error'),
+      });
     }
   });
 

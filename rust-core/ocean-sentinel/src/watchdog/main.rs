@@ -108,6 +108,20 @@ fn exit_on_pipe_closed(pid: u32) -> ! {
     std::process::exit(0);
 }
 
+/// Set on the instance the watchdog restarts in safe mode. The app passes its environment to the
+/// watchdog it starts, so a watchdog that sees it supervises an instance that was restarted once
+/// already, and only kills it: a freeze that comes back in safe mode must not restart it in a loop.
+/// (The app starts no watchdog in safe mode either.)
+const RELAUNCHED_ENV: &str = "GETSSH_SAFE_MODE_RELAUNCH";
+
+/// The executable to restart in safe mode after a freeze, if any.
+fn relaunch_target(args: &[String], relaunched: bool) -> Option<String> {
+    if relaunched {
+        return None;
+    }
+    args.get(3).filter(|path| !path.is_empty()).cloned()
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -125,7 +139,7 @@ fn main() {
         }
     };
     let pipe_path = &args[2];
-    let exec_path = if args.len() > 3 { Some(args[3].clone()) } else { None };
+    let exec_path = relaunch_target(&args, env::var_os(RELAUNCHED_ENV).is_some());
     // The app's locale (app.getLocale()), so the freeze dialog speaks the user's language.
     let chinese = args.get(4).is_some_and(|locale| locale.starts_with("zh"));
 
@@ -273,7 +287,7 @@ impl<W: Write> Outlet<W> {
                     if restart_safe {
                         if let Some(exec) = &self.exec_path {
                             eprintln!("Watchdog: restarting {exec} in safe mode.");
-                            let _ = Command::new(exec).arg("--safe-mode").spawn();
+                            let _ = Command::new(exec).arg("--safe-mode").env(RELAUNCHED_ENV, "1").spawn();
                         }
                     }
                 }
@@ -351,4 +365,23 @@ fn connect_pipe(path: &str) -> std::fs::File {
     }
     eprintln!("Failed to connect to named pipe");
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_instance_restarted_once_is_not_restarted_again() {
+        let args: Vec<String> = ["watchdog", "123", "/tmp/p.sock", "/Applications/GETSSH.app/Contents/MacOS/GETSSH", "en-US"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(relaunch_target(&args, false).as_deref(), Some("/Applications/GETSSH.app/Contents/MacOS/GETSSH"));
+        assert_eq!(relaunch_target(&args, true), None);
+        assert_eq!(relaunch_target(&args[..3], false), None);
+        let mut empty = args.clone();
+        empty[3].clear();
+        assert_eq!(relaunch_target(&empty, false), None);
+    }
 }
