@@ -489,6 +489,21 @@ fn a_subset_export_carries_only_the_chosen_workspaces() {
 }
 
 #[test]
+fn an_unlock_that_fails_after_opening_main_db_leaves_nothing_open() {
+    // For example a pending rotation of the app key that hits a full disk.
+    let env = Env::new();
+    let store = env.started();
+    store.set_master_password("a-master-password", None).unwrap();
+    store.lock_app();
+    crate::legacy::faults::fail_at("after unlock");
+    assert_eq!(store.unlock_app(pw("a-master-password")).unwrap_err().code, Code::Io);
+    assert!(!store.app_state().ready && !store.is_main_open(), "the window shows the lock screen: the store is locked too");
+    assert!(store.keystore().status().scopes.iter().all(|s| s.id != "app" || !s.unlocked));
+    store.unlock_app(pw("a-master-password")).unwrap();
+    assert!(store.app_state().ready);
+}
+
+#[test]
 fn creating_a_workspace_clears_a_stale_adoption_mark() {
     let env = Env::new();
     let store = env.started();

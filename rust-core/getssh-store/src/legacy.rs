@@ -1081,7 +1081,7 @@ pub(crate) mod faults {
         ARMED.with(|armed| armed.set(Some((point, true))));
     }
 
-    pub(super) fn check(point: &str) -> StoreResult<()> {
+    pub(crate) fn check(point: &str) -> StoreResult<()> {
         match ARMED.with(|armed| armed.get()) {
             Some((armed, crash)) if armed == point => {
                 ARMED.with(|armed| armed.set(None));
@@ -1096,10 +1096,10 @@ pub(crate) mod faults {
 }
 
 #[cfg(test)]
-use faults::check as fault;
+pub(crate) use faults::check as fault;
 
 #[cfg(not(test))]
-fn fault(_point: &str) -> StoreResult<()> {
+pub(crate) fn fault(_point: &str) -> StoreResult<()> {
     Ok(())
 }
 

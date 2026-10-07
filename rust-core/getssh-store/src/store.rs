@@ -422,6 +422,7 @@ impl<D: Device> Store<D> {
     /// migration already reported keeps that entry and is not reported again.
     fn after_unlock(&self, report: &mut StartReport) -> StoreResult<()> {
         self.complete_pending_rotations()?;
+        crate::legacy::fault("after unlock")?;
         for id in self.workspace_ids()? {
             match self.open_workspace(&id) {
                 Ok(_) => {}
@@ -470,8 +471,12 @@ impl<D: Device> Store<D> {
                 self.recovery_unlock.store(true, Ordering::SeqCst);
             }
         }
-        self.open_main()?;
-        self.after_unlock(&mut StartReport::default())?;
+        // A failure from here on (a pending rotation on a full disk, say) leaves the window on the
+        // lock screen: lock again, so the app key and main.db are not left open behind it.
+        if let Err(error) = self.open_main().and_then(|_| self.after_unlock(&mut StartReport::default())) {
+            self.lock_app();
+            return Err(error);
+        }
         Ok(self.app_state())
     }
 
