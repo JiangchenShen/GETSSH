@@ -13,7 +13,7 @@ use zeroize::Zeroizing;
 use crate::error::Code;
 use crate::legacy::{faults, needs_migration, LegacySecrets, BACKUP_DIR, KEPT_DIR};
 use crate::sqlite::{Connection, Key, Mode};
-use crate::store::{StartReport, Store};
+use crate::store::{StartReport, Store, UnlockRoute};
 use crate::profiles::SecretUpdate;
 use crate::tests::{profile, pw, Env};
 
@@ -419,9 +419,10 @@ fn leftovers_found_under_a_master_password_are_set_aside_not_migrated() {
     assert_eq!(fs::read(env.dir.join("main.db")).unwrap(), main_before);
     let kept = env.dir.join(KEPT_DIR);
     assert_eq!(fs::read(kept.join("app_key.txt")).unwrap(), b"first-key");
-    let moved: Vec<_> = fs::read_dir(&kept).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("app_key.txt.")).collect();
-    assert_eq!(moved.len(), 1);
-    assert_eq!(fs::read(moved[0].path()).unwrap(), app_key().as_bytes());
+    // The new set went into a directory of its own, names kept.
+    let sets: Vec<_> = fs::read_dir(&kept).unwrap().flatten().filter(|e| e.path().join("app_key.txt").exists()).collect();
+    assert_eq!(sets.len(), 1);
+    assert_eq!(fs::read(sets[0].path().join("app_key.txt")).unwrap(), app_key().as_bytes());
     let backups: Vec<_> = fs::read_dir(&kept).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("backup-")).collect();
     assert_eq!(backups.len(), 1);
     assert_eq!(fs::read(backups[0].path().join("main.db")).unwrap(), vec![0x5a; 4096]);
@@ -798,7 +799,7 @@ fn a_vault_key_left_after_its_move_is_deleted_at_the_next_unlock() {
     fs::write(env.dir.join(format!("{BACKUP_DIR}.delete/workspaces/x/vault.key")), b"blob").unwrap();
     fs::write(env.dir.join(format!("{BACKUP_DIR}.partial")), b"half a copy").unwrap();
     // And an interrupted restore and re-encryption (plaintext copies, possibly).
-    let temps = ["workspace_default.db.restoring", "workspace_default.db.rekey-7-ab", "workspace_default.db.rekey-7-ab-wal", "workspaces/secret/vault.key.restoring"];
+    let temps = ["workspace_default.db.restoring", "workspace_default.db.rekey-7-0123456789abcdef", "workspace_default.db.rekey-7-0123456789abcdef-wal", "workspaces/secret/vault.key.restoring"];
     for temp in temps {
         fs::write(env.dir.join(temp), b"router.lan hunter2").unwrap();
     }
@@ -808,6 +809,18 @@ fn a_vault_key_left_after_its_move_is_deleted_at_the_next_unlock() {
     for temp in temps {
         assert!(!env.dir.join(temp).exists(), "{temp}");
     }
+    // Names that only look like those temps are no temps.
+    for id in ["certs.rekey-2026", "web.rekey-1-x"] {
+        store.create_workspace(Some(id), "Look-alike", None, None).unwrap();
+        store.save_profiles(id, &[profile("c", SecretUpdate::Keep)]).unwrap();
+    }
+    fs::write(env.dir.join("notes.restoring"), b"mine").unwrap();
+    drop(store);
+    let store = env.started();
+    for id in ["certs.rekey-2026", "web.rekey-1-x"] {
+        assert_eq!(store.list_profiles(id).unwrap().len(), 1, "{id}");
+    }
+    assert!(env.dir.join("notes.restoring").exists());
     assert!(env.dir.join("workspaces/lost/vault.key").exists());
     store.unlock_workspace("lost", pw("abc")).unwrap();
     assert!(!env.dir.join("workspaces/lost/vault.key").exists());
@@ -988,4 +1001,116 @@ fn a_truncated_copy_in_a_backup_the_typescript_version_started_is_taken_again() 
     assert_eq!(store.start_with(Some(&layout_secrets())).unwrap(), report(&["default", "secret"], &["lost"], &["secret"], &[]));
     store.unlock_workspace("lost", pw("abc")).unwrap();
     assert_eq!(logins(&store, "lost"), ["old.example:x"]);
+}
+
+// ──────────────────────────────── found by the review of 10-07 ────────────────────────────────
+
+/// A workspace without a password whose database is damaged, kept with its scope.
+fn with_a_damaged_workspace(env: &Env) -> Store<FakeDevice> {
+    let store = env.started();
+    store.create_workspace(Some("w"), "W", None, None).unwrap();
+    store.create_workspace(Some("zz"), "ZZ", None, None).unwrap();
+    store.save_profiles("zz", &[profile("z", SecretUpdate::Set(Zeroizing::new("zz-secret".into())))]).unwrap();
+    drop(store);
+    fs::write(env.dir.join("workspace_w.db"), vec![0x5a; 4096]).unwrap();
+    let store = env.open();
+    assert_eq!(store.start().unwrap(), report(&[], &[], &[], &["w"]));
+    store
+}
+
+#[test]
+fn a_damaged_workspace_does_not_spoil_a_master_password_or_the_recovery_code() {
+    let env = Env::new();
+    let store = with_a_damaged_workspace(&env);
+    // In effect, and said so: the damaged workspace keeps its rotation pending.
+    store.set_master_password("a-master-password", None).unwrap();
+    let code = store.create_recovery_code(Some("a-master-password")).unwrap();
+    assert_eq!(logins(&store, "zz"), ["z.example:zz-secret"]);
+    drop(store);
+    for _ in 0..2 {
+        let store = env.open();
+        store.start().unwrap();
+        store.unlock_app(UnlockRoute::RecoveryCode(code.clone())).unwrap();
+        assert!(store.app_state().ready);
+        assert_eq!(logins(&store, "zz"), ["z.example:zz-secret"]);
+        assert_eq!(store.list_profiles("w").unwrap_err().code, Code::Corrupt);
+    }
+    let store = env.open();
+    store.start().unwrap();
+    store.unlock_app(pw("a-master-password")).unwrap();
+    store.remove_master_password("a-master-password").unwrap();
+    drop(store);
+    assert_eq!(env.open().start().unwrap(), report(&[], &[], &[], &["w"]));
+}
+
+#[test]
+fn getssh_db_workspaces_whose_ids_differ_only_in_case_get_separate_files() {
+    // workspace_Team.db and workspace_team.db are one file on macOS and Windows.
+    let env = Env::new();
+    fs::write(env.dir.join("app_key.enc"), b"GETSSH-SS1:opaque blob").unwrap();
+    write_getssh_db(&env.dir);
+    let conn = Connection::open(&env.dir.join("getssh.db"), &Key::Passphrase(app_key().as_bytes()), Mode::ReadWrite).unwrap();
+    conn.execute_batch(
+        "INSERT INTO workspaces (id, name, hasPassword, created_at, updated_at, is_main) VALUES ('Team', 'Team upper', 0, 3, 3, 0);
+         INSERT INTO profiles (id, workspace_id, host, username, password, port) VALUES ('p9', 'Team', 'upper.lan', 'u', 'upper-pw', 22);",
+    )
+    .unwrap();
+    drop(conn);
+    let store = env.open();
+    let upper = usable("Team");
+    assert_eq!(store.start_with(Some(&secrets(Some(&app_key()), &[]))).unwrap(), report(&["default", "team", &upper], &[], &[], &[]));
+    assert_eq!(logins(&store, "team"), ["db.internal:dbpass"]);
+    assert_eq!((store.workspace(&upper).unwrap().name, logins(&store, &upper)), ("Team upper".to_string(), vec!["upper.lan:upper-pw".to_string()]));
+}
+
+#[test]
+fn a_crash_in_the_middle_of_the_json_import_imports_everything_on_the_next_start() {
+    let env = Env::new();
+    for dir in ["alpha", "beta"] {
+        let file = env.dir.join("workspaces").join(dir).join("profiles.json");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, format!(r#"[{{"host":"{dir}.lan","username":"root","password":"pw"}}]"#)).unwrap();
+    }
+    {
+        let store = env.open();
+        faults::crash_at("json workspace");
+        assert!(catch_unwind(AssertUnwindSafe(|| store.start_with(Some(&LegacySecrets::default())))).is_err());
+    }
+    let store = env.open();
+    assert_eq!(store.start_with(Some(&LegacySecrets::default())).unwrap(), report(&["alpha", "beta"], &[], &[], &[]));
+    assert_eq!(logins(&store, "beta"), ["beta.lan:pw"]);
+}
+
+#[test]
+fn removing_the_password_of_a_half_moved_workspace_under_a_master_password_takes_its_own_password() {
+    let env = Env::new();
+    development_layout(&env.dir);
+    let store = env.open();
+    store.start_with(Some(&layout_secrets())).unwrap();
+    store.unlock_workspace("secret", pw("secret-pw-1")).unwrap();
+    store.set_master_password("a-master-password", None).unwrap();
+    half_moved_lost(&store);
+    drop(store);
+    let store = env.open();
+    store.start().unwrap();
+    store.unlock_app(pw("a-master-password")).unwrap();
+    assert_eq!(store.remove_workspace_password("lost", "a-master-password").unwrap_err().code, Code::WrongPassword);
+    store.remove_workspace_password("lost", "abc").unwrap();
+    assert!(!store.workspace("lost").unwrap().has_password);
+    assert_eq!(logins(&store, "lost"), ["old.example:x"]);
+}
+
+#[test]
+fn deleting_a_json_era_workspace_with_a_new_id_removes_its_json_files() {
+    let env = Env::new();
+    for dir in ["default", "Client: Acme", "keep-me"] {
+        let file = env.dir.join("workspaces").join(dir).join("profiles.json");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, r#"[{"host":"h.lan","username":"root","password":"in-clear"}]"#).unwrap();
+    }
+    let store = env.open();
+    store.start_with(Some(&LegacySecrets::default())).unwrap();
+    store.delete_workspace(&usable("Client: Acme")).unwrap();
+    assert!(!env.dir.join("workspaces/Client: Acme").exists());
+    assert!(env.dir.join("workspaces/keep-me/profiles.json").exists() && env.dir.join("workspaces/default/profiles.json").exists());
 }

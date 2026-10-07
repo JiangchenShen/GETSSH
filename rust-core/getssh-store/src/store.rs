@@ -529,9 +529,25 @@ impl<D: Device> Store<D> {
     }
 
     fn complete_pending_rotations(&self) -> StoreResult<()> {
-        for scope in self.ks.status().scopes {
-            if scope.staged && scope.unlocked {
-                self.complete_rotation(&scope.id)?;
+        let staged: Vec<String> = self.ks.status().scopes.into_iter().filter(|s| s.staged && s.unlocked).map(|s| s.id).collect();
+        self.complete_app_wide_rotations(staged)
+    }
+
+    /// complete_rotation after a change to the whole app (unlocking it, setting or removing the
+    /// master password). The app's own rotation comes first and must succeed. A workspace whose
+    /// database cannot be moved (damaged, a full disk) stays staged and is left out: open_workspace
+    /// tries again, after_unlock reports it as failed, and the change still stands. Otherwise one
+    /// damaged workspace would make setting a master password report a failure that had in fact
+    /// taken effect, and keep the recovery code from ever opening the app.
+    fn complete_app_wide_rotations(&self, staged: Vec<String>) -> StoreResult<()> {
+        if staged.iter().any(|scope| scope == APP) {
+            self.complete_rotation(APP)?;
+        }
+        for scope in staged.iter().filter(|scope| *scope != APP) {
+            match self.complete_rotation(scope) {
+                Ok(()) => {}
+                Err(error) if matches!(error.code, Code::Corrupt | Code::Io) => {}
+                Err(error) => return Err(error),
             }
         }
         Ok(())
@@ -573,7 +589,7 @@ impl<D: Device> Store<D> {
         }
         let recovery_before = status.recovery_configured;
         let staged = self.ks.set_password(APP, password)?;
-        self.complete_rotations(staged)?;
+        self.complete_app_wide_rotations(staged)?;
         self.must_change_master.store(false, Ordering::SeqCst);
         self.recovery_unlock.store(false, Ordering::SeqCst);
         for scope in own {
@@ -590,7 +606,7 @@ impl<D: Device> Store<D> {
         }
         self.ks.verify_password(APP, current)?;
         let staged = self.ks.remove_password(APP)?;
-        self.complete_rotations(staged)?;
+        self.complete_app_wide_rotations(staged)?;
         self.must_change_master.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -828,6 +844,11 @@ impl<D: Device> Store<D> {
         let dir = self.base.join("workspaces").join(id);
         if dir.parent() == Some(&self.base.join("workspaces")) {
             let _ = fs::remove_dir_all(dir);
+        }
+        // Imported from a JSON-era directory whose name the store refused: that directory goes too
+        // (its profiles.json holds the passwords in clear), as it would for any other id.
+        if let Some(old) = crate::legacy::json_directory_of(&self.base, id) {
+            let _ = fs::remove_dir_all(old);
         }
         Ok(())
     }
@@ -1088,9 +1109,14 @@ impl<D: Device> Store<D> {
             return Err(StoreError::invalid(format!("workspace {id} has no password")));
         }
         let scope = workspace_scope(id)?;
-        self.ks.verify_password(&scope, current)?;
+        // Half moved (mount_unlocked): `current` is checked below against the workspace's own
+        // password by unlock_workspace, which also finishes the move. Under a master password,
+        // verify_password would check the master password instead.
+        let half_moved = !self.is_mounted(id) && matches!(self.open_workspace(id), Err(error) if error.code == Code::NeedsPassword);
+        if !half_moved {
+            self.ks.verify_password(&scope, current)?;
+        }
         if !self.is_mounted(id) {
-            // Also finishes a legacy move left half done (mount_unlocked).
             self.unlock_workspace(id, UnlockRoute::Password(Zeroizing::new(current.to_string())))?;
             // Under a master password, unlocking it already replaced its own password.
             if !self.scope_status(&scope).is_some_and(|s| s.own_password) {

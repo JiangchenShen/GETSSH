@@ -34,7 +34,7 @@
 //! - plain workspaces are marked in adopting_workspaces before they move, so one whose move fails
 //!   (disk full, a file another program holds) is finished by open_workspace at a later start.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -43,6 +43,7 @@ use getssh_keystore::device::Device;
 use getssh_keystore::keyring::APP;
 use md5::{Digest, Md5};
 use serde_json::Value as Json;
+use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 use crate::error::{Code, StoreError, StoreResult};
@@ -128,8 +129,8 @@ impl<D: Device> Store<D> {
         let app_key = legacy_app_key(base, secrets)?;
         let app_key = app_key.as_ref().map(|k| k.as_slice());
         let scopes: Vec<String> = self.keystore().status().scopes.into_iter().map(|scope| scope.id).collect();
-        take_backup(base, app_key, secrets, &scopes)?;
-        match self.migrate_legacy_data(secrets, app_key) {
+        let resumed = take_backup(base, app_key, secrets, &scopes)?;
+        match self.migrate_legacy_data(secrets, app_key, resumed) {
             Ok(report) => {
                 drop_backup(base)?;
                 Ok(report)
@@ -141,7 +142,8 @@ impl<D: Device> Store<D> {
         }
     }
 
-    fn migrate_legacy_data(&self, secrets: &LegacySecrets, app_key: Option<&[u8]>) -> StoreResult<StartReport> {
+    /// `resumed`: an earlier attempt completed the backup and stopped (a crash: an error restores).
+    fn migrate_legacy_data(&self, secrets: &LegacySecrets, app_key: Option<&[u8]>, resumed: bool) -> StoreResult<StartReport> {
         let base = self.base();
         let ks = self.keystore();
         if !ks.status().initialized {
@@ -153,6 +155,12 @@ impl<D: Device> Store<D> {
         let target = Key::Raw(&key);
         // Already moved when an earlier attempt stopped after this step.
         if Connection::open(&main, &target, Mode::ReadOnly).is_err() {
+            if resumed {
+                // A crash while preparing main.db (in the JSON import, say) left it half written,
+                // and a main.db that exists is not prepared again. Nothing moves before main.db
+                // does, so the files are put back as they were and the preparation starts over.
+                restore_backup(base)?;
+            }
             prepare_main(base, app_key)?;
             let current = legacy_key_of(&main, app_key)?;
             rekey::move_to_key(&main, &current, &target)?;
@@ -362,27 +370,50 @@ fn mark_adopting<'a>(main: &Path, key: &Key<'_>, ids: impl Iterator<Item = &'a s
     Ok(())
 }
 
-/// The ids given to workspaces an old build wrote with ids the store refuses.
-#[derive(Default)]
+/// The id a workspace an old build wrote with an id the store refuses gets: 'ws-' and 12 hex
+/// digits of the old id's MD5, the same on every attempt.
+pub(crate) fn generated_id(old: &str) -> String {
+    format!("ws-{}", &md5_hex(old)[..12])
+}
+
+/// How the file system compares names: macOS (APFS by default) and Windows ignore case, and APFS
+/// compares normalized forms. workspace_Team.db and workspace_team.db are one file there.
+fn folded(id: &str) -> String {
+    id.nfc().collect::<String>().to_lowercase()
+}
+
+/// The ids of the workspaces of one source (getssh.db, the JSON directories), in its order.
 struct Ids {
-    taken: std::collections::HashSet<String>,
+    /// Folded forms in use.
+    taken: HashSet<String>,
+    /// Valid ids kept as they are: the first of each folded form.
+    keep: HashSet<String>,
 }
 
 impl Ids {
-    /// `id` when the store accepts it; otherwise 'ws-' and 12 hex digits of its MD5 (the same on
-    /// every attempt), with a counter in the rare case that is taken.
-    fn usable(&mut self, id: &str) -> String {
-        let mut candidate = id.to_string();
-        if validate_workspace_id(id).is_err() {
-            let base = format!("ws-{}", &md5_hex(id)[..12]);
-            candidate = base.clone();
-            let mut n = 2;
-            while self.taken.contains(&candidate) {
-                candidate = format!("{base}-{n}");
-                n += 1;
+    fn new<'a>(ids: impl Iterator<Item = &'a str>) -> Self {
+        let (mut taken, mut keep) = (HashSet::new(), HashSet::new());
+        for id in ids {
+            if validate_workspace_id(id).is_ok() && taken.insert(folded(id)) {
+                keep.insert(id.to_string());
             }
         }
-        self.taken.insert(candidate.clone());
+        Ids { taken, keep }
+    }
+
+    /// `id` when the store accepts it and no earlier id names the same file; otherwise
+    /// generated_id, with a counter in the rare case that is taken.
+    fn usable(&mut self, id: &str) -> String {
+        if self.keep.remove(id) {
+            return id.to_string();
+        }
+        let base = generated_id(id);
+        let mut candidate = base.clone();
+        let mut n = 2;
+        while !self.taken.insert(folded(&candidate)) {
+            candidate = format!("{base}-{n}");
+            n += 1;
+        }
         candidate
     }
 }
@@ -446,14 +477,8 @@ fn split_getssh_db(base: &Path, app_key: Option<&[u8]>) -> StoreResult<()> {
             let main = Connection::open(&main_temp, &key, Mode::Create)?;
             schema::migrate_main(&main)?;
             let rows = select(&source, "SELECT * FROM workspaces", &[])?;
-            let mut ids = Ids::default();
-            for ws in &rows {
-                if let Some(Value::Text(id)) = ws.get("id") {
-                    if validate_workspace_id(id).is_ok() {
-                        ids.taken.insert(id.clone());
-                    }
-                }
-            }
+            let texts: Vec<String> = rows.iter().map(|ws| js_text(ws.get("id").unwrap_or(&Value::Null))).collect();
+            let mut ids = Ids::new(texts.iter().map(String::as_str));
             for ws in rows {
                 let id = ws.get("id").cloned().unwrap_or(Value::Null);
                 let text = js_text(&id);
@@ -566,8 +591,7 @@ fn import_workspaces(base: &Path, main: &Connection, now: i64) -> StoreResult<()
     }
     // Node lists a directory sorted by byte order (libuv scandir), so rows keep that order.
     let entries = names(&dir)?;
-    let mut ids = Ids::default();
-    ids.taken.extend(entries.iter().filter(|name| validate_workspace_id(name).is_ok()).cloned());
+    let mut ids = Ids::new(entries.iter().filter(|name| !name.starts_with('.')).map(String::as_str));
     for dir_name in entries {
         let path = dir.join(&dir_name);
         // Hidden directories are no workspaces. Other names the store refuses get a valid id
@@ -583,6 +607,7 @@ fn import_workspaces(base: &Path, main: &Connection, now: i64) -> StoreResult<()
         let _ = import_profiles(&db, &id, &path.join("profiles.json"));
         let _ = import_runbooks(&db, &id, &path.join("runbooks.json"), now);
         let _ = import_chat(&db, &id, &path.join("ai_chats.json"), now);
+        fault("json workspace")?;
     }
     Ok(())
 }
@@ -894,11 +919,12 @@ fn unchanged(base: &Path, file: &Path, app_key: Option<&[u8]>, secrets: &LegacyS
 /// one stopped while taking it: in both cases nothing was migrated before it was complete, so
 /// missing files are added, and a copy whose file is still unchanged is taken again (the
 /// TypeScript version copied in place, and a crash could leave a truncated copy).
-fn take_backup(base: &Path, app_key: Option<&[u8]>, secrets: &LegacySecrets, scopes: &[String]) -> StoreResult<()> {
+/// Returns whether the backup was complete already (an earlier attempt took it and stopped).
+fn take_backup(base: &Path, app_key: Option<&[u8]>, secrets: &LegacySecrets, scopes: &[String]) -> StoreResult<bool> {
     let root = base.join(BACKUP_DIR);
     let complete = root.join(BACKUP_COMPLETE);
     if complete.exists() {
-        return Ok(());
+        return Ok(true);
     }
     private_dir(&root)?;
     let partial = base.join(format!("{BACKUP_DIR}.partial"));
@@ -914,7 +940,7 @@ fn take_backup(base: &Path, app_key: Option<&[u8]>, secrets: &LegacySecrets, sco
         copy_through(&file, &partial, &target)?;
     }
     File::create(&complete)?.sync_all()?;
-    Ok(())
+    Ok(false)
 }
 
 /// Puts the backup back (keystoreMigration.ts restoreBackup) and deletes the databases created
@@ -1002,39 +1028,66 @@ pub(crate) fn remove_leftovers(base: &Path) {
     let _ = remove_if_exists(&base.join(format!("{BACKUP_DIR}.partial")));
     // Half-written copies of a restore (copy_back) and of a re-encryption (rekey.rs rekey_file), with
     // their WAL and SHM: plaintext ones too. Never the only copy: the backup, or the original, is
-    // still there when they are left behind.
-    let temp = |name: &str| name.contains(".rekey-") || name.ends_with(".restoring");
-    let mut dirs = vec![base.to_path_buf()];
-    if let Ok(ids) = names(&base.join("workspaces")) {
-        dirs.extend(ids.into_iter().map(|id| base.join("workspaces").join(id)));
-    }
-    for dir in dirs {
-        for name in names(&dir).unwrap_or_default().into_iter().filter(|name| temp(name)) {
-            let _ = remove_if_exists(&dir.join(name));
+    // still there when they are left behind. Only the exact names those two write: a workspace may
+    // well be called 'certs.rekey-2026'.
+    for name in names(base).unwrap_or_default() {
+        let restoring = name.strip_suffix(".restoring").is_some_and(backed_up);
+        if restoring || is_rekey_temp(&name) {
+            let _ = remove_if_exists(&base.join(name));
         }
+    }
+    for id in names(&base.join("workspaces")).unwrap_or_default() {
+        let _ = remove_if_exists(&base.join("workspaces").join(id).join("vault.key.restoring"));
     }
 }
 
-/// Moves `names` that exist in `base` into KEPT_DIR, in that order. Nothing there is replaced: a
-/// name already taken gets the time as a suffix (rename would replace a file on every system).
+/// `<database>.rekey-<pid>-<16 hex>`, as rekey.rs names its temporary copy, or its WAL, SHM or journal.
+fn is_rekey_temp(name: &str) -> bool {
+    let name = ["-wal", "-shm", "-journal"].iter().find_map(|suffix| name.strip_suffix(suffix)).unwrap_or(name);
+    let Some((database, tail)) = name.rsplit_once(".rekey-") else { return false };
+    let Some((pid, id)) = tail.split_once('-') else { return false };
+    is_database(database) && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()) && id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Moves `names` that exist in `base` into KEPT_DIR together, in that order, keeping their names
+/// (a database must keep its -wal beside it). Nothing there is replaced (rename would replace a
+/// file on every system): when one of the names is taken, the group goes into a new subdirectory.
 fn keep(base: &Path, names: &[&str]) -> io::Result<()> {
-    let kept = base.join(KEPT_DIR);
-    private_dir(&kept)?;
-    let stamp = now_ms();
-    for name in names {
-        let file = base.join(name);
-        if fs::symlink_metadata(&file).is_err() {
-            continue;
-        }
-        let mut target = kept.join(name);
-        let mut n = 0;
-        while fs::symlink_metadata(&target).is_ok() {
+    let present: Vec<&str> = names.iter().copied().filter(|name| fs::symlink_metadata(base.join(name)).is_ok()).collect();
+    if present.is_empty() {
+        return Ok(());
+    }
+    let mut dir = base.join(KEPT_DIR);
+    if present.iter().any(|name| fs::symlink_metadata(dir.join(name)).is_ok()) {
+        let stamp = now_ms();
+        let mut n = 1;
+        dir = base.join(KEPT_DIR).join(stamp.to_string());
+        while fs::symlink_metadata(&dir).is_ok() {
             n += 1;
-            target = kept.join(format!("{name}.{stamp}-{n}"));
+            dir = base.join(KEPT_DIR).join(format!("{stamp}-{n}"));
         }
-        fs::rename(&file, target)?;
+    }
+    private_dir(&dir)?;
+    for name in present {
+        fs::rename(base.join(name), dir.join(name))?;
     }
     Ok(())
+}
+
+/// The directory of a JSON-era workspace whose name the store refused and that was imported as
+/// `id` (generated_id): workspaces/<that name>, which still holds its JSON files, passwords in
+/// clear included. None for any other id.
+pub(crate) fn json_directory_of(base: &Path, id: &str) -> Option<PathBuf> {
+    if !id.starts_with("ws-") {
+        return None;
+    }
+    let dir = base.join("workspaces");
+    names(&dir)
+        .ok()?
+        .into_iter()
+        .find(|name| !name.starts_with('.') && validate_workspace_id(name).is_err() && generated_id(name) == id)
+        .map(|name| dir.join(name))
+        .filter(|path| path.parent() == Some(dir.as_path()) && fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()))
 }
 
 /// An unsplit getssh.db and the app key that opens it, moved together. The key goes first: a
