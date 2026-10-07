@@ -444,7 +444,7 @@ fn a_crashed_migration_resumes_from_its_backup() {
     }
     // The backup has the layout of the TypeScript version and the original bytes.
     let backup = snapshot(&env.dir.join(BACKUP_DIR));
-    let names: Vec<_> = backup.keys().map(|p| p.to_string_lossy().into_owned()).filter(|n| n != ".complete").collect();
+    let names: Vec<_> = backup.keys().map(|p| p.to_string_lossy().replace('\\', "/")).filter(|n| n != ".complete").collect();
     assert!(backup.contains_key(Path::new(".complete")), "marked complete");
     assert_eq!(names, ["app_key.enc", "main.db", "workspace_default.db", "workspace_lost.db", "workspace_secret.db", "workspaces/secret/vault.key"]);
     for (path, bytes) in backup.iter().filter(|(p, _)| *p != Path::new(".complete")) {
@@ -827,6 +827,17 @@ fn a_vault_key_left_after_its_move_is_deleted_at_the_next_unlock() {
     assert_eq!(logins(&store, "lost"), ["old.example:x"]);
 }
 
+/// Two directory names the store refuses as workspace ids, sorting before and after "default".
+/// Windows cannot create "con" or a name ending in a dot (so its old builds never had one); it can
+/// create a leading space and a name longer than 128 characters.
+fn refused_dir_names() -> [String; 2] {
+    if cfg!(windows) {
+        [" leading space".to_string(), "long-".repeat(26)]
+    } else {
+        ["con".to_string(), "trailing.".to_string()]
+    }
+}
+
 /// The id Ids::usable gives a workspace id the store refuses.
 fn usable(id: &str) -> String {
     use md5::{Digest, Md5};
@@ -839,17 +850,18 @@ fn workspace_ids_the_store_refuses_get_valid_ones_and_keep_their_data() {
     // JSON era: a directory with a refused name gets a valid id and keeps its name; hidden
     // directories are no workspaces. The JSON files stay where they are.
     let env = Env::new();
-    for dir in ["default", "con", ".hidden", "trailing."] {
+    let [first, second] = refused_dir_names();
+    for (dir, host) in [("default", "default"), (first.as_str(), "first"), (".hidden", "hidden"), (second.as_str(), "second")] {
         let file = env.dir.join("workspaces").join(dir).join("profiles.json");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(file, format!(r#"[{{"host":"{}.lan","username":"root","password":"pw"}}]"#, dir.trim_matches('.'))).unwrap();
+        fs::write(file, format!(r#"[{{"host":"{host}.lan","username":"root","password":"pw"}}]"#)).unwrap();
     }
     let store = env.open();
-    let (con, trailing) = (usable("con"), usable("trailing."));
-    assert_eq!(store.start_with(Some(&LegacySecrets::default())).unwrap(), report(&[&con, "default", &trailing], &[], &[], &[]));
-    assert_eq!((store.workspace(&con).unwrap().name, logins(&store, &con)), ("con".to_string(), vec!["con.lan:pw".to_string()]));
-    assert_eq!(store.workspace(&trailing).unwrap().name, "trailing.");
-    assert!(env.dir.join("workspaces/con/profiles.json").exists());
+    let (first_id, second_id) = (usable(&first), usable(&second));
+    assert_eq!(store.start_with(Some(&LegacySecrets::default())).unwrap(), report(&[&first_id, "default", &second_id], &[], &[], &[]));
+    assert_eq!((store.workspace(&first_id).unwrap().name, logins(&store, &first_id)), (first.clone(), vec!["first.lan:pw".to_string()]));
+    assert_eq!(store.workspace(&second_id).unwrap().name, second);
+    assert!(env.dir.join("workspaces").join(&first).join("profiles.json").exists());
     drop(store);
     assert_eq!(env.open().start().unwrap(), StartReport::default());
 
@@ -1103,14 +1115,16 @@ fn removing_the_password_of_a_half_moved_workspace_under_a_master_password_takes
 #[test]
 fn deleting_a_json_era_workspace_with_a_new_id_removes_its_json_files() {
     let env = Env::new();
-    for dir in ["default", "Client: Acme", "keep-me"] {
+    // ':' is refused by the store; Windows cannot create it, but a leading space too is refused.
+    let renamed = if cfg!(windows) { " Client Acme" } else { "Client: Acme" };
+    for dir in ["default", renamed, "keep-me"] {
         let file = env.dir.join("workspaces").join(dir).join("profiles.json");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(file, r#"[{"host":"h.lan","username":"root","password":"in-clear"}]"#).unwrap();
     }
     let store = env.open();
     store.start_with(Some(&LegacySecrets::default())).unwrap();
-    store.delete_workspace(&usable("Client: Acme")).unwrap();
-    assert!(!env.dir.join("workspaces/Client: Acme").exists());
+    store.delete_workspace(&usable(renamed)).unwrap();
+    assert!(!env.dir.join("workspaces").join(renamed).exists());
     assert!(env.dir.join("workspaces/keep-me/profiles.json").exists() && env.dir.join("workspaces/default/profiles.json").exists());
 }
