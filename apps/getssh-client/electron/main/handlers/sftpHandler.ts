@@ -284,7 +284,10 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       }
     });
 
+    // Opening the same file again replaces its sync. The old watcher used to stay behind with its
+    // temp copy, and its upload closure kept the session alive after it closed.
     const watchId = `${sessionId}_${remoteFilePath}`;
+    await connectionManager.stopSftpWatcher(watchId);
     connectionManager.activeSftpWatchers[watchId] = {
       watcher,
       tempPath: dirPath!,
@@ -296,17 +299,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   });
 
   ipcMain.handle('sftp-edit-stop', async (event, watchId: string) => {
-    const active = connectionManager.activeSftpWatchers[watchId];
-    if (active) {
-      active.watcher.close();
-      active.dispose?.();
-      try {
-        await fs.promises.rm(active.tempPath, { recursive: true, force: true });
-      } catch (e: any) {
-        console.error('[SFTP Sync] Cleanup failed', e);
-      }
-      delete connectionManager.activeSftpWatchers[watchId];
-    }
+    await connectionManager.stopSftpWatcher(watchId);
     return { success: true };
   });
 

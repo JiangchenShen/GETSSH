@@ -28,29 +28,24 @@ export class ConnectionManager {
     }
   }
 
-  async cleanupSessionSftpWatchers(sessionId: string) {
-    const cleanupPromises = [];
-
-    for (const [watchId, active] of Object.entries(this.activeSftpWatchers)) {
-      if (watchId.startsWith(`${sessionId}_`)) {
-        active.watcher.close();
-        active.dispose?.();
-
-        const cleanup = (async () => {
-          try {
-            // tempPath is the per-edit temp directory holding the downloaded file (same as sftp-edit-stop)
-            await fs.promises.rm(active.tempPath, { recursive: true, force: true });
-          } catch (e: any) {
-            console.error('[SFTP Sync] Cleanup failed', e);
-          }
-        })();
-
-        cleanupPromises.push(cleanup);
-        delete this.activeSftpWatchers[watchId];
-      }
+  /** Stops an SFTP edit sync: its file watcher, a pending upload, and its temp directory. */
+  async stopSftpWatcher(watchId: string) {
+    const active = this.activeSftpWatchers[watchId];
+    if (!active) return;
+    delete this.activeSftpWatchers[watchId];
+    active.watcher.close();
+    active.dispose?.();
+    try {
+      // tempPath is the per-edit temp directory holding the downloaded file.
+      await fs.promises.rm(active.tempPath, { recursive: true, force: true });
+    } catch (e: any) {
+      console.error('[SFTP Sync] Cleanup failed', e);
     }
+  }
 
-    await Promise.all(cleanupPromises);
+  async cleanupSessionSftpWatchers(sessionId: string) {
+    const ids = Object.keys(this.activeSftpWatchers).filter(watchId => watchId.startsWith(`${sessionId}_`));
+    await Promise.all(ids.map(watchId => this.stopSftpWatcher(watchId)));
   }
 
   async removeSession(sessionId: string) {

@@ -73,6 +73,36 @@ type ConnectResult = { success: boolean; sessionId?: string; error?: string };
 
 // ssh2's own readyTimeout default; ours is paused while a host-key prompt is open.
 const SSH_HANDSHAKE_TIMEOUT_MS = 20000;
+const MAX_OS_RELEASE_CHARS = 16 * 1024;
+const OS_PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * Reads what `cat /etc/os-release` prints on the probe channel: at most 16 K characters and 5 s,
+ * then the channel is closed. A server whose forced command streams without end (a log viewer, a
+ * bastion menu) used to grow the string for as long as the session lasted.
+ */
+export function readOsRelease(stream: { on(event: string, listener: (...args: any[]) => void): unknown; close(): void }, done: (text: string) => void) {
+  let output = '';
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    done(output);
+    try { stream.close(); } catch {}
+  };
+  const timer = setTimeout(finish, OS_PROBE_TIMEOUT_MS);
+  timer.unref?.();
+  stream.on('data', (data: Buffer) => {
+    if (finished) return;
+    output += data.toString('utf-8');
+    if (output.length >= MAX_OS_RELEASE_CHARS) {
+      output = output.slice(0, MAX_OS_RELEASE_CHARS);
+      finish();
+    }
+  });
+  stream.on('close', finish);
+}
 // An unanswered host-key prompt (lost modal, hung renderer) rejects the connection after this.
 const HOST_VERIFY_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -497,6 +527,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
         // prompt left open for 20 s used to kill the connection under the modal. ssh2's timer is
         // disabled (readyTimeout: 0) and this one is paused while a prompt is open.
         let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+        // The HTTP proxy's CONNECT request while it is pending: a timeout or failure aborts it.
+        let proxyRequest: http.ClientRequest | null = null;
         const stopHandshakeTimer = () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           handshakeTimer = null;
@@ -514,6 +546,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           if (settled) return;
           settled = true;
           stopHandshakeTimer();
+          proxyRequest?.destroy();
+          proxyRequest = null;
           if (promptRequestId) pendingVerifications.get(promptRequestId)?.cancel();
           try { sshClient.end(); } catch (e) {}
           sessionProtocols.delete(sessionId);
@@ -625,7 +659,17 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                    method: 'CONNECT',
                    path: `${connectConfig.host}:${connectConfig.port}`
                  });
-                 req.on('connect', (res: any, socket: any, head: any) => sockResolve(socket));
+                 proxyRequest = req;
+                 req.on('connect', (res: http.IncomingMessage, socket: any) => {
+                   proxyRequest = null;
+                   // Anything but 200 is the proxy refusing (407, 403, 502...), not a tunnel.
+                   if (res.statusCode !== 200) {
+                     socket.destroy();
+                     sockReject(new Error(`The HTTP proxy refused the connection (${res.statusCode} ${res.statusMessage || ''})`.trim()));
+                     return;
+                   }
+                   sockResolve(socket);
+                 });
                  req.on('error', sockReject);
                  req.end();
               });
@@ -633,6 +677,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
            }
         };
 
+        // The timer covers the proxy too: a proxy that accepts the connection and never answers
+        // used to leave the connect pending forever, with its session entry.
+        startHandshakeTimer();
         establishConnection().then(() => {
           sshClient.on('ready', () => {
             stopHandshakeTimer();
@@ -734,9 +781,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
             setTimeout(() => {
               sshClient.exec('cat /etc/os-release', (execErr, execStream) => {
                 if (execErr) return;
-                let output = '';
-                execStream.on('data', (d: Buffer) => { output += d.toString('utf-8'); });
-                execStream.on('close', () => {
+                readOsRelease(execStream, output => {
                   const idMatch = output.match(/^ID="?([a-z0-9_.-]+)"?/im);
                   const rawId = idMatch ? idMatch[1].toLowerCase() : '';
                   type OsType = 'ubuntu'|'debian'|'centos'|'rhel'|'fedora'|'alpine'|'arch'|'suse'|'windows'|'macos'|'cisco'|'huawei'|'generic';

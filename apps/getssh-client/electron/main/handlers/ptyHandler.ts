@@ -202,11 +202,39 @@ const OPT_SGA        = 0x03;  // Suppress Go-Ahead
 const OPT_TERMINAL   = 0x18;  // Terminal Type
 
 /** Per-connection telnet parser state. */
-interface TelnetStreamState {
+export interface TelnetStreamState {
   /** Start of an IAC sequence cut at the end of the previous packet. */
   pending: Buffer | null;
   /** Payload bytes are UTF-8; a character split across packets is completed by the next one. */
   decoder: StringDecoder;
+  /**
+   * Options as agreed so far: ours (WILL/WONT we sent) and the server's (DO/DONT we sent). A
+   * request that would not change them gets no answer (RFC 854, RFC 1143); answering every DO and
+   * WILL let a server that acknowledges acknowledgements keep the exchange going forever.
+   */
+  local: Map<number, boolean>;
+  remote: Map<number, boolean>;
+}
+
+export function newTelnetStreamState(): TelnetStreamState {
+  return { pending: null, decoder: new StringDecoder('utf8'), local: new Map(), remote: new Map() };
+}
+
+/**
+ * Answers a request to enable an option: `command` (WILL/DO to accept, WONT/DONT to refuse), unless
+ * that answer was already given. Returns whether it was sent.
+ */
+function agree(socket: net.Socket, options: Map<number, boolean>, opt: number, enabled: boolean, command: number): boolean {
+  if (options.get(opt) === enabled) return false;
+  options.set(opt, enabled);
+  socket.write(Buffer.from([TELNET_IAC, command, opt]));
+  return true;
+}
+
+/** A request to disable an option: answered only when it is on (options start off, RFC 854). */
+function disable(socket: net.Socket, options: Map<number, boolean>, opt: number, command: number) {
+  if (options.get(opt) === true) agree(socket, options, opt, false, command);
+  else options.set(opt, false);
 }
 
 // A sub-negotiation that never terminates must not grow the carry-over forever.
@@ -217,7 +245,7 @@ const TELNET_MAX_PENDING = 64 * 1024;
  * Returns decoded text. An IAC sequence cut at the end of a packet is kept in
  * `state.pending` and finished with the next packet instead of leaking into the text.
  */
-function processTelnetData(raw: Buffer, socket: net.Socket, state: TelnetStreamState): string {
+export function processTelnetData(raw: Buffer, socket: net.Socket, state: TelnetStreamState): string {
   const buf = state.pending ? Buffer.concat([state.pending, raw]) : raw;
   state.pending = null;
 
@@ -246,28 +274,29 @@ function processTelnetData(raw: Buffer, socket: net.Socket, state: TelnetStreamS
       } else {
         const opt = buf[i + 2];
         if (cmd === TELNET_DO) {
+          // Options on our side: terminal type and suppress-go-ahead, nothing else.
           if (opt === OPT_TERMINAL) {
-            // Respond: WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE
-            socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_TERMINAL]));
-            const termName = Buffer.from('vt100');
-            socket.write(Buffer.from([
-              TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
-              ...termName,
-              TELNET_IAC, TELNET_SE
-            ]));
+            // WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE
+            if (agree(socket, state.local, opt, true, TELNET_WILL)) {
+              socket.write(Buffer.from([
+                TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
+                ...Buffer.from('vt100'),
+                TELNET_IAC, TELNET_SE
+              ]));
+            }
           } else if (opt === OPT_SGA) {
-            socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_SGA]));
+            agree(socket, state.local, opt, true, TELNET_WILL);
           } else {
-            socket.write(Buffer.from([TELNET_IAC, TELNET_WONT, opt]));
+            agree(socket, state.local, opt, false, TELNET_WONT);
           }
+        } else if (cmd === TELNET_DONT) {
+          disable(socket, state.local, opt, TELNET_WONT);
         } else if (cmd === TELNET_WILL) {
-          if (opt === OPT_ECHO) {
-            socket.write(Buffer.from([TELNET_IAC, TELNET_DO, OPT_ECHO]));
-          } else {
-            socket.write(Buffer.from([TELNET_IAC, TELNET_DONT, opt]));
-          }
+          // Options on the server's side: only echo.
+          agree(socket, state.remote, opt, opt === OPT_ECHO, opt === OPT_ECHO ? TELNET_DO : TELNET_DONT);
+        } else {
+          disable(socket, state.remote, opt, TELNET_DONT);
         }
-        // DONT / WONT need no answer, but their option byte is part of the command
         i += 3;
       }
     } else if (cmd === TELNET_SB) {
@@ -314,6 +343,7 @@ export async function spawnTelnetSession(
       resolve(result);
     };
 
+    const streamState = newTelnetStreamState();
     const socket = net.createConnection({ host, port }, () => {
       if (settled) {
         // The connect attempt was already given up on (timeout); do not bring up a session nobody owns.
@@ -326,12 +356,11 @@ export async function spawnTelnetSession(
       connectionManager.updatePowerSaveBlocker();
 
       // Announce initial capabilities
-      socket.write(Buffer.from([TELNET_IAC, TELNET_WILL, OPT_SGA]));
+      agree(socket, streamState.local, OPT_SGA, true, TELNET_WILL);
 
       settle({ success: true, sessionId });
     });
 
-    const streamState: TelnetStreamState = { pending: null, decoder: new StringDecoder('utf8') };
     let bannerFingerprinted = false;
     socket.on('data', (raw: Buffer) => {
       const text = processTelnetData(raw, socket, streamState);

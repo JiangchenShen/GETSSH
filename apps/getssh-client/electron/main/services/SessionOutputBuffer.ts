@@ -27,8 +27,10 @@ interface Ring {
 
 const rings = new Map<string, Ring>();
 // Sessions that were dropped. Chunks still in flight when a session is torn down
-// (decoder flush, a late channel packet) must not resurrect its ring.
+// (decoder flush, a late channel packet) must not resurrect its ring. Those arrive right after
+// the drop, so only the most recent ids are kept; the set used to grow with every session.
 const droppedSessions = new Set<string>();
+const MAX_DROPPED_SESSIONS = 1024;
 
 export interface ScrollbackResult {
   data: string;
@@ -110,4 +112,7 @@ export function readScrollback(sessionId: string, fromOffset?: number): Scrollba
 export function dropSession(sessionId: string) {
   rings.delete(sessionId);
   droppedSessions.add(sessionId);
+  if (droppedSessions.size > MAX_DROPPED_SESSIONS) {
+    droppedSessions.delete(droppedSessions.values().next().value!);
+  }
 }
