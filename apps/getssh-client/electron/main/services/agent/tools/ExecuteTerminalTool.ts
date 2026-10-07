@@ -15,6 +15,55 @@ const INTERACTIVE_PROMPT_PATTERNS = [
   /Do you want to continue/i,
 ];
 
+/** How much of one command's output the chat shows; the terminal has all of it. */
+const MAX_CHAT_OUTPUT_CHARS = 32 * 1024;
+/** How much of it the tool keeps for the model, which reads the end. */
+const MAX_KEPT_OUTPUT_CHARS = 64 * 1024;
+const CHAT_FLUSH_MS = 100;
+
+const keepTail = (text: string) => (text.length > MAX_KEPT_OUTPUT_CHARS ? text.slice(-MAX_KEPT_OUTPUT_CHARS) : text);
+
+/**
+ * A command's output on its way to the chat: in batches at most every 100 ms, and at most 32 KB in
+ * all. Each SSH packet used to be its own message, the renderer re-parses the conversation for
+ * every message, and the whole dump was saved with the chat, so a command with a lot of output
+ * froze the window and made the chat history heavy for good.
+ */
+export class ChatOutput {
+  private pending = '';
+  private forwarded = 0;
+  private truncated = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(private readonly onChunk: (chunk: string) => void) {}
+
+  push(data: string) {
+    if (this.truncated) return;
+    const room = MAX_CHAT_OUTPUT_CHARS - this.forwarded - this.pending.length;
+    if (data.length > room) {
+      this.pending += data.slice(0, Math.max(0, room)) + '\n[输出太长，这里只显示前 32 KB，完整内容在终端里]\n';
+      this.truncated = true;
+      this.flush();
+      return;
+    }
+    this.pending += data;
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), CHAT_FLUSH_MS);
+  }
+
+  /** Sends what is waiting; call it before any other chat line so the order stays right. */
+  flush() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.pending) return;
+    const chunk = this.pending;
+    this.forwarded += chunk.length;
+    this.pending = '';
+    this.onChunk(chunk);
+  }
+}
+
 function detectInteractivePrompt(output: string): string | null {
   for (const pattern of INTERACTIVE_PROMPT_PATTERNS) {
     if (pattern.test(output)) {
@@ -37,7 +86,7 @@ export class ExecuteTerminalTool implements AgentTool {
     required: ['command']
   };
 
-  private collectOutput(targetSessionId: string, onChunk: (chunk: string) => void): Promise<{ output: string; interactivePrompt: string | null }> {
+  private collectOutput(targetSessionId: string, chat: ChatOutput): Promise<{ output: string; interactivePrompt: string | null }> {
     const SETTLE_MS = 800;
     const MAX_WAIT_MS = 15000;
 
@@ -53,6 +102,7 @@ export class ExecuteTerminalTool implements AgentTool {
         if (settleTimer) clearTimeout(settleTimer);
         if (maxTimer) clearTimeout(maxTimer);
         sshBridge.removeListener(`data:${targetSessionId}`, handleData);
+        chat.flush();
 
         const interactivePrompt = detectInteractivePrompt(outputBuffer);
         resolve({ output: outputBuffer, interactivePrompt });
@@ -64,8 +114,8 @@ export class ExecuteTerminalTool implements AgentTool {
       };
 
       const handleData = (data: string) => {
-        outputBuffer += data;
-        onChunk(data);
+        outputBuffer = keepTail(outputBuffer + data);
+        chat.push(data);
         resetSettle();
       };
 
@@ -75,7 +125,7 @@ export class ExecuteTerminalTool implements AgentTool {
     });
   }
 
-  private waitForUserTerminalInput(targetSessionId: string, onChunk: (chunk: string) => void): Promise<string> {
+  private waitForUserTerminalInput(targetSessionId: string, chat: ChatOutput): Promise<string> {
     const SETTLE_MS = 800;
 
     return new Promise((resolve) => {
@@ -90,12 +140,13 @@ export class ExecuteTerminalTool implements AgentTool {
         if (settleTimer) clearTimeout(settleTimer);
         if (maxTimer) clearTimeout(maxTimer);
         sshBridge.removeListener(`data:${targetSessionId}`, handleData);
+        chat.flush();
         resolve(outputBuffer);
       };
 
       const handleData = (data: string) => {
-        outputBuffer += data;
-        onChunk(data);
+        outputBuffer = keepTail(outputBuffer + data);
+        chat.push(data);
         if (settleTimer) clearTimeout(settleTimer);
         settleTimer = setTimeout(finish, SETTLE_MS);
       };
@@ -149,12 +200,13 @@ export class ExecuteTerminalTool implements AgentTool {
       sshBridge.writeCommand(sessionId, commandToExecute);
       onChunk(`\n\n\`\`\`\n# [AGENT LIVE OUTPUT]\n`);
 
-      const { output: rawOutput, interactivePrompt } = await this.collectOutput(sessionId, onChunk);
+      const chat = new ChatOutput(onChunk);
+      const { output: rawOutput, interactivePrompt } = await this.collectOutput(sessionId, chat);
       let safeOutput = rawOutput.trim() ? rawOutput.substring(rawOutput.length - 2000) : '[No Output]';
 
       if (interactivePrompt) {
         onChunk(`\n⏳ 服务器正在等待输入 (\`${interactivePrompt}\`)，请在终端中输入后按回车...\n`);
-        const followUpOutput = await this.waitForUserTerminalInput(sessionId, onChunk);
+        const followUpOutput = await this.waitForUserTerminalInput(sessionId, chat);
         if (followUpOutput.trim()) {
           safeOutput += followUpOutput;
         }

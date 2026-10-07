@@ -418,6 +418,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
    - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了只显示同一条提示（Claude 临时加的，在 `ExportTab.tsx` 的 `exportAll` 里）；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
+   - AI 聊天的渲染（`ChatView.tsx`、`MarkdownRenderer.tsx`，10-07 排查发现）：每收到一个流式片段，所有消息都重新解析一遍 Markdown（`ChatView` 订阅整个 `conversations`，`MarkdownRenderer` 没有 `memo`，`components` 每次都新建），长对话里越聊越卡。agent 跑命令的输出已经在主进程里合并、限量（每 100 ms 最多一次，每条命令最多 32 KB），但普通回复照样一个 token 一次。建议：每条消息用 `React.memo`（按 id 和内容），`MarkdownRenderer` 加 `memo`、`components` 用 `useMemo`，`onPaperPlane` 传稳定的回调，`appendChunk` 每帧合并一次。你的分支改过这两个文件，所以 Claude 没动。
    - 终端右键粘贴（`Terminal.tsx` 的 `handleContextMenu`，10-07）：Claude 改成了 `window.electronAPI.terminalPaste(sessionId, bracketed)`，由主进程读剪贴板、写进会话。窗口已经没有剪贴板读取权限，界面里不要再用 `navigator.clipboard.readText()`，它会报错；写剪贴板（`writeText`）照常可用。终端元素上还加了一个捕获阶段的 `paste` 监听（`sanitizePasteEvent`），粘贴的文字带 ESC 时去掉再交给 xterm，改终端时请保留。
    - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：
      - 应用变成 `ready` 后调一次 `status()`；
