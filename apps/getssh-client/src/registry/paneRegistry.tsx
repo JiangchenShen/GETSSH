@@ -1,6 +1,6 @@
 import { Component, useMemo, type ErrorInfo, type ReactNode } from 'react';
 import { TerminalSquare, AlertTriangle, RefreshCw } from 'lucide-react';
-import { callNexus, isSSHConfig, PaneLeaf } from '../store/sessionStore';
+import { callTidal, isSSHConfig, PaneLeaf } from '../store/sessionStore';
 import { Terminal as TerminalComponent } from '../components/Terminal';
 import { RecBadge } from '../components/RecBadge';
 import { PluginPane } from '../components/PluginPane';
@@ -66,8 +66,8 @@ class PaneErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
             </button>
             <button
               onClick={() => {
-                if (window.electronAPI?.nexusClosePane) {
-                  void callNexus('close crashed pane', window.electronAPI.nexusClosePane(this.props.paneId));
+                if (window.electronAPI?.tidalClosePane) {
+                  void callTidal('close crashed pane', window.electronAPI.tidalClosePane(this.props.paneId));
                 }
               }}
               className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-semibold transition-all border border-red-500/30"

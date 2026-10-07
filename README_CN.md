@@ -36,11 +36,11 @@ GETSSH v3.0 实现了一套**从操作系统到应用层的六道纵深防御体
 
 | 防御层 | 组件 | 职责 |
 |---|---|---|
-| **1. Rust 系统级看门狗** | `rust-core/watchdog` — 独立二进制 | 独立于 Electron 进程运行。通过 IPC 心跳监控主进程。若心跳超过 5 秒未响应，将调用操作系统级 API 强制杀死整个 Node.js 进程——完全绕过 JavaScript 层。 |
+| **1. Ocean Sentinel 系统级看门狗** | `rust-core/ocean-sentinel` — 独立 `watchdog` 二进制 | 独立于 Electron 进程运行。通过 IPC 心跳监控主进程。若心跳超过 5 秒未响应，将调用操作系统级 API 强制杀死整个 Node.js 进程——完全绕过 JavaScript 层。 |
 | **2. 内存即焚 (Zeroize)** | `getssh-vault` Rust N-API | 所有 AES 密钥和解密后的凭证缓冲区均被 `ZeroizeOnDrop` 包裹。TypeScript 层的 `finally` 块调用 `buffer.fill(0)` 进行二次覆写。明文绝不在堆内存中残留。 |
 | **3. 金库级加密引擎** | `getssh-vault` Rust N-API | AES-256-GCM 认证加密。密钥通过 PBKDF2-HMAC-SHA256 派生，100,000 次迭代，32 字节 Salt（符合 NIST SP 800-132）。V2 格式含魔数头，支持安全版本迁移。 |
 | **4. 零拷贝网络引擎** | `sftp-stream` Rust N-API | SFTP 大文件传输完全绕过 V8 堆内存，由 Rust 直接掌管磁盘 I/O。从根本上杜绝大文件传输时的 OOM 崩溃。 |
-| **5. RASP 运行态防御** | `SecureCenter.ts` | 运行时应用自我保护。审计插件的 Shell 命令，检测 Fork Bomb、`rm -rf /`、`mkfs`、`dd` 等毁灭性操作。检测到威胁时触发 Watchdog 锁定协议。 |
+| **5. RASP 运行态防御** | `SecureCenter.ts` | 运行时应用自我保护。审计插件的 Shell 命令，检测 Fork Bomb、`rm -rf /`、`mkfs`、`dd` 等毁灭性操作。检测到威胁时触发 Ocean Sentinel 看门狗锁定协议。 |
 | **6. 底层内存完整性校验** | `getssh-sysprobe` Rust N-API | 定期校验关键系统函数内存首字节，检测 Inline Hook 植入企图。需要提权运行。 |
 
 ### IPC 安全加固
@@ -96,7 +96,7 @@ Manifest、完整函数签名、示例、限制和迁移方法请查看 [GETSSH 
 
 ### 主控台 (Command Center)
 
-Raycast/Spotlight 风格的统一入口：对所有已保存会话（别名/主机/用户名）进行全文模糊搜索，键盘全程导航（↑/↓/Enter/Esc），支持直接输入 `user@host` 回车闪电直连，无需预先保存配置。Watchdog 安全告警会在此处以内联横幅形式呈现。
+Raycast/Spotlight 风格的统一入口：对所有已保存会话（别名/主机/用户名）进行全文模糊搜索，键盘全程导航（↑/↓/Enter/Esc），支持直接输入 `user@host` 回车闪电直连，无需预先保存配置。Ocean Sentinel 安全告警会在此处以内联横幅形式呈现。
 
 ### SafeStorage 凭证保险箱
 
@@ -160,7 +160,7 @@ cd GETSSH
 # 安装依赖
 pnpm install
 
-# 编译 Rust 看门狗二进制文件（SecureCenter 所需）
+# 编译 Ocean Sentinel 看门狗二进制文件（SecureCenter 所需）
 pnpm run build:watchdog
 
 # 启动 Vite Dev Server + Electron（支持 HMR 热重载）

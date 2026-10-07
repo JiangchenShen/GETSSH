@@ -110,10 +110,10 @@ function TornWindowApp() {
   }, []);
 
   // Identity + layout sync: seed the session store with exactly our tab, then apply only newer
-  // payloads for that tab. Everything else broadcast by nexus-core belongs to other windows.
+  // payloads for that tab. Everything else broadcast by tidal-engine belongs to other windows.
   useEffect(() => {
     const api = window.electronAPI;
-    if (!api?.windowGetTornIdentity || !api.onNexusSyncTree) {
+    if (!api?.windowGetTornIdentity || !api.onTidalSyncTree) {
       setStatus('missing');
       return;
     }
@@ -121,9 +121,9 @@ function TornWindowApp() {
     let disposed = false;
     let ownTabId: string | null = null;
     let lastRev = 0;
-    const early: NexusTabSync[] = [];
+    const early: TidalTabSync[] = [];
 
-    const apply = (payload: NexusTabSync) => {
+    const apply = (payload: TidalTabSync) => {
       if (payload.tabId !== ownTabId || payload.rev <= lastRev) return;
       lastRev = payload.rev;
       const tree = payload.tree;
@@ -156,7 +156,7 @@ function TornWindowApp() {
     };
 
     // Subscribe before asking for the identity so no payload emitted in between is lost.
-    const unsubscribe = api.onNexusSyncTree((payload) => {
+    const unsubscribe = api.onTidalSyncTree((payload) => {
       if (disposed) return;
       if (ownTabId) apply(payload);
       else early.push(payload);
@@ -172,7 +172,7 @@ function TornWindowApp() {
       ownTabId = identity.tabId;
       setTornTabId(identity.tabId);
       let snapshot = identity.snapshot;
-      if (!snapshot && api.nexusGetTab) snapshot = await api.nexusGetTab(identity.tabId).catch(() => null);
+      if (!snapshot && api.tidalGetTab) snapshot = await api.tidalGetTab(identity.tabId).catch(() => null);
       if (disposed) return;
       if (snapshot) apply(snapshot);
       early.splice(0).forEach(apply);

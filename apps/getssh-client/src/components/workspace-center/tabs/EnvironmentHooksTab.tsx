@@ -41,22 +41,22 @@ export const EnvironmentHooksTab: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full min-w-0 max-w-2xl">
       <p className="mb-5 text-sm leading-6 text-ink-2">
         {t('workspaceCenter.envHooksDesc', 'Configure automatic actions for terminal sessions in this workspace.')}
       </p>
       {error && <p role="alert" className="mb-4 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
       <div className="border-y border-line">
-        <div className="grid gap-3 border-b border-line-soft py-5 sm:grid-cols-[180px_minmax(0,1fr)]">
+        <div className="center-hook-row grid gap-3 border-b border-line-soft py-5 sm:grid-cols-[180px_minmax(0,1fr)]">
           <label htmlFor="workspace-default-path" className="pt-2 text-sm font-medium">
             {t('workspaceCenter.defaultInitialPath', 'Default Initial Path')}
           </label>
           <input id="workspace-default-path" type="text" value={hooks.defaultPath}
             onChange={event => { setHooks(previous => ({ ...previous, defaultPath: event.target.value })); setSaved(false); }}
             placeholder="~"
-            className="min-h-9 w-full rounded-md border border-line bg-surf px-3 font-mono text-sm text-ink outline-none focus:border-[var(--center-accent)]" />
+            className="min-h-9 w-full min-w-0 rounded-md border border-line bg-surf px-3 font-mono text-sm text-ink outline-none focus:border-[var(--center-accent)]" />
         </div>
-        <div className="grid gap-3 py-5 sm:grid-cols-[180px_minmax(0,1fr)]">
+        <div className="center-hook-row grid gap-3 py-5 sm:grid-cols-[180px_minmax(0,1fr)]">
           <div>
             <label htmlFor="workspace-connect-script" className="text-sm font-medium">
               {t('workspaceCenter.postConnectScript', 'Post-Connect Script')}
@@ -68,7 +68,7 @@ export const EnvironmentHooksTab: React.FC = () => {
           <textarea id="workspace-connect-script" value={hooks.onConnect} rows={5}
             onChange={event => { setHooks(previous => ({ ...previous, onConnect: event.target.value })); setSaved(false); }}
             placeholder="source ~/.profile"
-            className="w-full resize-y rounded-md border border-line bg-surf px-3 py-2 font-mono text-sm text-ink outline-none focus:border-[var(--center-accent)]" />
+            className="w-full min-w-0 resize-y rounded-md border border-line bg-surf px-3 py-2 font-mono text-sm text-ink outline-none focus:border-[var(--center-accent)]" />
         </div>
       </div>
       <div className="mt-5 flex items-center justify-end gap-3">

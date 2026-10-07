@@ -6,6 +6,7 @@ import os from 'os';
 import fs from 'fs';
 import { getBackendConfig } from '../handlers/systemHandler';
 import { broadcastToAllWindows, isKnownTopLevelSender } from '../windowRegistry';
+import { OceanSentinel } from '../services/OceanSentinel';
 
 export class SecureCenter {
   private static instance: SecureCenter;
@@ -13,10 +14,13 @@ export class SecureCenter {
   private isPolluted: boolean = false;
   private socket: net.Socket | null = null;
   private server: net.Server | null = null;
-  private watchdogProcess: child_process.ChildProcess | null = null;
+  private sentinelProcess: child_process.ChildProcess | null = null;
   private lockdownMode: boolean = false;
   private pluginTeardownFn: (() => void) | null = null;
-  private watchdogDisabled: boolean = false;
+  private sentinelDisabled: boolean = false;
+  private sentinelLifecycle: 'starting' | 'running' | 'unavailable' = 'starting';
+  // Time of the last completed PING write; this one-way protocol has no daemon acknowledgement.
+  private lastSentinelPing: number = 0;
   private lastLockdownReason?: string;
   private lastLockdownLevel?: 'red' | 'yellow';
 
@@ -34,6 +38,7 @@ export class SecureCenter {
   }
 
   public gracefulShutdown() {
+    OceanSentinel.flushMetrics();
     if (this.socket && !this.socket.destroyed && this.socket.writable) {
       try { this.socket.write('ACTION:QUIT\n'); } catch (e) {}
     }
@@ -61,9 +66,9 @@ export class SecureCenter {
   public start() {
     // Check for Safe Mode
     if (process.argv.includes('--safe-mode')) {
-        console.warn('[SecureCenter] Booting in SAFE MODE due to Watchdog recovery.');
+        console.warn('[SecureCenter] Booting in SAFE MODE due to Ocean Sentinel recovery.');
         this.isPolluted = true;
-        this.watchdogDisabled = true; // Watchdog shouldn't kill safe mode
+        this.sentinelDisabled = true; // Ocean Sentinel shouldn't kill safe mode
         getBackendConfig().pluginSecurityMode = 'safe';
     }
 
@@ -77,7 +82,7 @@ export class SecureCenter {
       if ((action === 'continue' || action === 'deactivate-plugin') && this.lastLockdownLevel === 'red') {
         return { ok: false, reason: 'invalid_action' };
       }
-      // Ignoring keeps a compromised process running with the watchdog off, so the owner must prove
+      // Ignoring keeps a compromised process running with the ocean-sentinel off, so the owner must prove
       // who they are here: the renderer's own prompt could simply be skipped. Outside a lockdown
       // there is nothing to ignore, and the check is not offered as a password oracle.
       if (action === 'ignore') {
@@ -94,28 +99,41 @@ export class SecureCenter {
       return { ok: true };
     });
 
-    ipcMain.handle('get-watchdog-status', () => {
+    ipcMain.handle('get-sentinel-status', (event) => {
+      if (!isKnownTopLevelSender(event)) throw new Error('Unauthorized Ocean Sentinel status request');
+      const child = this.sentinelProcess;
+      const processAlive = !!child?.pid && !child.killed && child.exitCode === null && child.signalCode === null;
+      const socketAlive = !!this.socket && !this.socket.destroyed && this.socket.writable;
+      const daemonState = this.sentinelDisabled ? 'disabled'
+        : this.sentinelLifecycle === 'unavailable' ? 'unavailable'
+        : processAlive && socketAlive ? 'running'
+        : this.sentinelLifecycle === 'starting' && (!child || processAlive) ? 'starting' : 'unavailable';
+      const status = this.isPolluted || daemonState !== 'running' ? 'warning' : 'secure';
       return {
-        status: this.isPolluted ? 'warning' : 'secure',
-        level: this.lastLockdownLevel,
-        reason: this.lastLockdownReason,
-        lastPing: Date.now(),
-        watchdogDisabled: this.watchdogDisabled
+        status,
+        level: this.isPolluted ? this.lastLockdownLevel : undefined,
+        reason: this.isPolluted ? this.lastLockdownReason : undefined,
+        lastPing: this.lastSentinelPing,
+        sentinelDisabled: this.sentinelDisabled,
+        daemonState,
+        supervisorPid: processAlive ? child!.pid : null,
+        supervisedPid: process.pid,
+        ...OceanSentinel.getRuntimeStatus(),
       };
     });
 
-    this.initWatchdog();
+    this.initSentinelWatchdog();
   }
 
-  private initWatchdog() {
+  private initSentinelWatchdog() {
     const platform = os.platform();
     if (platform !== 'darwin' && platform !== 'win32') {
       throw new Error(`GETSSH desktop security runtime is unavailable on ${platform}.`);
     }
 
     const pipeName = platform === 'win32'
-      ? `\\\\.\\pipe\\getssh-watchdog-${process.pid}`
-      : path.join(os.tmpdir(), `getssh-watchdog-${process.pid}.sock`);
+      ? `\\\\.\\pipe\\getssh-ocean-sentinel-${process.pid}`
+      : path.join(os.tmpdir(), `getssh-ocean-sentinel-${process.pid}.sock`);
 
     // Clean up an old macOS socket file if it exists.
     if (platform === 'darwin' && fs.existsSync(pipeName)) {
@@ -123,8 +141,10 @@ export class SecureCenter {
     }
 
     this.server = net.createServer((socket) => {
-      console.log('[SecureCenter] Watchdog connected.');
+      console.log('[SecureCenter] Ocean Sentinel connected.');
       this.socket = socket;
+      this.sentinelLifecycle = 'running';
+      this.lastSentinelPing = 0;
 
       socket.on('data', (data) => {
         const msg = data.toString();
@@ -158,8 +178,8 @@ export class SecureCenter {
           } else if (line.includes('RESOLVED')) {
             this.lockdownMode = false;
             // Note: If action was ignore, we keep isPolluted true.
-            // So we only reset isPolluted if watchdogDisabled is false.
-            if (!this.watchdogDisabled) {
+            // So we only reset isPolluted if sentinelDisabled is false.
+            if (!this.sentinelDisabled) {
                 this.isPolluted = false;
             }
             broadcastToAllWindows('security-lockdown-resolved');
@@ -168,66 +188,90 @@ export class SecureCenter {
       });
 
       socket.on('close', () => {
-        console.warn('[SecureCenter] Watchdog disconnected!');
-        this.socket = null;
+        console.warn('[SecureCenter] Ocean Sentinel disconnected!');
+        if (this.socket === socket) {
+          this.socket = null;
+          this.sentinelLifecycle = 'unavailable';
+        }
       });
       
       socket.on('error', (err) => {
-        console.error('[SecureCenter] Watchdog socket error:', err);
+        console.error('[SecureCenter] Ocean Sentinel socket error:', err);
+        if (this.socket === socket) this.sentinelLifecycle = 'unavailable';
       });
     });
 
+    this.server.on('error', (err) => {
+      this.sentinelLifecycle = 'unavailable';
+      console.error('[SecureCenter] Ocean Sentinel server error:', err);
+    });
+
     this.server.listen(pipeName, () => {
-      let watchdogExecutable = 'watchdog';
-      if (platform === 'win32') watchdogExecutable += '.exe';
+      // Ocean Sentinel keeps its supervisor in a separate executable.
+      let sentinelExecutable = 'watchdog';
+      if (platform === 'win32') sentinelExecutable += '.exe';
 
-      const watchdogPath = app.isPackaged
-        ? path.join(process.resourcesPath, watchdogExecutable)
-        : path.join(__dirname, '../../../../target/release', watchdogExecutable);
+      const sentinelPath = app.isPackaged
+        ? path.join(process.resourcesPath, sentinelExecutable)
+        : path.join(__dirname, '../../../../target/release', sentinelExecutable);
 
-      console.log(`[SecureCenter] Spawning Watchdog: ${watchdogPath} with PID ${process.pid} and pipe ${pipeName}`);
+      console.log(`[SecureCenter] Spawning Ocean Sentinel: ${sentinelPath} with PID ${process.pid} and pipe ${pipeName}`);
 
       try {
-        if (!fs.existsSync(watchdogPath)) {
-            console.error(`[SecureCenter] Watchdog binary not found at ${watchdogPath}! Please compile it first.`);
-            this.watchdogDisabled = true;
+        if (!fs.existsSync(sentinelPath)) {
+            console.error(`[SecureCenter] Ocean Sentinel binary not found at ${sentinelPath}! Please compile it first.`);
+            this.sentinelDisabled = true;
             // Notice: we do NOT return here if we want manual RASP alerts to still show up as fallback
         } else {
-          // The locale lets the watchdog's own "not responding" dialog speak the user's language.
-          this.watchdogProcess = child_process.spawn(watchdogPath, [process.pid.toString(), pipeName, process.execPath, app.getLocale()], {
+          // The locale lets the ocean-sentinel's own "not responding" dialog speak the user's language.
+          this.sentinelProcess = child_process.spawn(sentinelPath, [process.pid.toString(), pipeName, process.execPath, app.getLocale()], {
             stdio: 'inherit',
             windowsHide: true,
           });
 
-          this.watchdogProcess.on('exit', (code) => {
-              console.error(`[SecureCenter] Watchdog exited with code ${code}.`);
+          this.sentinelProcess.on('exit', (code) => {
+              this.sentinelLifecycle = 'unavailable';
+              console.error(`[SecureCenter] Ocean Sentinel exited with code ${code}.`);
+          });
+          this.sentinelProcess.on('error', (err) => {
+              this.sentinelLifecycle = 'unavailable';
+              console.error('[SecureCenter] Ocean Sentinel process error:', err);
           });
         }
 
         // Start PING interval
         this.monitorInterval = setInterval(() => {
-          if (this.socket && !this.socket.destroyed && !this.lockdownMode && !this.watchdogDisabled) {
+          if (this.socket && !this.socket.destroyed && !this.lockdownMode && !this.sentinelDisabled) {
+            const socket = this.socket;
             try {
-              this.socket.write('PING\n');
+              socket.write('PING\n', (err) => {
+                if (this.socket !== socket) return;
+                if (err) this.sentinelLifecycle = 'unavailable';
+                else {
+                  this.lastSentinelPing = Date.now();
+                  this.sentinelLifecycle = 'running';
+                }
+              });
               this.runLegacyHealthCheck();
             } catch (err) {
-              // Ignore EPIPE
+              this.sentinelLifecycle = 'unavailable';
             }
           }
         }, 1000);
 
       } catch (e) {
-        console.error('[SecureCenter] Failed to spawn Watchdog:', e);
+        this.sentinelLifecycle = 'unavailable';
+        console.error('[SecureCenter] Failed to spawn Ocean Sentinel:', e);
       }
     });
   }
 
-  // Still keep some lightweight JS health check to detect pollution and trigger the watchdog
+  // Still keep some lightweight JS health check to detect pollution and trigger the ocean-sentinel
   private runLegacyHealthCheck() {
     if (getBackendConfig().pluginSecurityMode === 'developer') return;
     
     // Simulating pollution check
-    // If it triggers, we notify Watchdog
+    // If it triggers, we notify Ocean Sentinel
     if (this.isPolluted) return;
 
     // Example of a mock trigger: (for testing, you can expose an IPC to set this to true)
@@ -244,7 +288,7 @@ export class SecureCenter {
     if (this.socket && !this.socket.destroyed) {
       try { this.socket.write(`LOCKDOWN_TRIGGER:${level.toUpperCase()}:${reason}\n`); } catch(e) {}
     } else {
-      // Fallback: If watchdog is dead/missing, send alert manually immediately
+      // Fallback: If ocean-sentinel is dead/missing, send alert manually immediately
       this.lastLockdownReason = `【Fallback防御】${reason}`;
       this.lastLockdownLevel = level;
       broadcastToAllWindows('security-lockdown', {
@@ -256,12 +300,12 @@ export class SecureCenter {
   }
 
   private handleAction(action: 'restart-safe' | 'save-15s' | 'ignore' | 'deactivate-plugin' | 'continue') {
-    // The local consequences of the user's choice must happen even when the watchdog is missing
-    // (the fallback lockdown path); only the acknowledgement to the watchdog depends on the socket.
-    const watchdogAlive = !!this.socket && !this.socket.destroyed;
-    const tellWatchdog = (message: string) => {
-      if (!watchdogAlive) return;
-      try { this.socket!.write(message); } catch (e) { console.error('[SecureCenter] Watchdog write failed:', e); }
+    // The local consequences of the user's choice must happen even when the ocean-sentinel is missing
+    // (the fallback lockdown path); only the acknowledgement to the ocean-sentinel depends on the socket.
+    const sentinelAlive = !!this.socket && !this.socket.destroyed;
+    const tellSentinel = (message: string) => {
+      if (!sentinelAlive) return;
+      try { this.socket!.write(message); } catch (e) { console.error('[SecureCenter] Ocean Sentinel write failed:', e); }
     };
 
     switch (action) {
@@ -269,8 +313,8 @@ export class SecureCenter {
         getBackendConfig().pluginSecurityMode = 'safe';
         // Gracefully deactivate all plugins before RASP kills the process
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown on restart-safe:', e); }
-        // Tell watchdog we resolved it so it doesn't kill us while restarting
-        tellWatchdog('ACTION:RESTART-SAFE\n');
+        // Tell ocean-sentinel we resolved it so it doesn't kill us while restarting
+        tellSentinel('ACTION:RESTART-SAFE\n');
         setTimeout(() => {
           if (!process.env.VITE_DEV_SERVER_URL) {
              app.relaunch();
@@ -282,30 +326,30 @@ export class SecureCenter {
         break;
 
       case 'save-15s':
-        tellWatchdog('ACTION:SAVE-15S\n');
+        tellSentinel('ACTION:SAVE-15S\n');
         break;
 
       case 'ignore':
         this.isPolluted = true;
-        this.watchdogDisabled = true;
-        tellWatchdog('ACTION:IGNORE\n');
+        this.sentinelDisabled = true;
+        tellSentinel('ACTION:IGNORE\n');
         console.warn(`[SecureCenter] Risk ignored by user. System running in polluted state.`);
         break;
 
       case 'deactivate-plugin':
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown:', e); }
         this.isPolluted = false;
-        tellWatchdog('ACTION:CONTINUE\n');
+        tellSentinel('ACTION:CONTINUE\n');
         break;
 
       case 'continue':
         this.isPolluted = false;
-        tellWatchdog('ACTION:CONTINUE\n');
+        tellSentinel('ACTION:CONTINUE\n');
         break;
     }
 
-    // Without a watchdog nobody will answer RESOLVED, so settle the lockdown state here.
-    if (!watchdogAlive && action !== 'restart-safe') {
+    // Without a ocean-sentinel nobody will answer RESOLVED, so settle the lockdown state here.
+    if (!sentinelAlive && action !== 'restart-safe') {
       this.lockdownMode = false;
       broadcastToAllWindows('security-lockdown-resolved');
     }

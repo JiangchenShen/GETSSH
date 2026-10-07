@@ -6,7 +6,7 @@ import { MicroContextAssembler } from '../services/MicroContextAssembler';
 import { ChatStorageManager } from '../services/chatStorageManager';
 import { LocalMemoryService, formatLocalMemoryContext } from '../services/LocalMemoryService';
 import { SearchEngine } from '../services/SearchEngine';
-import { SentinelGateway } from '../services/SentinelGateway';
+import { OceanSentinel } from '../services/OceanSentinel';
 import { randomUUID } from 'node:crypto';
 
 const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
@@ -120,8 +120,8 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     // LlmGateway is the single egress sanitizer. A one-shot pass here is only
     // returned as local audit evidence; the outbound request is sanitized again
     // as one reversible session together with history and tool results.
-    const auditPrompt = SentinelGateway.sanitize(rawPrompt).cleanText;
-    const auditContext = SentinelGateway.sanitize(rawContext).cleanText;
+    const auditPrompt = OceanSentinel.sanitize(rawPrompt).cleanText;
+    const auditContext = OceanSentinel.sanitize(rawContext).cleanText;
 
     // Formatting and identity instructions are handled by MicroContextAssembler.
     // No additional prompt injection needed here.
@@ -228,9 +228,9 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
         sanitizedPrompt: auditPrompt,
         sanitizedContext: auditContext,
         // Native Sentinel uses reversible placeholders. If it is unavailable,
-        // SentinelGateway applies an irreversible JS fallback to every egress segment.
-        sentinelActive: SentinelGateway.isAvailable(),
-        sentinelError: SentinelGateway.getLoadError()
+        // OceanSentinel applies an irreversible JS fallback to every egress segment.
+        sentinelActive: OceanSentinel.isAvailable(),
+        sentinelError: OceanSentinel.getLoadError()
       }
     };
   });

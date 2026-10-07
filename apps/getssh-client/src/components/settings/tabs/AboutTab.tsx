@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
-import { version as appVersion } from '../../../../package.json';
+import { build as buildConfig, getsshRelease, version as appVersion } from '../../../../package.json';
 import logoSrc from '../../../assets/logo.png';
 import { SettingsRow, SettingsSection, settingButtonClass } from '../SettingsControls';
 
@@ -15,6 +15,8 @@ export const AboutTab: React.FC = () => {
   const platform = env?.platform === 'darwin' ? 'macOS' : env?.platform === 'win32' ? 'Windows' : env?.platform || '—';
   const architecture = env?.arch === 'arm64' ? 'ARM64' : env?.arch === 'x64' ? 'x86_64' : env?.arch || '—';
   const languagePath = language?.startsWith('zh') ? 'zh' : 'en';
+  const releaseVersion = appVersion.split('.').slice(0, 2).join('.');
+  const releaseProgram = getsshRelease.program === 'preview' ? t('about.previewProgram') : getsshRelease.program;
 
   const checkForUpdates = async () => {
     setCheckingUpdate(true);
@@ -39,8 +41,8 @@ export const AboutTab: React.FC = () => {
     <div className="flex items-center gap-4">
       <img src={logoSrc} alt="" className="h-14 w-14 rounded-xl border border-line object-cover" />
       <div className="min-w-0">
-        <h2 className="text-lg font-semibold text-ink">GETSSH</h2>
-        <p className="font-mono text-xs text-ink-3">v{appVersion}</p>
+        <h2 className="break-words text-lg font-semibold text-ink">{buildConfig.productName} {releaseVersion} {getsshRelease.stage}</h2>
+        <p className="mt-1 text-xs text-ink-3">{getsshRelease.edition} · {releaseProgram}</p>
       </div>
     </div>
 

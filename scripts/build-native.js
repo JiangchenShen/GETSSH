@@ -7,9 +7,9 @@ const modules = [
   'getssh-unarchive',
   'getssh-vault',
   'sftp-stream',
-  'nexus-core',
+  'tidal-engine',
   'audit-stream',
-  'getssh-sentinel',
+  'ocean-sentinel',
   'getssh-keystore',
   'getssh-store'
 ];
@@ -37,6 +37,15 @@ if (!supportedTargets.has(target)) {
   process.exit(1);
 }
 
+// Rust's debug-info stripping can misalign Mach-O LINKEDIT on macOS 27 (rust-lang/rust#157750).
+const buildEnv = { ...process.env };
+if (target.endsWith('apple-darwin')) {
+  buildEnv.RUSTFLAGS = `${buildEnv.RUSTFLAGS || ''} -C strip=none`.trim();
+}
+const crossCompile = target.endsWith('pc-windows-msvc') && process.platform !== 'win32'
+  ? '--cross-compile'
+  : '';
+
 for (const mod of modules) {
   console.log(`\n==================================================`);
   console.log(`Building ${mod} for target ${target}...`);
@@ -51,10 +60,11 @@ for (const mod of modules) {
     const isPlatform = pkg.napi ? '--platform' : '';
     
     const featureArgs = features[mod] ? `--features ${features[mod]}` : '';
-    execSync(`pnpm exec napi build ${isPlatform} --release --target ${target} --no-js ${featureArgs}`, {
+    execSync(`pnpm exec napi build ${isPlatform} ${crossCompile} --release --target ${target} --no-js ${featureArgs}`, {
       cwd, 
       stdio: 'inherit',
-      shell: true 
+      shell: true,
+      env: buildEnv
     });
   } catch (err) {
     console.error(`Failed to build ${mod}.`);

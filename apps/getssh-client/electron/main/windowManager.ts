@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { join } from 'path';
 import { bindWindowEvents, getTornWindowOptions, setupSecurityPolicies } from './handlers/windowHandler';
-import { nexusBridge, NexusTabSync } from './nexus/nexusBridge';
+import { tidalBridge, TidalTabSync } from './tidal/tidalBridge';
 import { getMainWindow, isMainWebContents, sendToMainWindow } from './windowRegistry';
 
 const TORN_MIN_WIDTH = 480;
@@ -9,7 +9,7 @@ const TORN_MIN_HEIGHT = 320;
 
 interface TornIdentity {
   tabId: string;
-  snapshot: NexusTabSync | null;
+  snapshot: TidalTabSync | null;
 }
 
 interface TearOffRequest {
@@ -67,7 +67,7 @@ export class TornWindowManager {
     if (this.initialized) return;
     this.initialized = true;
     this.setupIpc();
-    nexusBridge.on('tab-sync', (payload: NexusTabSync) => this.handleTabSync(payload));
+    tidalBridge.on('tab-sync', (payload: TidalTabSync) => this.handleTabSync(payload));
   }
 
   /** The app is really quitting: torn windows now close with it and must not close their tabs. */
@@ -89,13 +89,13 @@ export class TornWindowManager {
 
       this.tearingPanes.add(payload.paneId);
       try {
-        const res = await nexusBridge.requestTearOff(payload.paneId);
+        const res = await tidalBridge.requestTearOff(payload.paneId);
         if (!res.success || typeof res.tabId !== 'string') {
           return { success: false, error: res.error || 'tear_off_failed' };
         }
         const tabId = res.tabId;
         try {
-          this.createTornWindow(tabId, (res.snapshot as NexusTabSync | null) ?? null, payload);
+          this.createTornWindow(tabId, (res.snapshot as TidalTabSync | null) ?? null, payload);
         } catch (err: any) {
           console.error('[TornWindowManager] Failed to create torn window:', err);
           await this.restoreOrphanTab(tabId);
@@ -111,7 +111,7 @@ export class TornWindowManager {
     ipcMain.handle('window:get-torn-identity', async (event) => {
       const identity = this.tornIdentities.get(event.sender.id);
       if (!identity) return null;
-      const fresh = await nexusBridge.getTabSnapshot(identity.tabId);
+      const fresh = await tidalBridge.getTabSnapshot(identity.tabId);
       if (fresh.success) {
         const snapshot = fresh.snapshot;
         if (!snapshot || !snapshot.isTornOff || snapshot.tree === null) {
@@ -132,14 +132,14 @@ export class TornWindowManager {
       if (!identity || !win) return { success: false, error: 'not_a_torn_window' };
       if (this.releasedWindows.has(win)) return { success: true };
 
-      const res = await nexusBridge.requestTearIn(identity.tabId);
+      const res = await tidalBridge.requestTearIn(identity.tabId);
       if (!res.success) return { success: false, error: res.error || 'tear_in_failed' };
 
       this.releaseWindow(win, identity.tabId);
       // Only for a user tear-in (not orphan restores). Rust emits the new layout under its lock before it
       // replies, so the sync reaches the main window ahead of this message.
       if (typeof res.targetTabId === 'string' && res.targetTabId && typeof res.paneId === 'string' && res.paneId) {
-        sendToMainWindow('nexus:focus-pane', { tabId: res.targetTabId, paneId: res.paneId });
+        sendToMainWindow('tidal:focus-pane', { tabId: res.targetTabId, paneId: res.paneId });
       }
       const main = getMainWindow();
       if (main) {
@@ -151,7 +151,7 @@ export class TornWindowManager {
     });
   }
 
-  private createTornWindow(tabId: string, snapshot: NexusTabSync | null, request: TearOffRequest) {
+  private createTornWindow(tabId: string, snapshot: TidalTabSync | null, request: TearOffRequest) {
     // Clamp to the work area of the display the pane was dropped on.
     const { workArea } = screen.getDisplayNearestPoint({ x: Math.round(request.screenX), y: Math.round(request.screenY) });
     const width = clamp(Math.round(request.width), Math.min(TORN_MIN_WIDTH, workArea.width), workArea.width);
@@ -206,7 +206,7 @@ export class TornWindowManager {
       if (this.tabWindows.get(tabId) === win) this.tabWindows.delete(tabId);
       if (this.releasedWindows.has(win) || this.appQuitting) return;
       // The user closed the window: the tab goes with it (the bridge disconnects its sessions).
-      nexusBridge.closeTab(tabId).then((res) => {
+      tidalBridge.closeTab(tabId).then((res) => {
         if (!res.success) console.error(`[TornWindowManager] Failed to close torn tab ${tabId}:`, res.error);
       });
     });
@@ -221,7 +221,7 @@ export class TornWindowManager {
   }
 
   /** Rust sync for any tab: close a torn window whose tab disappeared or was torn back in. */
-  private handleTabSync(payload: NexusTabSync) {
+  private handleTabSync(payload: TidalTabSync) {
     const win = this.tabWindows.get(payload.tabId);
     if (!win) return;
     if (win.isDestroyed()) {
@@ -257,10 +257,10 @@ export class TornWindowManager {
 
   /** A torn tab without a window: tear it back in, or close it (disconnecting its sessions) if that fails. */
   private async restoreOrphanTab(tabId: string) {
-    const res = await nexusBridge.requestTearIn(tabId);
+    const res = await tidalBridge.requestTearIn(tabId);
     if (res.success) return;
     console.error(`[TornWindowManager] Tear-in of orphaned tab ${tabId} failed (${res.error}); closing it.`);
-    const closed = await nexusBridge.closeTab(tabId);
+    const closed = await tidalBridge.closeTab(tabId);
     if (!closed.success) console.error(`[TornWindowManager] Failed to close orphaned tab ${tabId}:`, closed.error);
   }
 }

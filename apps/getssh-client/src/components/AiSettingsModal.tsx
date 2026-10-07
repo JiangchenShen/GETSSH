@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Bot, Check, ChevronRight, History, MessageSquare, Plus, Settings2, Trash2, X, BookOpen } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bot, Check, ChevronRight, ClipboardPaste, Globe, History, MessageSquare, Plus, Send, Settings2, Trash2, X, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { useAiChatStore } from '../store/aiChatStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useSessionStore } from '../store/sessionStore';
+import { ContextService } from '../services/contextService';
 import { PERSONAS } from '../utils/persona';
 import { ChatView } from './ai-center/ChatView';
 import { HistoryView } from './ai-center/HistoryView';
-import { InputArea } from './ai-center/InputArea';
 import { useAiConversation } from './ai-center/useAiConversation';
 
 export { AiConfigurationSection } from './ai-center/AiConfigurationSection';
@@ -46,9 +47,16 @@ export const AiSettingsModal: React.FC = () => {
   const workspaceName = workspaces.find(workspace => workspace.id === activeWorkspaceId)?.name || copy('当前工作区', 'Current workspace');
   const [activeTab, setActiveTab] = useState<CenterTab>('chat');
   const [draft, setDraft] = useState<PromptDraft | null>(null);
-  const { prompt, setPrompt, isGenerating, handleSubmit, handleRetry, handleServerSelect, handlePaperPlane } = useAiConversation();
+  const tabs = useSessionStore(state => state.tabs);
+  const terminals = useMemo(() => ContextService.getTerminalSessionContext(true).allSessions, [tabs, activeWorkspaceId]);
+  const [selectedTerminalId, setSelectedTerminalId] = useState('');
+  const targetSessionId = terminals.some(terminal => terminal.id === selectedTerminalId) ? selectedTerminalId : '';
+  const { prompt, setPrompt, isGenerating, handleSubmit, handleRetry, handleServerSelect, handlePaperPlane } = useAiConversation(targetSessionId);
   const activeConversation = conversations.find(conversation => conversation.id === activeConversationId);
   const ready = !!appConfig.aiEnabled && (appConfig.aiProvider === 'ollama' || !!appConfig.hasAiApiKey);
+  const terminalSelection = useAppStore(state => state.currentTerminalSelection);
+
+  useEffect(() => setSelectedTerminalId(''), [activeWorkspaceId]);
 
   useEffect(() => {
     if (activeTab === 'history' && chatView === 'chat') setActiveTab('chat');
@@ -96,7 +104,7 @@ export const AiSettingsModal: React.FC = () => {
   };
 
   return (
-    <div className="center-workbench flex h-full min-h-0 w-full overflow-hidden bg-bg text-ink" data-glass={!!appConfig.enableGlassmorphism}>
+    <div className="center-workbench relative flex h-full min-h-0 w-full overflow-hidden bg-bg text-ink" data-glass={!!appConfig.enableGlassmorphism}>
       <aside className="center-side-nav flex w-[214px] shrink-0 flex-col border-r border-line bg-panel/70 px-3 py-5 backdrop-blur-xl">
         <div className="px-3 pb-5">
           <h1 className="text-lg font-semibold tracking-tight">{copy('AI 中心', 'AI Center')}</h1>
@@ -113,24 +121,63 @@ export const AiSettingsModal: React.FC = () => {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-7 py-5">
+        <header className="center-content center-page-header flex shrink-0 items-start justify-between gap-4 border-b border-line px-7 py-5">
           <div className="min-w-0"><h2 className="text-xl font-semibold tracking-tight">{copy(navigation.find(item => item.id === activeTab)?.cn || '', navigation.find(item => item.id === activeTab)?.en || '')}</h2><p className="mt-1 truncate text-xs text-ink-3">{activeTab === 'chat' ? (activeConversation?.title || copy('向 AI 提问，或从历史中继续对话', 'Ask AI or continue a previous conversation')) : activeTab === 'history' ? copy('当前工作区保存的对话', 'Conversations saved in this workspace') : activeTab === 'prompts' ? copy('选择工作角色或编辑自己的提示词', 'Choose a role or edit your prompts') : copy('选择 AI 可访问终端和执行命令的范围', 'Choose what AI may read and execute')}</p></div>
           <div className="flex shrink-0 items-center gap-2">
             {activeTab === 'chat' && <button type="button" onClick={newConversation} className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-panel px-3 text-sm text-ink hover:bg-surf-2 focus-visible:outline-2 focus-visible:outline-primary"><Plus size={14} />{copy('新对话', 'New chat')}</button>}
-            <span className={`hidden rounded-md px-2.5 py-1.5 text-xs sm:inline-flex ${ready ? 'bg-primary/10 text-primary' : 'bg-warn/10 text-warn'}`}>{ready ? copy('已配置', 'Ready') : appConfig.aiEnabled ? copy('需要配置', 'Setup needed') : copy('已关闭', 'Off')}</span>
+            <span className={`hidden rounded-md px-2.5 py-1.5 text-xs sm:inline-flex ${ready ? 'bg-primary/10 text-primary' : 'bg-warn/10 text-warn'}`}>{ready ? copy('AI 已启用', 'AI on') : appConfig.aiEnabled ? copy('需要配置', 'Setup needed') : copy('已关闭', 'Off')}</span>
           </div>
         </header>
 
+        {activeTab === 'chat' && <div className="center-content flex shrink-0 flex-wrap items-center gap-2 border-b border-line-soft px-7 py-3 text-xs text-ink-2">
+          <label htmlFor="ai-center-terminal">{copy('目标终端', 'Target terminal')}</label>
+          <select id="ai-center-terminal" value={targetSessionId} onChange={event => setSelectedTerminalId(event.target.value)} className="min-h-8 min-w-0 max-w-full rounded-md border border-line bg-panel px-2 text-xs text-ink outline-none focus:border-primary">
+            <option value="">{copy('不附加终端', 'No terminal context')}</option>
+            {terminals.map(terminal => <option key={terminal.id} value={terminal.id}>{terminal.name}</option>)}
+          </select>
+          <span className="text-ink-3">{copy('上下文读取与命令执行仍遵循智能体模式。', 'Context and commands follow the agent mode.')}</span>
+        </div>}
+
         {activeTab === 'chat' && <div className="flex min-h-0 flex-1 flex-col">
           {!ready ? <div className="m-7 border-l-2 border-warn bg-warn/10 px-4 py-3 text-sm text-ink"><p className="font-medium">{appConfig.aiEnabled ? copy('连接模型后即可开始对话', 'Connect a model to start chatting') : copy('AI 已关闭', 'AI is off')}</p><p className="mt-1 text-xs text-ink-2">{copy('在设置中选择供应商、模型并配置凭据。', 'Choose a provider, model and credentials in Settings.')}</p><button type="button" onClick={openAiSettings} className="mt-3 text-sm font-medium text-primary hover:underline">{copy('打开 AI 配置 →', 'Open AI settings →')}</button></div>
-            : <><ChatView onPaperPlane={handlePaperPlane} onRetry={handleRetry} onServerSelect={handleServerSelect} /><InputArea prompt={prompt} setPrompt={setPrompt} isGenerating={isGenerating} onSubmit={handleSubmit} formId="ai-center-page-form" /></>}
+            : <><ChatView onPaperPlane={handlePaperPlane} onRetry={handleRetry} onServerSelect={handleServerSelect} />
+              <form id="ai-center-page-form" onSubmit={handleSubmit} className="center-content shrink-0 space-y-3 border-t border-line bg-panel/40 px-7 py-4">
+                {terminalSelection && <button type="button" onClick={() => {
+                  setPrompt(current => `${current}${current ? '\n' : ''}${terminalSelection}`);
+                  useAppStore.getState().setCurrentTerminalSelection('');
+                }} className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs text-ink-2 hover:bg-surf"><ClipboardPaste size={13} />{copy('插入终端选中文本', 'Insert terminal selection')} · {terminalSelection.length}</button>}
+                <textarea aria-label={copy('消息', 'Message')} value={prompt} onChange={event => setPrompt(event.target.value)} rows={3} placeholder={copy('输入问题；Enter 发送，Shift+Enter 换行', 'Ask a question; Enter sends, Shift+Enter adds a line')} onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    if (!isGenerating && prompt.trim()) event.currentTarget.form?.requestSubmit();
+                  }
+                }} className="block w-full resize-none rounded-md border border-line bg-bg px-3 py-2.5 text-sm leading-relaxed text-ink outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/20" />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button type="button" aria-pressed={!!appConfig.aiSearchEnabled} onClick={() => updateConfig('aiSearchEnabled', !appConfig.aiSearchEnabled)} className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs focus-visible:outline-2 focus-visible:outline-primary ${appConfig.aiSearchEnabled ? 'text-primary hover:bg-primary/10' : 'text-ink-3 hover:bg-surf'}`}><Globe size={13} />{appConfig.aiSearchEnabled ? copy('网页搜索开启', 'Web search on') : copy('网页搜索关闭', 'Web search off')}</button>
+                  <button type="submit" disabled={isGenerating || !prompt.trim()} className="inline-flex min-h-9 items-center gap-2 rounded-md bg-primary px-3.5 text-sm font-medium text-[var(--center-accent-ink)] hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-40"><Send size={14} />{isGenerating ? copy('生成中…', 'Generating…') : copy('发送', 'Send')}</button>
+                </div>
+              </form>
+            </>}
         </div>}
 
         {activeTab === 'history' && <div className="flex min-h-0 flex-1 flex-col"><HistoryView /></div>}
 
-        {activeTab === 'prompts' && <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
+        {activeTab === 'prompts' && <div className="center-content min-h-0 flex-1 overflow-y-auto px-7 py-5">
           <div className="max-w-4xl"><div className="flex items-center justify-between gap-3 pb-3"><p className="text-xs text-ink-3">{copy('当前角色：', 'Current role: ')}{allPrompts.find(item => item.id === appConfig.activePromptId)?.title || copy('默认助手', 'Default assistant')}</p><button type="button" onClick={() => setDraft({ id: `custom_${Date.now()}`, title: '', desc: '', content: '' })} className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-panel px-3 text-sm hover:bg-surf-2"><Plus size={14} />{copy('新建提示词', 'New prompt')}</button></div>
-            <div className="divide-y divide-line border-y border-line">{allPrompts.map(item => <div key={item.id} className="flex items-start gap-4 py-4"><BookOpen size={17} className="mt-0.5 shrink-0 text-ink-3" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="text-sm font-medium">{item.title}</h3>{appConfig.activePromptId === item.id && <span className="text-xs text-primary">{copy('使用中', 'Active')}</span>}</div><p className="mt-1 text-xs leading-relaxed text-ink-3">{item.desc}</p></div><div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => setDraft(item)} className="rounded-md px-2 py-1.5 text-xs text-ink-2 hover:bg-surf-2">{item.isBuiltin ? copy('查看', 'View') : copy('编辑', 'Edit')}</button>{!item.isBuiltin && <button type="button" onClick={() => deletePrompt(item.id)} aria-label={`${copy('删除', 'Delete')} ${item.title}`} className="rounded-md p-1.5 text-ink-3 hover:bg-down/10 hover:text-down"><Trash2 size={14} /></button>}<button type="button" onClick={() => updateConfig('activePromptId', appConfig.activePromptId === item.id ? undefined : item.id)} className={`rounded-md border px-2.5 py-1.5 text-xs ${appConfig.activePromptId === item.id ? 'border-primary/30 bg-primary/10 text-primary' : 'border-line bg-panel text-ink hover:bg-surf-2'}`}>{appConfig.activePromptId === item.id ? copy('取消使用', 'Deactivate') : copy('使用', 'Use')}</button></div></div>)}</div>
+            <div className="divide-y divide-line border-y border-line">
+              {allPrompts.map(item => <div key={item.id} className="center-prompt-row flex items-start gap-4 py-4">
+                <BookOpen size={17} className="mt-0.5 shrink-0 text-ink-3" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{item.title}</h3>{appConfig.activePromptId === item.id && <span className="text-xs text-primary">{copy('使用中', 'Active')}</span>}</div>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-3">{item.desc}</p>
+                </div>
+                <div className="center-prompt-actions flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={() => setDraft(item)} className="rounded-md px-2 py-1.5 text-xs text-ink-2 hover:bg-surf-2 focus-visible:outline-2 focus-visible:outline-primary">{item.isBuiltin ? copy('查看', 'View') : copy('编辑', 'Edit')}</button>
+                  {!item.isBuiltin && <button type="button" onClick={() => deletePrompt(item.id)} aria-label={`${copy('删除', 'Delete')} ${item.title}`} className="rounded-md p-1.5 text-ink-3 hover:bg-down/10 hover:text-down focus-visible:outline-2 focus-visible:outline-primary"><Trash2 size={14} /></button>}
+                  <button type="button" onClick={() => updateConfig('activePromptId', appConfig.activePromptId === item.id ? undefined : item.id)} className={`rounded-md border px-2.5 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-primary ${appConfig.activePromptId === item.id ? 'border-primary/30 bg-primary/10 text-primary' : 'border-line bg-panel text-ink hover:bg-surf-2'}`}>{appConfig.activePromptId === item.id ? copy('取消使用', 'Deactivate') : copy('使用', 'Use')}</button>
+                </div>
+              </div>)}
+            </div>
           </div>
         </div>}
 

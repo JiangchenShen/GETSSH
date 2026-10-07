@@ -19,7 +19,7 @@ import {
   sessionProtocols
 } from './ptyHandler';
 import { sshBridge } from '../services/SSHBridge';
-import { nexusBridge } from '../nexus/nexusBridge';
+import { tidalBridge } from '../tidal/tidalBridge';
 import { emitSessionData, readScrollback, dropSession } from '../services/SessionOutputBuffer';
 import { broadcastToAllWindows, isKnownTopLevelSender } from '../windowRegistry';
 
@@ -226,7 +226,7 @@ function rememberConnectConfig(sessionId: string, config: any) {
  */
 function markIfEndedOnItsOwn(sessionId: string) {
   if (!sessionConfigs.has(sessionId)) return;
-  nexusBridge.markSessionDisconnected(sessionId).catch((e: unknown) => {
+  tidalBridge.markSessionDisconnected(sessionId).catch((e: unknown) => {
     console.error(`[sshHandler] markSessionDisconnected(${sessionId}) failed`, e);
   });
 }
@@ -277,7 +277,7 @@ function openHostVerification(
 /**
  * Ends a session of any protocol, drops its scrollback and forgets its stored connect config.
  * Idempotent: for an id that is unknown or already closed it only drops the scrollback and the
- * config (no second audit record). Used by 'ssh-disconnect', by nexusBridge when Rust removes
+ * config (no second audit record). Used by 'ssh-disconnect', by tidalBridge when Rust removes
  * panes/tabs, and at quit.
  */
 export async function disconnectSession(sessionId: string): Promise<void> {
@@ -315,7 +315,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
   sessionApp = app;
 
   // Rust hands back the session ids of the leaves it removed (close pane / close tab / replace pane).
-  nexusBridge.setSessionTerminator((ids) => ids.forEach((id) => void disconnectSession(id)));
+  tidalBridge.setSessionTerminator((ids) => ids.forEach((id) => void disconnectSession(id)));
 
   // Runs whenever a local / telnet session ends (killed or on its own): sessions that end on their
   // own still need their audit record closed and their panes flagged disconnected.
@@ -927,7 +927,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
        fs.mkdirSync(wsPath, { recursive: true });
     }
     const { shell } = require('electron');
-    await shell.openPath(wsPath);
+    const error = await shell.openPath(wsPath);
+    if (error) throw new Error(error);
   });
 
   ipcMain.handle('delete-known-host', async (event, host: string, port: number) => {

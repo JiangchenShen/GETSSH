@@ -1,4 +1,5 @@
 import { useSessionStore, PaneNode } from '../store/sessionStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { getTerminalBuffer } from '../components/Terminal';
 
 export interface TerminalSnapshot {
@@ -22,24 +23,24 @@ export class ContextService {
   /**
    * 获取当前活动 Tab 下的所有存活终端列表及聚焦终端
    */
-  public static getTerminalSessionContext(): {
+  public static getTerminalSessionContext(workspaceScope = false): {
     activeSession: TerminalSessionInfo | null;
     allSessions: TerminalSessionInfo[];
   } {
     const state = useSessionStore.getState();
-    if (!state.activeTabId) return { activeSession: null, allSessions: [] };
-
-    const tab = state.tabs.find((t) => t.id === state.activeTabId);
-    if (!tab || !tab.paneTree) return { activeSession: null, allSessions: [] };
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const tabs = state.tabs.filter(tab => !tab.isTornOff
+      && (tab.workspaceId ?? workspaceId) === workspaceId
+      && (workspaceScope || tab.id === state.activeTabId));
 
     let activeSession: TerminalSessionInfo | null = null;
     const allTerminalSessions: TerminalSessionInfo[] = [];
 
     const traverse = (node: PaneNode) => {
-      if (node.type === 'leaf' && node.paneType === 'terminal' && node.sessionId) {
+      if (node.type === 'leaf' && node.paneType === 'terminal' && node.sessionId && !node.isDisconnected) {
         const config = node.config as any;
         const name = config?.alias || config?.host || node.sessionId;
-        allTerminalSessions.push({ id: node.sessionId, name });
+        if (!allTerminalSessions.some(session => session.id === node.sessionId)) allTerminalSessions.push({ id: node.sessionId, name });
 
         if (node.paneId === state.activePaneId) {
           activeSession = { id: node.sessionId, name };
@@ -50,10 +51,10 @@ export class ContextService {
       }
     };
 
-    traverse(tab.paneTree);
+    tabs.forEach(tab => { if (tab.paneTree) traverse(tab.paneTree); });
 
     // Fallback: If no pane is explicitly active but exactly 1 terminal exists, use it
-    if (!activeSession && allTerminalSessions.length === 1) {
+    if (!workspaceScope && !activeSession && allTerminalSessions.length === 1) {
       activeSession = allTerminalSessions[0];
     }
 
@@ -64,7 +65,7 @@ export class ContextService {
    * 获取当前聚焦终端的完整只读快照（含缓冲区）
    */
   public static getActiveTerminalSnapshot(overrideSessionId?: string): TerminalSnapshot | null {
-    const { activeSession, allSessions } = this.getTerminalSessionContext();
+    const { activeSession, allSessions } = this.getTerminalSessionContext(!!overrideSessionId);
     
     let target = activeSession;
     if (overrideSessionId) {

@@ -1,3 +1,9 @@
+// Initialize the CI probe's temporary paths before any backend module captures them.
+import {
+  runPackagedStartupSmoke,
+  shouldRunPackagedStartupSmoke,
+  writePackagedStartupSmokeResult,
+} from './startupSmoke'
 import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -248,7 +254,7 @@ function createWindow() {
 
 
 import { SecureCenter } from './security/SecureCenter'
-import { nexusBridge } from './nexus/nexusBridge'
+import { tidalBridge } from './tidal/tidalBridge'
 import { TornWindowManager } from './windowManager'
 import { broadcastToAllWindows, getMainWindow, setMainWindow } from './windowRegistry'
 import { killAllSessions } from './handlers/sshHandler'
@@ -256,12 +262,6 @@ import { bootstrapAppWorkspace } from './handlers/workspaceHandler'
 import { appLock } from './security/appLock'
 import { mcpManager } from './services/mcp/McpManager'
 import { clearCopiedSecret } from './handlers/storeHandler'
-import {
-  runPackagedStartupSmoke,
-  shouldRunPackagedStartupSmoke,
-  writePackagedStartupSmokeResult,
-} from './startupSmoke'
-
 app.whenReady().then(async () => {
   if (shouldRunPackagedStartupSmoke(app.isPackaged)) {
     try {
@@ -293,8 +293,8 @@ app.whenReady().then(async () => {
   // Setup IPC Handlers before window creation to ensure early IPC works.
   // None of these depend on the database; plugins are only loaded after bootstrap below.
   registerAllIpcHandlers(ipcMain, app, () => getMainWindow());
-  nexusBridge.setupIpcHandlers();
-  nexusBridge.setupStateBroadcaster();
+  tidalBridge.setupIpcHandlers();
+  tidalBridge.setupStateBroadcaster();
   TornWindowManager.getInstance().init();
 
   const pluginManager = new PluginManager();
@@ -515,7 +515,7 @@ app.on('before-quit', (e) => {
 async function runQuitTeardown() {
   // A password copied from the reveal dialog less than 30 s ago must not outlive the app.
   await clearCopiedSecret().catch(err => console.warn('[Main] Clipboard cleanup failed:', err));
-  // Gracefully deactivate all plugins and release the watchdog before the process exits
+  // Gracefully deactivate all plugins and release the ocean-sentinel before the process exits
   try {
     SecureCenter.getInstance().gracefulShutdown();
   } catch (err) {

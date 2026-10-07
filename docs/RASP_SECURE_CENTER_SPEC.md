@@ -3,6 +3,8 @@
 > 本文件是 RASP（运行时程序自我保护）与 Secure Center（安全中心）的权威设计规范。
 > 所有相关的代码实现、UI 展示、Watchdog 行为必须严格遵循此文档。
 
+> 当前安全组件统一命名为 **Ocean Sentinel**。下文的 Watchdog 专指 `ocean-sentinel` crate 中的 `watchdog` 子模块与同名独立二进制，协议消息名称保持不变。
+
 ---
 
 ## 一、安全等级体系 (Threat Level System)
@@ -218,11 +220,11 @@ Watchdog →[LOCKDOWN_TRIGGER:YELLOW:<reason>]→ Node IPC
 |-----|-----|-----|
 | RASP 拦截层 | `electron/main/services/PluginManager.ts` | 拦截高危 API 调用，调用 `SecureCenter.triggerLockdown` |
 | 安全总线 | `electron/main/security/SecureCenter.ts` | 管理 Watchdog 生命周期，转发 RASP 事件，处理用户决策 |
-| 系统看门狗 | `rust-core/watchdog/src/main.rs` | 心跳监控，内存完整性检查，进程强杀 |
+| Ocean Sentinel 看门狗 | `rust-core/ocean-sentinel/src/watchdog/main.rs` | 心跳监控，内存完整性检查，进程强杀 |
 | 安全覆盖层 | `src/components/SecurityOverlay.tsx` | 全屏拦截 UI，展示预警并接受用户操作 |
 | 安全中心面板 | `src/components/SettingsView.tsx` | 安全状态摘要，历史日志 |
 | 指挥中心横幅 | `src/components/CommandCenter.tsx` | 污染状态横幅提示 |
-| 状态存储 | `src/store/appStore.ts` | `isPolluted`, `watchdogStatus` 全局状态 |
+| 状态存储 | `src/store/appStore.ts` | `isPolluted`, `sentinelStatus` 全局状态 |
 
 ---
 

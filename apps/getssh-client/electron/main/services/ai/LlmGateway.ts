@@ -8,16 +8,16 @@ import { ZhipuAdapter } from './ZhipuAdapter';
 import { KimiAdapter } from './KimiAdapter';
 import { MiniMaxAdapter } from './MiniMaxAdapter';
 import { QwenAdapter } from './QwenAdapter';
-import { SentinelGateway } from '../SentinelGateway';
+import { OceanSentinel } from '../OceanSentinel';
 import { ModelCaps } from './ModelCapabilities';
-import type { SentinelSession } from '../SentinelGateway';
+import type { OceanSession } from '../OceanSentinel';
 
 /**
  * 深度脱敏：工具调用参数是结构化的（{ command: "ssh root@1.2.3.4" }），
  * 只处理顶层字符串会把真实地址漏在嵌套字段里。
- * 与 SentinelGateway.rehydrateDeep 对称。
+ * 与 OceanSentinel.rehydrateDeep 对称。
  */
-function sanitizeDeep<T>(value: T, sentinel: SentinelSession): T {
+function sanitizeDeep<T>(value: T, sentinel: OceanSession): T {
   if (typeof value === 'string') {
     return sentinel.sanitize(value) as unknown as T;
   }
@@ -112,11 +112,11 @@ export class LlmGateway {
     // 用一个会话贯穿本轮所有分段：Rust 侧每次 sanitize() 的计数器都从 1 重来，
     // 逐段合并 mappingDict 会让不同段落的 [IP_1] 互相覆盖。会话内统一编号并按
     // 原值去重，同一个 IP 在哪一段出现都是同一个占位符。
-    const sentinel = SentinelGateway.createSession();
-    if (!SentinelGateway.isAvailable()) {
+    const sentinel = OceanSentinel.createSession({ recordMetrics: true });
+    if (!OceanSentinel.isAvailable()) {
       console.warn(
         '[LlmGateway] Sentinel 原生模块不可用，本次请求将使用不可逆 JS 脱敏兜底：',
-        SentinelGateway.getLoadError()
+        OceanSentinel.getLoadError()
       );
     }
     const mappingDict = sentinel.dict; // 活引用：后面的分段脱敏会继续往里加
@@ -182,8 +182,8 @@ export class LlmGateway {
 
       let emitted = false;
       let rehydratedResponse: LlmResponse | null = null;
-      const textRehydrator = SentinelGateway.createStreamRehydrator(mappingDict);
-      const thoughtRehydrator = SentinelGateway.createStreamRehydrator(mappingDict);
+      const textRehydrator = OceanSentinel.createStreamRehydrator(mappingDict);
+      const thoughtRehydrator = OceanSentinel.createStreamRehydrator(mappingDict);
 
       // 回填必须覆盖 tool_call：模型基于 [IP_1] 推理出的
       // execute_terminal { command: "ssh root@[IP_1]" } 如果不还原，
@@ -191,28 +191,28 @@ export class LlmGateway {
       // 去程脱敏了却没有回程，方向不闭合。
       const rehydrateBlock = (block: Block): Block => {
         if (block.kind === 'text') {
-          return { kind: 'text', text: SentinelGateway.rehydrate(block.text, mappingDict) };
+          return { kind: 'text', text: OceanSentinel.rehydrate(block.text, mappingDict) };
         }
         if (block.kind === 'thought' && block.text) {
-          return { ...block, text: SentinelGateway.rehydrate(block.text, mappingDict) };
+          return { ...block, text: OceanSentinel.rehydrate(block.text, mappingDict) };
         }
         if (block.kind === 'tool_call') {
           return {
             ...block,
-            args: SentinelGateway.rehydrateDeep(block.args, mappingDict),
-            raw: SentinelGateway.rehydrate(block.raw, mappingDict)
+            args: OceanSentinel.rehydrateDeep(block.args, mappingDict),
+            raw: OceanSentinel.rehydrate(block.raw, mappingDict)
           };
         }
         return block;
       };
       const rehydrate = (response: LlmResponse): LlmResponse => ({
         ...response,
-        text: SentinelGateway.rehydrate(response.text, mappingDict),
+        text: OceanSentinel.rehydrate(response.text, mappingDict),
         blocks: response.blocks.map(rehydrateBlock),
         toolCalls: response.toolCalls.map(tc => ({
           ...tc,
-          args: SentinelGateway.rehydrateDeep(tc.args, mappingDict),
-          raw: SentinelGateway.rehydrate(tc.raw, mappingDict)
+          args: OceanSentinel.rehydrateDeep(tc.args, mappingDict),
+          raw: OceanSentinel.rehydrate(tc.raw, mappingDict)
         }))
       });
 

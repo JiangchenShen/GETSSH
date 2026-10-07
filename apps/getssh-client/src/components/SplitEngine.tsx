@@ -361,7 +361,7 @@ export default function SplitEngine() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
-            Nexus Split Engine
+            Tidal Split Engine
           </h1>
           <p className="text-sm text-gray-500 mt-1">Binary Tree Terminal Multiplexer</p>
         </div>

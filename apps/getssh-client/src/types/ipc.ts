@@ -41,10 +41,33 @@ export interface ImportPayload {
   masterPassword?: string;
 }
 
-export interface WatchdogStatus {
+export interface OceanSentinelStatus {
   status: 'secure' | 'warning';
+  daemonState?: 'running' | 'starting' | 'disabled' | 'unavailable';
+  level?: 'red' | 'yellow';
+  reason?: string;
+  /** Last completed supervisor PING write, not an acknowledged heartbeat or status-read time. */
   lastPing: number;
-  watchdogDisabled?: boolean;
+  sentinelDisabled?: boolean;
+  supervisorPid?: number | null;
+  supervisedPid?: number;
+  gateway?: {
+    mode: 'native' | 'fallback';
+    state: 'ready' | 'faulted';
+    lastSanitizedAt: number | null;
+    lastFailureAt: number | null;
+  };
+  /** Aggregate replacement occurrences during model egress preparation, across all workspaces. */
+  stats?: {
+    runtimeHits: number;
+    todayHits: number | null;
+    totalHits: number | null;
+    persistence: 'available' | 'unavailable';
+    startedAt: number;
+    day: string;
+    recordedSince: number | null;
+    lastFilteredAt: number | null;
+  };
 }
 
 export interface SshConnectConfig {

@@ -572,29 +572,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "getssh-process-sandbox"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "windows-sys",
-]
-
-[[package]]
-name = "getssh-sentinel"
-version = "1.0.0"
-dependencies = [
- "lazy_static",
- "napi",
- "napi-build",
- "napi-derive",
- "regex",
- "tree-sitter",
- "tree-sitter-bash",
- "uuid",
-]
-
-[[package]]
 name = "getssh-store"
 version = "0.1.0"
 dependencies = [
@@ -914,20 +891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexus-core"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "napi",
- "napi-build",
- "napi-derive",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1012,6 +975,25 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "ocean-sentinel"
+version = "1.0.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "regex",
+ "serde",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "uuid",
+ "winapi",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1540,6 +1522,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tidal-engine"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "time"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1732,14 +1728,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "watchdog"
-version = "0.1.0"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]

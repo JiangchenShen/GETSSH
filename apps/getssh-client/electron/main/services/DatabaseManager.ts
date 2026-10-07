@@ -154,6 +154,11 @@ export class DatabaseManager {
     }
   }
 
+  /** Whether main.db is open, that is, the app is unlocked: global settings are read and written only then. */
+  public static isMainDbOpen(): boolean {
+    return readOr(false, () => getStore().appState().phase === 'ready');
+  }
+
   public static isWorkspaceOpen(workspaceId: string): boolean {
     return this.getWorkspace(workspaceId)?.state === 'open';
   }

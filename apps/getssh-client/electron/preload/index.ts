@@ -114,7 +114,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getKnownHosts: () => ipcRenderer.invoke('get-known-hosts'),
   deleteKnownHost: (host: string, port: number) => ipcRenderer.invoke('delete-known-host', host, port),
   getConnectionLogs: () => ipcRenderer.invoke('get-connection-logs'),
-  getWatchdogStatus: () => ipcRenderer.invoke('get-watchdog-status'),
+  getSentinelStatus: () => ipcRenderer.invoke('get-sentinel-status'),
   exportConnectionLogs: () => ipcRenderer.invoke('export-connection-logs'),
   openAuditFolder: () => ipcRenderer.invoke('open-audit-folder'),
   getEnvInfo: () => ({
@@ -172,26 +172,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   encryptConfig: (data: any) => ipcRenderer.invoke('encrypt-config', data),
   decryptConfig: (base64: string) => ipcRenderer.invoke('decrypt-config', base64),
-  // Nexus Core API — Rust nexus-core owns the tab/pane layout; the main process owns session lifetime.
-  nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => ipcRenderer.invoke('nexus:split', { targetPaneId, direction }),
-  nexusClosePane: (paneId: string) => ipcRenderer.invoke('nexus:close', { paneId }),
-  nexusToggleZoom: (paneId: string) => ipcRenderer.invoke('nexus:toggle-zoom', { paneId }),
-  nexusUpdateSizes: (paneId: string, sizes: number[]) => ipcRenderer.invoke('nexus:update-sizes', { paneId, sizes }),
-  nexusSetDisconnected: (paneId: string, disconnected: boolean) => ipcRenderer.invoke('nexus:set-disconnected', { paneId, disconnected }),
-  nexusCloseTab: (tabId: string) => ipcRenderer.invoke('nexus:close-tab', { tabId }),
-  nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => ipcRenderer.invoke('nexus:replace-pane', { paneId, paneType, sessionId, configJson }),
-  nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => ipcRenderer.invoke('nexus:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title, workspaceId: workspaceId ?? null }),
-  nexusGetTab: (tabId: string) => ipcRenderer.invoke('nexus:get-tab', { tabId }),
-  onNexusSyncTree: (callback: (payload: any) => void) => {
+  // Tidal Engine API — Rust tidal-engine owns the tab/pane layout; the main process owns session lifetime.
+  tidalSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => ipcRenderer.invoke('tidal:split', { targetPaneId, direction }),
+  tidalClosePane: (paneId: string) => ipcRenderer.invoke('tidal:close', { paneId }),
+  tidalToggleZoom: (paneId: string) => ipcRenderer.invoke('tidal:toggle-zoom', { paneId }),
+  tidalUpdateSizes: (paneId: string, sizes: number[]) => ipcRenderer.invoke('tidal:update-sizes', { paneId, sizes }),
+  tidalSetDisconnected: (paneId: string, disconnected: boolean) => ipcRenderer.invoke('tidal:set-disconnected', { paneId, disconnected }),
+  tidalCloseTab: (tabId: string) => ipcRenderer.invoke('tidal:close-tab', { tabId }),
+  tidalReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => ipcRenderer.invoke('tidal:replace-pane', { paneId, paneType, sessionId, configJson }),
+  tidalRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => ipcRenderer.invoke('tidal:register-tab', { tabId, rootPaneId, sessionId, paneType, configJson, title, workspaceId: workspaceId ?? null }),
+  tidalGetTab: (tabId: string) => ipcRenderer.invoke('tidal:get-tab', { tabId }),
+  onTidalSyncTree: (callback: (payload: any) => void) => {
     const handler = (_event: IpcRendererEvent, payload: any) => callback(payload);
-    ipcRenderer.on('nexus:sync-tree', handler);
-    return () => ipcRenderer.removeListener('nexus:sync-tree', handler);
+    ipcRenderer.on('tidal:sync-tree', handler);
+    return () => ipcRenderer.removeListener('tidal:sync-tree', handler);
   },
   // Main process asks the main window to focus a pane (e.g. after a torn pane was docked back into its tab).
-  onNexusFocusPane: (callback: (payload: { tabId: string, paneId: string }) => void) => {
+  onTidalFocusPane: (callback: (payload: { tabId: string, paneId: string }) => void) => {
     const listener = (_event: IpcRendererEvent, payload: { tabId: string, paneId: string }) => callback(payload);
-    ipcRenderer.on('nexus:focus-pane', listener);
-    return () => ipcRenderer.removeListener('nexus:focus-pane', listener);
+    ipcRenderer.on('tidal:focus-pane', listener);
+    return () => ipcRenderer.removeListener('tidal:focus-pane', listener);
   },
 
   // Tear-off windows: the main process performs the layout change and owns the window ↔ tab mapping.

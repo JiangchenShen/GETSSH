@@ -22,7 +22,7 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, setSettingsActiveTab, onClose }) => {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const glass = useAppStore(state => state.appConfig.enableGlassmorphism);
   const zh = i18n.language.startsWith('zh');
   const label = (cn: string, en: string) => zh ? cn : en;
@@ -47,7 +47,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
     { id: 'Terminal' as const, title: label('终端', 'Terminal'), icon: TerminalSquare, group: '', intro: label('字体、配色与输入行为。', 'Typography, colors and input behavior.') },
     { id: 'SSH' as const, title: label('连接与传输', 'Connections & Transfer'), icon: Network, group: '', intro: label('SSH 默认值、代理、传输与初始化脚本。', 'SSH defaults, proxy, transfers and connection scripts.') },
     { id: 'AI' as const, title: label('AI 与集成', 'AI & Integrations'), icon: Sparkles, group: label('能力', 'Capabilities'), intro: label('模型连接、网页搜索与 MCP。', 'Model connections, web search and MCP.') },
-    { id: 'Security' as const, title: label('安全与隐私', 'Security & Privacy'), icon: ShieldCheck, group: '', intro: label('应用保护、工作区保险库与连接信任。', 'App protection, workspace vault and host trust.') },
+    { id: 'Security' as const, title: t('settings.secureCenter'), icon: ShieldCheck, group: '', intro: label('保护配置、守护进程与脱敏运行状态。', 'Protection settings, supervisor and redaction runtime status.') },
     { id: 'Audit' as const, title: label('数据与日志', 'Data & Logs'), icon: Archive, group: '', intro: label('会话记录、录屏与导出。', 'Session records, recordings and export.') },
     { id: 'About' as const, title: label('关于', 'About'), icon: Info, group: label('其他', 'Other'), intro: label('版本、更新与法律信息。', 'Version, updates and legal information.') },
   ];
@@ -76,8 +76,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto" aria-label={page.title}>
-        <div className="mx-auto w-full max-w-[1060px] px-6 pb-12 pt-6 max-[690px]:px-4">
-          <header className="mb-6 flex items-start justify-between gap-4">
+        <div className="center-content mx-auto w-full max-w-[1060px] px-6 pb-12 pt-6 max-[690px]:px-4">
+          <header className="center-page-header mb-6 flex items-start justify-between gap-4">
             <div className="min-w-0">
               <h1 className="text-[22px] font-semibold tracking-tight text-ink">{page.title}</h1>
               <p className="mt-1 text-xs leading-relaxed text-ink-2">{page.intro}</p>

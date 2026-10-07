@@ -26,13 +26,13 @@ declare global {
     themeOverride?: string;
   }
 
-  interface NexusResult {
+  interface TidalResult {
     success: boolean;
     error?: string;
   }
 
-  /** One tab's layout as broadcast by nexus-core. `tree === null` means the tab no longer exists. */
-  interface NexusTabSync {
+  /** One tab's layout as broadcast by tidal-engine. `tree === null` means the tab no longer exists. */
+  interface TidalTabSync {
     tabId: string;
     rev: number;
     tree: import('./store/sessionStore').PaneNode | null;
@@ -111,7 +111,7 @@ declare global {
       getConnectionLogs: () => Promise<{ id: string, alias: string, host: string, port: number, connectedAt: string, disconnectedAt: string, duration: string }[]>;
       exportConnectionLogs: () => Promise<boolean>;
       openAuditFolder: () => Promise<void>;
-      getWatchdogStatus: () => Promise<{ status: 'secure' | 'warning'; level?: 'red' | 'yellow'; reason?: string; lastPing: number; watchdogDisabled?: boolean }>;
+      getSentinelStatus: () => Promise<import('./types/ipc').OceanSentinelStatus>;
       getEnvInfo: () => { electron: string, chrome: string, node: string, platform: string, arch: string };
       onFullScreenState: (cb: (state: boolean) => void) => (() => void);
       onOsFingerprint: (cb: (data: { host: string; username: string; osType: string; sessionId?: string }) => void) => (() => void);
@@ -123,7 +123,7 @@ declare global {
       pluginRpcInvoke: (pluginId: string, action: string, data?: any) => Promise<any>;
       onPluginRpcMessage: (pluginId: string, cb: (payload: { pluginId: string, action: string, data: any }) => void) => (() => void);
       pluginStorageGet: (pluginId: string, key: string) => Promise<any>;
-      pluginStorageSet: (pluginId: string, key: string, value: any) => Promise<void>;
+      pluginStorageSet: (pluginId: string, key: string, value: any) => Promise<{ success: boolean; error?: string }>;
       reloadPlugin: (pluginId: string) => Promise<{ success: boolean; error?: string }>;
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);
@@ -146,20 +146,20 @@ declare global {
       updateWorkspacePreferences: (id: string, preferencesStr: string) => Promise<{ success: boolean; error?: string }>;
       encryptConfig: (data: any) => Promise<string>;
       decryptConfig: (base64: string) => Promise<any>;
-      nexusSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<NexusResult & { newPaneId?: string; tabId?: string }>;
-      nexusClosePane: (paneId: string) => Promise<NexusResult & { tabClosed?: boolean }>;
-      nexusToggleZoom: (paneId: string) => Promise<NexusResult>;
-      nexusUpdateSizes: (paneId: string, sizes: number[]) => Promise<NexusResult>;
-      nexusSetDisconnected: (paneId: string, disconnected: boolean) => Promise<NexusResult>;
-      nexusCloseTab: (tabId: string) => Promise<NexusResult>;
-      nexusReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<NexusResult>;
-      nexusRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => Promise<NexusResult>;
-      nexusGetTab: (tabId: string) => Promise<NexusTabSync | null>;
-      onNexusSyncTree: (callback: (payload: NexusTabSync) => void) => () => void;
-      onNexusFocusPane: (callback: (payload: { tabId: string; paneId: string }) => void) => () => void;
-      windowTearOff: (payload: { paneId: string; screenX: number; screenY: number; width: number; height: number }) => Promise<NexusResult>;
-      windowGetTornIdentity: () => Promise<{ tabId: string; snapshot: NexusTabSync | null } | null>;
-      windowTearIn: () => Promise<NexusResult>;
+      tidalSplit: (targetPaneId: string, direction: 'horizontal' | 'vertical') => Promise<TidalResult & { newPaneId?: string; tabId?: string }>;
+      tidalClosePane: (paneId: string) => Promise<TidalResult & { tabClosed?: boolean }>;
+      tidalToggleZoom: (paneId: string) => Promise<TidalResult>;
+      tidalUpdateSizes: (paneId: string, sizes: number[]) => Promise<TidalResult>;
+      tidalSetDisconnected: (paneId: string, disconnected: boolean) => Promise<TidalResult>;
+      tidalCloseTab: (tabId: string) => Promise<TidalResult>;
+      tidalReplacePane: (paneId: string, paneType: string, sessionId: string | null, configJson: string) => Promise<TidalResult>;
+      tidalRegisterTab: (tabId: string, rootPaneId: string, sessionId: string, paneType: string, configJson: string, title: string, workspaceId?: string | null) => Promise<TidalResult>;
+      tidalGetTab: (tabId: string) => Promise<TidalTabSync | null>;
+      onTidalSyncTree: (callback: (payload: TidalTabSync) => void) => () => void;
+      onTidalFocusPane: (callback: (payload: { tabId: string; paneId: string }) => void) => () => void;
+      windowTearOff: (payload: { paneId: string; screenX: number; screenY: number; width: number; height: number }) => Promise<TidalResult>;
+      windowGetTornIdentity: () => Promise<{ tabId: string; snapshot: TidalTabSync | null } | null>;
+      windowTearIn: () => Promise<TidalResult>;
       
       workspace: {
         getWorkspaces: () => Promise<any[]>;

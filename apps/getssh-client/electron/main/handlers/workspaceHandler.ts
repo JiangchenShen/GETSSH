@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { nexusBridge } from '../nexus/nexusBridge';
+import { tidalBridge } from '../tidal/tidalBridge';
 import { vaultManager } from '../services/vaultManager';
 import { ChatStorageManager } from '../services/chatStorageManager';
 import { DatabaseManager, type Workspace } from '../services/DatabaseManager';
@@ -37,8 +37,8 @@ function workspaceLockInfo(workspace: Workspace | undefined) {
 async function ensureWorkspaceDir(workspaceId: string): Promise<void> {
   const dir = resolveWorkspaceDir(workspaceId);
   if (fs.existsSync(dir)) return;
-  await nexusBridge.bootstrapWorkspace(workspaceId);
-  // Without nexus-core the folder is still needed: switching checks for it.
+  await tidalBridge.bootstrapWorkspace(workspaceId);
+  // Without tidal-engine the folder is still needed: switching checks for it.
   if (!fs.existsSync(dir)) await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
 }
 
@@ -76,7 +76,7 @@ export function setupWorkspaceHandlers() {
     console.log(`[Workspace IPC] Creating new workspace: ${workspaceId}`);
     try {
       if (!appLock.isReady()) return LOCKED;
-      const res = await nexusBridge.bootstrapWorkspace(workspaceId);
+      const res = await tidalBridge.bootstrapWorkspace(workspaceId);
       if (res && res !== 'skip') {
         // A password, if any, is set afterwards through workspace:set-password.
         const name = typeof visualMeta?.name === 'string' && visualMeta.name.trim() ? visualMeta.name : workspaceId;
@@ -266,8 +266,8 @@ export function setupWorkspaceHandlers() {
       // ==========================================
       // Phase 2: 底层网络拓扑重写 (Network Routing Reset)
       // ==========================================
-      await nexusBridge.clearNetworkTopology(); // Flush first for absolute safety
-      await nexusBridge.applyWorkspaceNetwork(targetWorkspaceId);
+      await tidalBridge.clearNetworkTopology(); // Flush first for absolute safety
+      await tidalBridge.applyWorkspaceNetwork(targetWorkspaceId);
 
       // ==========================================
       // Phase 3: 剧本与资产盘装载 (Load Storage Assets from DB)

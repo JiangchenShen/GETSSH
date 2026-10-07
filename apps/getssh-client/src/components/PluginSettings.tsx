@@ -33,9 +33,13 @@ export const PluginSettings: React.FC = () => {
   };
 
   const cancelInstall = async () => {
-    if (!pendingInstall) return;
-    await window.electronAPI.abortPluginInstall(pendingInstall.tempDir);
-    setPendingInstall(null);
+    if (!pendingInstall || loading) return;
+    setLoading(true); setError('');
+    try {
+      const result = await window.electronAPI.abortPluginInstall(pendingInstall.tempDir);
+      if (!result.success) throw new Error(result.error || (zh ? '已取消安装，但临时文件未能清理。请重新选择插件包。' : 'Installation cancelled, but temporary files could not be removed. Choose the plugin package again.'));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setPendingInstall(null); setLoading(false); }
   };
 
   const confirmInstall = async () => {
@@ -78,7 +82,7 @@ export const PluginSettings: React.FC = () => {
       <input ref={fileInput} type="file" accept=".zip,application/zip" onChange={event => void previewFile(event.target.files?.[0])} className="sr-only" aria-label={zh ? '选择本地插件包' : 'Choose local plugin package'} />
     </section>
 
-    {error && <p role="alert" className="border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
+    {error && !pendingInstall && <p role="alert" className="border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
 
     <div onDrop={event => { event.preventDefault(); void previewFile(event.dataTransfer.files[0]); }} onDragOver={event => event.preventDefault()} className="rounded-md border border-dashed border-line px-4 py-5 text-center text-xs text-ink-3"><Download size={16} className="mx-auto mb-2" />{zh ? '也可以把 ZIP 插件包拖到这里' : 'Or drop a ZIP plugin package here'}</div>
 
@@ -93,7 +97,7 @@ export const PluginSettings: React.FC = () => {
       })}
     </section>
 
-    {pendingInstall && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) void cancelInstall(); }}><div role="dialog" aria-modal="true" aria-label={t('plugins.permissionReview', 'Permission review')} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-6 text-ink shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{t('plugins.permissionReview', 'Permission review')}</h2><p className="mt-1 text-sm text-ink-2">{pendingInstall.manifest.getssh?.name || pendingInstall.manifest.displayName || pendingInstall.manifest.name} · v{pendingInstall.manifest.version}</p></div><button type="button" onClick={() => void cancelInstall()} aria-label={zh ? '取消安装' : 'Cancel installation'} className="rounded-md p-1.5 text-ink-3 hover:bg-surf-2"><X size={17} /></button></div><p className="mt-4 text-xs leading-relaxed text-ink-2">{zh ? '请检查该插件请求的能力。安装后是否实际运行，还取决于设置中的插件权限模式。' : 'Review requested capabilities. Whether backend code runs also depends on the plugin permission mode in Settings.'}</p><div className="mt-4 border-y border-line">{capabilities.length ? capabilities.map(capability => <div key={capability} className="border-b border-line-soft py-2.5 last:border-b-0"><code className="font-mono text-xs text-ink">{capability}</code><p className="mt-1 text-xs text-ink-3">{riskText[capability] || (zh ? '未识别的能力，请确认来源。' : 'Unrecognized capability; verify the source.')}</p></div>) : <p className="py-3 text-xs text-ink-3">{t('plugins.caps.none', 'No special capabilities requested.')}</p>}</div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => void cancelInstall()} className={buttonClass}>{t('common.cancel')}</button><button type="button" onClick={() => void confirmInstall()} disabled={loading} className="min-h-9 rounded-md bg-primary px-3 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50">{loading ? t('common.loading') : t('plugins.confirmInstall', 'Accept & install')}</button></div></div></div>}
+    {pendingInstall && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) void cancelInstall(); }}><div role="dialog" aria-modal="true" aria-label={t('plugins.permissionReview', 'Permission review')} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-6 text-ink shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{t('plugins.permissionReview', 'Permission review')}</h2><p className="mt-1 text-sm text-ink-2">{pendingInstall.manifest.getssh?.name || pendingInstall.manifest.displayName || pendingInstall.manifest.name} · v{pendingInstall.manifest.version}</p></div><button type="button" onClick={() => void cancelInstall()} disabled={loading} aria-label={zh ? '取消安装' : 'Cancel installation'} className="rounded-md p-1.5 text-ink-3 hover:bg-surf-2 disabled:opacity-50"><X size={17} /></button></div><p className="mt-4 text-xs leading-relaxed text-ink-2">{zh ? '请检查该插件请求的能力。安装后是否实际运行，还取决于设置中的插件权限模式。' : 'Review requested capabilities. Whether backend code runs also depends on the plugin permission mode in Settings.'}</p><div className="mt-4 border-y border-line">{capabilities.length ? capabilities.map(capability => <div key={capability} className="border-b border-line-soft py-2.5 last:border-b-0"><code className="font-mono text-xs text-ink">{capability}</code><p className="mt-1 text-xs text-ink-3">{riskText[capability] || (zh ? '未识别的能力，请确认来源。' : 'Unrecognized capability; verify the source.')}</p></div>) : <p className="py-3 text-xs text-ink-3">{t('plugins.caps.none', 'No special capabilities requested.')}</p>}</div>{error && <p role="alert" className="mt-4 border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => void cancelInstall()} disabled={loading} className={buttonClass}>{t('common.cancel')}</button><button type="button" onClick={() => void confirmInstall()} disabled={loading} className="min-h-9 rounded-md bg-primary px-3 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50">{loading ? t('common.loading') : t('plugins.confirmInstall', 'Accept & install')}</button></div></div></div>}
   </div>;
 };
 
@@ -114,8 +118,12 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
   const save = async () => {
     setSaving(true); setError('');
     try {
-      await Promise.all(Object.entries(formData).map(([key, value]) => window.electronAPI.pluginStorageSet(pluginId, key, value)));
-      await window.electronAPI.reloadPlugin(pluginId);
+      const saved = await Promise.all(Object.entries(formData).map(([key, value]) => window.electronAPI.pluginStorageSet(pluginId, key, value)));
+      for (const result of saved) {
+        if (!result?.success) throw new Error(result?.error || (i18n.language.startsWith('zh') ? '插件配置未保存，请重试。' : 'Plugin settings were not saved. Please try again.'));
+      }
+      const reloaded = await window.electronAPI.reloadPlugin(pluginId);
+      if (!reloaded?.success) throw new Error(reloaded?.error || (i18n.language.startsWith('zh') ? '配置已保存，但插件未能重新加载，请重试。' : 'Settings were saved, but the plugin could not reload. Please try again.'));
       setOpen(false);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }

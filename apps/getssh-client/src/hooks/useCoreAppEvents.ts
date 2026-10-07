@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { callNexus, useSessionStore, PaneNode, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
+import { callTidal, useSessionStore, PaneNode, type PaneLeaf, type SessionProfile } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { Runbook, useWorkspaceStore } from '../store/workspaceStore';
-import { findLeaf, findWelcomePane, updateLeafInTree } from '../utils/paneHelpers';
+import { findLeaf, findWelcomePane, findZoomedPane, updateLeafInTree } from '../utils/paneHelpers';
 import { stripConnectionSecrets } from '../utils/connectionProfile';
 import { detectProtocol } from '../utils/protocolParser';
 
@@ -28,10 +28,11 @@ export const useCoreAppEvents = (
       const address = typeof e.detail === 'string' ? e.detail.trim() : '';
       const parsed = address ? detectProtocol(address) : null;
       const host = parsed?.protocol === 'local' ? '' : (parsed?.parsedHost ?? address);
-      const makeDraft = (id: string = crypto.randomUUID()): SessionProfile => ({
-        id,
+      const isQuickConnect = Boolean(address);
+      const makeDraft = (): SessionProfile => ({
+        id: crypto.randomUUID(),
         isDraft: true,
-        isQuickConnect: Boolean(address),
+        isQuickConnect,
         host,
         username: parsed?.parsedUser ?? '',
         port: parsed?.parsedPort,
@@ -40,11 +41,12 @@ export const useCoreAppEvents = (
         autoStart: false,
         protocol: parsed?.protocol ?? 'auto',
       });
-      const existingDraftIndex = sessions.findIndex(session => session.isDraft);
+      const existingDraftIndex = sessions.findIndex(session => session.isDraft && Boolean(session.isQuickConnect) === isQuickConnect);
       if (existingDraftIndex >= 0) {
-        if (sessions[existingDraftIndex].isQuickConnect) {
+        if (isQuickConnect) {
+          // ConnectForm resets by draft id; replace the quick draft so the new address reaches its fields.
           setSessions(sessions.map((session, index) => index === existingDraftIndex
-            ? makeDraft(session.id)
+            ? makeDraft()
             : session));
         }
         setSelectedSessionIndex(existingDraftIndex);
@@ -103,36 +105,42 @@ export const useCoreAppEvents = (
       const settingsTab = e.detail.type === 'secure' ? 'Security' : e.detail.settingsTab;
       const centerConfig = { centerType, ...(settingsTab ? { settingsTab } : {}), ...(e.detail.workspacePage ? { workspacePage: e.detail.workspacePage } : {}) };
       const tabTitle = centerType === 'settings' ? t('statusBar.settings') : e.detail.title;
-      const { tabs, activeTabId, setTabs, setActiveTabId, setSelectedSessionIndex } = useSessionStore.getState();
+      const { tabs, activeTabId, setTabs, setActiveTabId, setActivePaneId, setSelectedSessionIndex } = useSessionStore.getState();
       const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
-      const existingTab = tabs.find(tab => (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId
-        && ((tab.config && 'centerType' in tab.config
-          && (tab.config.centerType === centerType || (centerType === 'settings' && tab.config.centerType === 'secure')))
-          || (tab.paneTree && findCenterPane(tab.paneTree, centerType))));
+      const existingTab = tabs.find(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId
+        && (tab.paneTree ? findCenterPane(tab.paneTree, centerType)
+          : tab.config && 'centerType' in tab.config
+            && (tab.config.centerType === centerType || (centerType === 'settings' && tab.config.centerType === 'secure'))));
       if (existingTab) {
         const existingPane = existingTab.paneTree && findCenterPane(existingTab.paneTree, centerType);
-        if (settingsTab || e.detail.workspacePage) {
+        const zoomedPane = existingTab.paneTree && findZoomedPane(existingTab.paneTree);
+        const hiddenByZoom = existingPane && zoomedPane && zoomedPane.paneId !== existingPane.paneId;
+        if (settingsTab || e.detail.workspacePage || hiddenByZoom) {
           setTabs(tabs.map(tab => tab.id === existingTab.id ? {
             ...tab,
             title: centerType === 'settings' && tab.config && 'centerType' in tab.config ? tabTitle : tab.title,
             config: tab.config && 'centerType' in tab.config ? centerConfig : tab.config,
             paneTree: existingPane && tab.paneTree
-              ? updateLeafInTree(tab.paneTree, existingPane.paneId, { config: centerConfig })
+              ? updateLeafInTree(hiddenByZoom ? updateLeafInTree(tab.paneTree, zoomedPane.paneId, { isZoomed: false }) : tab.paneTree, existingPane.paneId,
+                settingsTab || e.detail.workspacePage ? { config: centerConfig } : {})
               : tab.paneTree,
           } : tab));
-          if (existingPane) {
-            void callNexus('update center destination', window.electronAPI.nexusReplacePane(existingPane.paneId, 'center', null, JSON.stringify(centerConfig)));
+          if (existingPane && (settingsTab || e.detail.workspacePage)) {
+            void callTidal('update center destination', window.electronAPI.tidalReplacePane(existingPane.paneId, 'center', null, JSON.stringify(centerConfig)));
           }
+          if (hiddenByZoom) void callTidal('reveal center pane', window.electronAPI.tidalToggleZoom(zoomedPane.paneId));
         }
         setActiveTabId(existingTab.id);
+        if (existingPane) setActivePaneId(existingPane.paneId);
         setSelectedSessionIndex(null);
         if (settingsTab) window.dispatchEvent(new CustomEvent('app:settings-tab', { detail: settingsTab }));
         if (e.detail.workspacePage) window.dispatchEvent(new CustomEvent('app:workspace-page', { detail: e.detail.workspacePage }));
         return;
       }
 
-      const currentTab = tabs.find(t => t.id === activeTabId);
+      const currentTab = tabs.find(tab => tab.id === activeTabId && !tab.isTornOff
+        && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
       let targetPaneId: string | null = null;
       
       if (currentTab && currentTab.paneTree) {
@@ -147,6 +155,8 @@ export const useCoreAppEvents = (
       }
 
       if (targetPaneId) {
+        const zoomedPane = currentTab?.paneTree && findZoomedPane(currentTab.paneTree);
+        const hiddenByZoom = zoomedPane && zoomedPane.paneId !== targetPaneId;
         setTabs(tabs.map(t => {
           if (t.id !== activeTabId || !t.paneTree) return t;
           return {
@@ -154,11 +164,14 @@ export const useCoreAppEvents = (
             title: t.paneTree.type === 'leaf' ? tabTitle : t.title,
             config: t.paneTree.type === 'leaf' ? centerConfig : t.config,
             workspaceId: activeWorkspaceId,
-            paneTree: updateLeafInTree(t.paneTree, targetPaneId!, { paneType: 'center', sessionId: null, config: centerConfig }),
+            paneTree: updateLeafInTree(hiddenByZoom ? updateLeafInTree(t.paneTree, zoomedPane.paneId, { isZoomed: false }) : t.paneTree,
+              targetPaneId!, { paneType: 'center', sessionId: null, config: centerConfig }),
           };
         }));
         setSelectedSessionIndex(null);
-        void callNexus('replace pane with center', window.electronAPI.nexusReplacePane(targetPaneId, 'center', null, JSON.stringify(stripConnectionSecrets(centerConfig))));
+        setActivePaneId(targetPaneId);
+        void callTidal('replace pane with center', window.electronAPI.tidalReplacePane(targetPaneId, 'center', null, JSON.stringify(stripConnectionSecrets(centerConfig))));
+        if (hiddenByZoom) void callTidal('reveal center pane', window.electronAPI.tidalToggleZoom(zoomedPane.paneId));
       } else {
         const newTabId = `cmd-${Date.now()}`;
         const newPaneId = `pane-${Date.now()}`;
@@ -171,7 +184,7 @@ export const useCoreAppEvents = (
         }]);
         setActiveTabId(newTabId);
         setSelectedSessionIndex(null);
-        void callNexus('register center tab', window.electronAPI.nexusRegisterTab(newTabId, newPaneId, "", 'center', JSON.stringify(stripConnectionSecrets(centerConfig)), tabTitle, activeWorkspaceId));
+        void callTidal('register center tab', window.electronAPI.tidalRegisterTab(newTabId, newPaneId, "", 'center', JSON.stringify(stripConnectionSecrets(centerConfig)), tabTitle, activeWorkspaceId));
       }
     };
 

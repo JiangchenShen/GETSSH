@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, RefreshCcw, Save, ShieldOff, Terminal, Key, Unlock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 
 export const SecurityOverlay: React.FC = () => {
+  const { t } = useTranslation();
   const [lockdownInfo, setLockdownInfo] = useState<{ reason: string; countdown: number; level?: 'red' | 'yellow' } | null>(null);
   const setIsPolluted = useAppStore(state => state.setIsPolluted);
 
@@ -20,7 +22,7 @@ export const SecurityOverlay: React.FC = () => {
     }
   }, []);
 
-  // The main process reports when the lockdown ended (any window resolved it, or the watchdog did).
+  // The main process reports when the lockdown ended (any window resolved it, or the ocean-sentinel did).
   useEffect(() => {
     if (!window.electronAPI?.onSecurityLockdownResolved) return;
     return window.electronAPI.onSecurityLockdownResolved(() => {
@@ -96,7 +98,7 @@ export const SecurityOverlay: React.FC = () => {
   const borderColor = isRed ? 'border-red-500/30' : 'border-yellow-500/30';
   const boxBg = isRed ? 'bg-red-950/20' : 'bg-yellow-950/20';
   const btnPrimary = isRed ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_30px_rgba(220,38,38,0.4)]' : 'bg-yellow-500 hover:bg-yellow-400 text-yellow-950 shadow-[0_0_30px_rgba(234,179,8,0.4)]';
-  const statusTitle = 'GETSSH SECURE CENTER';
+  const statusTitle = t('settings.secureCenter');
   const statusSubtitle = isRed ? '⚠️ 内存完整性已被破坏，您的安全底线正面临重大风险！' : '⚠️ 插件高危操作已阻断，系统运行在警告状态！';
 
   return (

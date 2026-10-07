@@ -21,12 +21,25 @@ export const AuditTab: React.FC = () => {
   const zh = i18n.language.startsWith('zh');
   const enabled = useAppStore(state => !!state.appConfig.enableAuditLogging);
   const updateConfig = useAppStore(state => state.updateConfig);
+  const addToast = useAppStore(state => state.addToast);
+  const [openingFolder, setOpeningFolder] = React.useState(false);
   const [logs, setLogs] = React.useState<AuditLog[]>([]);
   const [page, setPage] = React.useState(1);
   const [loadError, setLoadError] = React.useState(false);
   const orderedLogs = React.useMemo(() => [...logs].reverse(), [logs]);
   const pageCount = Math.max(1, Math.ceil(orderedLogs.length / ITEMS_PER_PAGE));
   const pageLogs = orderedLogs.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+
+  const openFolder = async () => {
+    setOpeningFolder(true);
+    try {
+      await window.electronAPI.openAuditFolder();
+    } catch (error) {
+      addToast(`${zh ? '无法打开录屏目录' : 'Could not open recording folder'}: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setOpeningFolder(false);
+    }
+  };
 
   React.useEffect(() => {
     setPage(current => Math.min(current, pageCount));
@@ -54,13 +67,13 @@ export const AuditTab: React.FC = () => {
         <SettingsToggle checked={enabled} onChange={checked => updateConfig('enableAuditLogging', checked)} label={zh ? '记录终端输出' : 'Record terminal output'} />
       </SettingsRow>
       <SettingsRow label={zh ? '录屏文件' : 'Recording files'} description={zh ? '在文件管理器中打开本机录屏目录。' : 'Open the local recording folder.'}>
-        <button type="button" onClick={() => void window.electronAPI.openAuditFolder()} className={settingButtonClass}><FolderOpen className="h-3.5 w-3.5" />{t('settings.auditOpenFolder', zh ? '打开录屏目录' : 'Open folder')}</button>
+        <button type="button" onClick={() => void openFolder()} disabled={openingFolder} className={settingButtonClass}><FolderOpen className="h-3.5 w-3.5" />{openingFolder ? (zh ? '正在打开…' : 'Opening…') : t('settings.auditOpenFolder', zh ? '打开录屏目录' : 'Open folder')}</button>
       </SettingsRow>
     </SettingsSection>
 
     <SettingsSection title={zh ? '连接记录' : 'Connection history'} description={zh ? '只读连接元数据；可导出备份。' : 'Read-only connection metadata; export a copy when needed.'}>
       <SettingsRow label={t('settings.auditExport')} description={zh ? '导出当前保存的连接日志。' : 'Export the saved connection logs.'}>
-        <button type="button" onClick={async () => {
+        <button type="button" disabled={!logs.length} title={!logs.length ? (zh ? '没有可导出的连接记录' : 'No connection records to export') : undefined} onClick={async () => {
           try {
             const ok = await window.electronAPI.exportConnectionLogs();
             window.alert(t(ok ? 'settings.auditExportSuccess' : 'settings.auditExportFailed'));

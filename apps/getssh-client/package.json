@@ -1,6 +1,11 @@
 {
   "name": "getssh",
-  "version": "3.0.0-F0A0G-PREVIEW",
+  "version": "3.0.0-rc.1",
+  "getsshRelease": {
+    "stage": "RC",
+    "edition": "FUSION",
+    "program": "preview"
+  },
   "packageManager": "pnpm@11.2.2",
   "main": "dist-electron/main/index.js",
   "description": "Electron React SSH Client with Glassmorphism",
@@ -10,8 +15,8 @@
     "dev": "vite",
     "postinstall": "electron-builder install-app-deps",
     "build": "pnpm run build:native-tools && vite build && electron-builder",
-    "build:native-tools": "cargo build --release -p watchdog -p getssh-process-sandbox",
-    "build:watchdog": "cargo build --release -p watchdog",
+    "build:native-tools": "cargo build --release -p ocean-sentinel --no-default-features --bins",
+    "build:watchdog": "cargo build --release -p ocean-sentinel --no-default-features --bin watchdog",
     "build:plugin": "node scripts/package-plugin.js",
     "preview": "vite preview",
     "test": "vitest",
@@ -21,26 +26,18 @@
     "test:database-encryption": "electron scripts/security/database-key-smoke.cjs",
     "test:asset-folders": "node scripts/security/keystore-e2e/run.mjs asset-folders",
     "test:local-memory": "vitest run electron/main/services/LocalMemoryService.test.ts --environment node",
-    "test:sentinel": "vitest run electron/main/services/SentinelGateway.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
+    "test:sentinel": "vitest run electron/main/services/OceanSentinel.test.ts --environment node && node scripts/security/sentinel-smoke.cjs",
     "test:mcp-sandbox": "vitest run electron/main/services/mcp/McpProcessSandbox.test.ts --environment node",
     "test:packaged-startup": "node scripts/security/packaged-startup-smoke.cjs",
+    "test:package-contents": "node scripts/check-package.cjs",
     "test:keystore-e2e": "node scripts/security/keystore-e2e/run.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@types/react-syntax-highlighter": "^15.5.13",
-    "@xterm/addon-serialize": "^0.14.0",
     "adm-zip": "^0.6.1",
     "better-sqlite3-multiple-ciphers": "^13.0.3",
     "electron-updater": "^6.8.9",
-    "framer-motion": "13.4.6",
-    "fuse.js": "^7.5.0",
-    "immer": "^11.1.18",
     "node-pty": "^1.1.0",
-    "react-icons": "^5.7.0",
-    "react-markdown": "^10.1.0",
-    "react-syntax-highlighter": "^16.1.1",
-    "remark-gfm": "^4.0.1",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
@@ -50,24 +47,32 @@
     "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-react": "^6.1.1",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-ligatures": "^0.10.0",
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "archiver": "^8.0.0",
     "electron": "44.5.1",
     "electron-builder": "^26.15.3",
+    "framer-motion": "13.4.6",
+    "fuse.js": "^7.5.0",
     "http-proxy-agent": "^9.1.0",
     "i18next": "^26.4.2",
+    "immer": "^11.1.18",
     "jsdom": "^30.1.1",
     "lucide-react": "^1.49.0",
     "p-limit": "^7.3.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-i18next": "^17.0.15",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1",
     "socks": "^2.8.10",
     "tailwindcss": "4.3.3",
     "typescript": "^7.0.2",
@@ -99,6 +104,7 @@
         }
       ],
       "files": [
+        "package.json",
         "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/darwin*"
       ]
     },
@@ -181,8 +187,8 @@
         ]
       },
       {
-        "from": "../../rust-core/nexus-core",
-        "to": "rust-core/nexus-core",
+        "from": "../../rust-core/tidal-engine",
+        "to": "rust-core/tidal-engine",
         "filter": [
           "*.node",
           "*.js",
@@ -205,8 +211,8 @@
         ]
       },
       {
-        "from": "../../rust-core/getssh-sentinel",
-        "to": "rust-core/getssh-sentinel",
+        "from": "../../rust-core/ocean-sentinel",
+        "to": "rust-core/ocean-sentinel",
         "filter": [
           "*.node",
           "*.js",
@@ -287,6 +293,7 @@
       "category": "public.app-category.developer-tools",
       "minimumSystemVersion": "13.0",
       "files": [
+        "package.json",
         "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/win32*"
       ]
     },

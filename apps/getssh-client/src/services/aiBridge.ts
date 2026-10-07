@@ -43,7 +43,7 @@ export interface AiResponse {
 
 /**
  * AI Bridge SDK
- * The pure data pipeline connecting the React Frontend with the Main Process Sentinel Gateway.
+ * The pure data pipeline connecting the React Frontend with the Main Process Ocean Sentinel.
  * Strictly decoupled from any UI components.
  */
 export class AiBridge {
@@ -97,7 +97,7 @@ export class AiBridge {
 
       return response;
     } catch (error) {
-      console.error('[AiBridge] 🔴 AI Pipeline invocation failed. Sentinel Gateway may have blocked the request:', error);
+      console.error('[AiBridge] 🔴 AI Pipeline invocation failed. Ocean Sentinel may have blocked the request:', error);
       throw error;
     }
   }
