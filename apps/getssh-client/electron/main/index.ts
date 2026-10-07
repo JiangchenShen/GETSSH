@@ -290,6 +290,9 @@ app.whenReady().then(async () => {
   }
 
   Menu.setApplicationMenu(null);
+  if (process.platform === 'darwin' && process.env.VITE_PUBLIC) {
+    app.dock?.setIcon(join(process.env.VITE_PUBLIC, 'logo.png'));
+  }
 
   // Setup IPC Handlers before window creation to ensure early IPC works.
   // None of these depend on the database; plugins are only loaded after bootstrap below.
