@@ -363,15 +363,20 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 - **S4 终端粘贴（10-07）**：
   - 窗口不再有剪贴板读取权限：`windowHandler.denyClipboardRead` 在默认 session 上拒绝 `clipboard-read`，其他权限照旧。之前 Electron 默认放行，主窗口里的任何脚本都能不经用户操作读剪贴板（在离屏窗口里实测过：之前能读，现在报 "Read permission denied"；菜单粘贴照常触发粘贴事件）；
-  - 终端的右键粘贴（"右键直接粘贴"设置）改用 `terminal:paste`：主进程读剪贴板，按 xterm 的规则换行改成 CR、括号粘贴模式下加 `ESC[200~ … ESC[201~`，写进会话，文字不经过界面。粘贴内容里的 `ESC[200~` / `ESC[201~` 会被去掉，粘贴的文字不能提前结束括号、让 shell 把后面的内容当命令执行；
-  - 后端插件（隔离插件和开发者模式插件）读剪贴板都走 `clipboardTextForPlugin`：内容是 30 秒内从查看密码对话框复制的密码时报错，也不弹"插件读取了剪贴板"的提醒；
+  - 终端的右键粘贴（"右键直接粘贴"设置）改用 `terminal:paste`：主进程读剪贴板，按 xterm 的规则换行改成 CR、括号粘贴模式下加 `ESC[200~ … ESC[201~`，写进会话，文字不经过界面；
+  - 粘贴的文字里的 ESC 字符会被去掉（右键粘贴在主进程，⌘V / Ctrl+V 和菜单粘贴在 `src/utils/terminalPaste.ts`），粘贴的内容不能提前结束括号、让 shell 把后面的内容当命令执行。只去掉 `ESC[201~` 不够：把一个标记嵌在另一个中间，去掉里面那个以后外面的又拼成一个（审查发现）。xterm 自己的粘贴什么都不去掉；
+  - 后端插件（隔离插件和开发者模式插件）读剪贴板都走 `clipboardTextForPlugin`：内容是这次运行里从查看密码对话框复制过的密码时报错，也不弹"插件读取了剪贴板"的提醒。记录在 30 秒清空以后也保留：清空失败时密码还留在剪贴板上，插件照样读不到（审查发现原来到 30 秒先删记录）。报错不说原因，插件看不出刚有人复制了密码；
+  - 也拒绝 `deprecated-sync-clipboard-read`（旧的同步读取）；
   - `Terminal.tsx` 改了右键粘贴那一段（Codex 的范围，第 11 节写了说明）；
   - 测试：新增 13 个（粘贴 7、权限 1、插件 4、store 1），每处修复都故意改坏一次，13 处测试都报错；客户端共 536 个测试。
 - **MCP 设置（10-07）**：
   - `mcp:get-servers`、`mcp:add-server`、`mcp:update-server` 返回的服务器配置不再带 `env` 和 `headers`。设置页本来就不显示它们（只显示名称、命令或地址、权限），界面不用改；界面仍然可以设置它们，只是读不回来；
   - 改了服务器的命令、参数、工作目录、地址或传输方式时，原来的 `env` / `headers` 会清掉，除非这次更新重新给出。之前把地址改成别的服务器，主进程会把原来的 `Authorization` 头发过去；
   - store 没打开（还没合并 token，或解锁后又锁上）时，不能改这几项：清掉的 token 在 store 里还在，下次启动会合并到新的命令或地址上；
-  - 测试：新增 3 个，14 处修复各故意改坏一次，测试都报错。
+  - 测试：新增 3 个，14 处修复各故意改坏一次，测试都报错；
+  - 审查后补的：存 token 时一起记下它对应的命令或地址（`target`）。`mcp_servers.json` 在应用外被改过、或者删掉后重建了默认的 `mcp-docs`，启动时对不上就丢掉 token，不合进新的地址。以前存的没有 `target`，第一次读取时照用并补上；
+  - HTTP 请求不再自动跟随重定向：只跟同一站点（或同一主机从 http 升到 https），最多 5 次；跳到别的站点就报错，请求头里的 token 不会发过去。之前 `fetch` 会跟到任何地方，`Authorization` 以外的头（如 `X-Api-Key`）也会带过去；
+  - 这一批每处修复也都故意改坏一次，15 处测试都报错。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -413,7 +418,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
    - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了只显示同一条提示（Claude 临时加的，在 `ExportTab.tsx` 的 `exportAll` 里）；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
-   - 终端右键粘贴（`Terminal.tsx` 的 `handleContextMenu`，10-07）：Claude 改成了 `window.electronAPI.terminalPaste(sessionId, bracketed)`，由主进程读剪贴板、写进会话。窗口已经没有剪贴板读取权限，界面里不要再用 `navigator.clipboard.readText()`，它会报错；写剪贴板（`writeText`）照常可用。
+   - 终端右键粘贴（`Terminal.tsx` 的 `handleContextMenu`，10-07）：Claude 改成了 `window.electronAPI.terminalPaste(sessionId, bracketed)`，由主进程读剪贴板、写进会话。窗口已经没有剪贴板读取权限，界面里不要再用 `navigator.clipboard.readText()`，它会报错；写剪贴板（`writeText`）照常可用。终端元素上还加了一个捕获阶段的 `paste` 监听（`sanitizePasteEvent`），粘贴的文字带 ESC 时去掉再交给 xterm，改终端时请保留。
    - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：
      - 应用变成 `ready` 后调一次 `status()`；
      - `imported.portDefaulted > 0` 时，用 `appConfig.defaultPort` 调 `applyDefaultPort({ port })`，然后用返回的 `profiles` 替换窗口里的列表。默认端口是 22 时也要调一次，之后就不会再提示；

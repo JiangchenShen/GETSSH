@@ -10,6 +10,7 @@ import { AppConfig, useAppStore } from '../store/appStore';
 import { useSessionStore, collectSessionIds } from '../store/sessionStore';
 import { usePluginStore } from '../store/pluginStore';
 import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
+import { sanitizePasteEvent } from '../utils/terminalPaste';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -386,6 +387,10 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     };
     element.addEventListener('contextmenu', handleContextMenu);
 
+    // Keyboard and menu paste: runs before xterm's own listeners (capture phase on its parent).
+    const handlePaste = (e: ClipboardEvent) => sanitizePasteEvent(e, text => term.paste(text));
+    element.addEventListener('paste', handlePaste, true);
+
     return () => {
       cancelled = true;
       clearTimeout(initialFitTimer);
@@ -395,6 +400,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
       if (unsubData) unsubData();
       if (entry.notifyClosed === notifyClosed) entry.notifyClosed = undefined;
       element.removeEventListener('contextmenu', handleContextMenu);
+      element.removeEventListener('paste', handlePaste, true);
       
       // Preserve the element in cache, just remove it from the React container
       if (terminalRef.current && element.parentNode === terminalRef.current) {

@@ -4,12 +4,13 @@ import { sessionInput } from './sshHandler';
 
 /**
  * What a paste sends to the terminal, as xterm does for a keyboard paste: line breaks become CR,
- * and in bracketed paste mode the text is wrapped in ESC[200~ … ESC[201~. The two markers are
- * removed from the text itself, so a pasted ESC[201~ cannot end the bracket early and have the
- * shell run what follows as typed commands.
+ * and in bracketed paste mode the text is wrapped in ESC[200~ … ESC[201~. ESC characters are
+ * removed from the text itself, so it cannot end the bracket early (with ESC[201~, or with pieces
+ * that form one once a marker between them is removed) and have the shell run what follows as
+ * typed commands. Keyboard paste does the same in the renderer (src/utils/terminalPaste.ts).
  */
 export function textForPaste(text: string, bracketed: boolean): string {
-  const body = text.replace(/\x1b\[20[01]~/g, '').replace(/\r?\n/g, '\r');
+  const body = text.replace(/\x1b/g, '').replace(/\r?\n/g, '\r');
   return bracketed ? `\x1b[200~${body}\x1b[201~` : body;
 }
 

@@ -32,6 +32,11 @@ type McpSecrets = Pick<McpServerConfig, 'env' | 'headers'>;
  */
 const TARGET_FIELDS = ['transport', 'command', 'args', 'cwd', 'url'] as const;
 
+/** A configuration's command or address, stored with its tokens. */
+function targetOf(config: McpServerConfig): Record<string, unknown> {
+  return Object.fromEntries(TARGET_FIELDS.filter(field => config[field] !== undefined).map(field => [field, config[field]]));
+}
+
 /** A configuration without its environment and headers, and those two (null when both are empty). */
 function splitSecrets(config: McpServerConfig): { plain: McpServerConfig; secrets: McpSecrets | null } {
   const { env, headers, ...plain } = config;
@@ -124,16 +129,27 @@ export class McpManager {
     await appLock.whenOpen();
     if (!appLock.isReady() || this.secretsLoaded) return;
     const store = getStore();
-    let inline = false;
+    let rewrite = false;
+    const stale: string[] = [];
     this.serverConfigs = this.serverConfigs.map(config => {
       if (splitSecrets(config).secrets) {
-        inline = true;
+        rewrite = true;
         return config;
       }
       const stored = store.getAppSecret(SECRET_PREFIX + config.id);
       if (!stored) return config;
       try {
-        return normalizeMcpServerConfig({ ...config, ...JSON.parse(stored.toString('utf8')) }, config.id);
+        const { target, ...secrets } = JSON.parse(stored.toString('utf8'));
+        // Tokens go only to the command or address they were saved for: mcp_servers.json may have
+        // been edited or recreated since. Tokens saved before the target was recorded are kept once.
+        if (target === undefined) {
+          rewrite = true;
+        } else if (!isDeepStrictEqual(target, targetOf(config))) {
+          console.warn(`[McpManager] Dropped the stored environment and headers of '${config.name}': its command or address changed outside GETSSH.`);
+          stale.push(SECRET_PREFIX + config.id);
+          return config;
+        }
+        return normalizeMcpServerConfig({ ...config, ...secrets }, config.id);
       } catch (error: any) {
         console.warn(`[McpManager] The stored secrets of '${config.name}' are unusable:`, error.message);
         return config;
@@ -141,8 +157,9 @@ export class McpManager {
         stored.fill(0);
       }
     });
+    for (const name of stale) store.setAppSecret(name, null);
     this.secretsLoaded = true;
-    if (inline) this.saveConfigs();
+    if (rewrite) this.saveConfigs();
   }
 
   /**
@@ -161,7 +178,7 @@ export class McpManager {
       const ids = new Set(this.serverConfigs.map(config => config.id));
       this.serverConfigs.forEach((config, i) => {
         const secrets = parts[i].secrets;
-        store.setAppSecret(SECRET_PREFIX + config.id, secrets ? JSON.stringify(secrets) : null);
+        store.setAppSecret(SECRET_PREFIX + config.id, secrets ? JSON.stringify({ ...secrets, target: targetOf(config) }) : null);
       });
       for (const name of store.listAppSecretNames(SECRET_PREFIX)) {
         if (!ids.has(name.slice(SECRET_PREFIX.length))) store.setAppSecret(name, null);

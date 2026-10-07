@@ -180,8 +180,10 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
  * Electron's default.
  */
 export function denyClipboardRead(session: Electron.Session) {
-  session.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission !== 'clipboard-read'));
-  session.setPermissionCheckHandler((_webContents, permission) => permission !== 'clipboard-read');
+  // The second one is Chromium's old synchronous read (document.execCommand('paste')).
+  const denied = new Set<string>(['clipboard-read', 'deprecated-sync-clipboard-read']);
+  session.setPermissionRequestHandler((_webContents, permission, callback) => callback(!denied.has(permission)));
+  session.setPermissionCheckHandler((_webContents, permission) => !denied.has(permission));
 }
 
 export function setupSecurityPolicies(webContents: Electron.WebContents, devServerUrl?: string, indexHtmlPath?: string) {

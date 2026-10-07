@@ -25,6 +25,13 @@ import {
 
 const MAX_MCP_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PENDING_REQUESTS = 64;
+const MAX_HTTP_REDIRECTS = 5;
+
+/** Whether an HTTP server's redirect stays on its own site: the same origin, or https on the same host. */
+export function isSameSite(start: URL, next: URL): boolean {
+  return next.origin === start.origin
+    || (start.protocol === 'http:' && next.protocol === 'https:' && next.hostname === start.hostname);
+}
 const MAX_STDERR_LOG_BYTES = 64 * 1024;
 const MAX_INBOUND_MESSAGES_PER_SECOND = 500;
 const MAX_INBOUND_BYTES_PER_SECOND = 32 * 1024 * 1024;
@@ -483,15 +490,32 @@ export class McpClient extends EventEmitter {
         throw new Error(`MCP request exceeds ${MAX_MCP_MESSAGE_BYTES} bytes.`);
       }
 
-      const response = await fetch(this.config.url!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(this.config.headers || {})
-        },
-        body: requestBody,
-        signal: controller.signal
-      });
+      // Redirects are followed only within the server's own site (or from http to https on the
+      // same host): its headers hold tokens, and fetch would send them to any other site too.
+      const start = new URL(this.config.url!);
+      let url = start;
+      let response: Response;
+      for (let redirects = 0; ; redirects++) {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(this.config.headers || {})
+          },
+          body: requestBody,
+          signal: controller.signal,
+          redirect: 'manual'
+        });
+        if (response.status < 300 || response.status > 399) break;
+        await response.body?.cancel();
+        const location = response.headers.get('location');
+        const next = location ? new URL(location, url) : null;
+        if (!next || !isSameSite(start, next)) {
+          throw new Error(`MCP server redirected to ${next ? next.origin : 'nowhere'}; its headers are not sent to another site.`);
+        }
+        if (redirects >= MAX_HTTP_REDIRECTS) throw new Error('MCP server redirected too many times.');
+        url = next;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);

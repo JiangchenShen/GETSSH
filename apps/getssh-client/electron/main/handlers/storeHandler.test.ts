@@ -281,7 +281,7 @@ describe('reveal', () => {
     expect(mocks.clipboard.current()).toBe('');
   });
 
-  it('does not hand a freshly copied secret to plugins', async () => {
+  it('does not hand a copied secret to plugins, even when the 30-second clear fails', async () => {
     mocks.clipboard.set('copied by the user');
     expect(await clipboardTextForPlugin()).toBe('copied by the user');
     await boot();
@@ -289,13 +289,15 @@ describe('reveal', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     answerDialog(0);
     await call('store:reveal:show', { workspaceId: 'main', profileId: 'web', field: 'password' });
-    await expect(clipboardTextForPlugin()).rejects.toThrow('password copied from GETSSH');
+    await expect(clipboardTextForPlugin()).rejects.toThrow('cannot be read right now');
     mocks.clipboard.set('copied by the user');
     expect(await clipboardTextForPlugin()).toBe('copied by the user');
     mocks.clipboard.set(PROFILE_PASSWORD);
-    await expect(clipboardTextForPlugin()).rejects.toThrow('password copied from GETSSH');
+    mocks.clipboard.clear.mockImplementationOnce(() => { throw new Error('clipboard busy'); });
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(await clipboardTextForPlugin()).toBe('');
+    await vi.waitFor(() => expect(mocks.clipboard.clear).toHaveBeenCalled());
+    expect(mocks.clipboard.current()).toBe(PROFILE_PASSWORD);
+    await expect(clipboardTextForPlugin()).rejects.toThrow('cannot be read right now');
   });
 
   it('closes the dialog and refuses to copy when the app locks', async () => {

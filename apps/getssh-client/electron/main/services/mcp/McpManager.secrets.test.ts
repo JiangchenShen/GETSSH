@@ -162,6 +162,28 @@ describe('MCP secrets', () => {
     expect(getStore().listAppSecretNames('mcp/')).toEqual(['mcp/github', 'mcp/remote']);
   });
 
+  it('drops stored tokens when mcp_servers.json points the server elsewhere', async () => {
+    await fresh().init();
+    const file = JSON.parse(fs.readFileSync(configFile(), 'utf8'));
+    file.find((server: { id: string }) => server.id === 'remote').url = 'https://elsewhere.example';
+    fs.writeFileSync(configFile(), JSON.stringify(file));
+    const restarted = fresh();
+    await restarted.init();
+    expect(configs(restarted).remote.headers).toBeUndefined();
+    expect(configs(restarted).github.env).toEqual({ GITHUB_TOKEN: TOKEN });
+    expect(getStore().listAppSecretNames('mcp/')).toEqual(['mcp/github']);
+  });
+
+  it('keeps tokens saved without a target once and records the target', async () => {
+    await fresh().init();
+    getStore().setAppSecret('mcp/github', JSON.stringify({ env: { GITHUB_TOKEN: TOKEN } }));
+    const restarted = fresh();
+    await restarted.init();
+    expect(configs(restarted).github.env).toEqual({ GITHUB_TOKEN: TOKEN });
+    const stored = JSON.parse(getStore().getAppSecret('mcp/github')!.toString('utf8'));
+    expect(stored).toEqual({ env: { GITHUB_TOKEN: TOKEN }, target: { transport: 'stdio', command: '/usr/bin/true' } });
+  });
+
   it('updates and removes a server\'s stored secrets with it', async () => {
     const manager = fresh();
     await manager.init();

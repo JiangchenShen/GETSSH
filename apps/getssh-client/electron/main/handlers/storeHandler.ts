@@ -134,16 +134,16 @@ function sha256(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-// Digests of secrets copied in the last 30 seconds, so quitting early can still clear them.
+// Digests of every secret copied in this run. They stay after the 30-second clear, so a plugin
+// never gets one back even when that clear failed, and quitting can still clear the clipboard.
 const copiedSecrets = new Set<string>();
 
 /** Copies a secret and clears the clipboard after 30 seconds unless something else was copied. */
 async function copySecret(value: string): Promise<void> {
-  await clipboard.writeText(value);
   const digest = sha256(value);
   copiedSecrets.add(digest);
+  await clipboard.writeText(value);
   const timer = setTimeout(() => {
-    copiedSecrets.delete(digest);
     clipboard.readText()
       .then(current => {
         if (sha256(current) === digest) clipboard.clear();
@@ -154,18 +154,19 @@ async function copySecret(value: string): Promise<void> {
 }
 
 /**
- * The clipboard text for a backend plugin with host:clipboard. A secret copied from the store less
- * than 30 s ago is not handed out: the user copied it to paste it somewhere, not for plugins.
+ * The clipboard text for a backend plugin with host:clipboard. A secret copied from the store is
+ * not handed out: the user copied it to paste it somewhere, not for plugins. The error does not
+ * say why, so a plugin cannot tell that a password was just copied.
  */
 export async function clipboardTextForPlugin(): Promise<string> {
   const text = await clipboard.readText();
   if (copiedSecrets.has(sha256(text))) {
-    throw new Error('The clipboard holds a password copied from GETSSH. Plugins cannot read it.');
+    throw new Error('The clipboard cannot be read right now.');
   }
   return text;
 }
 
-/** For quit and relaunch: clears the clipboard if it still holds a secret copied less than 30 s ago. */
+/** For quit and relaunch: clears the clipboard if it still holds a secret copied in this run. */
 export async function clearCopiedSecret(): Promise<void> {
   if (copiedSecrets.size === 0) return;
   try {

