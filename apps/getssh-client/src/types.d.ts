@@ -48,6 +48,8 @@ declare global {
       onThemeChanged: (cb: (isDark: boolean) => void) => (() => void);
       sshConnect: (config: SSHConnectConfig) => Promise<{ success: boolean; error?: string; sessionId?: string }>;
       sshWrite: (sessionId: string, data: string) => void;
+      /** Pastes the clipboard into the session from the main process; resolves to whether anything was written. */
+      terminalPaste: (sessionId: string, bracketed: boolean) => Promise<boolean>;
       sshResize: (sessionId: string, rows: number, cols: number) => void;
       sshDisconnect: (sessionId: string) => void;
       /** Session output kept by the main process; `reset` means the caller must clear its terminal before writing `data`. */

@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   sshConnect: (config: SshConnectConfig) => ipcRenderer.invoke('ssh-connect', config),
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh-write', { sessionId, data }),
+  // Right-click paste: the main process reads the clipboard and writes it to the session.
+  terminalPaste: (sessionId: string, bracketed: boolean): Promise<boolean> => ipcRenderer.invoke('terminal:paste', { sessionId, bracketed }),
   sshResize: (sessionId: string, rows: number, cols: number) => ipcRenderer.send('ssh-resize', { sessionId, rows, cols }),
   sshDisconnect: (sessionId: string) => ipcRenderer.send('ssh-disconnect', sessionId),
   sshGetScrollback: (sessionId: string, fromOffset?: number) => ipcRenderer.invoke('ssh-get-scrollback', sessionId, fromOffset),

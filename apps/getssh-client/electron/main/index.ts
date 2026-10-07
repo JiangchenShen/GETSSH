@@ -4,13 +4,13 @@ import {
   shouldRunPackagedStartupSmoke,
   writePackagedStartupSmokeResult,
 } from './startupSmoke'
-import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, session, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PluginManager } from './PluginManager'
 import { registerAllIpcHandlers } from './handlers'
 import { getBackendConfig } from './handlers/systemHandler'
-import { getBrowserWindowOptions, bindWindowEvents, setupSecurityPolicies } from './handlers/windowHandler'
+import { getBrowserWindowOptions, bindWindowEvents, denyClipboardRead, setupSecurityPolicies } from './handlers/windowHandler'
 
 if (process.platform !== 'darwin' && process.platform !== 'win32') {
   const message = `GETSSH desktop is unsupported on ${process.platform}.`;
@@ -289,6 +289,7 @@ app.whenReady().then(async () => {
   }
 
   Menu.setApplicationMenu(null);
+  denyClipboardRead(session.defaultSession);
   if (process.platform === 'darwin' && process.env.VITE_PUBLIC) {
     app.dock?.setIcon(join(process.env.VITE_PUBLIC, 'logo.png'));
   }

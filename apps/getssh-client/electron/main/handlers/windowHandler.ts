@@ -172,6 +172,18 @@ export function getBrowserWindowOptions(preloadPath: string): Electron.BrowserWi
 /**
  * Setup strict security policies for the webContents.
  */
+/**
+ * Pages may not read the clipboard (navigator.clipboard.readText). Electron grants it by default,
+ * which let any script in a window read a password copied from the reveal window without a
+ * gesture. Paste still works: the browser's paste event needs no permission, and the terminal's
+ * right-click paste goes through the main process (terminal:paste). Other permissions keep
+ * Electron's default.
+ */
+export function denyClipboardRead(session: Electron.Session) {
+  session.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission !== 'clipboard-read'));
+  session.setPermissionCheckHandler((_webContents, permission) => permission !== 'clipboard-read');
+}
+
 export function setupSecurityPolicies(webContents: Electron.WebContents, devServerUrl?: string, indexHtmlPath?: string) {
   // Prevent arbitrary window spawning
   webContents.setWindowOpenHandler(() => {

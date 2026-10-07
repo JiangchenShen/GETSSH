@@ -153,6 +153,18 @@ async function copySecret(value: string): Promise<void> {
   timer.unref?.();
 }
 
+/**
+ * The clipboard text for a backend plugin with host:clipboard. A secret copied from the store less
+ * than 30 s ago is not handed out: the user copied it to paste it somewhere, not for plugins.
+ */
+export async function clipboardTextForPlugin(): Promise<string> {
+  const text = await clipboard.readText();
+  if (copiedSecrets.has(sha256(text))) {
+    throw new Error('The clipboard holds a password copied from GETSSH. Plugins cannot read it.');
+  }
+  return text;
+}
+
 /** For quit and relaunch: clears the clipboard if it still holds a secret copied less than 30 s ago. */
 export async function clearCopiedSecret(): Promise<void> {
   if (copiedSecrets.size === 0) return;

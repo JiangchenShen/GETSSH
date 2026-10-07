@@ -3,6 +3,7 @@ import { registerCryptoHandlers } from './cryptoHandler';
 import { registerKeystoreHandlers } from './keystoreHandler';
 import { registerStoreHandlers } from './storeHandler';
 import { registerSshHandlers } from './sshHandler';
+import { registerTerminalPasteHandler } from './terminalPasteHandler';
 import { registerSftpHandlers } from './sftpHandler';
 import { registerProfileHandlers } from './profileHandler';
 import { registerSystemHandlers } from './systemHandler';
@@ -28,6 +29,7 @@ export function registerAllIpcHandlers(ipcMain: Electron.IpcMain, app: Electron.
   
   // Connection Handlers
   registerSshHandlers(ipcMain, app, getWin);
+  registerTerminalPasteHandler(ipcMain);
   registerSftpHandlers(ipcMain);
   
   // Storage Handlers

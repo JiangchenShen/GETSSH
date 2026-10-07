@@ -230,8 +230,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 快速连接里临时输入的密码不受影响，仍可以直接传。
 - 查看密码：先用 Touch ID/Hello（没有时用密码）打开 5 分钟滑动窗口；复制到剪贴板的内容 30 秒后清空。
 - 查看和复制都由主进程做：密码显示在系统对话框里，只有对话框的"复制"按钮能复制（10-02 实现，见第 11 节）。
-  - 剩余风险：用户点了复制以后的 30 秒内，界面和带 `host:clipboard` 权限的后端插件仍然能读到剪贴板；
-  - S4 时把终端粘贴改成走主进程，并拒绝读回刚复制过的密码。
+  - 复制以后的 30 秒内，界面和插件读不到这条密码（10-07）：窗口没有剪贴板读取权限（`navigator.clipboard.readText` 被拒）；带 `host:clipboard` 权限的后端插件读剪贴板时，内容如果是刚复制的密码就报错；
+  - 用户自己粘贴照常：⌘V / Ctrl+V 走浏览器的粘贴事件，不需要读取权限；终端的右键粘贴由主进程读剪贴板、写进会话（`terminal:paste`）。
 
 ## 7. 迁移步骤
 
@@ -347,7 +347,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 界面不再拿到已保存的密码：`unlock-profiles`、`workspace:switch` 的配置只带 `hasPassword` / `hasPassphrase`；
   - 测试：`keystore-e2e` 18 个阶段，新增的 `connect` 阶段在本机起一个 SSH 服务器真连；`appSecrets`、MCP 秘密各有单元测试。
 - S4 还没做的：
-  - 终端粘贴改走主进程，并拒绝读回刚复制的密码（第 6 节的剩余风险）。要改 `TerminalPane.tsx`，等 Codex / Gemini 的改名提交后再做；
+  - ~~终端粘贴改走主进程，并拒绝读回刚复制的密码~~（10-07 完成，见下面"S4 终端粘贴"）；
   - 插件的 `safeStorage.encrypt` 只能加密、不能解密，没有动；换成插件秘密接口要先定插件 API；
   - `mcp:*` 通道仍把 `env` / `headers` 返回给界面（MCP 设置页要显示它们），也没有检查发送方。
 
@@ -360,6 +360,13 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 2.x 的数据库导出导入（`export-database-all`、`export-database-workspace`、`import-database`、`import-database-confirm`）删除。它们导出的是只有本机钥匙才能打开的文件，导入写的是 store 不读的 `getssh.db`，在 store 接入后已经不能用了。备份改用 `store:backup:*`；
   - 打包检查（`scripts/check-package.cjs`）确认包里没有 `better-sqlite3-multiple-ciphers`、`better_sqlite3.node`、`adm-zip` 和 `getssh-keystore`；Windows 的 `windows-verify.ps1` 打包后也跑这个检查（`win32 x64`）；
   - 验证：本机打了 `.app`（`electron-builder --dir`），打包检查通过；`test:packaged-startup` 通过，11 个原生和运行时模块，store 用本机真实的设备钥匙；Rust（store 113 个、keystore 70 个）、客户端 523 个、`keystore-e2e` 21 个阶段都通过。
+
+- **S4 终端粘贴（10-07）**：
+  - 窗口不再有剪贴板读取权限：`windowHandler.denyClipboardRead` 在默认 session 上拒绝 `clipboard-read`，其他权限照旧。之前 Electron 默认放行，主窗口里的任何脚本都能不经用户操作读剪贴板（在离屏窗口里实测过：之前能读，现在报 "Read permission denied"；菜单粘贴照常触发粘贴事件）；
+  - 终端的右键粘贴（"右键直接粘贴"设置）改用 `terminal:paste`：主进程读剪贴板，按 xterm 的规则换行改成 CR、括号粘贴模式下加 `ESC[200~ … ESC[201~`，写进会话，文字不经过界面。粘贴内容里的 `ESC[200~` / `ESC[201~` 会被去掉，粘贴的文字不能提前结束括号、让 shell 把后面的内容当命令执行；
+  - 后端插件（隔离插件和开发者模式插件）读剪贴板都走 `clipboardTextForPlugin`：内容是 30 秒内从查看密码对话框复制的密码时报错，也不弹"插件读取了剪贴板"的提醒；
+  - `Terminal.tsx` 改了右键粘贴那一段（Codex 的范围，第 11 节写了说明）；
+  - 测试：新增 13 个（粘贴 7、权限 1、插件 4、store 1），每处修复都故意改坏一次，13 处测试都报错；客户端共 536 个测试。
 
 阶段 B 视进度决定是否进入 3.0。
 
@@ -400,7 +407,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Touch ID 开关不再区分工作区，工作区那一栏的开关和应用那一栏是同一个；
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
-   - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了没反应；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
+   - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了只显示同一条提示（Claude 临时加的，在 `ExportTab.tsx` 的 `exportAll` 里）；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
+   - 终端右键粘贴（`Terminal.tsx` 的 `handleContextMenu`，10-07）：Claude 改成了 `window.electronAPI.terminalPaste(sessionId, bracketed)`，由主进程读剪贴板、写进会话。窗口已经没有剪贴板读取权限，界面里不要再用 `navigator.clipboard.readText()`，它会报错；写剪贴板（`writeText`）照常可用。
    - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：
      - 应用变成 `ready` 后调一次 `status()`；
      - `imported.portDefaulted > 0` 时，用 `appConfig.defaultPort` 调 `applyDefaultPort({ port })`，然后用返回的 `profiles` 替换窗口里的列表。默认端口是 22 时也要调一次，之后就不会再提示；

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, clipboard } from 'electron';
 import { getBackendConfig } from './handlers/systemHandler';
+import { clipboardTextForPlugin } from './handlers/storeHandler';
 import pLimit from 'p-limit';
 import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../../src/types/plugin';
 import { sshBridge } from './services/SSHBridge';
@@ -238,7 +239,7 @@ export class PluginManager {
         if (!caps.includes('host:clipboard')) {
           throw new Error(`[SecurityError] Plugin '${manifest.name}' missing 'host:clipboard' capability`);
         }
-        const text = await clipboard.readText();
+        const text = await clipboardTextForPlugin();
         console.log(`[Plugin Clipboard API] [${manifest.name}] read text from clipboard.`);
         new Notification({
           title: '⚠️ 剪贴板安全提醒',
@@ -498,13 +499,15 @@ export class PluginManager {
         this.requireCapability(manifest, 'host:clipboard');
         await clipboard.writeText(this.stringArg(args, 0, 'Clipboard text', 1024 * 1024));
         return null;
-      case 'host.clipboard.readText':
+      case 'host.clipboard.readText': {
         this.requireCapability(manifest, 'host:clipboard');
+        const text = await clipboardTextForPlugin();
         new Notification({
           title: '⚠️ 剪贴板安全提醒',
           body: `插件 [${manifest.name}] 刚刚读取了您的系统剪贴板`
         }).show();
-        return await clipboard.readText();
+        return text;
+      }
       case 'host.showMessageBox': {
         const options = this.objectArg(args, 0, 'Message-box options') as Electron.MessageBoxOptions;
         const allWindows = BrowserWindow.getAllWindows();

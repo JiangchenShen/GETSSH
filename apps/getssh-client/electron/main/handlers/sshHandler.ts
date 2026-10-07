@@ -311,6 +311,14 @@ export async function disconnectSession(sessionId: string): Promise<void> {
   return run;
 }
 
+/** Writes to a session's input (local shell, Telnet or SSH), or null when it has no open terminal. */
+export function sessionInput(sessionId: string): ((data: string) => void) | null {
+  const proto = sessionProtocols.get(sessionId);
+  if (proto === 'local' || proto === 'telnet') return data => ptyWrite(sessionId, data, proto);
+  const stream = connectionManager.sessions.get(sessionId)?.stream;
+  return stream ? data => stream.write(data) : null;
+}
+
 export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App, getWindow: () => BrowserWindow | null) {
   sessionApp = app;
 
@@ -817,13 +825,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
       return;
     }
     const { sessionId, data } = payload || {};
-    const proto = sessionProtocols.get(sessionId);
-    if (proto === 'local' || proto === 'telnet') {
-      ptyWrite(sessionId, data, proto);
-    } else {
-      const session = connectionManager.sessions.get(sessionId);
-      if (session && session.stream) session.stream.write(data);
-    }
+    sessionInput(sessionId)?.(data);
   });
 
   ipcMain.on('ssh-resize', (event, { sessionId, cols, rows }) => {

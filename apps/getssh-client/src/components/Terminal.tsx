@@ -358,14 +358,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           } catch (err) {
             console.error('Failed to write to clipboard:', err);
           }
-        } else {
+        } else if (!isDisconnectedRef.current) {
+          // The main process reads the clipboard and writes it to the session; the renderer has
+          // no clipboard-read permission and never sees the text.
           try {
-            const text = await navigator.clipboard.readText();
-            if (text) {
-              window.electronAPI.sshWrite(sessionId, text);
-            }
+            const bracketed = term.modes.bracketedPasteMode && !term.options.ignoreBracketedPasteMode;
+            const pasted = await window.electronAPI.terminalPaste(sessionId, bracketed);
+            if (pasted && term.options.scrollOnUserInput !== false) term.scrollToBottom();
           } catch (err) {
-            console.error('Failed to read from clipboard:', err);
+            console.error('Failed to paste:', err);
           }
         }
         return;
