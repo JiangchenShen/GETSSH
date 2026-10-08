@@ -378,6 +378,14 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - HTTP 请求不再自动跟随重定向：只跟同一站点（或同一主机从 http 升到 https），最多 5 次；跳到别的站点就报错，请求头里的 token 不会发过去。之前 `fetch` 会跟到任何地方，`Authorization` 以外的头（如 `X-Api-Key`）也会带过去；
   - 这一批每处修复也都故意改坏一次，15 处测试都报错。
 
+- **排查：死循环、反复重启、内存耗尽（10-07 / 10-08）**：三个只读 agent 分别查主进程、Rust、界面和插件宿主，再由一个 agent 逐条反驳；18 条里 17 条成立（2 条是同一个问题），已改 16 条：
+  - 反复重启：安全模式不发心跳，watchdog 每 65 秒把它杀掉再以安全模式启动，直到用户退出。现在安全模式不启动 watchdog；watchdog 重启出来的进程带标记，再冻结只杀不重启；启动出错的对话框改成异步的（同步的会卡住心跳）；锁定期间照常发心跳（Windows 上 watchdog 的回复要等心跳才发得出去）；黄色警报过期后不再每 10 ms 醒一次；
+  - 卡死：agent 跑命令时每个 SSH 包都发给聊天，界面每次重新解析整个对话（改成每 100 ms 合并一次、每条命令最多 32 KB）；HTTP 代理不回应 CONNECT 时连接永远挂着（握手计时器提前开始，代理拒绝时直接报错）；Sentinel 还原时每个占位符都重新解析全文（改成分组检查，加解析预算）；Telnet 协商对每个 DO/WILL 都回应（改成只在状态变化时回应）；
+  - 内存：重新打开同一个远程文件时旧的监听和整个会话对象留着；系统识别探测不限长；审计录像队列按帧计不按字节（改成 16 MB，丢掉的部分在录像里标出）；关掉的会话 id 一直记着；插件订阅终端数据不限次数，插件进程出错时异常会冒到 ssh2 里；拆出窗口关闭后主窗口里的终端缓存不释放；回滚行数没有上限（负数会让每个终端启动失败）；插件可以无限开面板，还能用同名覆盖别的插件的面板；
+  - 没改的：AI 会话一次全部加载（`get_ai_sessions`，要改 store 接口和界面，单条消息已经有上限，留到后面）；聊天界面每个 token 重新解析所有消息（Codex 的文件，见第 11 节）；
+  - 每处修复都故意改坏一次，测试都报错（Sentinel 最后那道整体检查除外：分组检查已经挡住了能找到的所有情况，它作为纵深防御保留）。Sentinel 的改动用真实的 `.node` 跑过 `test:sentinel`；
+  - 第二轮排查（换四个角度、排除已知的 18 条）两次都因为用量上限中途停止，没有结果。
+
 阶段 B 视进度决定是否进入 3.0。
 
 ## 10. 已解决的问题（2026-10-01）
@@ -418,6 +426,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - Claude 已改了 `SafeStorageTab.tsx` 的两处：设主密码后生成恢复码时传入新主密码；有主密码但还没有恢复码时，"创建"按钮先打开输入当前密码的表单；
      - 已保存的密码和口令不再发给界面，配置里改成 `hasPassword` / `hasPassphrase`。Claude 已在 `ConnectForm.tsx` 里加了占位提示"已保存，留空则不修改"，留空表示保留。查看已保存的密码用 `store.reveal`，清除已保存密码的入口还没有。
    - 设置页"导出 / 导入"标签（`ExportTab.tsx`，10-07）：旧的数据库导出导入已经删除（S6）。`exportDatabaseAll` 不再存在，按钮点了只显示同一条提示（Claude 临时加的，在 `ExportTab.tsx` 的 `exportAll` 里）；`exportDatabaseWorkspace`、`importDatabase`、`confirmImportDatabase` 只返回一条"已改为加密备份"的失败提示。请换成 `store.backup`（选工作区、一键解锁、设备份密码、导出；选文件、输入密码检查、导入、重启），换好后告诉 Claude，把这四个从 preload 和 `types.d.ts` 里删掉。"导出脱敏主机配置"不受影响。
+   - 终端和插件面板（10-08，排查发现，Claude 已改）：`Terminal.tsx` 的 xterm 缓存挪到了 `src/components/terminalCache.ts`，会话离开所有标签且不在页面上的缓存会被释放（拆出窗口关闭后原来不释放）；回滚行数统一用 `src/utils/terminalLimits.ts` 的 `clampScrollback`（1000 到 100000），设置页输入框输入时只限上限、离开时整体夹住；`PluginBridge` 每个插件最多 16 个面板、每秒最多打开一次，`sessionStore` 里面板只能由注册它的插件覆盖和打开。
    - AI 聊天的渲染（`ChatView.tsx`、`MarkdownRenderer.tsx`，10-07 排查发现）：每收到一个流式片段，所有消息都重新解析一遍 Markdown（`ChatView` 订阅整个 `conversations`，`MarkdownRenderer` 没有 `memo`，`components` 每次都新建），长对话里越聊越卡。agent 跑命令的输出已经在主进程里合并、限量（每 100 ms 最多一次，每条命令最多 32 KB），但普通回复照样一个 token 一次。建议：每条消息用 `React.memo`（按 id 和内容），`MarkdownRenderer` 加 `memo`、`components` 用 `useMemo`，`onPaperPlane` 传稳定的回调，`appendChunk` 每帧合并一次。你的分支改过这两个文件，所以 Claude 没动。
    - 终端右键粘贴（`Terminal.tsx` 的 `handleContextMenu`，10-07）：Claude 改成了 `window.electronAPI.terminalPaste(sessionId, bracketed)`，由主进程读剪贴板、写进会话。窗口已经没有剪贴板读取权限，界面里不要再用 `navigator.clipboard.readText()`，它会报错；写剪贴板（`writeText`）照常可用。终端元素上还加了一个捕获阶段的 `paste` 监听（`sanitizePasteEvent`），粘贴的文字带 ESC 时去掉再交给 xterm，改终端时请保留。
    - 2.0 服务器的导入（10-06，`window.electronAPI.store.legacyV2`，类型在 `src/types.d.ts`）：

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
 import { parseCustomTheme } from '../../../utils/themes';
 import { SettingsRow, SettingsSection, SettingsToggle, settingButtonClass, settingDangerButtonClass, settingFieldClass } from '../SettingsControls';
+import { clampScrollback, MAX_SCROLLBACK, MIN_SCROLLBACK } from '../../../utils/terminalLimits';
 
 export const TerminalTab: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -96,7 +97,7 @@ export const TerminalTab: React.FC = () => {
           <SettingsToggle checked={appConfig.copyOnSelect} onChange={checked => updateConfig('copyOnSelect', checked)} label={t('terminal.copyOnSelect')} />
         </SettingsRow>
         <SettingsRow label={t('terminal.scrollback')} description={t('terminal.scrollbackNote')}>
-          <input type="number" min={1000} step={1000} value={appConfig.scrollback || 10000} onChange={event => updateConfig('scrollback', parseInt(event.target.value, 10) || 10000)} className={`${settingFieldClass} font-mono sm:w-28`} />
+          <input type="number" min={MIN_SCROLLBACK} max={MAX_SCROLLBACK} step={1000} value={appConfig.scrollback || 10000} onChange={event => updateConfig('scrollback', Math.min(parseInt(event.target.value, 10) || 10000, MAX_SCROLLBACK))} onBlur={() => updateConfig('scrollback', clampScrollback(appConfig.scrollback))} className={`${settingFieldClass} font-mono sm:w-28`} />
         </SettingsRow>
         <SettingsRow label={t('terminal.bellStyle')}>
           <select value={appConfig.bellStyle || 'visual'} onChange={event => updateConfig('bellStyle', event.target.value as 'none' | 'audible' | 'visual')} className={`${settingFieldClass} sm:w-40`}>

@@ -7,10 +7,12 @@ import { CanvasAddon } from '@xterm/addon-canvas';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { AppConfig, useAppStore } from '../store/appStore';
-import { useSessionStore, collectSessionIds } from '../store/sessionStore';
+import { useSessionStore, collectSessionIds, liveSessionIds } from '../store/sessionStore';
+import { disposeOrphanedTerminals, disposeXtermEntry, xtermCache, type XtermCacheEntry } from './terminalCache';
 import { usePluginStore } from '../store/pluginStore';
 import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
 import { sanitizePasteEvent } from '../utils/terminalPaste';
+import { clampScrollback } from '../utils/terminalLimits';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -24,37 +26,10 @@ interface TerminalProps {
   isActive?: boolean;
 }
 
-interface XtermCacheEntry {
-  term: XTerm;
-  fitAddon: FitAddon;
-  serializeAddon: SerializeAddon;
-  webglAddon?: WebglAddon;
-  canvasAddon?: CanvasAddon;
-  ligaturesAddon?: LigaturesAddon;
-  element: HTMLDivElement;
-  /** Session output offset (main-process ring) already written into `term`. */
-  lastOffset?: number;
-  /** ssh-closed arrived; kept per entry so it is not lost while the pane is unmounted. */
-  closed?: boolean;
-  notifyClosed?: () => void;
-  unsubClosed?: () => void;
-}
-
-// Global cache to preserve xterm instances and DOM nodes across React unmounts
-const xtermCache = new Map<string, XtermCacheEntry>();
-
-function disposeXtermEntry(sessionId: string) {
-  const entry = xtermCache.get(sessionId);
-  if (!entry) return;
-  xtermCache.delete(sessionId);
-  entry.unsubClosed?.();
-  entry.webglAddon?.dispose();
-  entry.canvasAddon?.dispose();
-  entry.ligaturesAddon?.dispose();
-  entry.serializeAddon.dispose();
-  entry.fitAddon.dispose();
-  entry.term.dispose();
-}
+// A session can leave every tab while its terminal is not mounted (terminalCache.ts).
+useSessionStore.subscribe((state, previous) => {
+  if (state.tabs !== previous.tabs) disposeOrphanedTerminals(liveSessionIds(state.tabs));
+});
 
 // Read-only text snapshot for AI context (services/contextService.ts).
 export function getTerminalBuffer(sessionId: string): string | undefined {
@@ -174,7 +149,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         cursorStyle: config.cursorStyle || 'block',
         theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme, config.customThemes),
         allowTransparency: true,
-        scrollback: config.scrollback || 10000,
+        scrollback: clampScrollback(config.scrollback),
         ...({ bellStyle: config.bellStyle === 'audible' ? 'sound' : 'none' } as any),
       });
       
@@ -428,7 +403,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     term.options.fontSize = config.fontSize;
     term.options.lineHeight = config.lineHeight;
     term.options.cursorStyle = config.cursorStyle;
-    term.options.scrollback = config.scrollback;
+    term.options.scrollback = clampScrollback(config.scrollback);
     term.options.cursorBlink = config.cursorBlink ?? true;
     (term.options as any).bellStyle = config.bellStyle === 'audible' ? 'sound' : 'none';
 

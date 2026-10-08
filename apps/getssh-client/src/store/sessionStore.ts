@@ -158,6 +158,11 @@ interface SessionStore {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+/** Sessions shown in some tab's pane tree; a terminal whose session is not among them is gone. */
+export function liveSessionIds(tabs: ReadonlyArray<{ paneTree?: PaneNode }>): Set<string> {
+  return new Set(tabs.flatMap(tab => (tab.paneTree ? collectSessionIds(tab.paneTree) : [])));
+}
+
 export function collectSessionIds(node: PaneNode, acc: string[] = []): string[] {
   if (node.type === 'leaf') {
     if (node.sessionId) acc.push(node.sessionId);
@@ -420,13 +425,16 @@ export const useSessionStore = create<SessionStore>()(
     },
 
     registerPluginPanel: (pluginId, panelId, title, renderUrl) => set(state => {
+      // Panel ids are chosen by plugins: one plugin must not replace another's panel.
+      const existing = state.registeredPanels[panelId];
+      if (existing && existing.pluginId !== pluginId) return;
       state.registeredPanels[panelId] = { pluginId, title, renderUrl };
     }),
 
     openPluginPanel: (pluginId, panelId) => {
       const { registeredPanels } = get();
       const panel = registeredPanels[panelId];
-      if (!panel) return;
+      if (!panel || panel.pluginId !== pluginId) return;
       const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
       // Tab ids are global in tidal-engine, so one panel tab per workspace.
       const tabId = `panel-${workspaceId}-${pluginId}-${panelId}`;

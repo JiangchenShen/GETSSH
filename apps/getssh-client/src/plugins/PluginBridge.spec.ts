@@ -1,0 +1,45 @@
+// @vitest-environment jsdom
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// A plugin page can register at most 16 panels and open one at most once a second.
+
+const store = vi.hoisted(() => ({ registerPluginPanel: vi.fn(), openPluginPanel: vi.fn() }));
+vi.mock('../store/sessionStore', () => ({ useSessionStore: { getState: () => store } }));
+vi.mock('../store/pluginStore', () => ({ usePluginStore: { getState: () => ({}) } }));
+vi.mock('../store/appStore', () => ({ useAppStore: { subscribe: () => () => {} } }));
+
+import { initPluginBridge } from './PluginBridge';
+
+let stop: () => void;
+let frame: HTMLIFrameElement;
+beforeAll(() => {
+  (window as any).electronAPI = {};
+  stop = initPluginBridge();
+  frame = document.createElement('iframe');
+  frame.setAttribute('data-plugin-id', 'busy');
+  document.body.appendChild(frame);
+});
+afterAll(() => stop());
+
+const send = (action: string, payload: unknown) =>
+  window.dispatchEvent(new MessageEvent('message', { data: { __getssh_plugin: true, pluginId: 'busy', action, payload }, source: frame.contentWindow }));
+
+describe('plugin panels', () => {
+  it('registers at most 16 panels per plugin', () => {
+    for (let i = 0; i < 40; i++) send('registerPanel', { panelId: `p${i}`, title: 'P', renderUrl: 'getssh-plugin://busy/p.html' });
+    expect(store.registerPluginPanel).toHaveBeenCalledTimes(16);
+    send('registerPanel', { panelId: 'p3', title: 'P again', renderUrl: 'getssh-plugin://busy/p.html' });
+    expect(store.registerPluginPanel).toHaveBeenCalledTimes(17);
+  });
+
+  it('opens a panel at most once a second', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    for (let i = 0; i < 10; i++) send('openPanel', { panelId: `p${i}` });
+    expect(store.openPluginPanel).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_001_000);
+    send('openPanel', { panelId: 'p1' });
+    expect(store.openPluginPanel).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+});

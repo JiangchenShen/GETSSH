@@ -26,6 +26,16 @@ const BLOCKED_ACTIONS = new Set([
   'sftpDelete',
 ]);
 
+/**
+ * Panels one plugin page may register, and how often it may open one. Each opened panel is a tab
+ * with its own iframe; a page that registered and opened new panels on a timer added them without
+ * limit.
+ */
+const MAX_PANELS_PER_PLUGIN = 16;
+const OPEN_PANEL_INTERVAL_MS = 1000;
+const panelsByPlugin = new Map<string, Set<string>>();
+const lastPanelOpen = new Map<string, number>();
+
 function handlePluginMessage(event: MessageEvent) {
   // Only accept messages from sandboxed iframes (origin will be 'null' for sandbox)
   const data = event.data;
@@ -65,13 +75,25 @@ function handlePluginMessage(event: MessageEvent) {
       });
       break;
 
-    case 'registerPanel':
+    case 'registerPanel': {
+      const panels = panelsByPlugin.get(pluginId) ?? new Set<string>();
+      if (!panels.has(payload.panelId) && panels.size >= MAX_PANELS_PER_PLUGIN) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" already has ${MAX_PANELS_PER_PLUGIN} panels; "${payload.panelId}" was not registered`);
+        break;
+      }
+      panels.add(payload.panelId);
+      panelsByPlugin.set(pluginId, panels);
       useSessionStore.getState().registerPluginPanel(pluginId, payload.panelId, payload.title, payload.renderUrl);
       break;
+    }
 
-    case 'openPanel':
+    case 'openPanel': {
+      const now = Date.now();
+      if (now - (lastPanelOpen.get(pluginId) ?? -Infinity) < OPEN_PANEL_INTERVAL_MS) break;
+      lastPanelOpen.set(pluginId, now);
       useSessionStore.getState().openPluginPanel(pluginId, payload.panelId);
       break;
+    }
 
     case 'showNotification':
       if (Notification.permission === 'granted') {

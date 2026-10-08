@@ -19,6 +19,8 @@ import {
   type PluginRegistrationSnapshot
 } from './services/plugin/pluginProtocol';
 
+const MAX_SSH_SUBSCRIPTIONS = 64;
+
 export function isPrivateIP(ip: string): boolean {
   return isPrivateNetworkAddress(ip);
 }
@@ -442,11 +444,24 @@ export class PluginManager {
         const subscriptionId = this.stringArg(args, 0, 'SSH subscription ID', 128);
         const sessionId = this.stringArg(args, 1, 'SSH session ID', 256);
         assertSafeIdentifier(subscriptionId, 'SSH subscription ID');
-        if (running.listeners?.some(listener => listener.subscriptionId === subscriptionId)) {
+        const subscriptions = running.listeners?.filter(listener => listener.subscriptionId) ?? [];
+        if (subscriptions.some(listener => listener.subscriptionId === subscriptionId)) {
           throw new Error(`SSH subscription '${subscriptionId}' is already registered.`);
         }
+        // Each subscription is a listener on the bridge until the plugin exits.
+        if (subscriptions.length >= MAX_SSH_SUBSCRIPTIONS) {
+          throw new Error(`A plugin can hold at most ${MAX_SSH_SUBSCRIPTIONS} SSH subscriptions.`);
+        }
         const event = `data:${sessionId}`;
-        const callback = (chunk: string) => host.sendSshData(subscriptionId, String(chunk));
+        // The bridge emits from inside the session's data handler: a plugin process that is gone or
+        // over its output limit must not throw into ssh2's parser and break the session.
+        const callback = (chunk: string) => {
+          try {
+            host.sendSshData(subscriptionId, String(chunk));
+          } catch (error) {
+            console.warn(`[PluginManager] SSH data for plugin '${pluginId}' was dropped:`, error instanceof Error ? error.message : error);
+          }
+        };
         sshBridge.on(event, callback);
         running.listeners = running.listeners || [];
         running.listeners.push({ event, callback, subscriptionId });

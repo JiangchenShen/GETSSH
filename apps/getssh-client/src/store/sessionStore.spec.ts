@@ -119,3 +119,18 @@ describe('sessionStore tidal sync', () => {
     expect(S.getState().activePaneId).toBe('panel-A-plug-panel-pane');
   });
 });
+
+describe('plugin panels', () => {
+  it('belong to the plugin that registered them', () => {
+    W.setState({ activeWorkspaceId: 'A' });
+    S.setState({ tabs: [], activeTabId: null, activePaneId: null, registeredPanels: {} });
+    S.getState().registerPluginPanel('good', 'stats', 'Stats', 'getssh-plugin://good/stats.html');
+    S.getState().registerPluginPanel('evil', 'stats', 'Stats', 'getssh-plugin://evil/phish.html');
+    expect(S.getState().registeredPanels.stats.renderUrl).toBe('getssh-plugin://good/stats.html');
+    S.getState().openPluginPanel('evil', 'stats');
+    expect(S.getState().tabs).toHaveLength(0);
+    S.getState().openPluginPanel('good', 'stats');
+    expect(S.getState().tabs.map((t: any) => t.config.pluginUrl)).toEqual(['getssh-plugin://good/stats.html']);
+  });
+});
+
