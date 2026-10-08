@@ -216,6 +216,12 @@ describe('Ocean Sentinel status IPC', () => {
     expect(socket.write.mock.calls.filter(([line]) => line === 'PING\n')).toHaveLength(3);
   });
 
+  it('gives the watchdog no executable to restart in a development build (it is the bare Electron binary)', async () => {
+    await start();
+    expect(mocks.spawn).toHaveBeenCalledOnce();
+    expect(mocks.spawn.mock.calls[0][1]).toEqual([String(process.pid), expect.any(String), '', 'en-US']);
+  });
+
   it('starts no watchdog in safe mode, which a freeze would otherwise kill and restart in a loop', async () => {
     process.argv.push('--safe-mode');
     await start();

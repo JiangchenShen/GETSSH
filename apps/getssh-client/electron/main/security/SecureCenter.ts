@@ -124,7 +124,8 @@ export class SecureCenter {
 
     // Safe mode is where the watchdog sends the app after a freeze. A watchdog here would kill it
     // again at the next long stall (a modal prompt, a startup error left open) and relaunch it in
-    // safe mode, over and over; safe mode runs without one.
+    // safe mode, over and over; safe mode runs without one, so a freeze there is neither killed
+    // nor restarted.
     if (!this.sentinelDisabled) this.initSentinelWatchdog();
   }
 
@@ -227,7 +228,10 @@ export class SecureCenter {
             // Notice: we do NOT return here if we want manual RASP alerts to still show up as fallback
         } else {
           // The locale lets the ocean-sentinel's own "not responding" dialog speak the user's language.
-          this.sentinelProcess = child_process.spawn(sentinelPath, [process.pid.toString(), pipeName, process.execPath, app.getLocale()], {
+          // A development build's executable is the bare Electron binary: restarting it would open
+          // Electron's welcome window, so the watchdog gets no executable there and restarts nothing.
+          const relaunchPath = app.isPackaged ? process.execPath : '';
+          this.sentinelProcess = child_process.spawn(sentinelPath, [process.pid.toString(), pipeName, relaunchPath, app.getLocale()], {
             stdio: 'inherit',
             windowsHide: true,
           });

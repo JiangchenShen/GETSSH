@@ -327,18 +327,10 @@ app.whenReady().then(async () => {
       pluginManager.markInitialLoadDone();
     }
   });
-  appLock.start().then(() => {
-    if (appLock.state().phase === 'error') {
-      // Not showErrorBox: it blocks the main thread, so the watchdog would take a box left open
-      // for a minute as a freeze, kill the app and restart it.
-      void dialog.showMessageBox({
-        type: 'error',
-        title: 'GETSSH',
-        message: 'GETSSH could not open its data',
-        detail: 'GETSSH could not open its encrypted data. Nothing was changed. Details: ' + (appLock.state().error || 'unknown error'),
-      });
-    }
-  });
+  // A startup error is shown by the window's lock screen (phase 'error'), not by a native box: on
+  // macOS a message box without a visible parent runs modally and stops the main thread, so the
+  // watchdog took a box left open for a minute as a freeze, killed the app and restarted it.
+  void appLock.start();
 
   protocol.handle('getssh-plugin', (request) => {
     try {

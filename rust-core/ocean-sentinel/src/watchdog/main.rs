@@ -108,17 +108,10 @@ fn exit_on_pipe_closed(pid: u32) -> ! {
     std::process::exit(0);
 }
 
-/// Set on the instance the watchdog restarts in safe mode. The app passes its environment to the
-/// watchdog it starts, so a watchdog that sees it supervises an instance that was restarted once
-/// already, and only kills it: a freeze that comes back in safe mode must not restart it in a loop.
-/// (The app starts no watchdog in safe mode either.)
-const RELAUNCHED_ENV: &str = "GETSSH_SAFE_MODE_RELAUNCH";
-
-/// The executable to restart in safe mode after a freeze, if any.
-fn relaunch_target(args: &[String], relaunched: bool) -> Option<String> {
-    if relaunched {
-        return None;
-    }
+/// The executable to restart in safe mode after a freeze, if any: an empty argument means none
+/// (the app passes one in a development build, whose executable is the bare Electron binary).
+/// The app starts no watchdog in safe mode, so a freeze there is not restarted again.
+fn relaunch_target(args: &[String]) -> Option<String> {
     args.get(3).filter(|path| !path.is_empty()).cloned()
 }
 
@@ -139,7 +132,7 @@ fn main() {
         }
     };
     let pipe_path = &args[2];
-    let exec_path = relaunch_target(&args, env::var_os(RELAUNCHED_ENV).is_some());
+    let exec_path = relaunch_target(&args);
     // The app's locale (app.getLocale()), so the freeze dialog speaks the user's language.
     let chinese = args.get(4).is_some_and(|locale| locale.starts_with("zh"));
 
@@ -231,7 +224,7 @@ fn main() {
     }
 
     let mut supervisor = Supervisor::new();
-    let mut out = Outlet { pid, exec_path, chinese, write_stream, freeze_dialog: None };
+    let mut out = Outlet { pid, exec_path, chinese, lines: spawn_writer(write_stream), freeze_dialog: None };
 
     loop {
         // The deadline is acted on before waiting again, so a late message cannot undo a kill
@@ -248,16 +241,32 @@ fn main() {
     }
 }
 
+/// Writes the lines for the app on a thread of its own. On Windows the pipe handle is synchronous
+/// and shared with the read thread, so a write waits until the app writes something; done on the
+/// supervisor loop, it held back the kill at an alert's deadline for as long as the app (perhaps
+/// the compromised process) stayed silent.
+fn spawn_writer<W: Write + Send + 'static>(mut stream: W) -> mpsc::Sender<String> {
+    let (tx, rx) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for line in rx {
+            if stream.write_all(format!("{line}\n").as_bytes()).is_err() {
+                break;
+            }
+        }
+    });
+    tx
+}
+
 /// Carries out what the supervisor decided: messages to the app, the dialog, the kill.
-struct Outlet<W: Write> {
+struct Outlet {
     pid: u32,
     exec_path: Option<String>,
     chinese: bool,
-    write_stream: W,
+    lines: mpsc::Sender<String>,
     freeze_dialog: Option<Child>,
 }
 
-impl<W: Write> Outlet<W> {
+impl Outlet {
     fn pipe_closed(&mut self) -> ! {
         close_dialog(&mut self.freeze_dialog);
         exit_on_pipe_closed(self.pid);
@@ -268,7 +277,7 @@ impl<W: Write> Outlet<W> {
         for effect in effects {
             match effect {
                 Effect::Send(line) => {
-                    let _ = self.write_stream.write_all(format!("{line}\n").as_bytes());
+                    let _ = self.lines.send(line);
                 }
                 Effect::ShowFreezeDialog => {
                     eprintln!("Watchdog: no heartbeat from PID {pid} for {} s.", HEARTBEAT_TIMEOUT.as_secs());
@@ -287,7 +296,7 @@ impl<W: Write> Outlet<W> {
                     if restart_safe {
                         if let Some(exec) = &self.exec_path {
                             eprintln!("Watchdog: restarting {exec} in safe mode.");
-                            let _ = Command::new(exec).arg("--safe-mode").env(RELAUNCHED_ENV, "1").spawn();
+                            let _ = Command::new(exec).arg("--safe-mode").spawn();
                         }
                     }
                 }
@@ -371,17 +380,66 @@ fn connect_pipe(path: &str) -> std::fs::File {
 mod tests {
     use super::*;
 
+    /// A pipe whose writes never finish, like a Windows pipe while the app stays silent.
+    struct StuckPipe(mpsc::Receiver<()>);
+
+    impl Write for StuckPipe {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            let _ = self.0.recv();
+            Ok(0)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
-    fn an_instance_restarted_once_is_not_restarted_again() {
+    fn a_stuck_pipe_does_not_hold_back_the_supervisor() {
+        let (_release, wait) = mpsc::channel();
+        let mut out = Outlet { pid: 0, exec_path: None, chinese: false, lines: spawn_writer(StuckPipe(wait)), freeze_dialog: None };
+        let started = Instant::now();
+        for tick in (1..=60).rev() {
+            out.apply(vec![Effect::Send(format!("TICK:{tick}"))], &Supervisor::new());
+        }
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn lines_reach_the_app_in_order() {
+        #[derive(Clone, Default)]
+        struct Shared(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let pipe = Shared::default();
+        let lines = spawn_writer(pipe.clone());
+        for line in ["LOCKDOWN_TRIGGER:RED:x", "TICK:60", "RESOLVED"] {
+            lines.send(line.to_string()).unwrap();
+        }
+        drop(lines);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while pipe.0.lock().unwrap().len() < 38 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(String::from_utf8(pipe.0.lock().unwrap().clone()).unwrap(), "LOCKDOWN_TRIGGER:RED:x\nTICK:60\nRESOLVED\n");
+    }
+
+    #[test]
+    fn an_empty_or_missing_executable_means_no_restart() {
         let args: Vec<String> = ["watchdog", "123", "/tmp/p.sock", "/Applications/GETSSH.app/Contents/MacOS/GETSSH", "en-US"]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        assert_eq!(relaunch_target(&args, false).as_deref(), Some("/Applications/GETSSH.app/Contents/MacOS/GETSSH"));
-        assert_eq!(relaunch_target(&args, true), None);
-        assert_eq!(relaunch_target(&args[..3], false), None);
+        assert_eq!(relaunch_target(&args).as_deref(), Some("/Applications/GETSSH.app/Contents/MacOS/GETSSH"));
+        assert_eq!(relaunch_target(&args[..3]), None);
         let mut empty = args.clone();
         empty[3].clear();
-        assert_eq!(relaunch_target(&empty, false), None);
+        assert_eq!(relaunch_target(&empty), None);
     }
 }
