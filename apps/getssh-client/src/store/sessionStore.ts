@@ -152,7 +152,8 @@ interface SessionStore {
   
   // Internal Legacy overrides (for compat)
   closeTab: (tabId: string) => void;
-  registerPluginPanel: (pluginId: string, panelId: string, title: string, renderUrl: string) => void;
+  /** False when another plugin already registered `panelId`. */
+  registerPluginPanel: (pluginId: string, panelId: string, title: string, renderUrl: string) => boolean;
   openPluginPanel: (pluginId: string, panelId: string) => void;
 }
 
@@ -424,12 +425,15 @@ export const useSessionStore = create<SessionStore>()(
       });
     },
 
-    registerPluginPanel: (pluginId, panelId, title, renderUrl) => set(state => {
+    registerPluginPanel: (pluginId, panelId, title, renderUrl) => {
       // Panel ids are chosen by plugins: one plugin must not replace another's panel.
-      const existing = state.registeredPanels[panelId];
-      if (existing && existing.pluginId !== pluginId) return;
-      state.registeredPanels[panelId] = { pluginId, title, renderUrl };
-    }),
+      const existing = get().registeredPanels[panelId];
+      if (existing && existing.pluginId !== pluginId) return false;
+      set(state => {
+        state.registeredPanels[panelId] = { pluginId, title, renderUrl };
+      });
+      return true;
+    },
 
     openPluginPanel: (pluginId, panelId) => {
       const { registeredPanels } = get();

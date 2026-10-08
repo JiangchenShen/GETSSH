@@ -42,6 +42,8 @@ export class PluginManager {
   private pluginsPath: string;
   public installedPlugins: PluginManifest[] = [];
   private approvedSshWriters: Set<string> = new Set();
+  /** What each plugin last wrote to the clipboard: reading it back tells the plugin nothing new. */
+  private clipboardWrites = new Map<string, string>();
   private runningPlugins: Map<string, RunningPlugin> = new Map();
 
   private uiExtensions: {
@@ -235,13 +237,14 @@ export class PluginManager {
           throw new Error(`[SecurityError] Plugin '${manifest.name}' missing 'host:clipboard' capability`);
         }
         await clipboard.writeText(text);
+        this.clipboardWrites.set(manifest.name, text);
         console.log(`[Plugin Clipboard API] [${manifest.name}] copied text to clipboard.`);
       },
       readText: async () => {
         if (!caps.includes('host:clipboard')) {
           throw new Error(`[SecurityError] Plugin '${manifest.name}' missing 'host:clipboard' capability`);
         }
-        const text = await clipboardTextForPlugin();
+        const text = await clipboardTextForPlugin(this.clipboardWrites.get(manifest.name));
         console.log(`[Plugin Clipboard API] [${manifest.name}] read text from clipboard.`);
         new Notification({
           title: '⚠️ 剪贴板安全提醒',
@@ -510,13 +513,16 @@ export class PluginManager {
         new Notification({ title, body }).show();
         return null;
       }
-      case 'host.clipboard.writeText':
+      case 'host.clipboard.writeText': {
         this.requireCapability(manifest, 'host:clipboard');
-        await clipboard.writeText(this.stringArg(args, 0, 'Clipboard text', 1024 * 1024));
+        const text = this.stringArg(args, 0, 'Clipboard text', 1024 * 1024);
+        await clipboard.writeText(text);
+        this.clipboardWrites.set(pluginId, text);
         return null;
+      }
       case 'host.clipboard.readText': {
         this.requireCapability(manifest, 'host:clipboard');
-        const text = await clipboardTextForPlugin();
+        const text = await clipboardTextForPlugin(this.clipboardWrites.get(pluginId));
         new Notification({
           title: '⚠️ 剪贴板安全提醒',
           body: `插件 [${manifest.name}] 刚刚读取了您的系统剪贴板`
@@ -731,6 +737,7 @@ export class PluginManager {
     this.uiExtensions.sftp = this.uiExtensions.sftp.filter(item => item.pluginId !== pluginId);
     this.settingsSchemas.delete(pluginId);
     this.approvedSshWriters.delete(pluginId);
+    this.clipboardWrites.delete(pluginId);
     this.runningPlugins.delete(pluginId);
     this.syncUIExtensions();
   }

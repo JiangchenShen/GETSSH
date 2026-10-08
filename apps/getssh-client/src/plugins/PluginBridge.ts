@@ -81,9 +81,10 @@ function handlePluginMessage(event: MessageEvent) {
         console.warn(`[PluginBridge] Plugin "${pluginId}" already has ${MAX_PANELS_PER_PLUGIN} panels; "${payload.panelId}" was not registered`);
         break;
       }
-      panels.add(payload.panelId);
-      panelsByPlugin.set(pluginId, panels);
-      useSessionStore.getState().registerPluginPanel(pluginId, payload.panelId, payload.title, payload.renderUrl);
+      if (useSessionStore.getState().registerPluginPanel(pluginId, payload.panelId, payload.title, payload.renderUrl)) {
+        panels.add(payload.panelId);
+        panelsByPlugin.set(pluginId, panels);
+      }
       break;
     }
 

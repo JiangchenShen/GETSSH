@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // A plugin page can register at most 16 panels and open one at most once a second.
 
-const store = vi.hoisted(() => ({ registerPluginPanel: vi.fn(), openPluginPanel: vi.fn() }));
+const store = vi.hoisted(() => ({ registerPluginPanel: vi.fn((..._args: unknown[]) => true), openPluginPanel: vi.fn() }));
 vi.mock('../store/sessionStore', () => ({ useSessionStore: { getState: () => store } }));
 vi.mock('../store/pluginStore', () => ({ usePluginStore: { getState: () => ({}) } }));
 vi.mock('../store/appStore', () => ({ useAppStore: { subscribe: () => () => {} } }));
@@ -30,6 +30,18 @@ describe('plugin panels', () => {
     expect(store.registerPluginPanel).toHaveBeenCalledTimes(16);
     send('registerPanel', { panelId: 'p3', title: 'P again', renderUrl: 'getssh-plugin://busy/p.html' });
     expect(store.registerPluginPanel).toHaveBeenCalledTimes(17);
+  });
+
+  it('does not count a panel id the store refused (another plugin owns it)', () => {
+    store.registerPluginPanel.mockClear();
+    frame.setAttribute('data-plugin-id', 'other');
+    const sendAs = (panelId: string) => window.dispatchEvent(new MessageEvent('message', { data: { __getssh_plugin: true, pluginId: 'other', action: 'registerPanel', payload: { panelId, title: 'X', renderUrl: 'getssh-plugin://other/x.html' } }, source: frame.contentWindow }));
+    store.registerPluginPanel.mockReturnValue(false);
+    for (let i = 0; i < 20; i++) sendAs(`taken-${i}`);
+    store.registerPluginPanel.mockReturnValue(true);
+    for (let i = 0; i < 16; i++) sendAs(`own-${i}`);
+    expect(store.registerPluginPanel).toHaveBeenCalledTimes(36);
+    frame.setAttribute('data-plugin-id', 'busy');
   });
 
   it('opens a panel at most once a second', () => {

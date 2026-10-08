@@ -134,8 +134,9 @@ function sha256(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-// Digests of every secret copied in this run. They stay after the 30-second clear, so a plugin
-// never gets one back even when that clear failed, and quitting can still clear the clipboard.
+// Digests of secrets copied from the store that may still be on the clipboard. One is dropped once
+// the 30-second clear has run (or found something else there); while the clear keeps failing it
+// stays, so plugins keep getting nothing and quitting still clears it.
 const copiedSecrets = new Set<string>();
 
 /** Copies a secret and clears the clipboard after 30 seconds unless something else was copied. */
@@ -147,6 +148,7 @@ async function copySecret(value: string): Promise<void> {
     clipboard.readText()
       .then(current => {
         if (sha256(current) === digest) clipboard.clear();
+        copiedSecrets.delete(digest);
       })
       .catch(error => console.warn('[Store IPC] Could not clear the clipboard:', error));
   }, CLIPBOARD_CLEAR_MS);
@@ -154,19 +156,18 @@ async function copySecret(value: string): Promise<void> {
 }
 
 /**
- * The clipboard text for a backend plugin with host:clipboard. A secret copied from the store is
- * not handed out: the user copied it to paste it somewhere, not for plugins. The error does not
- * say why, so a plugin cannot tell that a password was just copied.
+ * The clipboard text for a backend plugin with host:clipboard. A secret just copied from the store
+ * reads as an empty clipboard: the user copied it to paste it somewhere, not for plugins, and an
+ * error would tell the plugin that a password was copied (and let it test guesses by writing them
+ * first). Text equal to what the plugin itself last wrote is handed back, since it knows it.
  */
-export async function clipboardTextForPlugin(): Promise<string> {
+export async function clipboardTextForPlugin(ownWrite?: string): Promise<string> {
   const text = await clipboard.readText();
-  if (copiedSecrets.has(sha256(text))) {
-    throw new Error('The clipboard cannot be read right now.');
-  }
-  return text;
+  if (ownWrite !== undefined && text === ownWrite) return text;
+  return copiedSecrets.has(sha256(text)) ? '' : text;
 }
 
-/** For quit and relaunch: clears the clipboard if it still holds a secret copied in this run. */
+/** For quit and relaunch: clears the clipboard if it still holds a secret copied less than 30 s ago. */
 export async function clearCopiedSecret(): Promise<void> {
   if (copiedSecrets.size === 0) return;
   try {

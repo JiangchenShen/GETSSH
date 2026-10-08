@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Plugins with host:clipboard read the clipboard through clipboardTextForPlugin, which refuses a
-// password copied from the reveal window in this run. Both plugin kinds go through it.
+// Plugins with host:clipboard read the clipboard through clipboardTextForPlugin, which hides a
+// password just copied from the reveal window. Both plugin kinds' host API goes through it (a
+// developer-mode plugin runs in the main process and could read the clipboard directly).
 
 const mocks = vi.hoisted(() => ({
   clipboardTextForPlugin: vi.fn(async () => 'clipboard text'),
@@ -41,18 +42,19 @@ import { PluginManager } from './PluginManager';
 const manifest = { name: 'clip', getssh: { capabilities: ['host:clipboard'] } };
 const host = {};
 
-function isolatedRead(manager: PluginManager) {
+function isolated(manager: PluginManager) {
   const internals = manager as unknown as {
     runningPlugins: Map<string, unknown>;
     dispatchPluginHostCall: (id: string, m: unknown, h: unknown, method: string, args: unknown[]) => Promise<unknown>;
   };
   internals.runningPlugins.set('clip', { host });
-  return internals.dispatchPluginHostCall('clip', manifest, host, 'host.clipboard.readText', []);
+  const call = (method: string, args: unknown[] = []) => internals.dispatchPluginHostCall('clip', manifest, host, method, args);
+  return { read: () => call('host.clipboard.readText'), write: (text: string) => call('host.clipboard.writeText', [text]) };
 }
 
-function developerRead(manager: PluginManager) {
+function developer(manager: PluginManager) {
   const context = (manager as unknown as { createMainContext: (m: unknown) => any }).createMainContext(manifest);
-  return context.host.clipboard.readText() as Promise<string>;
+  return { read: () => context.host.clipboard.readText() as Promise<string>, write: (text: string) => context.host.clipboard.writeText(text) };
 }
 
 beforeEach(() => {
@@ -62,18 +64,19 @@ beforeEach(() => {
 });
 
 describe('plugin clipboard reads', () => {
-  for (const [kind, read] of [['isolated', isolatedRead], ['developer', developerRead]] as const) {
+  for (const [kind, api] of [['isolated', isolated], ['developer', developer]] as const) {
     it(`gives ${kind} plugins the clipboard through the copied-secret check`, async () => {
-      expect(await read(new PluginManager())).toBe('clipboard text');
-      expect(mocks.clipboardTextForPlugin).toHaveBeenCalledTimes(1);
+      expect(await api(new PluginManager()).read()).toBe('clipboard text');
+      expect(mocks.clipboardTextForPlugin).toHaveBeenCalledExactlyOnceWith(undefined);
       expect(mocks.readText).not.toHaveBeenCalled();
       expect(mocks.notifications).toHaveLength(1);
     });
 
-    it(`refuses ${kind} plugins a freshly copied secret and does not say they read it`, async () => {
-      mocks.clipboardTextForPlugin.mockRejectedValue(new Error('The clipboard holds a password copied from GETSSH.'));
-      await expect(read(new PluginManager())).rejects.toThrow('password copied from GETSSH');
-      expect(mocks.notifications).toHaveLength(0);
+    it(`tells the check what a ${kind} plugin wrote itself`, async () => {
+      const plugin = api(new PluginManager());
+      await plugin.write('my own text');
+      await plugin.read();
+      expect(mocks.clipboardTextForPlugin).toHaveBeenLastCalledWith('my own text');
     });
   }
 });
