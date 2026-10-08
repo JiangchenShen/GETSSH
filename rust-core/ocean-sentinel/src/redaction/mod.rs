@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::{Node, Parser};
 
 lazy_static! {
@@ -124,6 +124,8 @@ pub fn sanitize(text: String) -> Result<SanitizeResult> {
 /// Neutral stand-in used wherever a placeholder is compared "before rehydration": bracketed
 /// placeholders have Bash syntax of their own (`[ ... ]`), a plain word does not.
 const NEUTRAL_WORD: &str = "GETSSH_REDACTED_VALUE";
+/// Bytes of text the group checks in rehydrate_text may parse in all.
+const GROUP_CHECK_PARSE_BUDGET: usize = 4 * 1024 * 1024;
 
 /// Commands (and `find` actions) that parse a string argument, piped input or stored text as code
 /// a second time. A value placed anywhere in such a command line keeps its first-order AST shape
@@ -217,24 +219,41 @@ fn rehydrate_text(text: &str, mapping: &HashMap<String, String>) -> String {
     let mut present: Vec<&str> = matches.iter().map(|&(start, end)| &text[start..end]).collect();
     present.sort_unstable();
     present.dedup();
+    let candidates: Vec<&str> = present
+        .into_iter()
+        .filter(|token| !second_order || survives_reparsing(&mapping[*token]))
+        .collect();
 
+    // A group of placeholders may be restored when restoring the group, with every other one a
+    // neutral word, keeps the baseline shape. All candidates are tried as one group first; a group
+    // that fails is split in two. A reply with hundreds of placeholders used to be parsed once per
+    // placeholder, on the main thread; now that takes a few parses, plus about two per placeholder
+    // that has to stay, times log2 of their number. The budget caps a reply full of those.
     let mut approved: Vec<&str> = Vec::new();
-    for token in present {
-        let value = &mapping[token];
-        if second_order && !survives_reparsing(value) {
+    let mut budget = GROUP_CHECK_PARSE_BUDGET;
+    let mut groups: Vec<&[&str]> = vec![&candidates];
+    while let Some(group) = groups.pop() {
+        if group.is_empty() || budget < baseline.len() {
             continue;
         }
-        let single = splice(&|t| if t == token { value.clone() } else { NEUTRAL_WORD.to_string() });
-        if bash_shape(&single).as_ref() == Some(&baseline_shape) {
-            approved.push(token);
+        budget -= baseline.len();
+        let members: HashSet<&str> = group.iter().copied().collect();
+        let trial = splice(&|t| if members.contains(t) { mapping[t].clone() } else { NEUTRAL_WORD.to_string() });
+        if bash_shape(&trial).as_ref() == Some(&baseline_shape) {
+            approved.extend_from_slice(group);
+        } else if group.len() > 1 {
+            let (first, second) = group.split_at(group.len() / 2);
+            groups.push(second);
+            groups.push(first);
         }
     }
     if approved.is_empty() {
         return text.to_string();
     }
 
-    let result = splice(&|t| if approved.contains(&t) { mapping[t].clone() } else { t.to_string() });
-    let combined_baseline = splice(&|t| if approved.contains(&t) { NEUTRAL_WORD.to_string() } else { t.to_string() });
+    let approved: HashSet<&str> = approved.into_iter().collect();
+    let result = splice(&|t| if approved.contains(t) { mapping[t].clone() } else { t.to_string() });
+    let combined_baseline = splice(&|t| if approved.contains(t) { NEUTRAL_WORD.to_string() } else { t.to_string() });
     match (bash_shape(&combined_baseline), bash_shape(&result)) {
         (Some(before), Some(after)) if before == after => result,
         _ => text.to_string(),
@@ -328,7 +347,14 @@ fn append_shape(node: Node<'_>, field: Option<&str>, shape: &mut Vec<String>) {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn parse_bash(text: &str) -> Option<tree_sitter::Tree> {
+    #[cfg(test)]
+    PARSES.with(|parses| parses.set(parses.get() + 1));
     let mut parser = Parser::new();
     parser.set_language(&tree_sitter_bash::LANGUAGE.into()).ok()?;
     parser.parse(text, None)
@@ -511,6 +537,57 @@ mod tests {
             rehydrate(text.to_string(), mapping).unwrap(),
             "curl -X POST https://10.0.0.5/api \\\n  -H \"Authorization: Bearer abc.def-123\" -d '[SECRET_1]'"
         );
+    }
+
+    fn parses() -> usize {
+        PARSES.with(|parses| parses.get())
+    }
+
+    fn many_hosts(n: usize) -> (String, HashMap<String, String>) {
+        let mut text = String::from("Hosts seen in the logs:\n");
+        let mut mapping = HashMap::new();
+        for i in 0..n {
+            text.push_str(&format!("ping -c 1 [IP_{i}]\n"));
+            mapping.insert(format!("[IP_{i}]"), format!("10.{}.{}.{}", i / 65536, (i / 256) % 256, i % 256));
+        }
+        (text, mapping)
+    }
+
+    #[test]
+    fn a_reply_with_hundreds_of_placeholders_takes_a_few_parses() {
+        let (text, mapping) = many_hosts(500);
+        let before = parses();
+        let out = rehydrate(text, mapping).unwrap();
+        assert!(parses() - before <= 5, "{} parses", parses() - before);
+        assert!(out.contains("ping -c 1 10.0.1.243\n") && !out.contains("[IP_"));
+    }
+
+    #[test]
+    fn one_placeholder_that_must_stay_costs_a_logarithmic_number_of_parses() {
+        let (mut text, mut mapping) = many_hosts(2000);
+        // No evaluator in the text: the value is checked by shape, not filtered out beforehand.
+        text.push_str("echo [SECRET_1]\n");
+        mapping.insert("[SECRET_1]".into(), "a; rm -rf ~".into());
+        let before = parses();
+        let out = rehydrate(text, mapping).unwrap();
+        assert!(parses() - before <= 40, "{} parses", parses() - before);
+        assert!(out.contains("echo [SECRET_1]") && out.contains("ping -c 1 10.0.7.207\n"));
+        assert_eq!(out.matches("[IP_").count(), 0);
+    }
+
+    #[test]
+    fn a_reply_full_of_placeholders_that_must_stay_is_cut_off_by_the_budget() {
+        let mut text = String::new();
+        let mut mapping = HashMap::new();
+        for i in 0..2000 {
+            text.push_str(&format!("echo [SECRET_{i}]\n"));
+            mapping.insert(format!("[SECRET_{i}]"), format!("a{i}; rm -rf ~"));
+        }
+        let before = parses();
+        let out = rehydrate(text.clone(), mapping).unwrap();
+        let budget_parses = GROUP_CHECK_PARSE_BUDGET / text.len() + 5;
+        assert!(parses() - before <= budget_parses, "{} parses, budget {}", parses() - before, budget_parses);
+        assert_eq!(out, text);
     }
 
     #[test]
