@@ -32,6 +32,19 @@ export function isSameSite(start: URL, next: URL): boolean {
   return next.origin === start.origin
     || (start.protocol === 'http:' && next.protocol === 'https:' && next.hostname === start.hostname);
 }
+
+/**
+ * Whether a redirect of the JSON-RPC POST is followed (with its body). 307 and 308 keep the method
+ * and body; 301 and 302 are followed only to the same URL on https. A 303, or a 301/302 elsewhere,
+ * would turn the POST into a GET without a body, which an MCP endpoint does not answer (resending
+ * the POST instead could run a tool call twice).
+ */
+export function followsRedirect(status: number, current: URL, next: URL): boolean {
+  if (status === 307 || status === 308) return true;
+  if (status !== 301 && status !== 302) return false;
+  return current.protocol === 'http:' && next.protocol === 'https:' && next.hostname === current.hostname
+    && next.pathname === current.pathname && next.search === current.search;
+}
 const MAX_STDERR_LOG_BYTES = 64 * 1024;
 const MAX_INBOUND_MESSAGES_PER_SECOND = 500;
 const MAX_INBOUND_BYTES_PER_SECOND = 32 * 1024 * 1024;
@@ -512,6 +525,9 @@ export class McpClient extends EventEmitter {
         const next = location ? new URL(location, url) : null;
         if (!next || !isSameSite(start, next)) {
           throw new Error(`MCP server redirected to ${next ? next.origin : 'nowhere'}; its headers are not sent to another site.`);
+        }
+        if (!followsRedirect(response.status, url, next)) {
+          throw new Error(`MCP server answered ${response.status}; only 307 and 308 redirects of a request are followed.`);
         }
         if (redirects >= MAX_HTTP_REDIRECTS) throw new Error('MCP server redirected too many times.');
         url = next;

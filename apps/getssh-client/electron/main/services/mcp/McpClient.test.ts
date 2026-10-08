@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => process.cwd() } }));
 vi.mock('../../security/WindowsProcessSandbox', () => ({ resolveWindowsSandboxLauncherPath: () => '' }));
 
-import { isSameSite, McpClient } from './McpClient';
+import { followsRedirect, isSameSite, McpClient } from './McpClient';
 
 const TOKEN = 'Bearer mcp-secret';
 const seen: Array<{ server: string; path: string; authorization?: string }> = [];
@@ -29,8 +29,8 @@ const answer = (res: http.ServerResponse, body: string) => {
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(body).id, result: { ok: true } }));
 };
-const redirect = (res: http.ServerResponse, location: string) => {
-  res.statusCode = 307;
+const redirect = (res: http.ServerResponse, location: string, status = 307) => {
+  res.statusCode = status;
   res.setHeader('Location', location);
   res.end();
 };
@@ -42,6 +42,7 @@ beforeAll(async () => {
   elsewhere = await listen('elsewhere', (_req, res, body) => answer(res, body));
   home = await listen('home', (req, res, body) => {
     if (req.url === '/mcp') redirect(res, '/mcp/');
+    else if (req.url === '/see-other') redirect(res, '/mcp/', 303);
     else if (req.url === '/away') redirect(res, `${elsewhere.base}/mcp`);
     else if (req.url === '/loop') redirect(res, '/loop');
     else answer(res, body);
@@ -74,6 +75,12 @@ describe('MCP HTTP redirects', () => {
     expect(seen.map(entry => entry.server)).toEqual(['home']);
   });
 
+  it('does not turn a request into another one on 303', async () => {
+    seen.length = 0;
+    await expect(request('/see-other')).rejects.toThrow(/303/);
+    expect(seen.map(entry => entry.path)).toEqual(['/see-other']);
+  });
+
   it('stops after five redirects', async () => {
     seen.length = 0;
     await expect(request('/loop')).rejects.toThrow(/too many times/);
@@ -92,5 +99,22 @@ describe('isSameSite', () => {
     expect(site('https://mcp.example.com/', 'https://mcp.example.com:8443/')).toBe(false);
     expect(site('https://mcp.example.com/', 'http://mcp.example.com/')).toBe(false);
     expect(site('http://mcp.example.com/', 'https://api.mcp.example.com/')).toBe(false);
+  });
+});
+
+describe('followsRedirect', () => {
+  const follows = (status: number, from: string, to: string) => followsRedirect(status, new URL(from), new URL(to));
+  it('follows 307 and 308, and 301/302 only to the same URL on https', () => {
+    expect(follows(307, 'https://m.example/mcp', 'https://m.example/mcp/')).toBe(true);
+    expect(follows(308, 'https://m.example/mcp', 'https://m.example/v2')).toBe(true);
+    expect(follows(301, 'http://m.example/mcp?x=1', 'https://m.example/mcp?x=1')).toBe(true);
+    expect(follows(302, 'http://m.example/mcp', 'https://m.example/mcp')).toBe(true);
+  });
+  it('refuses 303, other 3xx, and 301/302 to anything else', () => {
+    expect(follows(303, 'https://m.example/mcp', 'https://m.example/mcp')).toBe(false);
+    expect(follows(300, 'https://m.example/mcp', 'https://m.example/mcp')).toBe(false);
+    expect(follows(301, 'https://m.example/mcp', 'https://m.example/other')).toBe(false);
+    expect(follows(302, 'http://m.example/mcp', 'https://m.example/elsewhere')).toBe(false);
+    expect(follows(301, 'https://m.example/mcp', 'https://m.example/mcp')).toBe(false);
   });
 });
