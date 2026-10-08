@@ -226,7 +226,10 @@ fn rehydrate_text(text: &str, mapping: &HashMap<String, String>) -> String {
 
     // A group of placeholders may be restored when restoring the group, with every other one a
     // neutral word, keeps the baseline shape. All candidates are tried as one group first; a group
-    // that fails is split in two. A reply with hundreds of placeholders used to be parsed once per
+    // that fails is split in two. The criterion is the one each placeholder used to pass alone, now
+    // applied per group: a value that would change the shape on its own can be restored with its
+    // group (`\` and `;` side by side make the one word `\;`); what counts is the shape of the
+    // text that is shown, which the final check below compares as before. A reply with hundreds of placeholders used to be parsed once per
     // placeholder, on the main thread; now that takes a few parses, plus about two per placeholder
     // that has to stay, times log2 of their number. The budget caps a reply full of those.
     let mut approved: Vec<&str> = Vec::new();
@@ -588,6 +591,19 @@ mod tests {
         let budget_parses = GROUP_CHECK_PARSE_BUDGET / text.len() + 5;
         assert!(parses() - before <= budget_parses, "{} parses, budget {}", parses() - before, budget_parses);
         assert_eq!(out, text);
+    }
+
+    #[test]
+    fn values_are_judged_by_the_shape_they_make_together() {
+        // Alone, `;` would end the command; next to `\` it is the escaped word `\;`, as harmless as
+        // the neutral words. A one-by-one check refused both; the group check restores them.
+        let out = rehydrate("echo [A][B]".to_string(), map(&[("[A]", "\\"), ("[B]", ";")])).unwrap();
+        assert_eq!(out, "echo \\;");
+        assert_eq!(bash_shape(&out), bash_shape(&format!("echo {NEUTRAL_WORD}{NEUTRAL_WORD}")));
+        // With a space between them neither keeps the shape (`\ ` escapes the space, `;` ends the
+        // command), so neither is restored.
+        let out = rehydrate("echo [A] [B]".to_string(), map(&[("[A]", "\\"), ("[B]", ";")])).unwrap();
+        assert_eq!(out, "echo [A] [B]");
     }
 
     #[test]

@@ -4,5 +4,6 @@
 export declare class AuditStream {
   constructor(outputPath: string, headerJson: string)
   writeFrame(timestamp: number, data: Buffer): void
+  /** Blocks for at most 2 seconds; the file is finished either way once the writer catches up. */
   end(): void
 }

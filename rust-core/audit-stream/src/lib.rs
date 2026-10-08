@@ -10,7 +10,7 @@ use napi::bindgen_prelude::*;
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -19,8 +19,8 @@ use std::time::Duration;
 /// 32 KiB each (about 320 MiB) per session.
 const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_QUEUED_FRAMES: usize = 1024 * 10;
-/// end() waits at most this long for room in the queue, so a writer stuck on a hung disk cannot
-/// block the JS thread.
+/// How long end() blocks the JS thread at most, waiting for room in the queue when the writer is
+/// stuck on a slow or hung disk.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub enum AuditMessage {
@@ -46,15 +46,20 @@ struct Backlog {
   skipped: AtomicUsize,
 }
 
-/// The JS side of a recording: frames go into a bounded queue, never blocking for long.
+/// The JS side of a recording: frames go into a bounded queue, never blocking for long. close()
+/// drops the sender, so the writer finishes the file once it has caught up even if the close
+/// request itself did not fit.
 struct Producer {
-  tx: Sender<AuditMessage>,
+  tx: Mutex<Option<Sender<AuditMessage>>>,
   backlog: Arc<Backlog>,
   limit: usize,
 }
 
 impl Producer {
   fn push(&self, timestamp: f64, payload: &[u8]) {
+    let guard = self.tx.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    // After end(), output is no longer part of the recording.
+    let Some(tx) = guard.as_ref() else { return };
     let len = payload.len();
     if self.backlog.queued.fetch_add(len, Ordering::AcqRel) + len > self.limit {
       self.backlog.queued.fetch_sub(len, Ordering::AcqRel);
@@ -63,16 +68,21 @@ impl Producer {
     }
     let skipped_before = self.backlog.skipped.swap(0, Ordering::AcqRel);
     let message = AuditMessage::Data { timestamp, payload: payload.to_vec(), skipped_before };
-    if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) = self.tx.try_send(message) {
+    if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) = tx.try_send(message) {
       self.backlog.queued.fetch_sub(len, Ordering::AcqRel);
       self.backlog.skipped.fetch_add(len + skipped_before, Ordering::AcqRel);
     }
   }
 
   fn close(&self, timeout: Duration) {
+    let Some(tx) = self.tx.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() else {
+      return;
+    };
     let skipped_before = self.backlog.skipped.swap(0, Ordering::AcqRel);
-    if let Err(SendTimeoutError::Timeout(_)) = self.tx.send_timeout(AuditMessage::FlushAndClose { skipped_before }, timeout) {
-      eprintln!("[audit-stream] The recording writer did not take the close request; it finishes when the stream is dropped.");
+    if let Err(SendTimeoutError::Timeout(_)) = tx.send_timeout(AuditMessage::FlushAndClose { skipped_before }, timeout) {
+      // The writer marks these at the end instead.
+      self.backlog.skipped.fetch_add(skipped_before, Ordering::AcqRel);
+      eprintln!("[audit-stream] The recording writer is behind; it finishes the file once it catches up.");
     }
   }
 }
@@ -116,6 +126,11 @@ fn write_recording<W: Write>(rx: Receiver<AuditMessage>, backlog: &Backlog, out:
       }
     }
   }
+  // Left out after the last frame, when the close request itself did not fit in the queue.
+  let skipped = backlog.skipped.swap(0, Ordering::AcqRel);
+  if skipped > 0 {
+    buffer.extend_from_slice(gap_line(last_timestamp, skipped).as_bytes());
+  }
   if !buffer.is_empty() {
     let _ = out.write_all(&buffer);
   }
@@ -147,7 +162,7 @@ impl AuditStream {
       }
     });
 
-    Ok(Self { producer: Producer { tx, backlog, limit: MAX_QUEUED_BYTES } })
+    Ok(Self { producer: Producer { tx: Mutex::new(Some(tx)), backlog, limit: MAX_QUEUED_BYTES } })
   }
 
   #[napi]
@@ -156,6 +171,7 @@ impl AuditStream {
     self.producer.push(timestamp, data.as_ref());
   }
 
+  /// Blocks for at most 2 seconds; the file is finished either way once the writer catches up.
   #[napi]
   pub fn end(&self) {
     self.producer.close(CLOSE_TIMEOUT);
@@ -182,7 +198,7 @@ mod tests {
   fn producer(limit: usize, frames: usize) -> (Producer, Receiver<AuditMessage>, Arc<Backlog>) {
     let (tx, rx) = bounded(frames);
     let backlog = Arc::new(Backlog::default());
-    (Producer { tx, backlog: backlog.clone(), limit }, rx, backlog)
+    (Producer { tx: Mutex::new(Some(tx)), backlog: backlog.clone(), limit }, rx, backlog)
   }
 
   fn texts(rx: Receiver<AuditMessage>, backlog: &Backlog) -> Vec<String> {
@@ -231,7 +247,7 @@ mod tests {
     assert_eq!(backlog.queued.load(Ordering::Acquire), 2);
     assert_eq!(backlog.skipped.load(Ordering::Acquire), 3);
     drop(p);
-    assert_eq!(texts(rx, &backlog), ["in"]);
+    assert_eq!(texts(rx, &backlog), ["in", "\r\n[GETSSH: 3 bytes of output were not recorded]\r\n"]);
   }
 
   #[test]
@@ -242,6 +258,24 @@ mod tests {
     let started = Instant::now();
     p.close(Duration::from_millis(200));
     assert!(started.elapsed() < Duration::from_secs(2));
+  }
+
+  #[test]
+  fn a_close_that_did_not_fit_still_lets_the_writer_finish_and_mark_the_gap() {
+    // The writer is behind: one frame queued, the queue full, and more output left out.
+    let (p, rx, backlog) = producer(4, 1);
+    p.push(1.0, b"abcd");
+    p.push(2.0, b"efgh");
+    p.close(Duration::from_millis(10));
+    p.push(3.0, b"after end");
+    // The writer catches up later; it must end on its own (no close request, no sender left).
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let backlog_for_writer = backlog.clone();
+    thread::spawn(move || {
+      let _ = done_tx.send(texts(rx, &backlog_for_writer));
+    });
+    let written = done_rx.recv_timeout(Duration::from_secs(5)).expect("the writer finished");
+    assert_eq!(written, ["abcd", "\r\n[GETSSH: 4 bytes of output were not recorded]\r\n"]);
   }
 
   #[test]
