@@ -1,4 +1,5 @@
 import { app, shell, dialog } from 'electron';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
@@ -284,15 +285,23 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       }
     });
 
-    // Opening the same file again replaces its sync. The old watcher used to stay behind with its
-    // temp copy, and its upload closure kept the session alive after it closed.
-    const watchId = `${sessionId}_${remoteFilePath}`;
-    await connectionManager.stopSftpWatcher(watchId);
+    const dispose = () => { clearTimeout(timeoutId); pendingUpload = false; };
+    // The session may have closed while the file was downloading: its cleanup has run already, so
+    // a sync registered now would never be stopped.
+    if (connectionManager.sessions.get(sessionId) !== session) {
+      watcher.close();
+      dispose();
+      await fs.promises.rm(dirPath!, { recursive: true, force: true }).catch(() => {});
+      throw new Error('SFTP session closed');
+    }
+    // Each open keeps its own sync until the session ends: the file may still be open in an editor
+    // from the first time, with saves on their way.
+    const watchId = `${sessionId}_${remoteFilePath}_${crypto.randomUUID()}`;
     connectionManager.activeSftpWatchers[watchId] = {
       watcher,
       tempPath: dirPath!,
       // A debounced upload must not fire after the watcher is stopped and its temp dir removed.
-      dispose: () => { clearTimeout(timeoutId); pendingUpload = false; },
+      dispose,
     };
 
     return { success: true, watchId };

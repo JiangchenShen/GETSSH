@@ -1,4 +1,6 @@
 import http from 'node:http';
+import net from 'node:net';
+import * as ssh2 from 'ssh2';
 import type { AddressInfo, Socket } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -34,30 +36,48 @@ type Handler = (event: unknown, ...args: unknown[]) => Promise<any>;
 const handlers = new Map<string, Handler>();
 registerSshHandlers(
   { handle: (channel: string, run: Handler) => handlers.set(channel, run), on: () => {} } as any,
-  {} as any,
+  { getPath: () => '/nonexistent' } as any,
   () => null,
 );
-const SENDER = { senderFrame: { parent: null }, sender: { id: 1, isDestroyed: () => false } };
+const sender = Object.assign(new EventEmitter(), { id: 1, isDestroyed: () => false, send: vi.fn() });
+const SENDER = { senderFrame: { parent: null }, sender };
 
 let proxy: http.Server;
+let sshServer: ssh2.Server;
 let port = 0;
 const tunnels: Socket[] = [];
-let reply: 'never' | 'refuse' = 'never';
+let reply: 'never' | 'refuse' | 'banner' = 'never';
+let sshServerPort = 0;
 
 beforeAll(async () => {
   proxy = http.createServer();
   proxy.on('connect', (_req, socket: Socket) => {
     tunnels.push(socket);
     if (reply === 'refuse') socket.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
+    // A real SSH server behind the proxy, whose banner goes out in the same write as the 200.
+    if (reply === 'banner') {
+      const upstream = net.connect(sshServerPort, '127.0.0.1');
+      upstream.once('data', (banner: Buffer) => {
+        socket.write(Buffer.concat([Buffer.from('HTTP/1.1 200 Connection established\r\n\r\n'), banner]));
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      socket.on('close', () => upstream.destroy());
+    }
   });
   await new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve));
   port = (proxy.address() as AddressInfo).port;
+  const hostKey = ssh2.utils.generateKeyPairSync('ed25519').private;
+  sshServer = new ssh2.Server({ hostKeys: [hostKey] }, client => client.on('error', () => {}));
+  await new Promise<void>(resolve => sshServer.listen(0, '127.0.0.1', resolve));
+  sshServerPort = (sshServer.address() as AddressInfo).port;
 });
 
 afterEach(() => vi.useRealTimers());
 afterAll(() => {
   tunnels.forEach(socket => socket.destroy());
   proxy.close();
+  sshServer.close();
 });
 
 const connect = () => handlers.get('ssh-connect')!(SENDER, {
@@ -73,10 +93,20 @@ describe('SSH through an HTTP proxy', () => {
     await vi.waitFor(() => expect(tunnels.length).toBe(1));
     expect(connectionManager.sessions.size).toBe(1);
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(await result).toEqual({ success: false, error: 'Timed out while waiting for handshake' });
+    expect(await result).toEqual({ success: false, error: 'The proxy did not connect to the server within 20 s' });
     expect(connectionManager.sessions.size).toBe(0);
     await vi.waitFor(() => expect(tunnels[0].destroyed || tunnels[0].readableEnded).toBe(true));
   });
+
+  it('hands ssh2 the server banner that came in the same read as the proxy reply', async () => {
+    reply = 'banner';
+    sender.send.mockClear();
+    const result = connect();
+    // Key exchange can only finish if ssh2 got the banner: then the host key is offered to the window.
+    await vi.waitFor(() => expect(sender.send).toHaveBeenCalledWith('prompt-host-verification', expect.anything()), { timeout: 10_000 });
+    sender.emit('destroyed');
+    expect((await result).success).toBe(false);
+  }, 20_000);
 
   it('reports a proxy that refuses the CONNECT instead of using its reply as a tunnel', async () => {
     reply = 'refuse';

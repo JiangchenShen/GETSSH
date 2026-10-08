@@ -22,13 +22,31 @@ function connection() {
 }
 
 describe('telnet negotiation', () => {
-  it('answers each request once and stays quiet when the server repeats or acknowledges it', () => {
+  it('acknowledges each option once and stays quiet when the server repeats it', () => {
     const { sent, receive } = connection();
-    receive(IAC, DO, SGA, IAC, WILL, ECHO, IAC, DO, NAWS);
-    expect(sent).toEqual([[IAC, WILL, SGA], [IAC, DO, ECHO], [IAC, WONT, NAWS]]);
+    receive(IAC, DO, SGA, IAC, WILL, ECHO);
+    expect(sent).toEqual([[IAC, WILL, SGA], [IAC, DO, ECHO]]);
     // A server that acknowledges acknowledgements, a hundred times over.
-    for (let i = 0; i < 100; i++) receive(IAC, DO, SGA, IAC, WILL, ECHO, IAC, DO, NAWS, IAC, DONT, NAWS);
-    expect(sent).toHaveLength(3);
+    for (let i = 0; i < 100; i++) receive(IAC, DO, SGA, IAC, WILL, ECHO, IAC, DONT, NAWS, IAC, WONT, 0x22);
+    expect(sent).toHaveLength(2);
+  });
+
+  it('refuses an unsupported option each time it is asked, up to three times', () => {
+    const { sent, receive } = connection();
+    for (let i = 0; i < 100; i++) receive(IAC, DO, NAWS, IAC, WILL, 0x22);
+    expect(sent.filter(m => m[1] === WONT && m[2] === NAWS)).toHaveLength(3);
+    expect(sent.filter(m => m[1] === DONT && m[2] === 0x22)).toHaveLength(3);
+    expect(sent).toHaveLength(6);
+  });
+
+  it('answers TERMINAL-TYPE SEND with the terminal type', () => {
+    const { sent, receive } = connection();
+    receive(IAC, SB, TTYPE, 1, IAC, SE);
+    expect(sent).toEqual([]);
+    receive(IAC, DO, TTYPE);
+    receive(IAC, SB, TTYPE, 1, IAC, SE);
+    const isVt100 = [IAC, SB, TTYPE, 0, ...Buffer.from('vt100'), IAC, SE];
+    expect(sent).toEqual([[IAC, WILL, TTYPE], isVt100, isVt100]);
   });
 
   it('sends the terminal type once and follows changes of mind', () => {

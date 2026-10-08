@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-// Editing a remote file: opening the same file again replaces its sync instead of leaving the old
-// watcher, temp copy and session behind; closing the session stops every sync.
+// Editing a remote file: every open keeps its own sync until the session ends, and closing the
+// session stops all of them.
 
 const paths = vi.hoisted(() => {
   const root = `${(process.env.TMPDIR || '/tmp/').replace(/\/?$/, '/')}getssh-sftp-sync-${process.pid}`;
@@ -52,19 +52,27 @@ connectionManager.sessions.set('s1', { client: {} as any, stream: null, sftp: sf
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('SFTP edit sync', () => {
-  it('replaces the sync of a file opened again, and stops all of them with the session', async () => {
+  it('keeps every open file syncing until its session ends, then stops all of them', async () => {
     const first = await handlers.get('sftp-edit-sync')!({}, 's1', '/etc/app.conf');
     const firstDir = connectionManager.activeSftpWatchers[first.watchId].tempPath;
+    // Opened again while the first copy may still be in an editor with a save on its way.
     const second = await handlers.get('sftp-edit-sync')!({}, 's1', '/etc/app.conf');
-    expect(second.watchId).toBe(first.watchId);
-    expect(Object.keys(connectionManager.activeSftpWatchers)).toEqual([first.watchId]);
-    expect(fs.existsSync(firstDir)).toBe(false);
+    expect(second.watchId).not.toBe(first.watchId);
+    expect(Object.keys(connectionManager.activeSftpWatchers).sort()).toEqual([first.watchId, second.watchId].sort());
+    expect(fs.existsSync(path.join(firstDir, 'app.conf'))).toBe(true);
     const secondDir = connectionManager.activeSftpWatchers[second.watchId].tempPath;
     expect(fs.readFileSync(path.join(secondDir, 'app.conf'), 'utf8')).toBe('remote text');
 
-    await handlers.get('sftp-edit-sync')!({}, 's1', '/etc/other.conf');
-    expect(Object.keys(connectionManager.activeSftpWatchers)).toHaveLength(2);
     await connectionManager.removeSession('s1');
+    expect(connectionManager.activeSftpWatchers).toEqual({});
+    expect(fs.readdirSync(root).filter(name => name.startsWith('edit-'))).toEqual([]);
+  });
+
+  it('registers no sync for a session that closed during the download', async () => {
+    connectionManager.sessions.set('s2', { client: {} as any, stream: null, sftp: sftp as any });
+    const pending = handlers.get('sftp-edit-sync')!({}, 's2', '/etc/late.conf');
+    await connectionManager.removeSession('s2');
+    await expect(pending).rejects.toThrow('SFTP session closed');
     expect(connectionManager.activeSftpWatchers).toEqual({});
     expect(fs.readdirSync(root).filter(name => name.startsWith('edit-'))).toEqual([]);
   });

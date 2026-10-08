@@ -529,6 +529,8 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
         let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
         // The HTTP proxy's CONNECT request while it is pending: a timeout or failure aborts it.
         let proxyRequest: http.ClientRequest | null = null;
+        // What the handshake timer covers until sshClient.connect: reaching the server through a proxy.
+        let dialingProxy = false;
         const stopHandshakeTimer = () => {
           if (handshakeTimer) clearTimeout(handshakeTimer);
           handshakeTimer = null;
@@ -539,7 +541,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           handshakeTimer = setTimeout(() => {
             handshakeTimer = null;
             sshClient.destroy();
-            void failConnect('Timed out while waiting for handshake');
+            void failConnect(dialingProxy
+              ? `The proxy did not connect to the server within ${SSH_HANDSHAKE_TIMEOUT_MS / 1000} s`
+              : 'Timed out while waiting for handshake');
           }, SSH_HANDSHAKE_TIMEOUT_MS);
         };
         const failConnect = async (message: string) => {
@@ -644,6 +648,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                   type: 5 as any // Socks5
                 },
                 command: 'connect' as any,
+                timeout: SSH_HANDSHAKE_TIMEOUT_MS,
                 destination: {
                   host: connectConfig.host || '',
                   port: connectConfig.port || 22
@@ -660,7 +665,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                    path: `${connectConfig.host}:${connectConfig.port}`
                  });
                  proxyRequest = req;
-                 req.on('connect', (res: http.IncomingMessage, socket: any) => {
+                 req.on('connect', (res: http.IncomingMessage, socket: any, head: Buffer) => {
                    proxyRequest = null;
                    // Anything but 200 is the proxy refusing (407, 403, 502...), not a tunnel.
                    if (res.statusCode !== 200) {
@@ -668,6 +673,9 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
                      sockReject(new Error(`The HTTP proxy refused the connection (${res.statusCode} ${res.statusMessage || ''})`.trim()));
                      return;
                    }
+                   // Bytes that came with the proxy's reply (often the server's SSH banner) are not
+                   // replayed on the socket by Node: put them back for ssh2.
+                   if (head?.length) socket.unshift(head);
                    sockResolve(socket);
                  });
                  req.on('error', sockReject);
@@ -679,6 +687,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
 
         // The timer covers the proxy too: a proxy that accepts the connection and never answers
         // used to leave the connect pending forever, with its session entry.
+        dialingProxy = config.proxyType === 'socks5' || config.proxyType === 'http';
         startHandshakeTimer();
         establishConnection().then(() => {
           sshClient.on('ready', () => {
@@ -816,6 +825,7 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           try { connectConfig.sock?.destroy(); } catch (e) {}
           return;
         }
+        dialingProxy = false;
         startHandshakeTimer();
         sshClient.connect(connectConfig);
         }).catch((err: unknown) => {

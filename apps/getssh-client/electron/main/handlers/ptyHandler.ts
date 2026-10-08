@@ -214,10 +214,35 @@ export interface TelnetStreamState {
    */
   local: Map<number, boolean>;
   remote: Map<number, boolean>;
+  /** Refusals sent per option (ours, and the server's at 256 + option). */
+  refusals: Map<number, number>;
 }
 
 export function newTelnetStreamState(): TelnetStreamState {
-  return { pending: null, decoder: new StringDecoder('utf8'), local: new Map(), remote: new Map() };
+  return { pending: null, decoder: new StringDecoder('utf8'), local: new Map(), remote: new Map(), refusals: new Map() };
+}
+
+const MAX_TELNET_REFUSALS = 3;
+
+/**
+ * Refuses a request to enable an option we do not support. RFC 1143 answers every such request;
+ * after three for one option the server is asking in a loop, and it gets no more answers.
+ */
+function refuse(socket: net.Socket, state: TelnetStreamState, side: 'local' | 'remote', opt: number) {
+  state[side].set(opt, false);
+  const key = side === 'local' ? opt : 256 + opt;
+  const sent = state.refusals.get(key) ?? 0;
+  if (sent >= MAX_TELNET_REFUSALS) return;
+  state.refusals.set(key, sent + 1);
+  socket.write(Buffer.from([TELNET_IAC, side === 'local' ? TELNET_WONT : TELNET_DONT, opt]));
+}
+
+function sendTerminalType(socket: net.Socket) {
+  socket.write(Buffer.from([
+    TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
+    ...Buffer.from('vt100'),
+    TELNET_IAC, TELNET_SE
+  ]));
 }
 
 /**
@@ -276,24 +301,20 @@ export function processTelnetData(raw: Buffer, socket: net.Socket, state: Telnet
         if (cmd === TELNET_DO) {
           // Options on our side: terminal type and suppress-go-ahead, nothing else.
           if (opt === OPT_TERMINAL) {
-            // WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE
-            if (agree(socket, state.local, opt, true, TELNET_WILL)) {
-              socket.write(Buffer.from([
-                TELNET_IAC, TELNET_SB, OPT_TERMINAL, 0x00, // IS
-                ...Buffer.from('vt100'),
-                TELNET_IAC, TELNET_SE
-              ]));
-            }
+            // WILL TERMINAL-TYPE, then SB TERMINAL-TYPE IS vt100 SE right away (servers that wait
+            // for it get it again on SB SEND below)
+            if (agree(socket, state.local, opt, true, TELNET_WILL)) sendTerminalType(socket);
           } else if (opt === OPT_SGA) {
             agree(socket, state.local, opt, true, TELNET_WILL);
           } else {
-            agree(socket, state.local, opt, false, TELNET_WONT);
+            refuse(socket, state, 'local', opt);
           }
         } else if (cmd === TELNET_DONT) {
           disable(socket, state.local, opt, TELNET_WONT);
         } else if (cmd === TELNET_WILL) {
           // Options on the server's side: only echo.
-          agree(socket, state.remote, opt, opt === OPT_ECHO, opt === OPT_ECHO ? TELNET_DO : TELNET_DONT);
+          if (opt === OPT_ECHO) agree(socket, state.remote, opt, true, TELNET_DO);
+          else refuse(socket, state, 'remote', opt);
         } else {
           disable(socket, state.remote, opt, TELNET_DONT);
         }
@@ -304,7 +325,11 @@ export function processTelnetData(raw: Buffer, socket: net.Socket, state: Telnet
       let j = i + 2;
       while (j + 1 < buf.length && !(buf[j] === TELNET_IAC && buf[j + 1] === TELNET_SE)) j++;
       if (j + 1 >= buf.length) incomplete = true;
-      else i = j + 2;
+      else {
+        // TERMINAL-TYPE SEND: the server asks for the terminal type.
+        if (buf[i + 2] === OPT_TERMINAL && buf[i + 3] === 0x01 && state.local.get(OPT_TERMINAL) === true) sendTerminalType(socket);
+        i = j + 2;
+      }
     } else {
       // Two-byte commands (NOP, GA, ...)
       i += 2;

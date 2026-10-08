@@ -17,11 +17,11 @@ import { ExecuteTerminalTool } from './ExecuteTerminalTool';
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-async function run(packets: string[], intervalMs: number) {
+async function run(packets: string[], intervalMs: number, aiMaxTokens = 4000) {
   const chunks: string[] = [];
   const result = new ExecuteTerminalTool().execute(
     { command: 'journalctl --no-pager' },
-    { sessionId: 's1', mode: 'agent_full', aiMaxTokens: 4000, onChunk: (chunk: string) => chunks.push(chunk) } as any,
+    { sessionId: 's1', mode: 'agent_full', aiMaxTokens, onChunk: (chunk: string) => chunks.push(chunk) } as any,
   );
   for (const packet of packets) {
     (bridge.value as EventEmitter).emit('data:s1', packet);
@@ -50,5 +50,25 @@ describe('execute_terminal output', () => {
     const { chunks } = await run(Array.from({ length: 20 }, (_, i) => `line ${i}\n`), 2);
     const output = chunks.slice(chunks.findIndex(c => c.includes('[AGENT LIVE OUTPUT]')) + 1, -1);
     expect(output).toEqual([Array.from({ length: 20 }, (_, i) => `line ${i}\n`).join('')]);
+  });
+
+  it('keeps only the last 64 KB of what it waits for after a prompt', async () => {
+    // A prompt, a pause long enough for the first wait to settle, then 200 KB of follow-up output.
+    const chunks: string[] = [];
+    const result = new ExecuteTerminalTool().execute(
+      { command: 'sudo apt upgrade' },
+      { sessionId: 's1', mode: 'agent_full', aiMaxTokens: 1_000_000, onChunk: (chunk: string) => chunks.push(chunk) } as any,
+    );
+    (bridge.value as EventEmitter).emit('data:s1', '[sudo] password for root: ');
+    await vi.advanceTimersByTimeAsync(1000);
+    for (let i = 0; i < 50; i++) (bridge.value as EventEmitter).emit('data:s1', 'y'.repeat(4096));
+    await vi.advanceTimersByTimeAsync(70_000);
+    const { promptFeed } = await result;
+    expect(promptFeed!.length).toBeLessThan(2000 + 64 * 1024 + 300);
+  });
+
+  it('does not take a prompt that scrolled more than 64 KB away for one that waits', async () => {
+    const { chunks } = await run(['password: \n', ...Array.from({ length: 20 }, () => 'z'.repeat(4096))], 10);
+    expect(chunks.some(chunk => chunk.includes('服务器正在等待输入'))).toBe(false);
   });
 });
