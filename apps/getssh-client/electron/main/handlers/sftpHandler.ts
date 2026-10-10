@@ -5,6 +5,8 @@ import os from 'node:os';
 import { join } from 'node:path';
 import type { FileEntry } from 'ssh2';
 import { connectionManager } from '../services/ConnectionManager';
+import { listDirectoryBounded } from '../services/sftpListing';
+import { windowForSender } from '../windowRegistry';
 import { getRustCorePath } from '../utils/rustCorePath';
 
 interface ISftpDownloader {
@@ -79,6 +81,22 @@ function isSftpDisabledByWorkspace(): boolean {
   }
 }
 
+/**
+ * The window a dialog belongs to, brought back first if it is minimized or hidden. On macOS a
+ * message box without a visible parent runs as an app-modal alert that stops the main thread,
+ * and the watchdog then kills GETSSH after 65 s.
+ */
+function dialogParent(sender: Electron.WebContents): Electron.BrowserWindow | null {
+  const win = windowForSender(sender);
+  if (!win || win.isDestroyed()) return null;
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
+  return win;
+}
+
+const FILE_TYPE_MASK = 0o170000;
+const REGULAR_FILE = 0o100000;
+
 export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
     if (isSftpDisabledByWorkspace()) return Promise.resolve({ success: false, error: SFTP_DISABLED });
@@ -87,10 +105,11 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       if (!remotePath) return resolve({ success: false, error: 'Invalid path' });
       const session = connectionManager.sessions.get(sessionId);
       if (!session || !session.sftp) return resolve({ success: false, error: 'SFTP not available' });
-      session.sftp.readdir(remotePath, (err: Error | undefined, list: FileEntry[]) => {
-        if (err) return resolve({ success: false, error: err.message });
+      // At most 10,000 entries, 8 MB of names or 20 s: `truncated` says the folder holds more.
+      listDirectoryBounded(session.sftp, remotePath).then(({ entries: list, truncated }) => {
         resolve({ 
            success: true, 
+           truncated,
            list: list.map(item => {
              let itemType: 'd' | '-' | 'l' = '-';
              if (item.longname && item.longname.startsWith('d')) itemType = 'd';
@@ -108,7 +127,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
              };
            })
         });
-      });
+      }, (err: Error) => resolve({ success: false, error: err.message }));
     });
   });
 
@@ -319,7 +338,20 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
 
     const fileName = require('node:path').basename(remoteFilePath);
     if (!isPlainFileName(fileName)) return { success: false, error: 'Invalid remote file name' };
-    
+
+    // Size and type first. A device or a pipe (/dev/zero, a FIFO) lists as a 0-byte file and
+    // would stream forever: only regular files are downloaded. Some servers cannot stat (null).
+    const stats: { size: number; mode: number } | null = await new Promise((resolve) => {
+      session.sftp!.stat(remoteFilePath, (err: any, result: any) => {
+        resolve(err || !result ? null : { size: typeof result.size === 'number' ? result.size : -1, mode: typeof result.mode === 'number' ? result.mode : REGULAR_FILE });
+      });
+    });
+    if (stats && (stats.mode & FILE_TYPE_MASK) !== REGULAR_FILE) {
+      return { success: false, error: 'Only regular files can be downloaded' };
+    }
+    const fileSize = stats ? stats.size : -1;
+    const parent = () => dialogParent(event.sender);
+
     let targetFilePath = '';
     
     if (providedLocalDir) {
@@ -347,10 +379,12 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       
       targetFilePath = join(resolvedDir!, fileName);
     } else {
-      const result = await dialog.showSaveDialog({
+      const saveOptions: Electron.SaveDialogOptions = {
         defaultPath: require('electron').app.getPath('downloads') + '/' + fileName,
         properties: ['createDirectory', 'showOverwriteConfirmation']
-      });
+      };
+      const saveParent = parent();
+      const result = saveParent ? await dialog.showSaveDialog(saveParent, saveOptions) : await dialog.showSaveDialog(saveOptions);
 
       if (result.canceled || !result.filePath) {
         return { success: true, canceled: true };
@@ -359,18 +393,6 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
     }
 
     try {
-      // Get remote file size before downloading for user confirmation
-      const fileSize: number = await new Promise((resolve, reject) => {
-        session.sftp!.stat(remoteFilePath, (err: any, stats: any) => {
-          if (err) {
-            // If stat fails, allow download anyway (some SFTP servers don't support stat)
-            resolve(-1);
-          } else {
-            resolve(stats.size ?? -1);
-          }
-        });
-      });
-
       // Show confirmation dialog for large files (> 100 MB) or any file when size is known
       if (fileSize > 0) {
         const fileSizeFormatted = fileSize >= 1024 * 1024 * 1024
@@ -379,7 +401,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
           ? `${(fileSize / 1024 / 1024).toFixed(2)} MB`
           : `${(fileSize / 1024).toFixed(1)} KB`;
 
-        const { response } = await dialog.showMessageBox({
+        const confirmOptions: Electron.MessageBoxOptions = {
           type: 'question',
           buttons: ['下载', '取消'],
           defaultId: 0,
@@ -387,7 +409,9 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
           title: '确认下载',
           message: `即将下载文件`,
           detail: `文件名：${fileName}\n文件大小：${fileSizeFormatted}\n\n确定要下载此文件吗？`,
-        });
+        };
+        const confirmParent = parent();
+        const { response } = confirmParent ? await dialog.showMessageBox(confirmParent, confirmOptions) : await dialog.showMessageBox(confirmOptions);
 
         if (response === 1) {
           return { success: true, canceled: true };
@@ -397,8 +421,13 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       // Track B: Download Mode (max_size = 0, with target_local_path) — no size limit
       const downloader = SftpDownloader.create(0, targetFilePath);
       
+      // With a known size, read that many bytes and no more: a server that keeps sending would
+      // otherwise fill the disk. An empty file needs no read at all.
       await new Promise<void>((resolve, reject) => {
-        const readStream = session.sftp!.createReadStream(remoteFilePath);
+        if (fileSize === 0) return resolve();
+        const readStream = fileSize > 0
+          ? session.sftp!.createReadStream(remoteFilePath, { start: 0, end: fileSize - 1 })
+          : session.sftp!.createReadStream(remoteFilePath);
         readStream.on('data', (chunk: Buffer) => {
           try {
             downloader.append(chunk);
