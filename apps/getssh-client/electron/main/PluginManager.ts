@@ -51,20 +51,19 @@ const MAX_RENDERER_BUNDLE_BYTES = 8 * 1024 * 1024;
 const pluginsWithDialog = new Set<string>();
 
 /**
- * Shows a dialog a plugin asked for, over the focused window or else the main window, which is
- * brought back first when it is minimized or hidden. On macOS a dialog for a window that is not
- * visible runs app-modal and stops the main thread, and the watchdog then kills GETSSH after 65 s.
+ * Shows a dialog a plugin asked for, over a visible window (the focused one, else the main one).
+ * On macOS a dialog for a window that is not visible runs app-modal and stops the main thread,
+ * and the watchdog then kills GETSSH after 65 s. A plugin may not bring a hidden or minimized
+ * GETSSH to the front either, so while no window is visible the call is refused.
  */
-async function showPluginDialog<T>(pluginKey: string, show: (parent: BrowserWindow | null) => Promise<T>): Promise<T> {
+async function showPluginDialog<T>(pluginKey: string, show: (parent: BrowserWindow) => Promise<T>): Promise<T> {
   if (pluginsWithDialog.has(pluginKey)) throw new Error('This plugin already has a dialog open.');
+  const visible = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed() && window.isVisible() && !window.isMinimized());
+  const main = getMainWindow();
+  const parent = visible.find(window => window.isFocused()) ?? (main && visible.includes(main) ? main : visible[0]);
+  if (!parent) throw new Error('GETSSH is hidden or minimized: the plugin cannot show a dialog now.');
   pluginsWithDialog.add(pluginKey);
   try {
-    const windows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
-    const parent = windows.find(window => window.isFocused()) ?? getMainWindow() ?? windows[0] ?? null;
-    if (parent) {
-      if (parent.isMinimized()) parent.restore();
-      if (!parent.isVisible()) parent.show();
-    }
     return await show(parent);
   } finally {
     pluginsWithDialog.delete(pluginKey);
@@ -78,6 +77,8 @@ export class PluginManager {
   /** What each plugin last wrote to the clipboard: reading it back tells the plugin nothing new. */
   private clipboardWrites = new Map<string, string>();
   private uiRpcUsage = new Map<string, { inFlight: number; windowStart: number; calls: number }>();
+  /** An ssh.write approval on screen, per plugin: calls made meanwhile wait for its answer. */
+  private pendingSshApprovals = new Map<string, Promise<number>>();
   private runningPlugins: Map<string, RunningPlugin> = new Map();
 
   private uiExtensions: {
@@ -185,26 +186,14 @@ export class PluginManager {
 
       if (caps.includes('ssh:write')) {
         sshContext.write = async (sessionId: string, command: string) => {
-          if (!this.approvedSshWriters.has(manifest.name)) {
-            const options = {
-              type: 'warning' as const,
-              buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '总是允许 (Always Allow)'],
-              defaultId: 0,
-              title: '高危权限请求 (High-Risk Permission Request)',
-              message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
-              detail: `执行内容 (Command snippet): ${command.substring(0, 50)}...`
-            };
-
-            const choice = await showPluginDialog(`dev:${manifest.name}`, parent =>
-              parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
-
-            if (choice.response === 0) {
-              throw new Error(`Permission denied for ssh:write by user`);
-            }
-            if (choice.response === 2) {
-              this.approvedSshWriters.add(manifest.name);
-            }
-          }
+          await this.approveSshWrite(manifest.name, `dev:${manifest.name}`, {
+            type: 'warning' as const,
+            buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '总是允许 (Always Allow)'],
+            defaultId: 0,
+            title: '高危权限请求 (High-Risk Permission Request)',
+            message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
+            detail: `执行内容 (Command snippet): ${command.substring(0, 50)}...`
+          });
           sshBridge.writeCommand(sessionId, command);
         };
       } else {
@@ -293,20 +282,17 @@ export class PluginManager {
 
       showMessageBox: async (options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showMessageBox() called - type: ${options.type || 'info'}, message: "${options.message}"`);
-        return showPluginDialog(`dev:${manifest.name}`, parent =>
-          parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
+        return showPluginDialog(`dev:${manifest.name}`, parent => dialog.showMessageBox(parent, options));
       },
 
       showOpenDialog: async (options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showOpenDialog() called - title: "${options.title || '(no title)'}"`);
-        return showPluginDialog(`dev:${manifest.name}`, parent =>
-          parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options));
+        return showPluginDialog(`dev:${manifest.name}`, parent => dialog.showOpenDialog(parent, options));
       },
 
       showSaveDialog: async (options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showSaveDialog() called - title: "${options.title || '(no title)'}"`);
-        return showPluginDialog(`dev:${manifest.name}`, parent =>
-          parent ? dialog.showSaveDialog(parent, options) : dialog.showSaveDialog(options));
+        return showPluginDialog(`dev:${manifest.name}`, parent => dialog.showSaveDialog(parent, options));
       }
     });
 
@@ -501,20 +487,14 @@ export class PluginManager {
         this.requireCapability(manifest, 'ssh:write');
         const sessionId = this.stringArg(args, 0, 'SSH session ID', 256);
         const command = this.stringArg(args, 1, 'SSH command', MAX_AUDITED_COMMAND);
-        if (!this.approvedSshWriters.has(pluginId)) {
-          const options = {
-            type: 'warning' as const,
-            buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '本次运行始终允许 (Allow This Run)'],
-            defaultId: 0,
-            title: '高危权限请求 (High-Risk Permission Request)',
-            message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
-            detail: `执行内容 (Command snippet): ${command.substring(0, 200)}`
-          };
-          const choice = await showPluginDialog(pluginId, parent =>
-            parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
-          if (choice.response === 0) throw new Error('Permission denied for ssh:write by user.');
-          if (choice.response === 2) this.approvedSshWriters.add(pluginId);
-        }
+        await this.approveSshWrite(pluginId, pluginId, {
+          type: 'warning' as const,
+          buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '本次运行始终允许 (Allow This Run)'],
+          defaultId: 0,
+          title: '高危权限请求 (High-Risk Permission Request)',
+          message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
+          detail: `执行内容 (Command snippet): ${command.substring(0, 200)}`
+        });
         sshBridge.writeCommand(sessionId, command);
         return null;
       }
@@ -546,18 +526,15 @@ export class PluginManager {
       }
       case 'host.showMessageBox': {
         const options = this.objectArg(args, 0, 'Message-box options') as Electron.MessageBoxOptions;
-        return showPluginDialog(pluginId, parent =>
-          parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
+        return showPluginDialog(pluginId, parent => dialog.showMessageBox(parent, options));
       }
       case 'host.showOpenDialog': {
         const options = this.objectArg(args, 0, 'Open-dialog options') as Electron.OpenDialogOptions;
-        return showPluginDialog(pluginId, parent =>
-          parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options));
+        return showPluginDialog(pluginId, parent => dialog.showOpenDialog(parent, options));
       }
       case 'host.showSaveDialog': {
         const options = this.objectArg(args, 0, 'Save-dialog options') as Electron.SaveDialogOptions;
-        return showPluginDialog(pluginId, parent =>
-          parent ? dialog.showSaveDialog(parent, options) : dialog.showSaveDialog(options));
+        return showPluginDialog(pluginId, parent => dialog.showSaveDialog(parent, options));
       }
       case 'net.fetch': {
         this.requireCapability(manifest, 'net:fetch');
@@ -719,19 +696,56 @@ export class PluginManager {
       listeners: [],
       rpcHandlers: new Map()
     };
+    // As for isolated plugins: one running copy, and a start only ever cleans up after itself.
+    const previous = this.runningPlugins.get(pluginId);
+    if (previous) {
+      try { await previous.deactivate?.(); } catch (error) { console.warn(`[Plugin Kernel] Deactivating the previous '${pluginId}' failed:`, error); }
+      if (this.runningPlugins.get(pluginId) === previous) this.cleanupPluginState(pluginId, true);
+    }
     this.runningPlugins.set(pluginId, state);
     this.settingsSchemas.delete(pluginId);
     try {
       const context = this.createMainContext(manifest);
       await pluginModule.activate(context);
+      if (this.runningPlugins.get(pluginId) !== state) {
+        // A newer start replaced this one while it was activating.
+        try { await pluginModule.deactivate(); } catch {}
+        return;
+      }
       if (!this.settingsSchemas.has(pluginId)) {
         throw new Error(`Plugin '${pluginId}' must call context.ui.registerSettings() during activation.`);
       }
       state.rpcHandlers = (context as any).__pendingRpcHandlers || new Map();
       console.warn(`[Plugin Kernel] Developer plugin '${pluginId}' is running inside the main process.`);
     } catch (error) {
-      this.cleanupPluginState(pluginId, false);
+      if (this.runningPlugins.get(pluginId) === state) this.cleanupPluginState(pluginId, false);
       throw error;
+    }
+  }
+
+  /**
+   * Asks the user before a plugin's first terminal write. Writes made while the question is on
+   * screen wait for the answer instead of failing: Deny refuses them all, "always" allows them,
+   * and after "once" each asks again in turn.
+   */
+  private async approveSshWrite(approvalKey: string, dialogKey: string, options: Electron.MessageBoxOptions): Promise<void> {
+    while (!this.approvedSshWriters.has(approvalKey)) {
+      const pending = this.pendingSshApprovals.get(approvalKey);
+      if (pending) {
+        if ((await pending) === 0) throw new Error('Permission denied for ssh:write by user.');
+        continue;
+      }
+      const asked = showPluginDialog(dialogKey, parent => dialog.showMessageBox(parent, options)).then(choice => choice.response);
+      this.pendingSshApprovals.set(approvalKey, asked);
+      let response: number;
+      try {
+        response = await asked;
+      } finally {
+        this.pendingSshApprovals.delete(approvalKey);
+      }
+      if (response === 0) throw new Error('Permission denied for ssh:write by user.');
+      if (response === 2) this.approvedSshWriters.add(approvalKey);
+      return;
     }
   }
 

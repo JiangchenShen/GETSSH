@@ -11,6 +11,51 @@ import { OceanSentinel } from '../services/OceanSentinel';
 /** Longest command a plugin or the agent may send to a terminal in one write. */
 export const MAX_AUDITED_COMMAND = 64 * 1024;
 
+/**
+ * `rm -r … f /`, `rm -r … f /*`, `dd if=… of=/dev/sda|hda|nvme`, mkfs and the bash fork bomb,
+ * with exactly the meaning the old `.*` patterns had, in linear time. `.*` stays on one line,
+ * so on each line only the first `rm -r` (or `dd if=`) needs checking: the rest of the line
+ * after it contains the rest after any later one. The whitespace in `rm\s+-r` and `f\s+/` may
+ * still cross line breaks, as before.
+ */
+const LINE_BREAK = /[\n\r\u2028\u2029]/g;
+const RM_RECURSIVE = /\brm\s+-r/g;
+const RM_ROOT = /f\s+\/\*?(?!\S)/y;
+const DD_INPUT = /\bdd\s+if=/g;
+const DD_DISK = /of=\/dev\/(sda|hda|nvme)\b/;
+
+function lineEndAfter(text: string, index: number): number {
+  LINE_BREAK.lastIndex = index;
+  const found = LINE_BREAK.exec(text);
+  return found ? found.index : text.length;
+}
+
+export function isDangerousCommand(command: string): boolean {
+  if (/\bmkfs(\.[a-z0-9]+)?\b/.test(command) || /:\(\)\{:\|:&\};:/.test(command)) return true;
+  let checkedLine = -1;
+  RM_RECURSIVE.lastIndex = 0;
+  for (let match = RM_RECURSIVE.exec(command); match; match = RM_RECURSIVE.exec(command)) {
+    const from = match.index + match[0].length;
+    const lineEnd = lineEndAfter(command, from);
+    if (lineEnd === checkedLine) continue;
+    checkedLine = lineEnd;
+    for (let f = command.indexOf('f', from); f !== -1 && f < lineEnd; f = command.indexOf('f', f + 1)) {
+      RM_ROOT.lastIndex = f;
+      if (RM_ROOT.test(command)) return true;
+    }
+  }
+  checkedLine = -1;
+  DD_INPUT.lastIndex = 0;
+  for (let match = DD_INPUT.exec(command); match; match = DD_INPUT.exec(command)) {
+    const from = match.index + match[0].length;
+    const lineEnd = lineEndAfter(command, from);
+    if (lineEnd === checkedLine) continue;
+    checkedLine = lineEnd;
+    if (DD_DISK.test(command.slice(from, lineEnd))) return true;
+  }
+  return false;
+}
+
 export class SecureCenter {
   private static instance: SecureCenter;
   private monitorInterval: NodeJS.Timeout | null = null;
@@ -20,6 +65,7 @@ export class SecureCenter {
   private sentinelProcess: child_process.ChildProcess | null = null;
   private lockdownMode: boolean = false;
   private pluginTeardownFn: (() => void) | null = null;
+  private shutdownTeardownFn: (() => void) | null = null;
   private sentinelDisabled: boolean = false;
   private sentinelLifecycle: 'starting' | 'running' | 'unavailable' = 'starting';
   // Time of the last completed PING write; this one-way protocol has no daemon acknowledgement.
@@ -36,6 +82,11 @@ export class SecureCenter {
     return SecureCenter.instance;
   }
 
+  /** Runs on quit and before a safe-mode restart only (not when one plugin is deactivated). */
+  public setShutdownTeardown(fn: () => void) {
+    this.shutdownTeardownFn = fn;
+  }
+
   public setPluginTeardown(fn: () => void) {
     this.pluginTeardownFn = fn;
   }
@@ -46,32 +97,23 @@ export class SecureCenter {
       try { this.socket.write('ACTION:QUIT\n'); } catch (e) {}
     }
     try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown error:', e); }
+    try { this.shutdownTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Shutdown teardown error:', e); }
   }
 
   /**
    * Checks a command a plugin or the agent sends to a terminal. Runs on the main thread, so it
-   * must stay fast whatever the input: commands over 64 KiB are refused outright, and the
-   * patterns look at most 512 characters ahead (an unbounded `.*` after each `rm -r` made a
-   * 1 MiB line take minutes, long enough for the watchdog to kill GETSSH).
+   * must stay fast whatever the input: commands over 64 KiB are refused outright, and every
+   * check is linear. (`rm -r.*f /` tried each `rm -r` against the rest of the line, so a 1 MiB
+   * line took minutes, long enough for the watchdog to kill GETSSH.)
    */
   public auditPluginCommand(command: string): boolean {
     if (command.length > MAX_AUDITED_COMMAND) {
       console.warn(`[SecureCenter] Refused a terminal command of ${command.length} characters (limit ${MAX_AUDITED_COMMAND}).`);
       return false;
     }
-    const dangerousPatterns = [
-      /\brm\s+-r[^\n]{0,512}?f\s+\/(?!\S)/,   // rm -rf /
-      /\brm\s+-r[^\n]{0,512}?f\s+\/\*(?!\S)/, // rm -rf /*
-      /\bmkfs(\.[a-z0-9]+)?\b/, // mkfs
-      /:\(\)\{:\|:&\};:/,      // fork bomb
-      /\bdd\s+if=[^\n]{0,512}?of=\/dev\/(sda|hda|nvme)\b/ // dd overwriting disks
-    ];
-    
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(command)) {
-        this.triggerLockdown(`Plugin attempted to execute high-risk command: ${command.substring(0, 50)}`, 'yellow');
-        return false;
-      }
+    if (isDangerousCommand(command)) {
+      this.triggerLockdown(`Plugin attempted to execute high-risk command: ${command.substring(0, 50)}`, 'yellow');
+      return false;
     }
     return true;
   }
@@ -335,6 +377,7 @@ export class SecureCenter {
         getBackendConfig().pluginSecurityMode = 'safe';
         // Gracefully deactivate all plugins before RASP kills the process
         try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown on restart-safe:', e); }
+        try { this.shutdownTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Shutdown teardown on restart-safe:', e); }
         // Tell ocean-sentinel we resolved it so it doesn't kill us while restarting
         tellSentinel('ACTION:RESTART-SAFE\n');
         setTimeout(() => {

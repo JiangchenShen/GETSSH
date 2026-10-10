@@ -35,6 +35,8 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
   const [files, setFiles] = useState<SFTPFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The main process lists at most 10,000 entries (or what arrived within 20 s).
+  const [truncated, setTruncated] = useState(false);
   const [promptData, setPromptData] = useState<{ type: 'file' | 'folder', resolve: (name: string | null) => void } | null>(null);
   const [promptInputValue, setPromptInputValue] = useState('');
   const [isEditingPath, setIsEditingPath] = useState(false);
@@ -72,6 +74,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
         return;
       }
 
+      setTruncated(!!res.truncated);
       setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
          if (a.type === 'd' && b.type !== 'd') return -1;
          if (a.type !== 'd' && b.type === 'd') return 1;
@@ -283,6 +286,8 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
         ) : error ? (
            <div className="p-4 text-red-500 text-sm">{error}</div>
         ) : (
+           <>
+           {truncated && <div className="px-3 py-1.5 text-xs text-amber-500">{t('sftp.truncated', '这个文件夹的内容没有全部列出：最多显示 10,000 项。')}</div>}
            <table className="w-full text-sm text-left">
              <thead className={`text-xs uppercase sticky top-0 z-20 shadow-sm border-b-[1.5px] border-t-0 border-l-0 border-r-0 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
                <tr>
@@ -337,6 +342,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
                ))}
              </tbody>
            </table>
+           </>
         )}
       </div>
     </div>

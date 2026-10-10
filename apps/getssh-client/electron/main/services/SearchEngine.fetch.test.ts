@@ -79,9 +79,9 @@ describe('processSseStream', () => {
     expect(events).toEqual(['message:{"a":1}', 'done:x']);
   });
 
-  it('refuses a line longer than 1 MB that never ends', async () => {
-    const piece = 'y'.repeat(64 * 1024);
+  it('refuses a line longer than 32 MB that never ends', async () => {
+    const piece = 'y'.repeat(1024 * 1024);
     const parts = ['data: ', ...Array.from({ length: Math.ceil(MAX_SSE_LINE / piece.length) + 2 }, () => piece)];
-    await expect(new SseProbe().read(streamOf(parts), () => {})).rejects.toThrow(/1 MB/);
+    await expect(new SseProbe().read(streamOf(parts), () => {})).rejects.toThrow(/32 MB/);
   });
 });

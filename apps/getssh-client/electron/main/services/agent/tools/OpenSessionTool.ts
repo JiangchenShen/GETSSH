@@ -28,12 +28,12 @@ export class OpenSessionTool implements AgentTool {
         ...payload
       });
       if (dispatched === false) {
-        onChunk(`\n❌ **[AGENT]** 本轮已打开的会话数达到上限，没有再打开 ${target}。\n`);
+        onChunk(`\n❌ **[AGENT]** 最近 10 分钟内由代理打开的会话已达上限，没有打开 ${target}。\n`);
         return {
           success: false,
           shouldContinue: true,
-          error: 'Too many sessions opened in this run',
-          promptFeed: `[System]: open_session was refused: this run has already opened the maximum number of sessions. Do not call open_session again; tell the user which sessions are open and what is left to do.`,
+          error: 'Too many sessions opened by the agent recently',
+          promptFeed: `[System]: open_session was refused: the agent has opened the maximum number of sessions for the last 10 minutes. Do not call open_session again; tell the user which sessions are open and what is left to do.`,
         };
       }
     } else {

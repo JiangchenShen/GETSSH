@@ -1,4 +1,4 @@
-import { BaseAdapter } from './BaseAdapter';
+import { BaseAdapter, MAX_SSE_LINE } from './BaseAdapter';
 import { LlmRequest, LlmResponse, StreamCallbacks, Block, UnifiedTool, NormalizedUsage, StopReason, LlmError } from './types';
 import { ConcurrencyManager } from './ConcurrencyManager';
 import { ModelCaps } from './ModelCapabilities';
@@ -73,10 +73,17 @@ export class QwenAdapter extends BaseAdapter {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
+        // As in BaseAdapter.processSseStream: split only when a line break arrives, and refuse a
+        // line that never ends.
+        const text = decoder.decode(value, { stream: true });
+        buffer += text;
+        if (!text.includes('\n')) {
+          if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 32 MB');
+          continue;
+        }
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
+        if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 32 MB');
 
         for (const rawLine of lines) {
           const line = rawLine.replace(/\r$/, '');
@@ -97,6 +104,7 @@ export class QwenAdapter extends BaseAdapter {
         }
       }
     } finally {
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
   }

@@ -20,6 +20,11 @@ function clip(text: string): string {
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}…` : text;
 }
 
+/** Links too: only http(s) strings of a sane length; anything else drops the result. */
+function cleanUrl(value: unknown): string | null {
+  return typeof value === 'string' && value.length <= 2048 && /^https?:\/\//i.test(value) ? value : null;
+}
+
 /**
  * Fetches a search page with one deadline for headers and body together, and at most 2 MB of
  * body. A server (a random public SearXNG instance, by default) that sends the headers and then
@@ -121,10 +126,10 @@ export class SearchEngine {
     const data = JSON.parse(res.text);
     if (data.items && data.items.length > 0) {
       return data.items.slice(0, 10).map((r: any) => ({
-        title: clip(r.title || 'Untitled'),
-        url: r.link,
-        snippet: clip(r.snippet || '')
-      }));
+        title: clip(String(r.title || 'Untitled')),
+        url: cleanUrl(r.link),
+        snippet: clip(String(r.snippet || ''))
+      })).filter((r: SearchResult) => r.url);
     }
     return [];
   }
@@ -211,10 +216,10 @@ export class SearchEngine {
         const data = JSON.parse(res.text);
         if (data && data.results && data.results.length > 0) {
           return data.results.slice(0, 10).map((r: any) => ({
-            title: clip(r.title || 'Untitled'),
-            url: r.url,
-            snippet: clip(r.content || '')
-          }));
+            title: clip(String(r.title || 'Untitled')),
+            url: cleanUrl(r.url),
+            snippet: clip(String(r.content || ''))
+          })).filter((r: SearchResult) => r.url);
         }
       } catch (err: any) {
         console.warn(`[SearchEngine] SearXNG instance ${instanceUrl} failed: ${err.message}`);
@@ -259,7 +264,7 @@ export class SearchEngine {
       
       const snippet = clip(match[2].replace(/<[^>]+>/g, '').trim());
       
-      if (url && snippet) {
+      if (cleanUrl(url) && snippet) {
         results.push({
           title: url.split('/')[2] || 'DuckDuckGo Result',
           url,
@@ -300,7 +305,7 @@ export class SearchEngine {
       const titleMatch = block.match(/<h2><a[^>]*>(.*?)<\/a>/);
       const snippetMatch = block.match(/<p[^>]*>(.*?)<\/p>/) || block.match(/<div class="b_caption">.*?<p[^>]*>(.*?)<\/p>/);
       
-      if (urlMatch && titleMatch && snippetMatch) {
+      if (urlMatch && cleanUrl(urlMatch[1]) && titleMatch && snippetMatch) {
         results.push({
           title: clip(titleMatch[1].replace(/<[^>]+>/g, '').trim()),
           url: urlMatch[1],

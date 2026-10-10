@@ -96,6 +96,11 @@ function dialogParent(sender: Electron.WebContents): Electron.BrowserWindow | nu
 
 const FILE_TYPE_MASK = 0o170000;
 const REGULAR_FILE = 0o100000;
+const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
+/** A file that stats as 0 bytes (/proc files) is read up to this much. */
+const MAX_ZERO_SIZE_DOWNLOAD = 16 * 1024 * 1024;
+/** When the server cannot stat, a download stops here. */
+const MAX_UNKNOWN_SIZE_DOWNLOAD = 2 * 1024 * 1024 * 1024;
 
 export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
   ipcMain.handle('sftp-list', (event, sessionId: string, remotePath: string) => {
@@ -179,17 +184,31 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
          const fileSize = stats?.size ?? -1;
          
          // [C-06] Security Fix: Enforce 10MB limit for direct memory reads to prevent V8 OOM crashes
-         if (fileSize > 10 * 1024 * 1024) {
+         if (fileSize > MAX_PREVIEW_BYTES) {
              return resolve({ 
                  success: false, 
                  error: '文件过大(>10MB)。为防止内存溢出，请直接下载或双击使用本地编辑器同步修改，不要直接在应用内预览。' 
              });
          }
          
-         session.sftp!.readFile(remotePath, 'utf8', (err: any, data: any) => {
-            if (err) return resolve({ success: false, error: err.message });
-            resolve({ success: true, data });
+         // A device or pipe stats as 0 bytes and never ends: refuse known non-regular types, and
+         // stop at 10 MB whatever the stat said.
+         const type = typeof stats?.mode === 'number' ? stats.mode & FILE_TYPE_MASK : 0;
+         if (type !== 0 && type !== REGULAR_FILE) return resolve({ success: false, error: 'Only regular files can be read' });
+         const chunks: Buffer[] = [];
+         let received = 0;
+         const stream = session.sftp!.createReadStream(remotePath);
+         stream.on('data', (chunk: Buffer) => {
+            received += chunk.length;
+            if (received > MAX_PREVIEW_BYTES) {
+               stream.destroy();
+               resolve({ success: false, error: '文件过大(>10MB)。为防止内存溢出，请直接下载或双击使用本地编辑器同步修改，不要直接在应用内预览。' });
+               return;
+            }
+            chunks.push(chunk);
          });
+         stream.on('end', () => resolve({ success: true, data: Buffer.concat(chunks).toString('utf8') }));
+         stream.on('error', (err: any) => resolve({ success: false, error: err.message }));
       });
     });
   });
@@ -346,7 +365,9 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
         resolve(err || !result ? null : { size: typeof result.size === 'number' ? result.size : -1, mode: typeof result.mode === 'number' ? result.mode : REGULAR_FILE });
       });
     });
-    if (stats && (stats.mode & FILE_TYPE_MASK) !== REGULAR_FILE) {
+    // Some servers send permissions without the type bits (0): those count as unknown.
+    const fileType = stats ? stats.mode & FILE_TYPE_MASK : 0;
+    if (fileType !== 0 && fileType !== REGULAR_FILE) {
       return { success: false, error: 'Only regular files can be downloaded' };
     }
     const fileSize = stats ? stats.size : -1;
@@ -422,13 +443,20 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       const downloader = SftpDownloader.create(0, targetFilePath);
       
       // With a known size, read that many bytes and no more: a server that keeps sending would
-      // otherwise fill the disk. An empty file needs no read at all.
+      // otherwise fill the disk. A 0-byte stat (/proc files) or none at all still gets a ceiling.
       await new Promise<void>((resolve, reject) => {
-        if (fileSize === 0) return resolve();
+        const ceiling = fileSize > 0 ? fileSize : fileSize === 0 ? MAX_ZERO_SIZE_DOWNLOAD : MAX_UNKNOWN_SIZE_DOWNLOAD;
+        let received = 0;
         const readStream = fileSize > 0
           ? session.sftp!.createReadStream(remoteFilePath, { start: 0, end: fileSize - 1 })
           : session.sftp!.createReadStream(remoteFilePath);
         readStream.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > ceiling) {
+            readStream.destroy();
+            reject(new Error('The file is larger than the server reported'));
+            return;
+          }
           try {
             downloader.append(chunk);
           } catch (e) {

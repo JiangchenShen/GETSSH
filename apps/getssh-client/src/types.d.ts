@@ -87,7 +87,7 @@ declare global {
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
       getPluginRenderers: () => Promise<string[]>;
       reloadPlugins: () => Promise<{ success: boolean; error?: string }>;
-      sftpList: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; list?: import('./components/SFTPManager').SFTPFile[] }>;
+      sftpList: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; list?: import('./components/SFTPManager').SFTPFile[]; truncated?: boolean }>;
       sftpMkdir: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string }>;
       sftpDelete: (sessionId: string, remotePath: string, isDir: boolean) => Promise<{ success: boolean; error?: string }>;
       sftpReadFile: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; data?: string }>;

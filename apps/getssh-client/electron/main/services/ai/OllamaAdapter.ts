@@ -78,7 +78,8 @@ export class OllamaAdapter extends BaseAdapter {
       model: request.model || 'llama3',
       messages,
       stream: true,
-      max_tokens: request.maxOutputTokens || 8192
+      // The chat path passes the context budget as maxOutputTokens: never more than 8192 here.
+      max_tokens: Math.min(request.maxOutputTokens || 8192, 8192)
     };
 
     if (tools && tools.length > 0) {

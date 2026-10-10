@@ -308,11 +308,9 @@ app.whenReady().then(async () => {
 
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
-  // Runs on quit and before a safe-mode restart: plugin processes and MCP servers both go.
-  SecureCenter.getInstance().setPluginTeardown(() => {
-    pluginManager.forceKillAll();
-    mcpManager.stopAll();
-  });
+  SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
+  // Quit and safe-mode restart also stop the MCP servers (deactivating a plugin does not).
+  SecureCenter.getInstance().setShutdownTeardown(() => mcpManager.stopAll());
   
   // Show UI instantly without waiting for heavy async operations
   createWindow();

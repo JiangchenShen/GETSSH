@@ -41,18 +41,21 @@ const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
 const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
 
+function pluginFrames(): HTMLIFrameElement[] {
+  return [...document.querySelectorAll<HTMLIFrameElement>('iframe[data-plugin-id]')];
+}
+
 function handlePluginMessage(event: MessageEvent) {
   // Only accept messages from sandboxed iframes (origin will be 'null' for sandbox)
   const data = event.data;
   if (!data || !data.__getssh_plugin) return;
 
-  const { action, payload, pluginId } = data;
+  const { action, payload } = data;
 
-  // Validate event source to prevent spoofing from other iframes/windows
-  const expectedIframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
-  if (!expectedIframe || event.source !== expectedIframe.contentWindow) {
-    return;
-  }
+  // The plugin is the one whose frame sent the message, never the id the message names: a
+  // page naming other ids (or a CSS selector) would get a fresh limit for each.
+  const pluginId = pluginFrames().find(frame => frame.contentWindow === event.source)?.getAttribute('data-plugin-id');
+  if (!pluginId) return;
 
   if (BLOCKED_ACTIONS.has(action)) {
     console.warn(`[PluginBridge] BLOCKED dangerous action "${action}" from plugin "${pluginId}"`);
@@ -85,7 +88,7 @@ function handlePluginMessage(event: MessageEvent) {
         label: String(payload.label ?? '').slice(0, 128),
         onClick: () => {
           // Send click event back to the plugin's iframe
-          const iframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
+          const iframe = pluginFrames().find(frame => frame.getAttribute('data-plugin-id') === pluginId);
           if (iframe?.contentWindow) {
             iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId }, '*');
           }

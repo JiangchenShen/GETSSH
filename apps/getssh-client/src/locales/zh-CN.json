@@ -525,7 +525,8 @@
       "size": "大小",
       "modified": "修改时间",
       "deleteConfirm": "确定要删除 {{name}} 吗？",
-      "deleteFailed": "删除失败: "
+      "deleteFailed": "删除失败: ",
+      "truncated": "这个文件夹的内容没有全部列出：最多显示 10,000 项。"
     },
     "about": {
       "title": "关于 GETSSH",

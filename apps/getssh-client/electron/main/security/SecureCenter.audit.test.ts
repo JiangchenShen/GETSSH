@@ -24,7 +24,11 @@ describe('auditPluginCommand', () => {
     for (const command of ['rm -rf /', 'rm -r -f /', 'sudo rm -rf / ', 'rm -rf /*', 'mkfs.ext4 /dev/sdb1', ':(){:|:&};:', 'dd if=/dev/zero of=/dev/sda']) {
       expect(audit(command), command).toEqual({ allowed: false, lockdown: true });
     }
-    for (const command of ['rm -rf /tmp/build', 'ls -la /', 'echo rm -r and f /x']) {
+    // Far apart on one line, and whitespace across a line break, as the old patterns allowed.
+    for (const command of [`rm -r --one-file-system${' '.repeat(600)}-f /*`, `dd if=/dev/zero bs=1M${' '.repeat(700)}of=/dev/sda`, 'rm\t\n-rf /', 'rm -r f\n/']) {
+      expect(audit(command).allowed, JSON.stringify(command)).toBe(false);
+    }
+    for (const command of ['rm -rf /tmp/build', 'ls -la /', 'echo rm -r and f /x', 'rm -r x\nf /']) {
       expect(audit(command).allowed, command).toBe(true);
     }
   });

@@ -67,3 +67,18 @@ describe('plugin sidebar actions', () => {
     expect(store.registerSidebarAction).toHaveBeenCalledTimes(9);
   });
 });
+
+describe('plugin identity', () => {
+  it('takes the plugin from the sending frame, not from the id the message names', () => {
+    store.registerSidebarAction.mockClear();
+    frame.setAttribute('data-plugin-id', 'liar');
+    for (let i = 0; i < 20; i++) {
+      window.dispatchEvent(new MessageEvent('message', { data: { __getssh_plugin: true, pluginId: `s${i}"],iframe[data-plugin-id="liar`, action: 'registerSidebarAction', payload: { id: 'a', icon: '<svg></svg>', label: 'x' } }, source: frame.contentWindow }));
+    }
+    expect(store.registerSidebarAction).toHaveBeenCalledTimes(20);
+    expect(new Set(store.registerSidebarAction.mock.calls.map(call => (call[0] as { id: string }).id))).toEqual(new Set(['plugin-liar-a']));
+    window.dispatchEvent(new MessageEvent('message', { data: { __getssh_plugin: true, pluginId: 'liar', action: 'registerSidebarAction', payload: { id: 'b', icon: '', label: 'x' } }, source: window }));
+    expect(store.registerSidebarAction).toHaveBeenCalledTimes(20);
+    frame.setAttribute('data-plugin-id', 'busy');
+  });
+});

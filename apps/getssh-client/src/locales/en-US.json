@@ -493,7 +493,8 @@
       "size": "Size",
       "modified": "Modified",
       "deleteConfirm": "Are you sure you want to delete {{name}}?",
-      "deleteFailed": "Delete failed: "
+      "deleteFailed": "Delete failed: ",
+      "truncated": "Not every entry in this folder is listed: at most 10,000 are shown."
     },
     "about": {
       "title": "About GETSSH",

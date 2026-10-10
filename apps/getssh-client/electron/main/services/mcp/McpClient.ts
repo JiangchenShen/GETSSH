@@ -57,7 +57,7 @@ function isRecord(value: unknown): value is Record<string, any> {
  * Bytes waiting for a stdio server to read: one that never reads its stdin (while it keeps
  * pinging, every ping gets an answer) must not make GETSSH buffer without end.
  */
-const MAX_STDIN_BUFFER_BYTES = 8 * 1024 * 1024;
+const MAX_STDIN_BUFFER_BYTES = 4 * MAX_MCP_MESSAGE_BYTES;
 /** Ids are echoed back in replies: a long one would make every reply that long. */
 const MAX_JSON_RPC_ID_CHARS = 256;
 

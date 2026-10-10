@@ -10,7 +10,26 @@ import { OceanSentinel } from '../services/OceanSentinel';
 import { randomUUID } from 'node:crypto';
 
 const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
-const MAX_OPEN_SESSIONS_PER_RUN = 2;
+/**
+ * Sessions the agent may open per window in 10 minutes. One with `execute` also queues a
+ * follow-up prompt, which starts a new run: a budget per run alone would let a looping or
+ * prompt-injected model chain runs without end, so the budget spans runs.
+ */
+const AGENT_SESSION_WINDOW_MS = 10 * 60_000;
+const MAX_AGENT_SESSIONS_PER_WINDOW = 8;
+const MAX_AGENT_FOLLOW_UPS_PER_WINDOW = 3;
+const agentSessionOpens = new Map<number, { at: number; followUp: boolean }[]>();
+
+function allowAgentSessionOpen(senderId: number, followUp: boolean): boolean {
+  const now = Date.now();
+  const recent = (agentSessionOpens.get(senderId) ?? []).filter(open => now - open.at < AGENT_SESSION_WINDOW_MS);
+  const refused = recent.length >= MAX_AGENT_SESSIONS_PER_WINDOW ||
+    (followUp && recent.filter(open => open.followUp).length >= MAX_AGENT_FOLLOW_UPS_PER_WINDOW);
+  if (!refused) recent.push({ at: now, followUp });
+  if (recent.length) agentSessionOpens.set(senderId, recent);
+  else agentSessionOpens.delete(senderId);
+  return !refused;
+}
 
 /** Each provider's API key is an app secret in getssh-store (security/appSecrets.ts). */
 const getSecureApiKey = (provider = 'default') => getAiApiKey(provider);
@@ -194,11 +213,8 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
         });
       };
 
-      // One agent run opens at most a few sessions: each open_session with `execute` also queues
-      // a follow-up prompt, so a looping or prompt-injected model must not open them without end.
-      let openSessionActions = 0;
       const onGlobalAction = (actionPayload: any): boolean => {
-        if (actionPayload?.type === 'open_session' && ++openSessionActions > MAX_OPEN_SESSIONS_PER_RUN) return false;
+        if (actionPayload?.type === 'open_session' && !allowAgentSessionOpen(event.sender.id, !!actionPayload.execute)) return false;
         if (!event.sender.isDestroyed()) {
           event.sender.send('ai-agent-global-action', actionPayload);
         }

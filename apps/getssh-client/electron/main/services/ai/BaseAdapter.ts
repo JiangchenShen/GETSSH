@@ -1,7 +1,11 @@
 import { ILlmAdapter, LlmRequest, LlmResponse, StreamCallbacks, Turn, Block } from './types';
 
-/** A server-sent-events line longer than this ends the request: no API sends one. */
-export const MAX_SSE_LINE = 1024 * 1024;
+/**
+ * A server-sent-events line longer than this ends the request. Generous on purpose: OpenAI's
+ * Responses API echoes the whole system instruction (the terminal context, which can pass
+ * 1 MB) inside single events.
+ */
+export const MAX_SSE_LINE = 32 * 1024 * 1024;
 
 export abstract class BaseAdapter implements ILlmAdapter {
   abstract readonly provider: string;
@@ -75,12 +79,12 @@ export abstract class BaseAdapter implements ILlmAdapter {
         const text = decoder.decode(value, { stream: true });
         buffer += text;
         if (!text.includes('\n')) {
-          if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 1 MB');
+          if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 32 MB');
           continue;
         }
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-        if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 1 MB');
+        if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 32 MB');
 
         for (const rawLine of lines) {
           const line = rawLine.replace(/\r$/, '');
