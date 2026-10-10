@@ -8,6 +8,9 @@ overrides:
   js-yaml@^4: ^4.3.2
   node-abi@^4: ^4.35.0
 
+patchedDependencies:
+  node-pty@1.1.0: c0e5732706aafdb8211059e60557cee1f0d340584f68a06d16de99298b99c043
+
 importers:
 
   .: {}
@@ -19,7 +22,7 @@ importers:
         version: 6.8.9
       node-pty:
         specifier: ^1.1.0
-        version: 1.1.0
+        version: 1.1.0(patch_hash=c0e5732706aafdb8211059e60557cee1f0d340584f68a06d16de99298b99c043)
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
@@ -6113,7 +6116,7 @@ snapshots:
 
   node-int64@0.4.0: {}
 
-  node-pty@1.1.0:
+  node-pty@1.1.0(patch_hash=c0e5732706aafdb8211059e60557cee1f0d340584f68a06d16de99298b99c043):
     dependencies:
       node-addon-api: 7.1.1
 

@@ -1,0 +1,38 @@
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index 1ec12f796a822c78fba9ad7f6448c3987e325c23..c80fb91c641c664e97aeac61fdb84a02d79b1097 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -285,7 +285,8 @@ var CustomWriteStream = /** @class */ (function () {
+         this._writeQueue = [];
+     }
+     CustomWriteStream.prototype.dispose = function () {
+-        clearImmediate(this._writeImmediate);
++        // GETSSH patch: the retry is a timer now (see _processWriteQueue).
++        clearTimeout(this._writeImmediate);
+         this._writeImmediate = undefined;
+     };
+     CustomWriteStream.prototype.write = function (data) {
+@@ -314,9 +315,12 @@ var CustomWriteStream = /** @class */ (function () {
+         fs.write(this._fd, task.buffer, task.offset, function (err, written) {
+             if (err) {
+                 if ('code' in err && err.code === 'EAGAIN') {
+-                    // `setImmediate` is used to yield to the event loop and re-attempt
+-                    // the write later.
+-                    _this._writeImmediate = setImmediate(function () { return _this._processWriteQueue(); });
++                    // GETSSH patch: retry after a delay that doubles up to 250 ms instead of
++                    // on the next tick. While the program in the terminal does not read its
++                    // input (a paste into `sleep 100`), retrying with setImmediate kept one
++                    // core and one thread-pool thread busy until it did.
++                    _this._eagainDelay = Math.min((_this._eagainDelay || 1) * 2, 250);
++                    _this._writeImmediate = setTimeout(function () { return _this._processWriteQueue(); }, _this._eagainDelay);
+                 }
+                 else {
+                     // Stop processing immediately on unexpected error and log
+@@ -326,6 +330,7 @@ var CustomWriteStream = /** @class */ (function () {
+                 return;
+             }
+             task.offset += written;
++            _this._eagainDelay = 0;
+             if (task.offset >= task.buffer.byteLength) {
+                 _this._writeQueue.shift();
+             }
