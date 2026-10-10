@@ -535,13 +535,16 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
           if (handshakeTimer) clearTimeout(handshakeTimer);
           handshakeTimer = null;
         };
+        let shellRequested = false;
         const startHandshakeTimer = () => {
           stopHandshakeTimer();
           if (settled) return;
           handshakeTimer = setTimeout(() => {
             handshakeTimer = null;
             sshClient.destroy();
-            void failConnect(dialingProxy
+            void failConnect(shellRequested
+              ? `The server did not open a shell within ${SSH_HANDSHAKE_TIMEOUT_MS / 1000} s`
+              : dialingProxy
               ? `The proxy did not connect to the server within ${SSH_HANDSHAKE_TIMEOUT_MS / 1000} s`
               : 'Timed out while waiting for handshake');
           }, SSH_HANDSHAKE_TIMEOUT_MS);
@@ -691,8 +694,12 @@ export function registerSshHandlers(ipcMain: Electron.IpcMain, app: Electron.App
         startHandshakeTimer();
         establishConnection().then(() => {
           sshClient.on('ready', () => {
-            stopHandshakeTimer();
+            // Authenticated, but the shell channel still has to open: a server that never
+            // confirms it would leave this connect pending forever. A new deadline covers it.
+            shellRequested = true;
+            startHandshakeTimer();
             sshClient.shell({ term: 'xterm-256color' }, async (err, stream) => {
+            stopHandshakeTimer();
             if (err) {
               // The client is authenticated at this point; failConnect ends it.
               await failConnect(err.message);

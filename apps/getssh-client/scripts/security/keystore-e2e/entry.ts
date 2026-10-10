@@ -392,6 +392,8 @@ async function run(): Promise<string> {
       const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
       const hostKey = privateKey.export({ type: 'pkcs1', format: 'pem' }) as string;
       const logins: string[] = [];
+      // When set, the server authenticates but never opens the session channel.
+      let muteShell = false;
       const server = new SshServer({ hostKeys: [hostKey] }, connection => {
         connection.on('authentication', context => {
           if (context.method !== 'password') return context.reject(['password']);
@@ -399,6 +401,7 @@ async function run(): Promise<string> {
           context.accept();
         });
         connection.on('session', accept => {
+          if (muteShell) return;
           const session = accept();
           session.on('pty', acceptPty => acceptPty?.());
           session.on('shell', acceptShell => acceptShell().write('ready\n'));
@@ -433,6 +436,15 @@ async function run(): Promise<string> {
       assert.equal(locked.success, false);
       assert.match(locked.error, /locked/);
       assert.equal(logins.length, 3, 'nothing is sent for a locked workspace');
+
+      // A server that authenticates and then never opens the shell: the connect fails in time.
+      muteShell = true;
+      const startedAt = Date.now();
+      const mute = await connect({ host: '127.0.0.1', port, username: 'mute-user', password: 'mute-pw' });
+      assert.equal(mute.success, false, JSON.stringify(mute));
+      assert.match(mute.error, /did not open a shell/);
+      assert.ok(Date.now() - startedAt < 30_000, 'the shell deadline ended the connect');
+      muteShell = false;
 
       for (const id of [byId.sessionId, typed.sessionId, reconnected.sessionId]) handlers.get('ssh-disconnect')!(event, id);
       server.close();
