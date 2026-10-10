@@ -292,6 +292,17 @@ export class McpManager {
     }
   }
 
+  /** Stops every server (quit, a safe-mode restart, the relaunch after an import). */
+  public stopAll() {
+    for (const serverId of [...this.clients.keys()]) {
+      try {
+        this.stopServer(serverId);
+      } catch (error) {
+        console.warn(`[McpManager] Stopping ${serverId} failed:`, error);
+      }
+    }
+  }
+
   public stopServer(serverId: string) {
     const client = this.clients.get(serverId);
     if (client) {

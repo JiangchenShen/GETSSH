@@ -388,11 +388,21 @@ export class OceanSentinel {
    */
   static createStreamRehydrator(liveMappingDict: Record<string, string>) {
     let buffer = '';
-    // The session dict is live, so the safe subset is taken at each use.
-    const streamSafe = (): Record<string, string> => Object.fromEntries(
-      Object.entries(liveMappingDict).filter(([, value]) => survivesReparsing(value)),
-    );
-    const rehydrateSafe = (text: string) => OceanSentinel.rehydrate(text, streamSafe());
+    // The session dict is live and only grows during a turn: the safe subset is rebuilt when
+    // its size changes, not for every streamed chunk.
+    let safeSubset: Record<string, string> = {};
+    let safeSize = -1;
+    const streamSafe = (): Record<string, string> => {
+      const size = Object.keys(liveMappingDict).length;
+      if (size !== safeSize) {
+        safeSubset = Object.fromEntries(Object.entries(liveMappingDict).filter(([, value]) => survivesReparsing(value)));
+        safeSize = size;
+      }
+      return safeSubset;
+    };
+    // Every placeholder starts with '[': text without one goes out as it is, without a call
+    // into native code that would first copy the whole dictionary.
+    const rehydrateSafe = (text: string) => (text.includes('[') ? OceanSentinel.rehydrate(text, streamSafe()) : text);
 
     return {
       processChunk: (chunk: string): string => {

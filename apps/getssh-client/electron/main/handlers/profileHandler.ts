@@ -1,7 +1,12 @@
 import { dialog } from 'electron';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { isValidWorkspaceId } from '../utils/workspaceId';
 import { isMainWebContents } from '../windowRegistry';
+
+const MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_IMPORT_PROFILES = 5000;
+const MAX_IMPORT_NEW_WORKSPACES = 16;
 
 
 export interface ExportedProfile {
@@ -148,8 +153,18 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
 
     try {
       const { DatabaseManager } = require('../services/DatabaseManager');
+      // A shared template file is input from elsewhere: bounded in size, entries and the
+      // workspaces it may create (each one is an encrypted database opened on every unlock).
+      if ((await fs.promises.stat(filePaths[0])).size > MAX_IMPORT_FILE_BYTES) {
+        return { success: false, reason: 'file_too_large' };
+      }
       const raw     = await fs.promises.readFile(filePaths[0], 'utf8');
       const data    = JSON.parse(raw) as ExportPayload;
+      if (!Array.isArray(data?.profiles) || data.profiles.length > MAX_IMPORT_PROFILES) {
+        return { success: false, reason: 'invalid_format' };
+      }
+      const knownWorkspaces = new Set(DatabaseManager.getWorkspaces().map((w: { id: string }) => w.id));
+      let createdWorkspaces = 0;
 
       if (data._format !== 'getssh-profiles-v1' && data._format !== 'getssh-profiles-v2') {
         return { success: false, reason: 'invalid_format' };
@@ -161,7 +176,13 @@ export function registerProfileHandlers(ipcMain: Electron.IpcMain) {
       try {
         for (const entry of data.profiles) {
           // V1 to V2 compat bridge: default to 'default' workspace if missing
-          const targetWorkspaceId = entry.workspaceId || 'default';
+          // Unknown or malformed ids beyond the first few go to the default workspace.
+          let targetWorkspaceId = typeof entry.workspaceId === 'string' && isValidWorkspaceId(entry.workspaceId) ? entry.workspaceId : 'default';
+          if (!knownWorkspaces.has(targetWorkspaceId)) {
+            if (createdWorkspaces >= MAX_IMPORT_NEW_WORKSPACES) targetWorkspaceId = 'default';
+            else createdWorkspaces++;
+            knownWorkspaces.add(targetWorkspaceId);
+          }
 
           // If workspace doesn't exist locally, create a placeholder
           try {

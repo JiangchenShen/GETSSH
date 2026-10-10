@@ -53,8 +53,16 @@ function isRecord(value: unknown): value is Record<string, any> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Bytes waiting for a stdio server to read: one that never reads its stdin (while it keeps
+ * pinging, every ping gets an answer) must not make GETSSH buffer without end.
+ */
+const MAX_STDIN_BUFFER_BYTES = 8 * 1024 * 1024;
+/** Ids are echoed back in replies: a long one would make every reply that long. */
+const MAX_JSON_RPC_ID_CHARS = 256;
+
 function isJsonRpcId(value: unknown): value is string | number {
-  return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value));
+  return (typeof value === 'string' && value.length <= MAX_JSON_RPC_ID_CHARS) || (typeof value === 'number' && Number.isFinite(value));
 }
 
 /**
@@ -426,8 +434,15 @@ export class McpClient extends EventEmitter {
         reject(new Error(`MCP request could not be serialized: method=${method}`));
         return;
       }
-      if (Buffer.byteLength(raw, 'utf8') > MAX_MCP_MESSAGE_BYTES) {
+      const bytes = Buffer.byteLength(raw, 'utf8');
+      if (bytes > MAX_MCP_MESSAGE_BYTES) {
         reject(new Error(`MCP request exceeds ${MAX_MCP_MESSAGE_BYTES} bytes.`));
+        return;
+      }
+      if (this.childProcess.stdin.writableLength + bytes > MAX_STDIN_BUFFER_BYTES) {
+        const error = new Error('The MCP server is not reading its input.');
+        reject(error);
+        this.failProtocol(error);
         return;
       }
 
@@ -474,8 +489,13 @@ export class McpClient extends EventEmitter {
       this.failProtocol(new Error('MCP response could not be serialized.'));
       return;
     }
-    if (Buffer.byteLength(raw, 'utf8') > MAX_MCP_MESSAGE_BYTES) {
+    const bytes = Buffer.byteLength(raw, 'utf8');
+    if (bytes > MAX_MCP_MESSAGE_BYTES) {
       this.failProtocol(new Error(`MCP response exceeds ${MAX_MCP_MESSAGE_BYTES} bytes.`));
+      return;
+    }
+    if (stdin.writableLength + bytes > MAX_STDIN_BUFFER_BYTES) {
+      this.failProtocol(new Error('The MCP server is not reading its input.'));
       return;
     }
     stdin.write(raw, 'utf8', (writeError) => {

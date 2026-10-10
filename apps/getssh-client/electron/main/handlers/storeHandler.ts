@@ -456,8 +456,13 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
       return failure(error);
     }
     if (!importFinished) return INVALID;
-    // app.exit() skips 'will-quit', so the clipboard is cleared here.
+    // app.exit() skips 'will-quit', so the clipboard is cleared and the MCP servers stopped here.
     await clearCopiedSecret();
+    try {
+      require('../services/mcp/McpManager').mcpManager.stopAll();
+    } catch (error) {
+      console.warn('[Store] Stopping MCP servers before the relaunch failed:', error);
+    }
     app.relaunch();
     app.exit(0);
     return { ok: true };
