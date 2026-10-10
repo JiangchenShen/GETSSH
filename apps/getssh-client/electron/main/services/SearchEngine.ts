@@ -12,6 +12,39 @@ export interface SearchConfig {
   customUrl?: string;
 }
 
+const MAX_SEARCH_BODY = 2 * 1024 * 1024;
+const MAX_TEXT = 500;
+
+/** Titles and snippets reach the AI context: a few hundred characters each are enough. */
+function clip(text: string): string {
+  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}…` : text;
+}
+
+/**
+ * Fetches a search page with one deadline for headers and body together, and at most 2 MB of
+ * body. A server (a random public SearXNG instance, by default) that sends the headers and then
+ * trickles or floods the body could otherwise hold an agent run for minutes or fill memory.
+ */
+export async function fetchText(url: string, init: RequestInit, timeoutMs: number): Promise<{ ok: boolean; status: number; text: string }> {
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.body) return { ok: res.ok, status: res.status, text: '' };
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_SEARCH_BODY) throw new Error('The search result page is larger than 2 MB');
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return { ok: res.ok, status: res.status, text: Buffer.concat(chunks).toString('utf8') };
+}
+
 export class SearchEngine {
   private static searxInstances: string[] = [];
   private static lastFetchTime: number = 0;
@@ -83,31 +116,17 @@ export class SearchEngine {
   private static async searchGoogle(query: string, apiKey: string, cx: string): Promise<SearchResult[]> {
     const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${apiKey}&cx=${cx}`;
     
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    try {
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Google API Error (${res.status}): ${errText}`);
-      }
-
-      const data = await res.json();
-      if (data.items && data.items.length > 0) {
-        return data.items.slice(0, 10).map((r: any) => ({
-          title: r.title || 'Untitled',
-          url: r.link,
-          snippet: r.snippet || ''
-        }));
-      }
-      return [];
-    } catch (err: any) {
-      clearTimeout(timeout);
-      throw err;
+    const res = await fetchText(url, {}, 10000);
+    if (!res.ok) throw new Error(`Google API Error (${res.status}): ${clip(res.text)}`);
+    const data = JSON.parse(res.text);
+    if (data.items && data.items.length > 0) {
+      return data.items.slice(0, 10).map((r: any) => ({
+        title: clip(r.title || 'Untitled'),
+        url: r.link,
+        snippet: clip(r.snippet || '')
+      }));
     }
+    return [];
   }
 
   private static async fetchSearxInstances(): Promise<void> {
@@ -122,15 +141,10 @@ export class SearchEngine {
 
     this.fetchingPromise = (async () => {
       console.log('[SearchEngine] Fetching fresh SearXNG instance pool...');
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-
       try {
-        const response = await fetch('https://searx.space/data/instances.json', { signal: controller.signal });
-      clearTimeout(timeout);
-      
+        const response = await fetchText('https://searx.space/data/instances.json', {}, 10000);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
+      const data = JSON.parse(response.text);
       
       const goodInstances = Object.keys(data.instances).filter(url => {
         const info = data.instances[url];
@@ -151,7 +165,6 @@ export class SearchEngine {
         this.lastFetchTime = now;
         console.log(`[SearchEngine] Successfully populated SearXNG pool with ${this.searxInstances.length} instances.`);
       } catch (err: any) {
-        clearTimeout(timeout);
         console.warn(`[SearchEngine] Failed to fetch SearXNG instances: ${err.message}`);
         if (this.searxInstances.length === 0) {
           throw err; // Only throw if we have no fallback instances
@@ -189,36 +202,27 @@ export class SearchEngine {
       
       console.log(`[SearchEngine] SearXNG Attempt ${i + 1}/${instancesToTry.length} via ${instanceUrl}`);
       
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout per instance
-      
       try {
-        const res = await fetch(searchUrl, { signal: controller.signal });
-        clearTimeout(timeout);
-        
+        const res = await fetchText(searchUrl, {}, 8000); // 8 s per instance, body included
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
         
-        const data = await res.json();
+        const data = JSON.parse(res.text);
         if (data && data.results && data.results.length > 0) {
           return data.results.slice(0, 10).map((r: any) => ({
-            title: r.title || 'Untitled',
+            title: clip(r.title || 'Untitled'),
             url: r.url,
-            snippet: r.content || ''
+            snippet: clip(r.content || '')
           }));
         }
       } catch (err: any) {
-        clearTimeout(timeout);
         console.warn(`[SearchEngine] SearXNG instance ${instanceUrl} failed: ${err.message}`);
         
         // Remove failed instance from public pool to avoid hitting it again
         if (!config.customUrl) {
           const idx = SearchEngine.searxInstances.indexOf(instanceUrl);
-          if (idx !== -1) {
-            SearchEngine.searxInstances.splice(idx, 1);
-            i--;
-          }
+          if (idx !== -1) SearchEngine.searxInstances.splice(idx, 1);
         }
       }
     }
@@ -232,20 +236,15 @@ export class SearchEngine {
   private static async searchDuckDuckGo(query: string, config?: SearchConfig): Promise<SearchResult[]> {
     const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
     
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    
-    const res = await fetch(searchUrl, {
-      signal: controller.signal,
+    const res = await fetchText(searchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
-    });
-    clearTimeout(timeout);
+    }, 10000);
     
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     
-    const html = await res.text();
+    const html = res.text;
     const results: SearchResult[] = [];
     
     const resultBlockRegex = /<a class="result__snippet[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gs;
@@ -258,7 +257,7 @@ export class SearchEngine {
         url = decodeURIComponent(url.split('uddg=')[1].split('&')[0]);
       }
       
-      const snippet = match[2].replace(/<[^>]+>/g, '').trim();
+      const snippet = clip(match[2].replace(/<[^>]+>/g, '').trim());
       
       if (url && snippet) {
         results.push({
@@ -280,21 +279,16 @@ export class SearchEngine {
   private static async searchBing(query: string, config?: SearchConfig): Promise<SearchResult[]> {
     const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
     
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    
-    const res = await fetch(searchUrl, {
-      signal: controller.signal,
+    const res = await fetchText(searchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9'
       }
-    });
-    clearTimeout(timeout);
+    }, 10000);
     
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     
-    const html = await res.text();
+    const html = res.text;
     const results: SearchResult[] = [];
     
     const blocks = html.split('<li class="b_algo"');
@@ -308,9 +302,9 @@ export class SearchEngine {
       
       if (urlMatch && titleMatch && snippetMatch) {
         results.push({
-          title: titleMatch[1].replace(/<[^>]+>/g, '').trim(),
+          title: clip(titleMatch[1].replace(/<[^>]+>/g, '').trim()),
           url: urlMatch[1],
-          snippet: snippetMatch[1].replace(/<[^>]+>/g, '').trim()
+          snippet: clip(snippetMatch[1].replace(/<[^>]+>/g, '').trim())
         });
       }
     }

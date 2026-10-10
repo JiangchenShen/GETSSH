@@ -10,6 +10,7 @@ import { OceanSentinel } from '../services/OceanSentinel';
 import { randomUUID } from 'node:crypto';
 
 const AGENT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
+const MAX_OPEN_SESSIONS_PER_RUN = 2;
 
 /** Each provider's API key is an app secret in getssh-store (security/appSecrets.ts). */
 const getSecureApiKey = (provider = 'default') => getAiApiKey(provider);
@@ -193,10 +194,15 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
         });
       };
 
-      const onGlobalAction = (actionPayload: any) => {
+      // One agent run opens at most a few sessions: each open_session with `execute` also queues
+      // a follow-up prompt, so a looping or prompt-injected model must not open them without end.
+      let openSessionActions = 0;
+      const onGlobalAction = (actionPayload: any): boolean => {
+        if (actionPayload?.type === 'open_session' && ++openSessionActions > MAX_OPEN_SESSIONS_PER_RUN) return false;
         if (!event.sender.isDestroyed()) {
           event.sender.send('ai-agent-global-action', actionPayload);
         }
+        return true;
       };
 
       const aiMaxTokens = payload?.aiMaxTokens || 200000;

@@ -1,5 +1,8 @@
 import { ILlmAdapter, LlmRequest, LlmResponse, StreamCallbacks, Turn, Block } from './types';
 
+/** A server-sent-events line longer than this ends the request: no API sends one. */
+export const MAX_SSE_LINE = 1024 * 1024;
+
 export abstract class BaseAdapter implements ILlmAdapter {
   abstract readonly provider: string;
 
@@ -67,9 +70,17 @@ export abstract class BaseAdapter implements ILlmAdapter {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        // Only a new line break makes a line complete: a long line arriving in many chunks is
+        // not split again for every chunk, and one without an end is refused at MAX_SSE_LINE.
+        const text = decoder.decode(value, { stream: true });
+        buffer += text;
+        if (!text.includes('\n')) {
+          if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 1 MB');
+          continue;
+        }
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
+        if (buffer.length > MAX_SSE_LINE) throw new Error('The AI service sent a line longer than 1 MB');
 
         for (const rawLine of lines) {
           const line = rawLine.replace(/\r$/, '');
@@ -104,6 +115,8 @@ export abstract class BaseAdapter implements ILlmAdapter {
         }
       }
     } finally {
+      // Stop the download too when the stream is left early (an error, or a line too long).
+      await reader.cancel().catch(() => {});
       reader.releaseLock();
     }
   }

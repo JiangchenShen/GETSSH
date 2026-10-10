@@ -10,7 +10,8 @@ export interface ToolExecutionContext {
   searchConfig: any;
   onChunk: (chunk: string) => void;
   askApproval?: (command: string) => Promise<boolean>;
-  onGlobalAction?: (payload: any) => void;
+  /** Returns false when the action was refused (too many in this run). */
+  onGlobalAction?: (payload: any) => boolean | void;
 }
 
 export interface ToolExecutionResult {

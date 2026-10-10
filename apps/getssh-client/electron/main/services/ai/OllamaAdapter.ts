@@ -72,10 +72,13 @@ export class OllamaAdapter extends BaseAdapter {
       }
     }));
 
+    // A local model can fall into a loop that never stops on its own (Ollama's default
+    // num_predict is unlimited): cap the answer, as the other adapters do.
     const requestBody: any = {
       model: request.model || 'llama3',
       messages,
-      stream: true
+      stream: true,
+      max_tokens: request.maxOutputTokens || 8192
     };
 
     if (tools && tools.length > 0) {
@@ -83,11 +86,12 @@ export class OllamaAdapter extends BaseAdapter {
       requestBody.tool_choice = request.toolChoice || 'auto';
     }
 
+    const timeoutSignal = AbortSignal.timeout(600000);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
-      signal: request.signal
+      signal: request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal
     });
 
     if (!response.ok) {
