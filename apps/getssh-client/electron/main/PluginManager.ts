@@ -7,7 +7,7 @@ import pLimit from 'p-limit';
 import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../../src/types/plugin';
 import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
-import { SecureCenter } from './security/SecureCenter';
+import { MAX_AUDITED_COMMAND, SecureCenter } from './security/SecureCenter';
 import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './windowRegistry';
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
@@ -39,6 +39,14 @@ interface RunningPlugin {
 }
 
 
+/** Calls from a plugin's own page to its backend. */
+const MAX_UI_RPC_IN_FLIGHT = 32;
+const MAX_UI_RPC_PER_SECOND = 100;
+const MAX_UI_RPC_PAYLOAD = 256 * 1024;
+
+/** A plugin's renderer bundle is cached and sent to every window. */
+const MAX_RENDERER_BUNDLE_BYTES = 8 * 1024 * 1024;
+
 /** Plugins with a dialog on screen: one at a time each, so a plugin cannot stack dialogs. */
 const pluginsWithDialog = new Set<string>();
 
@@ -69,6 +77,7 @@ export class PluginManager {
   private approvedSshWriters: Set<string> = new Set();
   /** What each plugin last wrote to the clipboard: reading it back tells the plugin nothing new. */
   private clipboardWrites = new Map<string, string>();
+  private uiRpcUsage = new Map<string, { inFlight: number; windowStart: number; calls: number }>();
   private runningPlugins: Map<string, RunningPlugin> = new Map();
 
   private uiExtensions: {
@@ -491,7 +500,7 @@ export class PluginManager {
       case 'ssh.write': {
         this.requireCapability(manifest, 'ssh:write');
         const sessionId = this.stringArg(args, 0, 'SSH session ID', 256);
-        const command = this.stringArg(args, 1, 'SSH command', 1024 * 1024);
+        const command = this.stringArg(args, 1, 'SSH command', MAX_AUDITED_COMMAND);
         if (!this.approvedSshWriters.has(pluginId)) {
           const options = {
             type: 'warning' as const,
@@ -740,6 +749,7 @@ export class PluginManager {
     this.settingsSchemas.delete(pluginId);
     this.approvedSshWriters.delete(pluginId);
     this.clipboardWrites.delete(pluginId);
+    this.uiRpcUsage.delete(pluginId);
     this.runningPlugins.delete(pluginId);
     this.syncUIExtensions();
   }
@@ -917,6 +927,8 @@ export class PluginManager {
       }
     });
 
+    // A plugin's own page (untrusted code) calls its backend here: bounded in rate, in calls
+    // waiting at once and in size, as the backend-to-host direction already is.
     ipcMain.handle('plugin-rpc-invoke', async (event, pluginId: string, method: string, payload: any) => {
       const plugin = this.runningPlugins.get(pluginId);
       if (!plugin) {
@@ -925,13 +937,35 @@ export class PluginManager {
       if (!plugin.rpcHandlers || !plugin.rpcHandlers.has(method)) {
         return { success: false, error: `Method '${method}' not found on plugin '${pluginId}'.` };
       }
+      const usage = this.uiRpcUsage.get(pluginId) ?? { inFlight: 0, windowStart: 0, calls: 0 };
+      this.uiRpcUsage.set(pluginId, usage);
+      const now = Date.now();
+      if (now - usage.windowStart >= 1000) {
+        usage.windowStart = now;
+        usage.calls = 0;
+      }
+      if (usage.inFlight >= MAX_UI_RPC_IN_FLIGHT || ++usage.calls > MAX_UI_RPC_PER_SECOND) {
+        return { success: false, error: 'Too many calls from this plugin page.' };
+      }
+      let size = 0;
+      try {
+        size = payload === undefined ? 0 : JSON.stringify(payload).length;
+      } catch {
+        return { success: false, error: 'The call payload cannot be sent.' };
+      }
+      if (size > MAX_UI_RPC_PAYLOAD) {
+        return { success: false, error: 'The call payload is larger than 256 KiB.' };
+      }
 
+      usage.inFlight++;
       try {
         const handler = plugin.rpcHandlers.get(method)!;
         const result = await handler(payload);
         return { success: true, result };
       } catch (err: unknown) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        usage.inFlight--;
       }
     });
 
@@ -1125,6 +1159,10 @@ export class PluginManager {
               const rendererPath = await fs.promises.realpath(path.resolve(pluginPath, p.renderer!));
               if (!rendererPath.startsWith(pluginPath + path.sep)) {
                 throw new Error('Invalid renderer path');
+              }
+              // Kept for the life of the process and sent to every window: a bounded size.
+              if ((await fs.promises.stat(rendererPath)).size > MAX_RENDERER_BUNDLE_BYTES) {
+                throw new Error('Renderer bundle is too large');
               }
               p._rendererContentCache = await fs.promises.readFile(rendererPath, 'utf8');
               return p._rendererContentCache;

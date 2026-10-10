@@ -42,6 +42,8 @@ const MAX_PLUGIN_LOG_BYTES = 64 * 1024;
 const MAX_PLUGIN_MESSAGES_PER_SECOND = 500;
 const MAX_PLUGIN_MESSAGE_BYTES_PER_SECOND = 16 * 1024 * 1024;
 const MAX_PLUGIN_OUTBOUND_BUFFER_BYTES = 8 * 1024 * 1024;
+/** Calls into the plugin waiting for an answer; each holds a timer for up to 15 s. */
+const MAX_PENDING_INVOKES = 64;
 
 export class PluginProcessHost {
   private readonly options: PluginProcessHostOptions;
@@ -200,6 +202,7 @@ export class PluginProcessHost {
 
   public async invoke(kind: PluginInvocationKind, handlerId: string, payload: unknown): Promise<unknown> {
     assertSafeIdentifier(handlerId, 'handlerId');
+    if (this.pending.size >= MAX_PENDING_INVOKES) throw new Error('Too many calls are waiting for this plugin.');
     assertMessageSize(payload);
     const requestId = this.createRequestId('invoke');
     const result = this.waitForResponse(requestId, PLUGIN_RPC_TIMEOUT_MS);

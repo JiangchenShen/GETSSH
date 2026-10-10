@@ -8,6 +8,9 @@ import { getBackendConfig } from '../handlers/systemHandler';
 import { broadcastToAllWindows, isKnownTopLevelSender } from '../windowRegistry';
 import { OceanSentinel } from '../services/OceanSentinel';
 
+/** Longest command a plugin or the agent may send to a terminal in one write. */
+export const MAX_AUDITED_COMMAND = 64 * 1024;
+
 export class SecureCenter {
   private static instance: SecureCenter;
   private monitorInterval: NodeJS.Timeout | null = null;
@@ -45,13 +48,23 @@ export class SecureCenter {
     try { this.pluginTeardownFn?.(); } catch (e) { console.error('[SecureCenter] Plugin teardown error:', e); }
   }
 
+  /**
+   * Checks a command a plugin or the agent sends to a terminal. Runs on the main thread, so it
+   * must stay fast whatever the input: commands over 64 KiB are refused outright, and the
+   * patterns look at most 512 characters ahead (an unbounded `.*` after each `rm -r` made a
+   * 1 MiB line take minutes, long enough for the watchdog to kill GETSSH).
+   */
   public auditPluginCommand(command: string): boolean {
+    if (command.length > MAX_AUDITED_COMMAND) {
+      console.warn(`[SecureCenter] Refused a terminal command of ${command.length} characters (limit ${MAX_AUDITED_COMMAND}).`);
+      return false;
+    }
     const dangerousPatterns = [
-      /\brm\s+-r.*f\s+\/(?!\S)/,   // rm -rf /
-      /\brm\s+-r.*f\s+\/\*(?!\S)/, // rm -rf /*
+      /\brm\s+-r[^\n]{0,512}?f\s+\/(?!\S)/,   // rm -rf /
+      /\brm\s+-r[^\n]{0,512}?f\s+\/\*(?!\S)/, // rm -rf /*
       /\bmkfs(\.[a-z0-9]+)?\b/, // mkfs
       /:\(\)\{:\|:&\};:/,      // fork bomb
-      /\bdd\s+if=.*of=\/dev\/(sda|hda|nvme)\b/ // dd overwriting disks
+      /\bdd\s+if=[^\n]{0,512}?of=\/dev\/(sda|hda|nvme)\b/ // dd overwriting disks
     ];
     
     for (const pattern of dangerousPatterns) {

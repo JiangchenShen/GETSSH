@@ -5,7 +5,9 @@ import {
   writePackagedStartupSmokeResult,
 } from './startupSmoke'
 import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, session, shell } from 'electron'
+import fs from 'node:fs'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { PluginManager } from './PluginManager'
 import { registerAllIpcHandlers } from './handlers'
@@ -41,6 +43,9 @@ app.commandLine.appendSwitch('disable-software-rasterizer')
 // [M-11] Security Fix: Enforce senderFrame validation globally for all IPC channels
 // Only allow IPC messages from the top-level frame (the GETSSH UI).
 // If event is null/undefined (e.g., emitted internally by main process), skip this check
+/** Plugin pages are read whole to add the bridge script; larger pages are refused. */
+const MAX_PLUGIN_PAGE_BYTES = 4 * 1024 * 1024
+
 const isSubframeIpcEvent = (event: any) => !!(event && event.senderFrame && event.senderFrame.parent !== null);
 
 type IpcListener = (event: any, ...args: any[]) => void;
@@ -303,7 +308,11 @@ app.whenReady().then(async () => {
 
   const pluginManager = new PluginManager();
   pluginManager.setupIPC();
-  SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
+  // Runs on quit and before a safe-mode restart: plugin processes and MCP servers both go.
+  SecureCenter.getInstance().setPluginTeardown(() => {
+    pluginManager.forceKillAll();
+    mcpManager.stopAll();
+  });
   
   // Show UI instantly without waiting for heavy async operations
   createWindow();
@@ -347,7 +356,12 @@ app.whenReady().then(async () => {
       }
 
     if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
-      return require('fs').promises.readFile(pluginPath, 'utf-8').then((text: string) => {
+      // A page is read whole (the bridge script goes into its <head>): only up to 4 MiB.
+      return require('fs').promises.stat(pluginPath).then((stats: import('node:fs').Stats) => {
+        if (!stats.isFile()) throw new Error('Not Found');
+        if (stats.size > MAX_PLUGIN_PAGE_BYTES) throw new Error('Plugin page is larger than 4 MiB');
+        return require('fs').promises.readFile(pluginPath, 'utf-8');
+      }).then((text: string) => {
         const injection = `
           <script>
             (function() {
@@ -450,8 +464,10 @@ app.whenReady().then(async () => {
       });
     }
     
-    // For non-HTML files, fetch manually to ensure correct MIME types on macOS
-    return require('fs').promises.readFile(pluginPath).then((data: Buffer) => {
+    // For non-HTML files, fetch manually to ensure correct MIME types on macOS. Streamed: a
+    // plugin's 400 MB asset requested many times at once must not be read whole each time.
+    return require('fs').promises.stat(pluginPath).then((stats: import('node:fs').Stats) => {
+      if (!stats.isFile()) return new Response('Not Found', { status: 404 });
       let contentType = 'application/octet-stream';
       if (pluginPath.endsWith('.js')) contentType = 'application/javascript; charset=utf-8';
       else if (pluginPath.endsWith('.css')) contentType = 'text/css; charset=utf-8';
@@ -460,8 +476,9 @@ app.whenReady().then(async () => {
       else if (pluginPath.endsWith('.png')) contentType = 'image/png';
       else if (pluginPath.endsWith('.jpg') || pluginPath.endsWith('.jpeg')) contentType = 'image/jpeg';
       
-      return new Response(data as any, {
-        headers: { 'content-type': contentType }
+      const body = Readable.toWeb(fs.createReadStream(pluginPath)) as unknown as ReadableStream;
+      return new Response(body, {
+        headers: { 'content-type': contentType, 'content-length': String(stats.size) }
       });
     }).catch(() => new Response('Not Found', { status: 404 }));
     } catch (e: any) {
