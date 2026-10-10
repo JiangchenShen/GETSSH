@@ -8,7 +8,7 @@ import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../..
 import { sshBridge } from './services/SSHBridge';
 import { pluginStorageManager } from './services/PluginStorageManager';
 import { SecureCenter } from './security/SecureCenter';
-import { broadcastToAllWindows, isKnownTopLevelSender } from './windowRegistry';
+import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './windowRegistry';
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
@@ -36,6 +36,31 @@ interface RunningPlugin {
   deactivate?: () => void | Promise<void>;
   listeners?: PluginListener[];
   rpcHandlers?: Map<string, (payload: any) => Promise<any>>;
+}
+
+
+/** Plugins with a dialog on screen: one at a time each, so a plugin cannot stack dialogs. */
+const pluginsWithDialog = new Set<string>();
+
+/**
+ * Shows a dialog a plugin asked for, over the focused window or else the main window, which is
+ * brought back first when it is minimized or hidden. On macOS a dialog for a window that is not
+ * visible runs app-modal and stops the main thread, and the watchdog then kills GETSSH after 65 s.
+ */
+async function showPluginDialog<T>(pluginKey: string, show: (parent: BrowserWindow | null) => Promise<T>): Promise<T> {
+  if (pluginsWithDialog.has(pluginKey)) throw new Error('This plugin already has a dialog open.');
+  pluginsWithDialog.add(pluginKey);
+  try {
+    const windows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
+    const parent = windows.find(window => window.isFocused()) ?? getMainWindow() ?? windows[0] ?? null;
+    if (parent) {
+      if (parent.isMinimized()) parent.restore();
+      if (!parent.isVisible()) parent.show();
+    }
+    return await show(parent);
+  } finally {
+    pluginsWithDialog.delete(pluginKey);
+  }
 }
 
 export class PluginManager {
@@ -152,9 +177,6 @@ export class PluginManager {
       if (caps.includes('ssh:write')) {
         sshContext.write = async (sessionId: string, command: string) => {
           if (!this.approvedSshWriters.has(manifest.name)) {
-            const allWindows = BrowserWindow.getAllWindows();
-            const focusedWindow = allWindows.find(w => w.isFocused()) ?? allWindows[0];
-
             const options = {
               type: 'warning' as const,
               buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '总是允许 (Always Allow)'],
@@ -164,9 +186,8 @@ export class PluginManager {
               detail: `执行内容 (Command snippet): ${command.substring(0, 50)}...`
             };
 
-            const choice = focusedWindow
-              ? await dialog.showMessageBox(focusedWindow, options)
-              : await dialog.showMessageBox(options);
+            const choice = await showPluginDialog(`dev:${manifest.name}`, parent =>
+              parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
 
             if (choice.response === 0) {
               throw new Error(`Permission denied for ssh:write by user`);
@@ -263,32 +284,20 @@ export class PluginManager {
 
       showMessageBox: async (options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showMessageBox() called - type: ${options.type || 'info'}, message: "${options.message}"`);
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(w => w.isFocused()) ?? allWindows[0];
-        if (focusedWindow) {
-          return dialog.showMessageBox(focusedWindow, options);
-        }
-        return dialog.showMessageBox(options);
+        return showPluginDialog(`dev:${manifest.name}`, parent =>
+          parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
       },
 
       showOpenDialog: async (options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showOpenDialog() called - title: "${options.title || '(no title)'}"`);
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(w => w.isFocused()) ?? allWindows[0];
-        if (focusedWindow) {
-          return dialog.showOpenDialog(focusedWindow, options);
-        }
-        return dialog.showOpenDialog(options);
+        return showPluginDialog(`dev:${manifest.name}`, parent =>
+          parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options));
       },
 
       showSaveDialog: async (options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> => {
         console.log(`[Plugin Host API] [${manifest.name}] host.showSaveDialog() called - title: "${options.title || '(no title)'}"`);
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(w => w.isFocused()) ?? allWindows[0];
-        if (focusedWindow) {
-          return dialog.showSaveDialog(focusedWindow, options);
-        }
-        return dialog.showSaveDialog(options);
+        return showPluginDialog(`dev:${manifest.name}`, parent =>
+          parent ? dialog.showSaveDialog(parent, options) : dialog.showSaveDialog(options));
       }
     });
 
@@ -484,8 +493,6 @@ export class PluginManager {
         const sessionId = this.stringArg(args, 0, 'SSH session ID', 256);
         const command = this.stringArg(args, 1, 'SSH command', 1024 * 1024);
         if (!this.approvedSshWriters.has(pluginId)) {
-          const allWindows = BrowserWindow.getAllWindows();
-          const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
           const options = {
             type: 'warning' as const,
             buttons: ['拒绝写入 (Deny)', '仅本次允许 (Allow Once)', '本次运行始终允许 (Allow This Run)'],
@@ -494,9 +501,8 @@ export class PluginManager {
             message: `插件 [${manifest.name}] 正在尝试向终端会话发送命令。`,
             detail: `执行内容 (Command snippet): ${command.substring(0, 200)}`
           };
-          const choice = focusedWindow
-            ? await dialog.showMessageBox(focusedWindow, options)
-            : await dialog.showMessageBox(options);
+          const choice = await showPluginDialog(pluginId, parent =>
+            parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
           if (choice.response === 0) throw new Error('Permission denied for ssh:write by user.');
           if (choice.response === 2) this.approvedSshWriters.add(pluginId);
         }
@@ -531,27 +537,18 @@ export class PluginManager {
       }
       case 'host.showMessageBox': {
         const options = this.objectArg(args, 0, 'Message-box options') as Electron.MessageBoxOptions;
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
-        return focusedWindow
-          ? dialog.showMessageBox(focusedWindow, options)
-          : dialog.showMessageBox(options);
+        return showPluginDialog(pluginId, parent =>
+          parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options));
       }
       case 'host.showOpenDialog': {
         const options = this.objectArg(args, 0, 'Open-dialog options') as Electron.OpenDialogOptions;
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
-        return focusedWindow
-          ? dialog.showOpenDialog(focusedWindow, options)
-          : dialog.showOpenDialog(options);
+        return showPluginDialog(pluginId, parent =>
+          parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options));
       }
       case 'host.showSaveDialog': {
         const options = this.objectArg(args, 0, 'Save-dialog options') as Electron.SaveDialogOptions;
-        const allWindows = BrowserWindow.getAllWindows();
-        const focusedWindow = allWindows.find(window => window.isFocused()) ?? allWindows[0];
-        return focusedWindow
-          ? dialog.showSaveDialog(focusedWindow, options)
-          : dialog.showSaveDialog(options);
+        return showPluginDialog(pluginId, parent =>
+          parent ? dialog.showSaveDialog(parent, options) : dialog.showSaveDialog(options));
       }
       case 'net.fetch': {
         this.requireCapability(manifest, 'net:fetch');
@@ -675,13 +672,18 @@ export class PluginManager {
       }
     });
 
+    // One process per plugin: a start that overlaps another (a reload during the startup scan)
+    // replaces it instead of leaving it running without an entry.
+    if (this.runningPlugins.has(pluginId)) this.cleanupPluginState(pluginId, true);
     this.runningPlugins.set(pluginId, { host, listeners: [], rpcHandlers: new Map() });
     try {
       const registrations = await host.start();
       this.registerIsolatedPlugin(pluginId, host, registrations);
       console.log(`[Plugin Kernel] Plugin '${pluginId}' activated in OS-confined process ${host.pid}.`);
     } catch (error) {
-      this.cleanupPluginState(pluginId, true);
+      // This start's own process, and its state only if a newer start has not replaced it.
+      host.kill();
+      if (this.runningPlugins.get(pluginId)?.host === host) this.cleanupPluginState(pluginId, false);
       throw error;
     }
   }

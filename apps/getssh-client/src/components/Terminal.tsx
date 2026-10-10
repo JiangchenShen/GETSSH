@@ -48,6 +48,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   const configRef = useRef(config);
   const lastSentDimsRef = useRef<{ cols: number; rows: number } | null>(null);
   const [visualBell, setVisualBell] = useState(false);
+  const bellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     configRef.current = config;
@@ -153,11 +154,14 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         ...({ bellStyle: config.bellStyle === 'audible' ? 'sound' : 'none' } as any),
       });
       
+      // One flash at a time: `cat` on a binary file rings the bell thousands of times.
       term.onBell(() => {
-        if (configRef.current.bellStyle === 'visual') {
-          setVisualBell(true);
-          setTimeout(() => setVisualBell(false), 200);
-        }
+        if (configRef.current.bellStyle !== 'visual' || bellTimerRef.current) return;
+        setVisualBell(true);
+        bellTimerRef.current = setTimeout(() => {
+          bellTimerRef.current = null;
+          setVisualBell(false);
+        }, 200);
       });
       
       const fitAddon = new FitAddon();
@@ -369,6 +373,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     return () => {
       cancelled = true;
       clearTimeout(initialFitTimer);
+      if (bellTimerRef.current) clearTimeout(bellTimerRef.current);
+      bellTimerRef.current = null;
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeObserver.disconnect();
       dataDisp.dispose(); // Unbind data listener

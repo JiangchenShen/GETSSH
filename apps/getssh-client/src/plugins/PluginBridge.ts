@@ -34,6 +34,11 @@ const BLOCKED_ACTIONS = new Set([
 const MAX_PANELS_PER_PLUGIN = 16;
 const OPEN_PANEL_INTERVAL_MS = 1000;
 const panelsByPlugin = new Map<string, Set<string>>();
+// Sidebar actions need no capability: a page registering fresh ids in a loop, with large icons,
+// must not fill the main window's memory.
+const MAX_SIDEBAR_ACTIONS_PER_PLUGIN = 8;
+const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
+const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
 
 function handlePluginMessage(event: MessageEvent) {
@@ -60,20 +65,34 @@ function handlePluginMessage(event: MessageEvent) {
   }
 
   switch (action) {
-    case 'registerSidebarAction':
+    case 'registerSidebarAction': {
+      const actionId = typeof payload?.id === 'string' ? payload.id.slice(0, 64) : '';
+      const icon = typeof payload?.icon === 'string' ? payload.icon : '';
+      if (!actionId || icon.length > MAX_SIDEBAR_ICON_LENGTH) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" sent an invalid sidebar action`);
+        break;
+      }
+      const actions = sidebarActionsByPlugin.get(pluginId) ?? new Set<string>();
+      if (!actions.has(actionId) && actions.size >= MAX_SIDEBAR_ACTIONS_PER_PLUGIN) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" already has ${MAX_SIDEBAR_ACTIONS_PER_PLUGIN} sidebar actions; "${actionId}" was not registered`);
+        break;
+      }
+      actions.add(actionId);
+      sidebarActionsByPlugin.set(pluginId, actions);
       usePluginStore.getState().registerSidebarAction({
-        id: `plugin-${pluginId}-${payload.id}`,
-        icon: sanitizeSVG(payload.icon),
-        label: payload.label,
+        id: `plugin-${pluginId}-${actionId}`,
+        icon: sanitizeSVG(icon),
+        label: String(payload.label ?? '').slice(0, 128),
         onClick: () => {
           // Send click event back to the plugin's iframe
           const iframe = document.querySelector(`iframe[data-plugin-id="${pluginId}"]`) as HTMLIFrameElement;
           if (iframe?.contentWindow) {
-            iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId: payload.id }, '*');
+            iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId }, '*');
           }
         }
       });
       break;
+    }
 
     case 'registerPanel': {
       const panels = panelsByPlugin.get(pluginId) ?? new Set<string>();

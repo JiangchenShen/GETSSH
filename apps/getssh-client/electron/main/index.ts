@@ -494,7 +494,13 @@ app.on('before-quit', (e) => {
       message: 'Are you sure you want to quit GETSSH?',
       detail: 'All active SSH terminal connections and running tasks will be disconnected immediately.'
     };
+    // A dialog for a hidden or minimized window would run app-modal on macOS and stop the main
+    // thread (the watchdog kills GETSSH after 65 s): bring the window back first.
     const parent = BrowserWindow.getFocusedWindow() ?? getMainWindow();
+    if (parent && !parent.isDestroyed()) {
+      if (parent.isMinimized()) parent.restore();
+      if (!parent.isVisible()) parent.show();
+    }
     (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options))
       .then(({ response }) => {
         quitPromptOpen = false;

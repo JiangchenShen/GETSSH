@@ -120,6 +120,8 @@ class AppLock {
   private idleTimer: NodeJS.Timeout | null = null;
   private triggersInstalled = false;
   private lockListeners: Array<() => void> = [];
+  /** When the data last opened (ms); the idle lock counts from here at the earliest. */
+  private unlockedAt = 0;
   private settledWaiters: Array<() => void> = [];
 
   private storeState(): AppState | null {
@@ -258,6 +260,7 @@ class AppLock {
       this.setPhase('locked');
       return;
     }
+    this.unlockedAt = Date.now();
     this.setPhase('ready');
     if (this.readyOnce && !this.readyRan) {
       this.readyRan = true;
@@ -368,7 +371,10 @@ class AppLock {
     powerMonitor.on('suspend', () => this.lock('sleep'));
     this.idleTimer = setInterval(() => {
       try {
-        if (powerMonitor.getSystemIdleTime() >= IDLE_LOCK_SECONDS) this.lock('idle');
+        // Touch ID / Windows Hello unlocks without a key press, so the system still counts the
+        // time away as idle: count only the idle time since the last unlock.
+        const sinceUnlock = (Date.now() - this.unlockedAt) / 1000;
+        if (Math.min(powerMonitor.getSystemIdleTime(), sinceUnlock) >= IDLE_LOCK_SECONDS) this.lock('idle');
       } catch (error) {
         console.warn('[AppLock] Idle check failed:', error);
       }
