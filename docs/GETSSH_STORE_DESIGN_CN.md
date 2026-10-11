@@ -417,6 +417,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 
 ## 11. 做存储界面时怎么开工（Codex）
 
+3.0 发布前还剩的界面任务，按优先级列在 [GETSSH_CODEX_TASKS_3.0_CN.md](GETSSH_CODEX_TASKS_3.0_CN.md)（10-11）。
+
 1. **先读**：本文档第 0、4、5、6 节，以及 `rust-core/getssh-store/store.d.ts`。
 2. **在自己的 worktree 里开分支**，不要在 `/Volumes/Developer/GETSSH` 里直接改。`GETSSH-codex` 已经存在时，在里面运行：
 
@@ -434,7 +436,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - `backup`：导出候选列表、一次 Touch ID / Hello 解锁、导出（主进程弹保存对话框）、选择导入文件、检查密码、导入、导入后重启。
    - 已有的通道继续用，不另起新的：工作区密码解锁用 `workspace.unlock`，改主密码用 `security.setMasterPassword`，强制更换主密码看 `appLock.getState()` 里新加的 `masterPasswordMustChange`。
    - 返回值统一是 `{ ok: true, ... }` 或 `{ ok: false, error }`，`error` 的取值写在 `StoreResult` 的注释里。
-   - **开发时**用临时 HOME 和假实现启动：`HOME=$(mktemp -d) GETSSH_FAKE_STORE=1 pnpm run dev`。用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据，用法写在 `store.fake.js` 的文件头部注释里。
+   - **开发时**用临时 HOME 和假实现启动：`HOME=$(mktemp -d) GETSSH_FAKE_STORE=1 pnpm run dev`。10-11 起 Electron 的 userData 也放进临时 HOME，钥匙串用模拟的（`electron/main/devProfile.ts`）；在这之前，macOS 上这条命令仍会读写真实的 `~/Library/Application Support/getssh` 和系统钥匙串。用 `GETSSH_FAKE_STORE_SEED` 等变量准备初始数据，用法写在 `store.fake.js` 的文件头部注释里。
    - **10-03 起主进程已接入 store**，开了 `GETSSH_FAKE_STORE=1` 时整个应用（侧栏、应用锁、`workspace.unlock`、`security.*`）都走假实现：
      - 初始数据里可以设 `masterPassword`，启动后在锁屏输入它；设一个短于 12 个字符的，`masterPasswordMustChange` 就是 `true`；
      - 工作区 id 不必用 `default`，`is_main: true` 的那个就是主工作区。
