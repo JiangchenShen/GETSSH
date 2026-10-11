@@ -4,6 +4,8 @@ import {
   shouldRunPackagedStartupSmoke,
   writePackagedStartupSmokeResult,
 } from './startupSmoke'
+// A fake-store development run keeps userData and the Keychain out of the real profile.
+import './devProfile'
 import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, session, shell } from 'electron'
 import fs from 'node:fs'
 import { join } from 'node:path'
