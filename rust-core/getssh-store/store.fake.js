@@ -1573,6 +1573,79 @@ function getAiSessions(workspaceId) {
   }));
 }
 
+const MAX_AI_SESSION_PAGE = 200;
+const MAX_AI_MESSAGE_PAGE = 1000;
+const MAX_AI_MESSAGE_PAGE_BYTES = 8 * 1024 * 1024;
+const AI_PREVIEW_CHARS = 120;
+
+function pageLimit(limit, max) {
+  return Math.min(Math.max(Math.trunc(finiteNumber(limit, 'limit')), 1), max);
+}
+
+// "<number>:<seq>", like the store's "<number>:<rowid>": opaque, it only comes back to the same function.
+function decodeCursor(cursor) {
+  if (cursor === undefined || cursor === null || cursor === '') return null;
+  if (typeof cursor !== 'string') fail('invalid_argument', 'invalid page cursor');
+  const at = cursor.indexOf(':');
+  const value = at > 0 ? Number(cursor.slice(0, at)) : NaN;
+  const seq = cursor.slice(at + 1);
+  if (!Number.isFinite(value) || !/^-?\d+$/.test(seq)) fail('invalid_argument', 'invalid page cursor');
+  return { value, seq: Number(seq) };
+}
+
+function listAiSessions(workspaceId, limit, cursor) {
+  const max = pageLimit(limit, MAX_AI_SESSION_PAGE);
+  const after = decodeCursor(cursor);
+  const ws = requireOpenWorkspace(workspaceId);
+  const sorted = [...ws.sessions]
+    .sort((a, b) => newestFirst(a, b, 'updated_at'))
+    .filter(s => !after || s.updated_at < after.value || (s.updated_at === after.value && s.seq < after.seq));
+  const page = sorted.slice(0, max);
+  const last = page[page.length - 1];
+  return {
+    sessions: page.map(session => {
+      const messages = ws.messages.filter(m => m.session_id === session.id);
+      const reply = messages.filter(m => m.role === 'assistant').sort((a, b) => a.timestamp - b.timestamp || a.seq - b.seq)[0];
+      const preview = reply ? Array.from(reply.content).slice(0, AI_PREVIEW_CHARS).join('') : '';
+      return {
+        id: session.id,
+        workspace_id: ws.id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        message_count: messages.length,
+        preview: preview || null,
+      };
+    }),
+    next: sorted.length > max ? `${last.updated_at}:${last.seq}` : null,
+  };
+}
+
+function getAiMessages(workspaceId, sessionId, limit, before) {
+  rowId(sessionId, 'session id');
+  const max = pageLimit(limit, MAX_AI_MESSAGE_PAGE);
+  const cursor = decodeCursor(before);
+  const ws = requireOpenWorkspace(workspaceId);
+  if (!ws.sessions.some(session => session.id === sessionId)) fail('not_found', `AI session "${sessionId}" does not exist`);
+  const older = ws.messages
+    .filter(m => m.session_id === sessionId)
+    .sort((a, b) => b.timestamp - a.timestamp || b.seq - a.seq)
+    .filter(m => !cursor || m.timestamp < cursor.value || (m.timestamp === cursor.value && m.seq < cursor.seq));
+  const page = [];
+  let bytes = 0;
+  for (const m of older.slice(0, max)) {
+    const size = Buffer.byteLength(m.content, 'utf8') + Buffer.byteLength(m.raw_content || '', 'utf8');
+    if (page.length && bytes + size > MAX_AI_MESSAGE_PAGE_BYTES) break;
+    bytes += size;
+    page.push(m);
+  }
+  const last = page[page.length - 1];
+  return {
+    messages: page.reverse().map(messageRow),
+    before: older.length > page.length ? `${last.timestamp}:${last.seq}` : null,
+  };
+}
+
 function createAiSession(workspaceId, id, title, timestamp) {
   const ws = requireOpenWorkspace(workspaceId);
   rowId(id, 'session id');
@@ -2199,6 +2272,8 @@ module.exports = {
   getRunbooks,
   saveRunbooks,
   getAiSessions,
+  listAiSessions,
+  getAiMessages,
   createAiSession,
   saveAiMessage,
   updateAiSessionTitle,

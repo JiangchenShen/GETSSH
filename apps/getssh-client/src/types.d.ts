@@ -258,7 +258,10 @@ declare global {
         saveApiKey: (apiKey: string, provider?: string) => Promise<{ success: boolean; error?: string }>;
         deleteApiKey: (provider?: string) => Promise<{ success: boolean; error?: string }>;
         onStreamChunk: (requestId: string, cb: (payload: { chunk: string; isDone: boolean; error?: string }) => void) => () => void;
-        getSessions: () => Promise<{ success: boolean; sessions: any[] }>;
+        /** Chats a page at a time, newest first, without their messages; `next` lists the next page. */
+        listSessions: (limit?: number, cursor?: string | null) => Promise<{ success: boolean; sessions?: any[]; next?: string | null; error?: string }>;
+        /** A chat's newest messages before `before`, oldest first; the reply's `before` reads further back. */
+        getMessages: (sessionId: string, limit?: number, before?: string | null) => Promise<{ success: boolean; messages?: any[]; before?: string | null; error?: string }>;
         createSession: (id: string, title: string, timestamp: number) => Promise<{ success: boolean }>;
         saveMessage: (msg: any) => Promise<{ success: boolean }>;
         deleteSession: (id: string) => Promise<{ success: boolean }>;

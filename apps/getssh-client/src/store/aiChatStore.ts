@@ -30,6 +30,12 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];
+  /** From the chat list: the start of the first reply, shown before the messages are read. */
+  preview?: string;
+  /** false for a chat from the list whose messages are not read yet; they are read when it opens. */
+  messagesLoaded?: boolean;
+  /** Reads the messages before the loaded ones (loadOlderMessages); null when there are none. */
+  olderMessages?: string | null;
 }
 
 interface AiChatState {
@@ -52,35 +58,77 @@ interface AiChatState {
 
   // ── SQLite Async Actions ──────────────────────────────────────────────────
   loadWorkspaceChats: () => Promise<void>;
+  /** Reads the next older page of a chat's messages (when olderMessages is set). */
+  loadOlderMessages: (conversationId: string) => Promise<void>;
 }
+
+const toMessage = (m: any): ChatMessage => ({
+  id: m.id,
+  role: m.role,
+  content: m.content,
+  raw_content: m.raw_content,
+  timestamp: m.timestamp,
+  isStreaming: false,
+  isThinking: false,
+} as ChatMessage);
+
+/** Chats whose messages are being read, so opening one twice reads it once. */
+const loadingMessages = new Set<string>();
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useAiChatStore = create<AiChatState>()(
-  immer((set) => ({
+  immer((set, get) => {
+  /** Reads a page of a chat's messages: the newest when it opens, older ones on request. */
+  const loadMessages = async (conversationId: string, older: boolean) => {
+    const conv = get().conversations.find(c => c.id === conversationId);
+    if (!conv || loadingMessages.has(conversationId)) return;
+    if (older ? !conv.olderMessages : conv.messagesLoaded !== false) return;
+    loadingMessages.add(conversationId);
+    try {
+      const page = await AiBridge.getMessages(conversationId, older ? conv.olderMessages : null);
+      if (!page) return;
+      set(state => {
+        const target = state.conversations.find(c => c.id === conversationId);
+        if (!target) return;
+        const loaded = page.messages.map(toMessage);
+        const ids = new Set(loaded.map(m => m.id));
+        // An older page goes before what is shown; a first page before messages added while it was read.
+        target.messages = [...loaded, ...target.messages.filter(m => !ids.has(m.id))];
+        target.messagesLoaded = true;
+        target.olderMessages = page.before;
+      });
+    } catch (e) {
+      console.error('Failed to load chat messages', e);
+    } finally {
+      loadingMessages.delete(conversationId);
+    }
+  };
+
+  return {
     conversations: [],
     activeConversationId: null,
     view: 'chat',
 
     loadWorkspaceChats: async () => {
       try {
-        const dbSessions = await AiBridge.getSessions();
-        const conversations: Conversation[] = dbSessions.map(s => ({
-          id: s.id,
-          title: s.title,
-          createdAt: s.created_at,
-          updatedAt: s.updated_at,
-          messages: s.messages.map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            raw_content: m.raw_content,
-            timestamp: m.timestamp,
-            isStreaming: false,
-            isThinking: false
-          }))
-        }));
-        
+        const dbSessions = await AiBridge.listSessions();
+        const previous = new Map(get().conversations.map(c => [c.id, c]));
+        const conversations: Conversation[] = dbSessions.map(s => {
+          // A chat already read keeps its messages.
+          const known = previous.get(s.id);
+          return {
+            id: s.id,
+            title: s.title,
+            createdAt: s.created_at,
+            updatedAt: s.updated_at,
+            preview: s.preview ?? undefined,
+            messages: known && known.messagesLoaded !== false ? known.messages : [],
+            messagesLoaded: known ? known.messagesLoaded : false,
+            olderMessages: known?.olderMessages ?? null,
+          };
+        });
+
         set(state => {
           // Merge dbSessions with any locally created sessions that haven't been fetched yet
           const existingIds = new Set(conversations.map(c => c.id));
@@ -93,10 +141,14 @@ export const useAiChatStore = create<AiChatState>()(
             state.activeConversationId = state.conversations.length > 0 ? state.conversations[0].id : null;
           }
         });
+        const active = get().activeConversationId;
+        if (active) void loadMessages(active, false);
       } catch (e) {
         console.error('Failed to load workspace chats', e);
       }
     },
+
+    loadOlderMessages: (conversationId) => loadMessages(conversationId, true),
 
     newConversation: () => {
       const id = `conv-${Date.now()}`;
@@ -127,6 +179,7 @@ export const useAiChatStore = create<AiChatState>()(
         state.activeConversationId = id;
         state.view = 'chat';
       });
+      void loadMessages(id, false);
     },
 
     deleteConversation: (id) => {
@@ -215,5 +268,6 @@ export const useAiChatStore = create<AiChatState>()(
     },
 
     setView: (view) => set(state => { state.view = view; }),
-  }))
+  };
+  })
 );

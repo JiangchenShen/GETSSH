@@ -2,7 +2,8 @@ import type {
   AiMemoryMessage,
   AiMemoryVector,
   AiMessage,
-  AiSession,
+  AiMessagePage,
+  AiSessionPage,
   AssetFolderSnapshot,
   AuditLog,
   Profile,
@@ -293,8 +294,14 @@ export class DatabaseManager {
 
   // --- AI chats ---
 
-  public static getAiSessions(workspaceId: string): AiSession[] {
-    return readOr([], () => getStore().getAiSessions(workspaceId));
+  /** One page of chats, newest first, without their messages; empty while the workspace is locked. */
+  public static listAiSessions(workspaceId: string, limit: number, cursor?: string | null): AiSessionPage {
+    return readOr({ sessions: [], next: null }, () => getStore().listAiSessions(workspaceId, limit, cursor ?? null));
+  }
+
+  /** A chat's newest messages before `before`, oldest first; empty while the workspace is locked. */
+  public static getAiMessages(workspaceId: string, sessionId: string, limit: number, before?: string | null): AiMessagePage {
+    return readOr({ messages: [], before: null }, () => getStore().getAiMessages(workspaceId, sessionId, limit, before ?? null));
   }
 
   public static createAiSession(workspaceId: string, id: string, title: string, timestamp: number): void {

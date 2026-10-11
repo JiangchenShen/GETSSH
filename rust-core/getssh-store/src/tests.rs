@@ -832,6 +832,77 @@ fn ai_sessions_keep_their_messages_in_order() {
 }
 
 #[test]
+fn ai_sessions_and_messages_come_in_pages() {
+    use crate::records::MAX_AI_MESSAGE_PAGE_BYTES;
+    let env = Env::new();
+    let store = env.started();
+    for (id, at) in [("s0", 100.0), ("s1", 200.0), ("s2", 300.0), ("t1", 300.0), ("s3", 400.0)] {
+        store.create_ai_session("default", id, &format!("Chat {id}"), at).unwrap();
+    }
+    let reply = crate::records::AiMessage { content: "é".repeat(200), ..message("r1", "s1", "assistant", 210.0) };
+    store.save_ai_message("default", &message("u1", "s1", "user", 205.0)).unwrap();
+    store.save_ai_message("default", &reply).unwrap();
+    // s1 moved to 210: s3, s2 and t1 (same time, t1 created later comes first), s1, s0.
+    let ids = |page: &crate::records::AiSessionPage| page.sessions.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+    let first = store.list_ai_sessions("default", 2.0, None).unwrap();
+    assert_eq!(ids(&first), ["s3", "t1"]);
+    let second = store.list_ai_sessions("default", 2.0, first.next.as_deref()).unwrap();
+    assert_eq!(ids(&second), ["s2", "s1"]);
+    let last = store.list_ai_sessions("default", 2.0, second.next.as_deref()).unwrap();
+    assert_eq!((ids(&last), last.next), (vec!["s0".to_string()], None));
+    let s1 = &second.sessions[1];
+    assert_eq!((s1.message_count, s1.updated_at, s1.title.as_str()), (2, 210.0, "Chat s1"));
+    assert_eq!(s1.preview.as_deref(), Some("é".repeat(120).as_str()), "the start of the first reply, in characters");
+    assert_eq!(second.sessions[0].preview, None);
+    assert_eq!(store.list_ai_sessions("default", 0.0, None).unwrap().sessions.len(), 1, "the limit is at least 1");
+    assert_eq!(store.list_ai_sessions("default", 1e9, None).unwrap().sessions.len(), 5);
+    assert_eq!(store.list_ai_sessions("default", 5.0, None).unwrap().next, None, "a page that ends with the last chat has no next");
+    for bad in ["", "x", "1:", ":1", "NaN:1", "inf:1", "1:2:3"] {
+        let result = store.list_ai_sessions("default", 2.0, Some(bad));
+        if bad.is_empty() {
+            assert_eq!(result.unwrap().sessions.len(), 2, "an empty cursor is the first page");
+        } else {
+            assert_eq!(result.err().unwrap().code, Code::InvalidArgument, "{bad}");
+        }
+    }
+    assert_eq!(store.list_ai_sessions("default", f64::NAN, None).err().unwrap().code, Code::InvalidArgument);
+
+    // Messages: the newest first page, read backwards; equal timestamps keep their saved order.
+    for (id, at) in [("m0", 10.0), ("m1", 20.0), ("m2", 30.0), ("m3", 30.0), ("m4", 40.0)] {
+        store.save_ai_message("default", &message(id, "s0", "user", at)).unwrap();
+    }
+    let ids = |page: &crate::records::AiMessagePage| page.messages.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+    let newest = store.get_ai_messages("default", "s0", 2.0, None).unwrap();
+    assert_eq!(ids(&newest), ["m3", "m4"]);
+    let older = store.get_ai_messages("default", "s0", 2.0, newest.before.as_deref()).unwrap();
+    assert_eq!(ids(&older), ["m1", "m2"]);
+    let oldest = store.get_ai_messages("default", "s0", 2.0, older.before.as_deref()).unwrap();
+    assert_eq!((ids(&oldest), oldest.before), (vec!["m0".to_string()], None));
+    let whole = store.get_ai_messages("default", "s0", 1000.0, None).unwrap();
+    assert_eq!((ids(&whole).len(), whole.before), (5, None));
+    assert_eq!(store.get_ai_messages("default", "s0", 5.0, None).unwrap().before, None, "nothing before the first message");
+    assert_eq!(whole.messages[0], message("m0", "s0", "user", 10.0));
+    assert_eq!(store.get_ai_messages("default", "nope", 2.0, None).err().unwrap().code, Code::NotFound);
+    assert_eq!(store.get_ai_messages("default", "", 2.0, None).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.get_ai_messages("default", "s0", 2.0, Some("bad")).err().unwrap().code, Code::InvalidArgument);
+
+    // Long messages: a page stops at the byte budget, but always holds one message.
+    let big = (MAX_AI_MESSAGE_PAGE_BYTES / 3) as usize;
+    for (n, at) in [(0, 1.0), (1, 2.0), (2, 3.0)] {
+        let long = crate::records::AiMessage { content: "x".repeat(big), raw_content: Some("y".repeat(16)), ..message(&format!("b{n}"), "s2", "assistant", at) };
+        store.save_ai_message("default", &long).unwrap();
+    }
+    let huge = crate::records::AiMessage { content: "z".repeat(MAX_AI_MESSAGE_PAGE_BYTES as usize + 1), ..message("b3", "s2", "assistant", 4.0) };
+    store.save_ai_message("default", &huge).unwrap();
+    let page = store.get_ai_messages("default", "s2", 10.0, None).unwrap();
+    assert_eq!(ids(&page), ["b3"], "one message over the budget comes alone");
+    let page = store.get_ai_messages("default", "s2", 10.0, page.before.as_deref()).unwrap();
+    assert_eq!(ids(&page), ["b1", "b2"], "a third would pass the budget");
+    let page = store.get_ai_messages("default", "s2", 10.0, page.before.as_deref()).unwrap();
+    assert_eq!((ids(&page), page.before), (vec!["b0".to_string()], None));
+}
+
+#[test]
 fn ai_memory_reads_back_newest_first_and_only_for_open_workspaces() {
     use crate::records::AiMemoryVector;
     let env = Env::new();

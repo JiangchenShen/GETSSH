@@ -229,7 +229,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(`ai-agent-global-action`, listener);
       return () => ipcRenderer.removeListener(`ai-agent-global-action`, listener);
     },
-    getSessions: () => ipcRenderer.invoke('ai-get-sessions'),
+    listSessions: (limit?: number, cursor?: string | null) => ipcRenderer.invoke('ai-list-sessions', limit, cursor),
+    getMessages: (sessionId: string, limit?: number, before?: string | null) => ipcRenderer.invoke('ai-get-messages', sessionId, limit, before),
     createSession: (id: string, title: string, timestamp: number) => ipcRenderer.invoke('ai-create-session', id, title, timestamp),
     saveMessage: (msg: any) => ipcRenderer.invoke('ai-save-message', msg),
     deleteSession: (id: string) => ipcRenderer.invoke('ai-delete-session', id),

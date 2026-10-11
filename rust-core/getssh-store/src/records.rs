@@ -16,6 +16,13 @@ const MAX_ROW_ID_UNITS: usize = 256;
 const MAX_MEMORY_ROWS: f64 = 2000.0;
 const MAX_MEMORY_IDS: usize = 32;
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
+/// listAiSessions / getAiMessages: the most a page holds.
+pub const MAX_AI_SESSION_PAGE: f64 = 200.0;
+pub const MAX_AI_MESSAGE_PAGE: f64 = 1000.0;
+/// Message text (content plus raw_content, in UTF-8) in one page. A page has at least one message.
+pub const MAX_AI_MESSAGE_PAGE_BYTES: i64 = 8 * 1024 * 1024;
+/// Characters of the first reply in a chat's summary.
+const AI_PREVIEW_CHARS: i64 = 120;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Runbook {
@@ -54,6 +61,34 @@ pub struct AiSession {
     pub created_at: f64,
     pub updated_at: f64,
     pub messages: Vec<AiMessage>,
+}
+
+/// A chat in the list, without its messages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiSessionSummary {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub created_at: f64,
+    pub updated_at: f64,
+    pub message_count: u32,
+    /// The start of the first assistant message.
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiSessionPage {
+    pub sessions: Vec<AiSessionSummary>,
+    /// Passed back to list the next, older page; None after the last one.
+    pub next: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiMessagePage {
+    /// Oldest first.
+    pub messages: Vec<AiMessage>,
+    /// Passed back to read the messages before these; None when there are none.
+    pub before: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +141,27 @@ fn finite(value: f64, what: &str) -> StoreResult<f64> {
 /// 1 to 2000 rows, as DatabaseManager bounded them.
 fn bounded_limit(limit: f64) -> StoreResult<i64> {
     Ok(finite(limit, "limit")?.trunc().clamp(1.0, MAX_MEMORY_ROWS) as i64)
+}
+
+fn page_limit(limit: f64, max: f64) -> StoreResult<i64> {
+    Ok(finite(limit, "limit")?.trunc().clamp(1.0, max) as i64)
+}
+
+/// A position in a list ordered by a number and then rowid, both descending: "<number>:<rowid>".
+/// Opaque to callers; it only has to come back to the same function.
+fn encode_cursor(value: f64, rowid: i64) -> String {
+    format!("{value}:{rowid}")
+}
+
+fn decode_cursor(cursor: &str) -> StoreResult<(Value, i64)> {
+    let bad = || StoreError::invalid("invalid page cursor");
+    let (value, rowid) = cursor.split_once(':').ok_or_else(bad)?;
+    let value: f64 = value.parse().map_err(|_| bad())?;
+    let rowid: i64 = rowid.parse().map_err(|_| bad())?;
+    if !value.is_finite() {
+        return Err(bad());
+    }
+    Ok((number(value), rowid))
 }
 
 /// JavaScript numbers: whole ones are stored as INTEGER, the rest as REAL (as better-sqlite3 did).
@@ -237,6 +293,118 @@ impl<D: Device> Store<D> {
                 out.push(session);
             }
             Ok(out)
+        })
+    }
+
+    /// One page of chats, most recently updated first, without their messages.
+    pub fn list_ai_sessions(&self, workspace_id: &str, limit: f64, cursor: Option<&str>) -> StoreResult<AiSessionPage> {
+        let limit = page_limit(limit, MAX_AI_SESSION_PAGE)?;
+        let after = cursor.filter(|c| !c.is_empty()).map(decode_cursor).transpose()?;
+        self.with_workspace(workspace_id, |conn| {
+            let (filter, mut params): (&str, Vec<Value>) = match after {
+                Some((updated_at, rowid)) => (
+                    "AND (s.updated_at < ? OR (s.updated_at = ? AND s.rowid < ?))",
+                    vec![workspace_id.into(), updated_at.clone(), updated_at, rowid.into()],
+                ),
+                None => ("", vec![workspace_id.into()]),
+            };
+            params.push((limit + 1).into());
+            let mut rows = conn.query_map(
+                &format!(
+                    "SELECT s.rowid, s.id, s.workspace_id, s.title, s.created_at, s.updated_at, \
+                       (SELECT COUNT(*) FROM ai_messages m WHERE m.session_id = s.id), \
+                       (SELECT substr(m.content, 1, {AI_PREVIEW_CHARS}) FROM ai_messages m WHERE m.session_id = s.id AND m.role = 'assistant' \
+                          ORDER BY m.timestamp ASC, m.rowid ASC LIMIT 1) \
+                     FROM ai_sessions s WHERE s.workspace_id = ? {filter} ORDER BY s.updated_at DESC, s.rowid DESC LIMIT ?"
+                ),
+                &params,
+                |r| {
+                    Ok((
+                        r.integer(0)?,
+                        AiSessionSummary {
+                            id: r.text(1)?.unwrap_or_default(),
+                            workspace_id: r.text(2)?.unwrap_or_default(),
+                            title: r.text(3)?.unwrap_or_default(),
+                            created_at: read_number(r, 4)?,
+                            updated_at: read_number(r, 5)?,
+                            message_count: u32::try_from(r.integer(6)?).unwrap_or(u32::MAX),
+                            preview: r.text(7)?.filter(|v| !v.is_empty()),
+                        },
+                    ))
+                },
+            )?;
+            let more = rows.len() as i64 > limit;
+            rows.truncate(limit as usize);
+            let next = if more { rows.last().map(|(rowid, s)| encode_cursor(s.updated_at, *rowid)) } else { None };
+            Ok(AiSessionPage { sessions: rows.into_iter().map(|(_, s)| s).collect(), next })
+        })
+    }
+
+    /// The newest messages of a chat before `before` (from the end when None), oldest first. A page
+    /// stops at `limit` messages or MAX_AI_MESSAGE_PAGE_BYTES of text, whichever comes first.
+    pub fn get_ai_messages(&self, workspace_id: &str, session_id: &str, limit: f64, before: Option<&str>) -> StoreResult<AiMessagePage> {
+        check_row_id(session_id, "session id")?;
+        let limit = page_limit(limit, MAX_AI_MESSAGE_PAGE)?;
+        let before = before.filter(|c| !c.is_empty()).map(decode_cursor).transpose()?;
+        self.with_workspace(workspace_id, |conn| {
+            let session = conn.query_optional(
+                "SELECT 1 FROM ai_sessions WHERE id = ? AND workspace_id = ?",
+                &[session_id.into(), workspace_id.into()],
+                |_| Ok(()),
+            )?;
+            if session.is_none() {
+                return Err(StoreError::not_found(format!("AI session {session_id} does not exist")));
+            }
+            let (filter, mut params): (&str, Vec<Value>) = match before {
+                Some((timestamp, rowid)) => (
+                    "AND (timestamp < ? OR (timestamp = ? AND rowid < ?))",
+                    vec![session_id.into(), timestamp.clone(), timestamp, rowid.into()],
+                ),
+                None => ("", vec![session_id.into()]),
+            };
+            let order = "ORDER BY timestamp DESC, rowid DESC LIMIT ?";
+            // Sizes first, so a page of long messages is never read whole before it is cut.
+            let mut size_params = params.clone();
+            size_params.push((limit + 1).into());
+            let sizes = conn.query_map(
+                &format!(
+                    "SELECT length(CAST(content AS BLOB)) + ifnull(length(CAST(raw_content AS BLOB)), 0) \
+                     FROM ai_messages WHERE session_id = ? {filter} {order}"
+                ),
+                &size_params,
+                |r| r.integer(0),
+            )?;
+            let mut take = 0i64;
+            let mut bytes = 0i64;
+            for size in sizes.iter().take(limit as usize) {
+                if take > 0 && bytes + size > MAX_AI_MESSAGE_PAGE_BYTES {
+                    break;
+                }
+                bytes += size;
+                take += 1;
+            }
+            let more = (sizes.len() as i64) > take;
+            params.push(take.into());
+            let mut rows = conn.query_map(
+                &format!("SELECT rowid, {MESSAGE_COLUMNS} FROM ai_messages WHERE session_id = ? {filter} {order}"),
+                &params,
+                |r| {
+                    Ok((
+                        r.integer(0)?,
+                        AiMessage {
+                            id: r.text(1)?.unwrap_or_default(),
+                            session_id: r.text(2)?.unwrap_or_default(),
+                            role: r.text(3)?.unwrap_or_default(),
+                            content: r.text(4)?.unwrap_or_default(),
+                            raw_content: r.text(5)?.filter(|v| !v.is_empty()),
+                            timestamp: read_number(r, 6)?,
+                        },
+                    ))
+                },
+            )?;
+            let before = if more { rows.last().map(|(rowid, m)| encode_cursor(m.timestamp, *rowid)) } else { None };
+            rows.reverse();
+            Ok(AiMessagePage { messages: rows.into_iter().map(|(_, m)| m).collect(), before })
         })
     }
 

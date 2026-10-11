@@ -19,7 +19,8 @@ use crate::folders::FolderSnapshot;
 use crate::legacy::LegacySecrets as RsLegacySecrets;
 use crate::profiles::{Profile as RsProfile, ProfileInput as RsProfileInput, SecretField, SecretUpdate};
 use crate::records::{
-    AiMemoryMessage as RsAiMemoryMessage, AiMemoryVector as RsAiMemoryVector, AiMessage as RsAiMessage, AiSession as RsAiSession,
+    AiMemoryMessage as RsAiMemoryMessage, AiMemoryVector as RsAiMemoryVector, AiMessage as RsAiMessage, AiMessagePage as RsAiMessagePage, AiSession as RsAiSession,
+    AiSessionPage as RsAiSessionPage,
     AuditLog as RsAuditLog, Runbook as RsRunbook, RunbookInput as RsRunbookInput,
 };
 use crate::store::{AppStateInfo, Store, UnlockRoute, WorkspaceChanges, WorkspaceInfo};
@@ -784,6 +785,73 @@ impl From<RsAiSession> for AiSession {
 #[napi]
 pub fn get_ai_sessions(workspace_id: String) -> napi::Result<Vec<AiSession>> {
     sync(|s| Ok(s.get_ai_sessions(&workspace_id)?.into_iter().map(Into::into).collect()))
+}
+
+/// A chat in the list, without its messages.
+#[napi(object, use_nullable = true)]
+pub struct AiSessionSummary {
+    pub id: String,
+    #[napi(js_name = "workspace_id")]
+    pub workspace_id: String,
+    pub title: String,
+    #[napi(js_name = "created_at")]
+    pub created_at: f64,
+    #[napi(js_name = "updated_at")]
+    pub updated_at: f64,
+    #[napi(js_name = "message_count")]
+    pub message_count: u32,
+    pub preview: Option<String>,
+}
+
+#[napi(object, use_nullable = true)]
+pub struct AiSessionPage {
+    pub sessions: Vec<AiSessionSummary>,
+    pub next: Option<String>,
+}
+
+impl From<RsAiSessionPage> for AiSessionPage {
+    fn from(p: RsAiSessionPage) -> Self {
+        AiSessionPage {
+            sessions: p
+                .sessions
+                .into_iter()
+                .map(|s| AiSessionSummary {
+                    id: s.id,
+                    workspace_id: s.workspace_id,
+                    title: s.title,
+                    created_at: s.created_at,
+                    updated_at: s.updated_at,
+                    message_count: s.message_count,
+                    preview: s.preview,
+                })
+                .collect(),
+            next: p.next,
+        }
+    }
+}
+
+#[napi(object, use_nullable = true)]
+pub struct AiMessagePage {
+    pub messages: Vec<AiMessage>,
+    pub before: Option<String>,
+}
+
+impl From<RsAiMessagePage> for AiMessagePage {
+    fn from(p: RsAiMessagePage) -> Self {
+        AiMessagePage { messages: p.messages.into_iter().map(Into::into).collect(), before: p.before }
+    }
+}
+
+#[napi(ts_args_type = "workspaceId: string, limit: number, cursor?: string | null")]
+pub fn list_ai_sessions(workspace_id: String, limit: f64, cursor: Option<Either<String, Null>>) -> napi::Result<AiSessionPage> {
+    let cursor = nullable(cursor);
+    sync(|s| Ok(s.list_ai_sessions(&workspace_id, limit, cursor.as_deref())?.into()))
+}
+
+#[napi(ts_args_type = "workspaceId: string, sessionId: string, limit: number, before?: string | null")]
+pub fn get_ai_messages(workspace_id: String, session_id: String, limit: f64, before: Option<Either<String, Null>>) -> napi::Result<AiMessagePage> {
+    let before = nullable(before);
+    sync(|s| Ok(s.get_ai_messages(&workspace_id, &session_id, limit, before.as_deref())?.into()))
 }
 
 #[napi]

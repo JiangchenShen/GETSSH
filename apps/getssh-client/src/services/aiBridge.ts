@@ -46,6 +46,12 @@ export interface AiResponse {
  * The pure data pipeline connecting the React Frontend with the Main Process Ocean Sentinel.
  * Strictly decoupled from any UI components.
  */
+/** Chats per page of the list, and the most the list holds. A chat in the list has no messages yet. */
+const CHAT_PAGE = 200;
+const MAX_LISTED_CHATS = 2000;
+/** Messages read when a chat is opened, and per "earlier messages" page. */
+const MESSAGE_PAGE = 200;
+
 export class AiBridge {
   /**
    * Invokes the privileged AI gateway.
@@ -155,10 +161,25 @@ export class AiBridge {
   }
 
   // ── SQLite Persistence ──────────────────────────────────────────────────
-  static async getSessions(): Promise<any[]> {
+  /** Every chat of the workspace without its messages, a page at a time, up to MAX_LISTED_CHATS. */
+  static async listSessions(): Promise<any[]> {
     if (!window.electronAPI || !window.electronAPI.ai) return [];
-    const res = await window.electronAPI.ai.getSessions();
-    return res.success ? res.sessions : [];
+    const sessions: any[] = [];
+    let cursor: string | null = null;
+    do {
+      const res = await window.electronAPI.ai.listSessions(CHAT_PAGE, cursor);
+      if (!res.success) break;
+      sessions.push(...(res.sessions ?? []));
+      cursor = res.next ?? null;
+    } while (cursor && sessions.length < MAX_LISTED_CHATS);
+    return sessions;
+  }
+
+  /** The newest messages of a chat before `before` (from the end when null), oldest first. */
+  static async getMessages(sessionId: string, before: string | null = null): Promise<{ messages: any[]; before: string | null } | null> {
+    if (!window.electronAPI || !window.electronAPI.ai) return null;
+    const res = await window.electronAPI.ai.getMessages(sessionId, MESSAGE_PAGE, before);
+    return res.success ? { messages: res.messages ?? [], before: res.before ?? null } : null;
   }
 
   static async createSession(id: string, title: string, timestamp: number): Promise<boolean> {

@@ -313,12 +313,24 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
   // =====================================================================
   // 【4】 SQLite 聊天持久化接口 (Persistent Chat Storage)
   // =====================================================================
-  ipcMain.handle('ai-get-sessions', async (event: IpcMainInvokeEvent) => {
+  // Chats a page at a time (the store caps a page), and a chat's messages from the newest back.
+  ipcMain.handle('ai-list-sessions', async (event: IpcMainInvokeEvent, limit?: unknown, cursor?: unknown) => {
     try {
-      const sessions = ChatStorageManager.getSessions();
-      return { success: true, sessions };
+      const page = ChatStorageManager.listSessions(typeof limit === 'number' ? limit : 100, typeof cursor === 'string' ? cursor : null);
+      return { success: true, ...page };
     } catch (e: any) {
-      console.error('[AI Storage] Error getting sessions:', e);
+      console.error('[AI Storage] Error listing sessions:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('ai-get-messages', async (event: IpcMainInvokeEvent, sessionId: unknown, limit?: unknown, before?: unknown) => {
+    try {
+      if (typeof sessionId !== 'string') throw new Error('sessionId must be a string');
+      const page = ChatStorageManager.getMessages(sessionId, typeof limit === 'number' ? limit : 200, typeof before === 'string' ? before : null);
+      return { success: true, ...page };
+    } catch (e: any) {
+      console.error('[AI Storage] Error getting messages:', e);
       return { success: false, error: e.message };
     }
   });

@@ -37,7 +37,8 @@ export const HistoryView: React.FC = () => {
     <ul aria-label={copy('对话历史', 'Conversation history')} className="min-h-0 flex-1 divide-y divide-line-soft overflow-y-auto px-5 py-2">
       {conversations.map(conversation => {
         const isActive = conversation.id === activeConversationId;
-        const preview = conversation.messages.find(message => message.role === 'assistant')?.content?.slice(0, 60) || copy('暂无回复', 'No reply yet');
+        // A chat whose messages are not read yet shows the start of its first reply from the chat list.
+        const preview = (conversation.messages.find(message => message.role === 'assistant')?.content ?? conversation.preview)?.slice(0, 60) || copy('暂无回复', 'No reply yet');
         return <li key={conversation.id} className="flex items-center gap-2 py-1">
           <button type="button" onClick={() => setActiveConversation(conversation.id)} aria-pressed={isActive}
             className={`flex min-h-16 min-w-0 flex-1 items-start gap-3 rounded-md px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${isActive ? 'bg-primary/10' : 'hover:bg-surf-2'}`}>

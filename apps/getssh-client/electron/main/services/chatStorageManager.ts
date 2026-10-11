@@ -1,3 +1,4 @@
+import type { AiMessagePage, AiSessionPage } from '../../../../../rust-core/getssh-store/store';
 import { DatabaseManager } from './DatabaseManager';
 import { LocalMemoryService } from './LocalMemoryService';
 
@@ -28,10 +29,19 @@ export class ChatStorageManager {
     return this.currentWorkspaceId;
   }
 
-  public static getSessions(): (ChatSession & { messages: ChatMessage[] })[] {
-    if (!this.currentWorkspaceId) return [];
-    // Only user and assistant messages are ever saved through saveMessage().
-    return DatabaseManager.getAiSessions(this.currentWorkspaceId) as unknown as (ChatSession & { messages: ChatMessage[] })[];
+  /**
+   * Chats a page at a time, without their messages: loading every chat with every message at once
+   * held the whole history in memory twice and sent it to the window in one message.
+   */
+  public static listSessions(limit: number, cursor?: string | null): AiSessionPage {
+    if (!this.currentWorkspaceId) return { sessions: [], next: null };
+    return DatabaseManager.listAiSessions(this.currentWorkspaceId, limit, cursor);
+  }
+
+  /** Only user and assistant messages are ever saved through saveMessage(). */
+  public static getMessages(sessionId: string, limit: number, before?: string | null): AiMessagePage {
+    if (!this.currentWorkspaceId) return { messages: [], before: null };
+    return DatabaseManager.getAiMessages(this.currentWorkspaceId, sessionId, limit, before);
   }
 
   public static createSession(id: string, title: string, timestamp: number) {

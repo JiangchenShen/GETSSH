@@ -256,6 +256,19 @@ export function saveRunbooks(workspaceId: string, runbooks: Omit<Runbook, 'works
 export interface AiMessage { id: string; session_id: string; role: string; content: string; raw_content: string | null; timestamp: number }
 export interface AiSession { id: string; workspace_id: string; title: string; created_at: number; updated_at: number; messages: AiMessage[] }
 export function getAiSessions(workspaceId: string): AiSession[];
+/** A chat in the list, without its messages. `preview` is the start of the first assistant message. */
+export interface AiSessionSummary { id: string; workspace_id: string; title: string; created_at: number; updated_at: number; message_count: number; preview: string | null }
+/** `next` lists the following, older page; null after the last one. Cursors are opaque. */
+export interface AiSessionPage { sessions: AiSessionSummary[]; next: string | null }
+/** Oldest first. `before` reads the messages before these; null when there are none. */
+export interface AiMessagePage { messages: AiMessage[]; before: string | null }
+/** Chats, most recently updated first: at most `limit` (1-200) a page. */
+export function listAiSessions(workspaceId: string, limit: number, cursor?: string | null): AiSessionPage;
+/**
+ * A chat's newest messages before `before` (from the end when null): at most `limit` (1-1000), and
+ * at most 8 MiB of text unless one message alone is larger. not_found for a chat that does not exist.
+ */
+export function getAiMessages(workspaceId: string, sessionId: string, limit: number, before?: string | null): AiMessagePage;
 export function createAiSession(workspaceId: string, id: string, title: string, timestamp: number): void;
 export function saveAiMessage(workspaceId: string, message: AiMessage): void;
 export function updateAiSessionTitle(workspaceId: string, id: string, title: string): void;
