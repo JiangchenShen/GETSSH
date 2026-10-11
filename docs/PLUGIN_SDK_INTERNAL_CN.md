@@ -295,7 +295,7 @@ type StructuredData =
   | { [key: string]: StructuredData };
 ```
 
-### 6.1 通知与系统加密
+### 6.1 通知与旧的加密接口
 
 ```typescript
 interface MainContextAPI {
@@ -313,7 +313,7 @@ interface MainContextAPI {
 
 `showNotification()` 是兼容别名，新插件建议使用 `host.notify()`。`type` 当前用于表达调用意图，桌面通知的最终外观由操作系统决定。
 
-`safeStorageEncrypt()` 使用 Electron 的操作系统安全存储加密字符串，返回 base64 密文。它是异步函数，必须 `await`。当前 SDK 没有向插件开放对应的解密函数，因此不要把它误当成完整的插件密码仓库。
+`safeStorageEncrypt()` 已弃用，请改用 `context.secrets`（6.3）。它用 Electron 的操作系统安全存储加密字符串，返回 base64 密文，但没有任何接口能把密文解开；在 macOS 上它还可能弹出钥匙串授权。旧插件调用它仍然可用，必须 `await`。
 
 ### 6.2 插件 KV 存储
 
@@ -336,7 +336,37 @@ const cache = await context.storage.get('cache');
 await context.storage.delete('cache');
 ```
 
-### 6.3 前后端 RPC
+### 6.3 插件秘密：`context.secrets`
+
+```typescript
+interface PluginSecretsAPI {
+  get(name: string): Promise<string | undefined>;
+  set(name: string, value: string): Promise<void>;
+  delete(name: string): Promise<void>;
+}
+```
+
+保存令牌、密码这类不能明文落盘的值。秘密加密后存放在 GETSSH 的数据库里：
+
+- 用户设了主密码，秘密也受主密码保护；
+- 导出数据时会一起带走；
+- 不分工作区，切换工作区读到的仍是同一份；
+- 卸载插件时一并删除。
+
+规则：
+
+- `name` 使用与 RPC 方法名相同的安全字符规则。
+- `value` 必须是字符串，UTF-8 编码后不超过 64 KiB；一个插件最多保存 64 个秘密。
+- GETSSH 锁定期间，三个方法都会失败，错误信息里带有 `locked`。解锁后再试。
+- 秘密只能由插件自己的后端读取，界面和其他插件都拿不到。
+
+```javascript
+await context.secrets.set('apiToken', token);
+const token = await context.secrets.get('apiToken');
+await context.secrets.delete('apiToken');
+```
+
+### 6.4 前后端 RPC
 
 ```typescript
 interface PluginRpcAPI {
@@ -371,7 +401,7 @@ window.GETSSH.onBackendMessage((event) => {
 
 一次调用的 payload 和返回值都必须是结构化数据，编码后不超过 2 MiB，嵌套深度不超过 24 层。调用超时为 15 秒。大量数据应分页传输，不要把文件内容塞进一次 RPC。
 
-### 6.4 设置 Schema
+### 6.5 设置 Schema
 
 ```typescript
 interface PluginSettingsField {
@@ -394,7 +424,10 @@ interface PluginSettingsAPI {
 - `label` 长度为 1-256；`description` 最长 4096 个字符。
 - 用户保存设置后，GETSSH 以字段 `id` 为键写入插件 KV 存储，然后重新加载插件。
 - 插件通过 `context.storage.get(field.id)` 读取设置。
-- `password` 只控制输入框遮罩。不要把它理解为一项额外的加密保证。
+- `password` 类型的值不写进插件 KV 存储，而是像 `context.secrets` 一样加密存放；插件仍用 `context.storage.get(field.id)` 读取，用 `context.storage.set(field.id, text)` 修改。它和其他设置一样跟着当前工作区走。
+- 设置页不会把已保存的密码显示出来，只提示"已保存"；输入框留空表示不修改。
+- 旧版本存进 KV 存储的密码，在第一次读取时自动移过去。
+- GETSSH 锁定期间读取 `password` 设置会失败，不会返回 `undefined`。
 
 ```javascript
 context.ui.registerSettings([
@@ -407,7 +440,7 @@ context.ui.registerSettings([
 const enabled = (await context.storage.get('enabled')) ?? true;
 ```
 
-### 6.5 终端与 SFTP 右键菜单
+### 6.6 终端与 SFTP 右键菜单
 
 ```typescript
 interface PluginContextMenuAPI {
@@ -446,7 +479,7 @@ context.ui.registerSFTPContextMenu(
 
 上例还需要声明 `host:clipboard`。
 
-### 6.6 SSH 数据与写入
+### 6.7 SSH 数据与写入
 
 ```typescript
 interface PluginSshAPI {
@@ -481,7 +514,7 @@ context.ui.registerTerminalContextMenu(
 
 只有在 Manifest 声明了对应能力时才调用这些方法。
 
-### 6.7 剪贴板与原生对话框
+### 6.8 剪贴板与原生对话框
 
 ```typescript
 interface PluginHostAPI {
@@ -517,7 +550,7 @@ interface PluginHostAPI {
 
 文件对话框只返回用户选择的路径。普通/严格模式下，这个路径不会自动获得文件读取或写入授权；隔离插件仍不能用 `fs` 打开宿主文件。需要文件内容时，应等待 GETSSH 提供专门的受控文件 API。
 
-### 6.8 公网请求：`context.net.fetch`
+### 6.9 公网请求：`context.net.fetch`
 
 Manifest 必须声明 `net:fetch`：
 
@@ -665,6 +698,7 @@ window.addEventListener('message', (event) => {
 | 终端菜单项 | 128 个 |
 | SFTP 菜单项 | 128 个 |
 | 设置字段 | 1-256 个 |
+| 插件秘密 | 64 个，每个 64 KiB，合计 1 MiB（含 `password` 设置） |
 | 隔离插件发往宿主的调用 | 250 次/秒 |
 | 隔离进程协议消息 | 500 条/秒、16 MiB/秒 |
 | 后端日志采集 | 每次运行最多 64 KiB |
@@ -734,7 +768,7 @@ Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -For
 | 后端运行在主进程 `vm.Script` | 普通/严格模式运行在独立的操作系统沙盒进程 |
 | `getssh.type: "hybrid"` | 省略 `getssh.type`，用 `renderer` + 后端 `main` 组成 UI + 后端插件 |
 | `getssh.pluginId` 是运行时身份 | `name` 是运行时身份；`pluginId` 当前只是元数据 |
-| `safeStorageEncrypt()` 同步返回 | `await context.safeStorageEncrypt()` |
+| `safeStorageEncrypt()` 保存令牌 | `await context.secrets.set(name, value)`；`safeStorageEncrypt()` 已弃用 |
 | `ssh.onData()` 不需要清理 | 保存并调用它返回的取消订阅函数 |
 | `ssh.write()` 同步调用 | `await context.ssh.write()` |
 | `pluginRpcInvoke()` | 页面调用 `window.GETSSH.invokeBackend()` |

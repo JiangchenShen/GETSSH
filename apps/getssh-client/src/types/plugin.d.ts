@@ -34,6 +34,10 @@ export interface PluginSettingsSchema {
 
 export interface MainContextAPI {
   showNotification: (title: string, body: string) => void;
+  /**
+   * @deprecated Use `secrets`. Encrypts with the operating system's safe storage and returns
+   * base64 that nothing can decrypt again; on macOS it may ask for Keychain access.
+   */
   safeStorageEncrypt: (text: string) => Promise<string>;
   onSSHSessionConnect?: (callback: (sessionId: string, host: string) => void) => void;
   ssh?: {
@@ -45,6 +49,16 @@ export interface MainContextAPI {
     get: (key: string) => Promise<any>;
     delete: (key: string) => Promise<void>;
     clear: () => Promise<void>;
+  };
+  /**
+   * The plugin's own secrets (tokens, passwords), encrypted in GETSSH's data store and protected
+   * by the master password. Names follow the RPC method rules; a value is text of at most 64 KiB,
+   * and a plugin keeps at most 64. Fails while GETSSH is locked. Removed with the plugin.
+   */
+  secrets: {
+    get: (name: string) => Promise<string | undefined>;
+    set: (name: string, value: string) => Promise<void>;
+    delete: (name: string) => Promise<void>;
   };
   rpc: {
     registerMethod: (method: string, handler: (payload: any) => Promise<any>) => void;

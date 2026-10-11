@@ -10,6 +10,7 @@ import { getStore, toStoreError } from '../services/getsshStore';
 import { isMainWebContents } from '../windowRegistry';
 import { isValidWorkspaceId, resolveWorkspaceDir } from '../utils/workspaceId';
 import { appLock } from '../security/appLock';
+import { removeWorkspacePluginSettings } from '../services/plugin/pluginSecrets';
 
 /** Workspace state is only changed by the main window; torn windows never need these handlers. */
 const UNAUTHORIZED = { success: false, error: 'Unauthorized sender' };
@@ -224,6 +225,11 @@ export function setupWorkspaceHandlers() {
         await fs.promises.rm(wsPath, { recursive: true, force: true });
       } catch (e) {
         console.warn(`[Workspace IPC] Failed to delete workspace folder ${wsPath}`, e);
+      }
+      try {
+        removeWorkspacePluginSettings(workspaceId);
+      } catch (e) {
+        console.warn(`[Workspace IPC] The plugin password settings of workspace ${workspaceId} could not be removed`, e);
       }
       return { success: true };
     } catch (e) {

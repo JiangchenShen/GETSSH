@@ -126,6 +126,8 @@ declare global {
       onPluginRpcMessage: (pluginId: string, cb: (payload: { pluginId: string, action: string, data: any }) => void) => (() => void);
       pluginStorageGet: (pluginId: string, key: string) => Promise<any>;
       pluginStorageSet: (pluginId: string, key: string, value: any) => Promise<{ success: boolean; error?: string }>;
+      /** The password settings that have a value; the values themselves never reach a window. */
+      pluginSavedPasswords: (pluginId: string) => Promise<string[]>;
       reloadPlugin: (pluginId: string) => Promise<{ success: boolean; error?: string }>;
       selectFolder: () => Promise<string | null>;
       onSyncPluginUIExtensions: (cb: (payload: any) => void) => (() => void);

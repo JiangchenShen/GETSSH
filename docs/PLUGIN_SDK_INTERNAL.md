@@ -283,7 +283,7 @@ type StructuredData =
   | { [key: string]: StructuredData };
 ```
 
-### Notifications and OS encryption
+### Notifications and the old encryption call
 
 ```typescript
 interface MainContextAPI {
@@ -301,7 +301,7 @@ interface MainContextAPI {
 
 `showNotification()` is a compatibility alias; new plugins should use `host.notify()`. Notification appearance is controlled by the operating system.
 
-`safeStorageEncrypt()` returns base64 ciphertext and must be awaited. The current plugin SDK exposes no matching decrypt operation, so it is not a complete plugin secret vault.
+`safeStorageEncrypt()` is deprecated; use `context.secrets` instead. It encrypts with Electron's OS safe storage and returns base64 ciphertext that no API can decrypt again, and on macOS it may ask for Keychain access. Older plugins that call it still work; it must be awaited.
 
 ### Plugin KV storage
 
@@ -317,6 +317,36 @@ interface PluginStorageAPI {
 Storage is bound to the manifest `name`. Keys are limited to 256 characters. The default quota is 5 MiB, `storage:extended` provides 500 MiB, and `storage:unlimited` removes the quota.
 
 Use JSON-style values: `null`, strings, booleans, finite numbers, arrays, and plain objects. Do not pass functions, symbols, BigInt, Date, Map, Set, Buffer, class instances, circular references, or `undefined`.
+
+### Plugin secrets: `context.secrets`
+
+```typescript
+interface PluginSecretsAPI {
+  get(name: string): Promise<string | undefined>;
+  set(name: string, value: string): Promise<void>;
+  delete(name: string): Promise<void>;
+}
+```
+
+For tokens, passwords and other values that must not be written to disk in plain text. Secrets are encrypted in GETSSH's database:
+
+- a master password, when the user sets one, protects them too;
+- an export carries them;
+- they are the same in every workspace;
+- uninstalling the plugin deletes them.
+
+Rules:
+
+- `name` follows the same safe identifier rule as RPC method names.
+- `value` must be a string of at most 64 KiB in UTF-8; a plugin keeps at most 64 secrets.
+- While GETSSH is locked all three calls fail with an error that mentions `locked`. Try again after it is unlocked.
+- Only the plugin's own backend can read its secrets; neither the window nor other plugins can.
+
+```javascript
+await context.secrets.set('apiToken', token);
+const token = await context.secrets.get('apiToken');
+await context.secrets.delete('apiToken');
+```
 
 ### Frontend/backend RPC
 
@@ -365,7 +395,10 @@ interface PluginSettingsAPI {
 - Labels contain 1-256 characters; descriptions are limited to 4096.
 - GETSSH stores each saved value under its field ID and reloads the plugin.
 - Read a setting with `await context.storage.get(field.id)`.
-- `password` masks the input control; it does not add a separate encryption guarantee.
+- A `password` value is not written to the KV store; it is encrypted like `context.secrets`. The plugin still reads it with `context.storage.get(field.id)` and changes it with `context.storage.set(field.id, text)`. Like other settings, it belongs to the active workspace.
+- The settings form never shows a saved password, only that one is saved; an empty field keeps it.
+- A password an older version left in the KV store is moved the first time it is read.
+- While GETSSH is locked, reading a `password` setting fails instead of returning `undefined`.
 
 ### Terminal and SFTP context menus
 
@@ -570,6 +603,7 @@ window.addEventListener('message', (event) => {
 | Terminal actions | 128 |
 | SFTP actions | 128 |
 | Settings fields | 1-256 |
+| Plugin secrets | 64, 64 KiB each, 1 MiB in all (including `password` settings) |
 | Host calls from one isolated plugin | 250/second |
 | Isolated protocol traffic | 500 messages/second and 16 MiB/second |
 | Collected backend logs | 64 KiB per run |
@@ -630,7 +664,7 @@ Internal TypeScript interfaces live in [`apps/getssh-client/src/types/plugin.d.t
 | Backend uses `vm.Script` in the main process | Normal/strict use a separate OS-confined process |
 | `getssh.type: "hybrid"` | Omit `getssh.type`; combine `renderer` with backend `main` |
 | `getssh.pluginId` is runtime identity | `name` is runtime identity; `pluginId` is currently metadata |
-| `safeStorageEncrypt()` is synchronous | `await context.safeStorageEncrypt()` |
+| `safeStorageEncrypt()` to keep a token | `await context.secrets.set(name, value)`; `safeStorageEncrypt()` is deprecated |
 | `ssh.onData()` has no cleanup | Save and call its unsubscribe function |
 | `ssh.write()` is synchronous | `await context.ssh.write()` |
 | `pluginRpcInvoke()` | `window.GETSSH.invokeBackend()` |

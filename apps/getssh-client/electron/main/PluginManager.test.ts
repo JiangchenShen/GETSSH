@@ -25,6 +25,8 @@ vi.mock('electron', () => ({
 }));
 vi.mock('./handlers/storeHandler', () => ({ clipboardTextForPlugin: mocks.clipboardTextForPlugin }));
 vi.mock('./handlers/systemHandler', () => ({ getBackendConfig: () => ({}) }));
+vi.mock('./handlers/workspaceHandler', () => ({ getActiveWorkspaceId: () => 'default' }));
+vi.mock('./services/plugin/pluginSecrets', () => ({}));
 vi.mock('./services/SSHBridge', () => {
   const { EventEmitter } = require('node:events');
   mocks.bridge = new EventEmitter();

@@ -171,6 +171,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reloadPlugin: (pluginId: string) => ipcRenderer.invoke('reload-plugin', pluginId),
   pluginStorageGet: (pluginId: string, key: string) => ipcRenderer.invoke('plugin-storage-get', pluginId, key),
   pluginStorageSet: (pluginId: string, key: string, value: any) => ipcRenderer.invoke('plugin-storage-set', pluginId, key, value),
+  pluginSavedPasswords: (pluginId: string): Promise<string[]> => ipcRenderer.invoke('plugin-storage-saved-passwords', pluginId),
   onSyncPluginSettingsSchemas: (callback: (payload: Record<string, any[]>) => void) => {
     const listener = (_event: IpcRendererEvent, payload: Record<string, any[]>) => callback(payload);
     ipcRenderer.on('sync-plugin-settings-schemas', listener);

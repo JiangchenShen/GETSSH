@@ -3,6 +3,7 @@ import path from 'path';
 import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, clipboard } from 'electron';
 import { getBackendConfig } from './handlers/systemHandler';
 import { clipboardTextForPlugin } from './handlers/storeHandler';
+import { getActiveWorkspaceId } from './handlers/workspaceHandler';
 import pLimit from 'p-limit';
 import type { PluginManifest, PluginSettingsSchema, MainContextAPI } from '../../src/types/plugin';
 import { sshBridge } from './services/SSHBridge';
@@ -12,6 +13,17 @@ import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './w
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
+import {
+  clearPasswordSettings,
+  deletePluginSecret,
+  getPasswordSetting,
+  getPluginSecret,
+  pluginSecretsOpen,
+  removePluginSecrets,
+  savedPasswordSettings,
+  setPasswordSetting,
+  setPluginSecret
+} from './services/plugin/pluginSecrets';
 import {
   assertMessageSize,
   assertSafeIdentifier,
@@ -205,10 +217,15 @@ export class PluginManager {
 
     // Inject Storage API hardbound to this plugin's ID
     context.storage = Object.freeze({
-      get: (key: string) => pluginStorageManager.get(manifest.name, key),
-      set: (key: string, value: any) => pluginStorageManager.set(manifest.name, key, value, caps),
-      delete: (key: string) => pluginStorageManager.delete(manifest.name, key),
-      clear: () => pluginStorageManager.clear(manifest.name)
+      get: (key: string) => this.storageGet(manifest.name, key),
+      set: (key: string, value: any) => this.storageSet(manifest.name, key, value, caps),
+      delete: (key: string) => this.storageDelete(manifest.name, key),
+      clear: () => this.storageClear(manifest.name)
+    });
+    context.secrets = Object.freeze({
+      get: async (key: string) => getPluginSecret(manifest.name, key),
+      set: async (key: string, value: string) => setPluginSecret(manifest.name, key, value),
+      delete: async (key: string) => deletePluginSecret(manifest.name, key)
     });
 
     // Inject RPC context (using a closure-captured temp map to avoid activation-time race)
@@ -397,6 +414,58 @@ export class PluginManager {
     return value as Record<string, any>;
   }
 
+  private isPasswordSetting(pluginId: string, key: string): boolean {
+    return this.settingsSchemas.get(pluginId)?.some(field => field.id === key && field.type === 'password') ?? false;
+  }
+
+  /**
+   * context.storage for both kinds of plugin. A password setting is kept in the store
+   * (pluginSecrets.ts), by workspace like the storage file; one still in the file is moved
+   * there when it is read. A plugin
+   * reads its settings in activate(), before the main process has its schema, so a key with no
+   * value in the file falls back to the stored password setting of the same name.
+   */
+  private async storageGet(pluginId: string, key: string): Promise<unknown> {
+    const value = await pluginStorageManager.get(pluginId, key);
+    if (value !== undefined) {
+      if (typeof value === 'string' && this.isPasswordSetting(pluginId, key) && pluginSecretsOpen()) {
+        setPasswordSetting(pluginId, getActiveWorkspaceId(), key, value);
+        await pluginStorageManager.delete(pluginId, key);
+      }
+      return value;
+    }
+    // A declared password setting fails while GETSSH is locked instead of looking unset.
+    if (!this.isPasswordSetting(pluginId, key) && !pluginSecretsOpen()) return undefined;
+    return getPasswordSetting(pluginId, getActiveWorkspaceId(), key);
+  }
+
+  private async storageSet(pluginId: string, key: string, value: unknown, capabilities: string[]): Promise<void> {
+    if (typeof value === 'string' && this.isPasswordSetting(pluginId, key)) {
+      setPasswordSetting(pluginId, getActiveWorkspaceId(), key, value);
+      await pluginStorageManager.delete(pluginId, key);
+      return;
+    }
+    await pluginStorageManager.set(pluginId, key, value, capabilities);
+    if (pluginSecretsOpen()) setPasswordSetting(pluginId, getActiveWorkspaceId(), key, null);
+  }
+
+  private async storageDelete(pluginId: string, key: string): Promise<void> {
+    await pluginStorageManager.delete(pluginId, key);
+    if (pluginSecretsOpen()) setPasswordSetting(pluginId, getActiveWorkspaceId(), key, null);
+  }
+
+  private async storageClear(pluginId: string): Promise<void> {
+    await pluginStorageManager.clear(pluginId);
+    if (pluginSecretsOpen()) clearPasswordSettings(pluginId, getActiveWorkspaceId());
+  }
+
+  /** Password settings still in the storage file, from before they were kept in the store. */
+  private async movePasswordSettings(pluginId: string): Promise<void> {
+    for (const field of this.settingsSchemas.get(pluginId) ?? []) {
+      if (field.type === 'password') await this.storageGet(pluginId, field.id);
+    }
+  }
+
   private async dispatchPluginHostCall(
     pluginId: string,
     manifest: PluginManifest,
@@ -426,25 +495,28 @@ export class PluginManager {
       }
       case 'storage.get': {
         const key = this.stringArg(args, 0, 'Storage key', 256);
-        return pluginStorageManager.get(pluginId, key);
+        return this.storageGet(pluginId, key);
       }
       case 'storage.set': {
         const key = this.stringArg(args, 0, 'Storage key', 256);
-        await pluginStorageManager.set(
-          pluginId,
-          key,
-          args[1],
-          manifest.getssh?.capabilities || []
-        );
+        await this.storageSet(pluginId, key, args[1], manifest.getssh?.capabilities || []);
         return null;
       }
       case 'storage.delete': {
         const key = this.stringArg(args, 0, 'Storage key', 256);
-        await pluginStorageManager.delete(pluginId, key);
+        await this.storageDelete(pluginId, key);
         return null;
       }
       case 'storage.clear':
-        await pluginStorageManager.clear(pluginId);
+        await this.storageClear(pluginId);
+        return null;
+      case 'secrets.get':
+        return getPluginSecret(pluginId, this.stringArg(args, 0, 'Secret name', 128));
+      case 'secrets.set':
+        setPluginSecret(pluginId, this.stringArg(args, 0, 'Secret name', 128), args[1]);
+        return null;
+      case 'secrets.delete':
+        deletePluginSecret(pluginId, this.stringArg(args, 0, 'Secret name', 128));
         return null;
       case 'ssh.subscribe': {
         this.requireCapability(manifest, 'ssh:read');
@@ -1001,8 +1073,15 @@ export class PluginManager {
        }
     });
 
+    // The settings form. A password setting never goes back to a window: the form only learns
+    // which ones have a value ('plugin-storage-saved-passwords').
     ipcMain.handle('plugin-storage-get', async (event, pluginId: string, key: string) => {
+      if (!isKnownTopLevelSender(event)) return null;
       try {
+        if (this.isPasswordSetting(pluginId, key)) {
+          await this.storageGet(pluginId, key);
+          return null;
+        }
         return await pluginStorageManager.get(pluginId, key);
       } catch (e) {
         console.error(`[PluginManager] plugin-storage-get failed:`, e);
@@ -1010,8 +1089,27 @@ export class PluginManager {
       }
     });
 
-    ipcMain.handle('plugin-storage-set', async (event, pluginId: string, key: string, value: any) => {
+    ipcMain.handle('plugin-storage-saved-passwords', async (event, pluginId: string) => {
+      if (!isKnownTopLevelSender(event)) return [];
       try {
+        await this.movePasswordSettings(pluginId);
+        return savedPasswordSettings(pluginId, getActiveWorkspaceId()).filter(id => this.isPasswordSetting(pluginId, id));
+      } catch (e) {
+        console.error(`[PluginManager] plugin-storage-saved-passwords failed:`, e);
+        return [];
+      }
+    });
+
+    // The form sends a password setting only when it was typed into or cleared; '' removes it.
+    ipcMain.handle('plugin-storage-set', async (event, pluginId: string, key: string, value: any) => {
+      if (!isKnownTopLevelSender(event)) return { success: false, error: 'This window cannot change plugin settings.' };
+      try {
+        if (this.isPasswordSetting(pluginId, key)) {
+          if (typeof value !== 'string') throw new Error('A password setting must be text.');
+          setPasswordSetting(pluginId, getActiveWorkspaceId(), key, value === '' ? null : value);
+          await pluginStorageManager.delete(pluginId, key);
+          return { success: true };
+        }
         await pluginStorageManager.set(pluginId, key, value);
         return { success: true };
       } catch (e: any) {
@@ -1031,6 +1129,11 @@ export class PluginManager {
              await fs.promises.rm(targetDir, { recursive: true, force: true });
           }
           this.installedPlugins = this.installedPlugins.filter(p => p.name !== pluginName);
+          try {
+            removePluginSecrets(pluginName);
+          } catch (error) {
+            console.warn(`[PluginManager] The secrets of plugin '${pluginName}' could not be removed:`, error instanceof Error ? error.message : error);
+          }
           return { success: true };
        } catch (err: unknown) {
           return { success: false, error: err instanceof Error ? err.message : String(err) };

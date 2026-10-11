@@ -59,6 +59,7 @@ let root: Root;
 let container: HTMLDivElement;
 let storageSet: ReturnType<typeof vi.fn>;
 let reloadPlugin: ReturnType<typeof vi.fn>;
+let storageGet: ReturnType<typeof vi.fn>;
 let saveApiKey: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -79,8 +80,9 @@ beforeEach(() => {
   saveApiKey = vi.fn().mockResolvedValue({ success: true });
   window.electronAPI = {
     getPluginsList: vi.fn().mockResolvedValue([]),
-    pluginStorageGet: vi.fn().mockResolvedValue('saved-token'),
+    pluginStorageGet: storageGet = vi.fn().mockResolvedValue(null),
     pluginStorageSet: storageSet,
+    pluginSavedPasswords: vi.fn().mockResolvedValue(['token']),
     reloadPlugin,
     ai: { saveApiKey, deleteApiKey: vi.fn().mockResolvedValue({ success: true }) },
   } as unknown as Window['electronAPI'];
@@ -100,6 +102,11 @@ const typeKey = async (value: string) => act(async () => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
+const typePassword = async (value: string) => act(async () => {
+  const input = container.querySelector<HTMLInputElement>('input[type="password"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
 const openPluginSettings = async () => {
   await act(async () => root.render(<PluginSettings />));
   await click(button('配置插件'));
@@ -109,10 +116,28 @@ describe('center controls', () => {
   it('keeps plugin edits visible and does not reload when storage reports failure', async () => {
     storageSet.mockResolvedValue({ success: false, error: 'storage_unavailable' });
     await openPluginSettings();
+    await typePassword('new-token');
     await click(button('保存并重新加载插件'));
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('storage_unavailable');
-    expect(container.querySelector<HTMLInputElement>('input[type="password"]')?.value).toBe('saved-token');
+    expect(container.querySelector<HTMLInputElement>('input[type="password"]')?.value).toBe('new-token');
     expect(reloadPlugin).not.toHaveBeenCalled();
+  });
+
+  it('shows a saved plugin password only as saved; an empty field keeps it and Clear removes it', async () => {
+    await openPluginSettings();
+    const input = container.querySelector<HTMLInputElement>('input[type="password"]')!;
+    expect(storageGet).not.toHaveBeenCalled();
+    expect(input.value).toBe('');
+    expect(input.placeholder).toBe('已保存，留空不修改');
+    await click(button('保存并重新加载插件'));
+    expect(storageSet).not.toHaveBeenCalled();
+    expect(reloadPlugin).toHaveBeenCalledTimes(1);
+
+    await click(button('配置插件'));
+    await click(button('清除已保存的值'));
+    expect(container.querySelector<HTMLInputElement>('input[type="password"]')!.placeholder).toBe('');
+    await click(button('保存并重新加载插件'));
+    expect(storageSet).toHaveBeenCalledExactlyOnceWith('sample', 'token', '');
   });
 
   it('keeps plugin edits visible when reload reports failure; closes only after success', async () => {

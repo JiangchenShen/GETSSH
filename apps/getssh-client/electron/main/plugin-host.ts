@@ -147,6 +147,12 @@ function createPluginContext(capabilities: string[]) {
     clear: () => callHost('storage.clear', []).then(() => undefined)
   });
 
+  context.secrets = Object.freeze({
+    get: (key: string) => callHost('secrets.get', [key]) as Promise<string | undefined>,
+    set: (key: string, value: string) => callHost('secrets.set', [key, value]).then(() => undefined),
+    delete: (key: string) => callHost('secrets.delete', [key]).then(() => undefined)
+  });
+
   context.rpc = Object.freeze({
     registerMethod: (method: string, handler: (payload: unknown) => unknown) => {
       assertSafeIdentifier(method, 'RPC method');
