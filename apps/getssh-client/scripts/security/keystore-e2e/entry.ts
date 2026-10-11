@@ -110,6 +110,14 @@ function snapshot(dir: string): Map<string, string> {
   return out;
 }
 
+/**
+ * The GETSSH 2.0 files at the top of userData. The rest of the folder is Chromium's, and on
+ * Windows the running app keeps some of it open (its GPU cache), so it cannot be read.
+ */
+const v2Files = (userData: string): Array<[string, string]> => fs.readdirSync(userData, { withFileTypes: true })
+  .filter(entry => entry.isFile() && entry.name.startsWith('profiles'))
+  .map(entry => [entry.name, fs.readFileSync(path.join(userData, entry.name)).toString('base64')]);
+
 /** host:password of every profile; the password as the main process gets it to connect. */
 const hosts = (workspaceId: string) => DM.getProfiles(workspaceId).map(p => {
   const secrets = getStore().connectSecrets(workspaceId, p.id);
@@ -526,7 +534,7 @@ async function run(): Promise<string> {
       const ct = Buffer.concat([cipher.update(JSON.stringify(rows), 'utf8'), cipher.final()]);
       fs.writeFileSync(path.join(userData, 'profiles.enc'), Buffer.concat([Buffer.from('GETSSH_V2'), salt, iv, cipher.getAuthTag(), ct]));
       fs.writeFileSync(path.join(userData, 'profiles.key'), safeStorage.encryptString(master));
-      fs.writeFileSync(marker('v2-snapshot.json'), JSON.stringify([...snapshot(userData)].filter(([name]) => name.startsWith('profiles'))));
+      fs.writeFileSync(marker('v2-snapshot.json'), JSON.stringify(v2Files(userData)));
       return 'GETSSH 2.0 files written';
     }
 
@@ -544,7 +552,8 @@ async function run(): Promise<string> {
       assert.equal(db.privateKeyPath, '~/.ssh/id_ed25519');
       assert.equal(db.autoStart, true);
       const before = new Map<string, string>(JSON.parse(fs.readFileSync(marker('v2-snapshot.json'), 'utf8')));
-      const after = snapshot(app.getPath('userData'));
+      const after = new Map(v2Files(app.getPath('userData')));
+      assert.equal(before.size, 2);
       for (const [file, content] of before) assert.equal(after.get(file), content, `${file} left as it was`);
       return 'GETSSH 2.0 servers imported';
     }
