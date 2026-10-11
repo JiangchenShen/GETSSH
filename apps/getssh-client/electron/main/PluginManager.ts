@@ -421,9 +421,9 @@ export class PluginManager {
   /**
    * context.storage for both kinds of plugin. A password setting is kept in the store
    * (pluginSecrets.ts), by workspace like the storage file; one still in the file is moved
-   * there when it is read. A plugin
-   * reads its settings in activate(), before the main process has its schema, so a key with no
-   * value in the file falls back to the stored password setting of the same name.
+   * there when it is read. A plugin reads its settings in activate(), before the main process
+   * has its schema, so a key with no value in the file falls back to the stored password
+   * setting of the same name.
    */
   private async storageGet(pluginId: string, key: string): Promise<unknown> {
     const value = await pluginStorageManager.get(pluginId, key);
