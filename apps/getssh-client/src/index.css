@@ -200,6 +200,14 @@ html[data-glass="true"] .sidebar-material {
   backdrop-filter: blur(28px) saturate(125%);
 }
 
+.workspace-navigation {
+  border-right: 1px solid var(--sidebar-divider);
+}
+
+.workspace-rail-surface {
+  background: color-mix(in srgb, var(--v2-ink) 3%, transparent);
+}
+
 .workspace-rail-divider {
   position: relative;
 }
@@ -341,6 +349,14 @@ html[data-glass="true"] .center-workbench[data-glass="true"] .center-side-nav {
   background: color-mix(in srgb, var(--v2-panel) var(--sidebar-opacity, 80%), transparent);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
+}
+
+/* Page categories stay subordinate to the persistent workspace navigation. */
+.center-workbench .center-page-nav,
+html[data-glass="true"] .center-workbench[data-glass="true"] .center-page-nav {
+  background: color-mix(in srgb, var(--v2-bg) 65%, var(--v2-panel));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {

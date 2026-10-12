@@ -75,22 +75,19 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
 
   return (
     <div className="center-workbench flex h-full min-w-0 overflow-hidden bg-bg text-ink" data-glass={enableGlassmorphism}>
-      <aside className="center-side-nav flex w-56 shrink-0 flex-col border-r border-line bg-panel/85 backdrop-blur-xl max-[820px]:w-48">
-        <div className="border-b border-line px-5 py-5">
-          <h2 className="text-base font-semibold">{t('workspaceCenter.title', 'Workspaces')}</h2>
-          <p className="mt-1 truncate text-xs text-ink-3" title={activeWorkspaceName}>{activeWorkspaceName}</p>
-        </div>
-        <nav aria-label={t('workspaceCenter.title', 'Workspaces')} className="flex-1 overflow-y-auto px-2 py-3">
+      <aside className="center-side-nav center-page-nav flex w-[160px] shrink-0 flex-col border-r border-line-soft px-2 py-6 max-[690px]:w-[148px]">
+        <h2 className="sr-only">{t('workspaceCenter.title', 'Workspaces')}</h2>
+        <nav aria-label={t('workspaceCenter.title', 'Workspaces')} className="flex-1 space-y-0.5 overflow-y-auto">
           {nav.map(({ id, label, icon: Icon }, index) => (
             <React.Fragment key={id}>
               {(index === 0 || index === 1) && (
-                <p className={`px-3 pb-1 text-[11px] text-ink-3 ${index === 1 ? 'pt-5' : ''}`}>
+                <p className={`truncate px-3 pb-1 text-[10px] font-medium text-ink-3 ${index === 1 ? 'pt-4' : ''}`} title={index === 1 ? activeWorkspaceName : undefined}>
                   {index === 0 ? t('workspaceCenter.sidebar.overview', 'Overview') : `${t('workspaceCenter.current', 'Current')} · ${activeWorkspaceName}`}
                 </p>
               )}
               <button type="button" onClick={() => setPage(id)} aria-current={page === id ? 'page' : undefined} title={label}
-                className={`flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--center-accent)] ${page === id ? 'bg-surf-2 font-medium text-[var(--center-accent)]' : 'text-ink-2 hover:bg-surf hover:text-ink'}`}>
-                <Icon className="h-4 w-4 shrink-0" /> <span className="truncate">{label}</span>
+                className={`flex min-h-9 w-full items-center gap-2 rounded-r-md border-l-2 px-2.5 text-left text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--center-accent)] ${page === id ? 'border-primary bg-surf-2 font-medium text-ink' : 'border-transparent text-ink-2 hover:bg-surf hover:text-ink'}`}>
+                <Icon className={`h-4 w-4 shrink-0 ${page === id ? 'text-primary' : 'text-ink-3'}`} /> <span className="truncate">{label}</span>
               </button>
             </React.Fragment>
           ))}
@@ -98,7 +95,7 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="center-content mx-auto max-w-4xl px-7 py-7 max-[820px]:px-5">
+        <div className="center-content mx-auto max-w-4xl px-6 pb-12 pt-6 max-[690px]:px-4">
           <header className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
             <div className="min-w-0 max-w-full">
               <h1 className="text-[22px] font-semibold tracking-tight">{activeNav.label}</h1>

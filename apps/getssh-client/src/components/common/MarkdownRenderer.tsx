@@ -1,5 +1,5 @@
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -13,23 +13,21 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onPaperPlane, className = '' }) => {
+const remarkPlugins = [remarkGfm];
+
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, onPaperPlane, className = '' }: MarkdownRendererProps) {
   const isDark = useAppStore(state => state.isDark);
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
 
-  const handleCopy = (code: string) => {
+  const handleCopy = React.useCallback((code: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(code);
     setTimeout(() => setCopiedCode(null), 2000);
-  };
+  }, []);
 
-  return (
-    <div className={`prose prose-sm max-w-none break-words ${isDark ? 'prose-invert' : ''} ${className}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
+  const components = React.useMemo<Components>(() => ({
           pre({ children }) {
             return <div className="not-prose min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap">{children}</div>;
           },
@@ -161,10 +159,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onP
           a({ href, children }) {
             return <a href={href} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{children}</a>;
           }
-        }}
-      >
+  }), [isDark, zh, copiedCode, handleCopy, onPaperPlane]);
+
+  return (
+    <div className={`prose prose-sm max-w-none break-words ${isDark ? 'prose-invert' : ''} ${className}`}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
         {content}
       </ReactMarkdown>
     </div>
   );
-};
+});

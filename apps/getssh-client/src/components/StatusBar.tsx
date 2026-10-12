@@ -1,13 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal, Sparkles, Blocks, Settings } from 'lucide-react';
+import { Terminal, Sparkles, Layers, Blocks, Settings } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
 /**
  * 底部状态条。
  *
- * 底栏只保留跨工作区的常用目的地。当前工作区由左侧导轨管理，
- * 安全设置归入设置页；Ocean Sentinel 在右侧报告实际状态。
+ * 底栏保留常用目的地，工作区入口直达独立管理页。
+ * 左侧导轨切换当前工作区；安全设置归入设置页，Ocean Sentinel 在右侧报告实际状态。
  *
  * 右侧只放真有数据源的东西：Ocean Sentinel 取 appStore.sentinelStatus。
  * 原型里画的「Rust Core 运行中」现在没有对应信号，不编。
@@ -66,6 +66,13 @@ export const StatusBar: React.FC = () => {
         icon={<Sparkles className={ico} />}
         label={t('statusBar.ai')}
         onClick={() => openCenter('ai', t('statusBar.ai'))}
+      />
+      <BItem
+        icon={<Layers className={ico} />}
+        label={t('statusBar.workspace')}
+        onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
+          detail: { type: 'workspace', title: t('statusBar.workspace'), workspacePage: 'all' },
+        }))}
       />
       <BItem
         icon={<Blocks className={ico} />}

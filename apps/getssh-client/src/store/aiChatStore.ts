@@ -7,6 +7,8 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { AiBridge } from '../services/aiBridge';
+import { useWorkspaceStore } from './workspaceStore';
+import { useAppLockStore } from './appLockStore';
 
 export interface ChatMessage {
   id: string;
@@ -53,13 +55,15 @@ interface AiChatState {
   addMessage: (conversationId: string, msg: ChatMessage) => void;
   updateMessage: (conversationId: string, msgId: string, patch: Partial<ChatMessage>) => void;
   appendChunk: (conversationId: string, msgId: string, chunk: string) => void;
+  /** Apply queued stream text immediately before completion, persistence or leaving a workspace. */
+  flushChunks: () => void;
 
   setView: (view: 'chat' | 'history') => void;
 
   // ── SQLite Async Actions ──────────────────────────────────────────────────
   loadWorkspaceChats: () => Promise<void>;
   /** Reads the next older page of a chat's messages (when olderMessages is set). */
-  loadOlderMessages: (conversationId: string) => Promise<void>;
+  loadOlderMessages: (conversationId: string) => Promise<boolean>;
 }
 
 const toMessage = (m: any): ChatMessage => ({
@@ -73,35 +77,76 @@ const toMessage = (m: any): ChatMessage => ({
 } as ChatMessage);
 
 /** Chats whose messages are being read, so opening one twice reads it once. */
-const loadingMessages = new Set<string>();
+const loadingMessages = new Map<string, object>();
+let workspaceGeneration = 0;
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useAiChatStore = create<AiChatState>()(
   immer((set, get) => {
+  const pendingChunks = new Map<string, Map<string, string>>();
+  let cancelFrame: (() => void) | null = null;
+  const takeChunk = (conversationId: string, messageId: string) => {
+    const messages = pendingChunks.get(conversationId);
+    const chunk = messages?.get(messageId) ?? '';
+    messages?.delete(messageId);
+    if (!messages?.size) pendingChunks.delete(conversationId);
+    return chunk;
+  };
+  const flushChunks = () => {
+    cancelFrame?.();
+    cancelFrame = null;
+    if (!pendingChunks.size) return;
+    const pending = new Map(pendingChunks);
+    pendingChunks.clear();
+    set(state => {
+      for (const [conversationId, messages] of pending) {
+        const conv = state.conversations.find(c => c.id === conversationId);
+        if (!conv) continue;
+        for (const [messageId, chunk] of messages) {
+          const msg = conv.messages.find(m => m.id === messageId);
+          if (!msg) continue;
+          msg.content += chunk;
+          msg.isThinking = false;
+          msg.isStreaming = true;
+          conv.updatedAt = Date.now();
+        }
+      }
+    });
+  };
   /** Reads a page of a chat's messages: the newest when it opens, older ones on request. */
   const loadMessages = async (conversationId: string, older: boolean) => {
     const conv = get().conversations.find(c => c.id === conversationId);
-    if (!conv || loadingMessages.has(conversationId)) return;
-    if (older ? !conv.olderMessages : conv.messagesLoaded !== false) return;
-    loadingMessages.add(conversationId);
+    if (!conv || loadingMessages.has(conversationId)) return false;
+    if (older ? !conv.olderMessages : conv.messagesLoaded !== false) return false;
+    const token = {};
+    const epoch = workspaceGeneration;
+    const cursor = older ? conv.olderMessages : null;
+    loadingMessages.set(conversationId, token);
     try {
-      const page = await AiBridge.getMessages(conversationId, older ? conv.olderMessages : null);
-      if (!page) return;
+      const page = await AiBridge.getMessages(conversationId, cursor);
+      if (!page || epoch !== workspaceGeneration || loadingMessages.get(conversationId) !== token
+        || !get().conversations.some(c => c.id === conversationId) || (older && page.before === cursor)) return false;
       set(state => {
         const target = state.conversations.find(c => c.id === conversationId);
         if (!target) return;
         const loaded = page.messages.map(toMessage);
-        const ids = new Set(loaded.map(m => m.id));
+        const ids = new Set(target.messages.map(m => m.id));
         // An older page goes before what is shown; a first page before messages added while it was read.
-        target.messages = [...loaded, ...target.messages.filter(m => !ids.has(m.id))];
+        // Keep current objects (including an in-flight reply) when a page overlaps them.
+        target.messages = [...loaded.filter(message => {
+          if (ids.has(message.id)) return false;
+          ids.add(message.id);
+          return true;
+        }), ...target.messages];
         target.messagesLoaded = true;
         target.olderMessages = page.before;
       });
-    } catch (e) {
-      console.error('Failed to load chat messages', e);
+      return true;
+    } catch {
+      return false;
     } finally {
-      loadingMessages.delete(conversationId);
+      if (loadingMessages.get(conversationId) === token) loadingMessages.delete(conversationId);
     }
   };
 
@@ -111,8 +156,10 @@ export const useAiChatStore = create<AiChatState>()(
     view: 'chat',
 
     loadWorkspaceChats: async () => {
+      const epoch = workspaceGeneration;
       try {
         const dbSessions = await AiBridge.listSessions();
+        if (epoch !== workspaceGeneration) return;
         const previous = new Map(get().conversations.map(c => [c.id, c]));
         const conversations: Conversation[] = dbSessions.map(s => {
           // A chat already read keeps its messages.
@@ -183,6 +230,8 @@ export const useAiChatStore = create<AiChatState>()(
     },
 
     deleteConversation: (id) => {
+      pendingChunks.delete(id);
+      loadingMessages.delete(id);
       set(state => {
         state.conversations = state.conversations.filter(c => c.id !== id);
         if (state.activeConversationId === id) {
@@ -193,6 +242,9 @@ export const useAiChatStore = create<AiChatState>()(
     },
 
     clearAllConversations: () => {
+      pendingChunks.clear();
+      loadingMessages.clear();
+      cancelFrame?.(); cancelFrame = null;
       // In SQLite we let the user manually delete or implement a bulk delete
       // For now, clear state.
       set(state => {
@@ -229,12 +281,20 @@ export const useAiChatStore = create<AiChatState>()(
     },
 
     updateMessage: (conversationId, msgId, patch) => {
+      // A reset/error replaces queued text. Completion folds the final, unpainted tokens into
+      // this same update so the last chunk is also present in the saved message.
+      const chunk = takeChunk(conversationId, msgId);
       let finalMsg: any = null;
       set(state => {
         const conv = state.conversations.find(c => c.id === conversationId);
         if (!conv) return;
         const msg = conv.messages.find(m => m.id === msgId);
         if (msg) {
+          if (patch.content === undefined && chunk) {
+            msg.content += chunk;
+            msg.isThinking = false;
+            msg.isStreaming = true;
+          }
           Object.assign(msg, patch);
           finalMsg = { ...msg };
         }
@@ -242,7 +302,7 @@ export const useAiChatStore = create<AiChatState>()(
       });
       
       // Save final message state when streaming completes
-      if (finalMsg && !patch.isStreaming && !patch.isThinking) {
+      if (finalMsg && !finalMsg.isStreaming && !finalMsg.isThinking) {
         AiBridge.saveMessage({
           id: finalMsg.id,
           session_id: conversationId,
@@ -254,20 +314,55 @@ export const useAiChatStore = create<AiChatState>()(
     },
 
     appendChunk: (conversationId, msgId, chunk) => {
-      set(state => {
-        const conv = state.conversations.find(c => c.id === conversationId);
-        if (!conv) return;
-        const msg = conv.messages.find(m => m.id === msgId);
-        if (msg) {
-          msg.content += chunk;
-          msg.isThinking = false;
-          msg.isStreaming = true;
-        }
-        conv.updatedAt = Date.now();
-      });
+      if (!chunk || !get().conversations.find(c => c.id === conversationId)?.messages.some(m => m.id === msgId)) return;
+      let messages = pendingChunks.get(conversationId);
+      if (!messages) { messages = new Map(); pendingChunks.set(conversationId, messages); }
+      messages.set(msgId, (messages.get(msgId) ?? '') + chunk);
+      if (cancelFrame) return;
+      if (typeof requestAnimationFrame === 'function') {
+        const frame = requestAnimationFrame(() => { cancelFrame = null; flushChunks(); });
+        cancelFrame = () => cancelAnimationFrame(frame);
+      } else {
+        const timer = setTimeout(() => { cancelFrame = null; flushChunks(); }, 16);
+        cancelFrame = () => clearTimeout(timer);
+      }
     },
+    flushChunks,
 
     setView: (view) => set(state => { state.view = view; }),
   };
   })
 );
+
+useWorkspaceStore.subscribe((next, previous) => {
+  if (next.isSwitching && !previous.isSwitching) {
+    // switchWorkspace sets this before invoking the main process: persist the partial reply
+    // while its own workspace is still active, then ignore that stream's later tokens.
+    useAiChatStore.getState().flushChunks();
+    const state = useAiChatStore.getState();
+    for (const conv of state.conversations) for (const msg of conv.messages) {
+      if (msg.isStreaming || msg.isThinking) state.updateMessage(conv.id, msg.id, { isStreaming: false, isThinking: false });
+    }
+    workspaceGeneration++;
+    loadingMessages.clear();
+  }
+  if (next.activeWorkspaceId !== previous.activeWorkspaceId) {
+    workspaceGeneration++;
+    loadingMessages.clear();
+    // No persistence after this point: the backend already belongs to the new workspace.
+    useAiChatStore.setState({ conversations: [], activeConversationId: null });
+    useAiChatStore.getState().flushChunks();
+  }
+});
+
+useAppLockStore.subscribe((next, previous) => {
+  if (next.state?.phase !== 'locked' || previous.state?.phase === 'locked') return;
+  workspaceGeneration++;
+  loadingMessages.clear();
+  // Retain the received partial reply in memory, but never send a save after the backend locked.
+  // Draining also cancels its scheduled frame before a later unlock can load another snapshot.
+  useAiChatStore.getState().flushChunks();
+  useAiChatStore.setState(state => ({ conversations: state.conversations.map(conv => ({
+    ...conv, messages: conv.messages.map(msg => msg.isStreaming || msg.isThinking ? { ...msg, isStreaming: false, isThinking: false } : msg),
+  })) }));
+});

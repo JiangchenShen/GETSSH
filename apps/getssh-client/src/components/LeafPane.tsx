@@ -183,10 +183,10 @@ export const LeafPane: React.FC<{
       <div
         className={`relative z-10 flex-none flex items-center justify-between gap-2 px-3 h-8 text-xs
                     select-none border-b border-line-soft bg-panel app-region-no-drag
-                    ${isActive ? 'shadow-[inset_0_2px_0_var(--color-primary)]' : ''}`}
+                    ${isActive ? (node.paneType === 'center' ? 'shadow-[inset_0_1px_0_var(--color-line)]' : 'shadow-[inset_0_2px_0_var(--color-primary)]') : ''}`}
       >
         <div className="flex items-center gap-2 min-w-0 text-ink-2">
-           <TerminalSquare className="w-3.5 h-3.5 flex-none text-ink-3" />
+           <TerminalSquare className={`w-3.5 h-3.5 flex-none ${isActive && node.paneType === 'center' ? 'text-primary' : 'text-ink-3'}`} />
            <span className="truncate font-medium text-xs text-ink">
              {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (node.paneType === 'center' ? (tabTitle || 'Center') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : '')))}
            </span>

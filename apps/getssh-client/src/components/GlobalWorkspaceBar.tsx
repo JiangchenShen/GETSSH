@@ -42,7 +42,7 @@ export const GlobalWorkspaceBar: React.FC = () => {
   const handleWorkspaceSwitch = async (id: string) => {
     if (id === activeWorkspaceId) {
       window.dispatchEvent(new CustomEvent('app:open-center', {
-        detail: { type: 'workspace', title: t('statusBar.workspace') }
+        detail: { type: 'workspace', title: t('statusBar.workspace'), workspacePage: 'all' }
       }));
       return;
     }
@@ -66,7 +66,7 @@ export const GlobalWorkspaceBar: React.FC = () => {
 
           // 工作区自定义色是真实数据，选中时用它当强调色；没设就退回主色
           const activeStyle: React.CSSProperties = tint
-            ? { backgroundColor: `${tint}26`, borderColor: tint, color: tint }
+            ? { backgroundColor: `${tint}18`, borderColor: `${tint}55` }
             : {};
 
           return (
@@ -82,13 +82,14 @@ export const GlobalWorkspaceBar: React.FC = () => {
                 onClick={() => handleWorkspaceSwitch(wsId)}
                 title={isActive ? `${name} · ${t('statusBar.workspace')}` : name}
                 aria-label={isActive ? `${name} · ${t('statusBar.workspace')}` : name}
+                aria-pressed={isActive}
                 style={isActive ? activeStyle : undefined}
                 className={`w-[34px] h-[34px] rounded-[9px] grid place-items-center border
                             text-[13px] font-semibold transition-colors ${
                   isActive
-                    ? 'bg-primary/15 border-primary text-primary'
-                    : 'bg-surf border-line-soft text-ink-2 hover:text-ink'
-                }`}
+                    ? 'bg-primary/10 border-primary/35 text-ink'
+                    : 'border-transparent text-ink-2 hover:bg-surf hover:text-ink'
+                } focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
               >
                 {String(wsId).charAt(0).toUpperCase()}
               </button>

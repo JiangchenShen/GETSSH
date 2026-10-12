@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type React from 'react';
 import { useAiChatStore } from '../../store/aiChatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -18,13 +18,15 @@ export function useAiConversation(targetSessionId?: string) {
   const { getSessionContext, handlePaperPlane, generateResponse } = useAiInteraction(setIsGenerating, targetSessionId);
 
   useEffect(() => {
+    setIsGenerating(false);
+    setPrompt('');
     if (activeWorkspaceId) void loadWorkspaceChats();
   }, [activeWorkspaceId, loadWorkspaceChats]);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = useCallback(async (event: React.FormEvent) => {
     event.preventDefault();
     const currentPrompt = prompt.trim();
-    if (!currentPrompt || isGenerating) return;
+    if (!currentPrompt || isGenerating || useWorkspaceStore.getState().isSwitching) return;
 
     let convId = activeConversationId;
     if (!convId || !useAiChatStore.getState().conversations.some(c => c.id === convId)) {
@@ -49,17 +51,17 @@ export function useAiConversation(targetSessionId?: string) {
     const aiMsgId = `ai-${Date.now() + 1}`;
     addMessage(convId, { id: aiMsgId, role: 'assistant', content: '', isThinking: true, isStreaming: false, timestamp: Date.now() });
     await generateResponse(convId, aiMsgId, currentPrompt);
-  };
+  }, [prompt, isGenerating, activeConversationId, newConversation, setView, addMessage, getSessionContext, targetSessionId, generateResponse]);
 
-  const handleRetry = async (aiMsgId: string, userText: string) => {
-    if (isGenerating || !activeConversationId) return;
+  const handleRetry = useCallback(async (aiMsgId: string, userText: string) => {
+    if (isGenerating || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
     setIsGenerating(true);
     updateMessage(activeConversationId, aiMsgId, { content: '', isThinking: true, isStreaming: false, approvalRequest: undefined });
     await generateResponse(activeConversationId, aiMsgId, userText);
-  };
+  }, [isGenerating, activeConversationId, updateMessage, generateResponse]);
 
-  const handleServerSelect = async (aiMsgId: string, serverId: string, serverName: string) => {
-    if (!activeConversationId) return;
+  const handleServerSelect = useCallback(async (aiMsgId: string, serverId: string, serverName: string) => {
+    if (isGenerating || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
     const activeConv = useAiChatStore.getState().conversations.find(c => c.id === activeConversationId);
     const aiMsg = activeConv?.messages.find(m => m.id === aiMsgId);
     if (!aiMsg?.serverSelectionRequest) return;
@@ -72,7 +74,7 @@ export function useAiConversation(targetSessionId?: string) {
     });
     setIsGenerating(true);
     await generateResponse(activeConversationId, aiMsgId, pendingPrompt, serverId);
-  };
+  }, [isGenerating, activeConversationId, updateMessage, generateResponse]);
 
   return { prompt, setPrompt, isGenerating, handleSubmit, handleRetry, handleServerSelect, handlePaperPlane };
 }

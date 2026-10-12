@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+import { useAppLockStore } from '../../store/appLockStore';
 import { useAppStore } from '../../store/appStore';
 import { useAiStore } from '../../store/aiStore';
 import { useAiChatStore } from '../../store/aiChatStore';
@@ -7,13 +9,13 @@ import { getPersonaContent } from '../../utils/persona';
 import { ContextService } from '../../services/contextService';
 
 export function useAiInteraction(setIsGenerating: (val: boolean) => void, targetSessionId?: string) {
-  const getSessionContext = () => {
+  const getSessionContext = useCallback(() => {
     if (targetSessionId === undefined) return ContextService.getTerminalSessionContext();
     const { allSessions } = ContextService.getTerminalSessionContext(true);
     return { activeSession: allSessions.find(session => session.id === targetSessionId) || null, allSessions };
-  };
+  }, [targetSessionId]);
 
-  const handlePaperPlane = (code: string) => {
+  const handlePaperPlane = useCallback((code: string) => {
     const { activeSession, allSessions } = getSessionContext();
     if (!activeSession?.id && (targetSessionId !== undefined || allSessions.length !== 1)) {
       useAppStore.getState().addToast(useAppStore.getState().appConfig.language.startsWith('zh') ? '请先选择一个已连接的目标终端' : 'Select a connected target terminal first', 'warning');
@@ -24,9 +26,9 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
     if (success) {
       useAppStore.getState().addToast('代码已安全填入终端缓冲', 'success');
     }
-  };
+  }, [getSessionContext, targetSessionId]);
 
-  const generateResponse = async (convId: string, aiMsgId: string, promptText: string, overrideSessionId?: string) => {
+  const generateResponse = useCallback(async (convId: string, aiMsgId: string, promptText: string, overrideSessionId?: string) => {
     const appConfig = useAppStore.getState().appConfig;
     const aiConfig = useAiStore.getState().aiConfig;
     const searchPayload = useAiStore.getState().getSearchPayload();
@@ -60,7 +62,25 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
     const updateMessage = useAiChatStore.getState().updateMessage;
     const appendChunk = useAiChatStore.getState().appendChunk;
 
-    let firstChunk = false;
+    let invalidated = false;
+    let finished = false;
+    const isCurrent = () => !invalidated && useWorkspaceStore.getState().activeWorkspaceId === activeWsId && !useWorkspaceStore.getState().isSwitching
+      && useAppLockStore.getState().state?.phase !== 'locked';
+    const unsubscribeWorkspace = useWorkspaceStore.subscribe(state => {
+      if (state.activeWorkspaceId !== activeWsId || state.isSwitching) {
+        invalidated = true;
+        setIsGenerating(false);
+      }
+    });
+    const unsubscribeLock = useAppLockStore.subscribe(state => {
+      if (state.state?.phase === 'locked') { invalidated = true; setIsGenerating(false); }
+    });
+    const finish = () => {
+      if (!isCurrent() || finished) return;
+      finished = true;
+      updateMessage(convId, aiMsgId, { isThinking: false, isStreaming: false });
+      setIsGenerating(false);
+    };
     try {
       await AiBridge.invokePrivileged(
         {
@@ -85,31 +105,32 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
           searchConfig: searchPayload
         },
         (payload) => {
+          if (!isCurrent() || finished) return;
           if (payload.chunk) {
-            if (!firstChunk) {
-              firstChunk = true;
-              updateMessage(convId, aiMsgId, { isThinking: false, isStreaming: true });
-            }
             appendChunk(convId, aiMsgId, payload.chunk);
           }
-          if (payload.isDone) {
-            updateMessage(convId, aiMsgId, { isThinking: false, isStreaming: false });
-            setIsGenerating(false);
-          }
           if (payload.error) {
+            finished = true;
             updateMessage(convId, aiMsgId, { content: `[Error] ${payload.error}`, isThinking: false, isStreaming: false });
             setIsGenerating(false);
-          }
+          } else if (payload.isDone) finish();
         },
         (command: string, requestId: string) => {
+           if (!isCurrent() || finished) return;
            updateMessage(convId, aiMsgId, { approvalRequest: { command, requestId, status: 'pending' } });
         }
       );
+      finish();
     } catch (err: any) {
+      if (!isCurrent() || finished) return;
+      finished = true;
       updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
       setIsGenerating(false);
+    } finally {
+      unsubscribeWorkspace();
+      unsubscribeLock();
     }
-  };
+  }, [setIsGenerating, targetSessionId]);
 
   return {
     getSessionContext,

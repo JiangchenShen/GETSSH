@@ -256,21 +256,23 @@ function AppMain() {
                zIndex: 'var(--z-app-chrome)'
             }}
           >
-          {/* L3 Global Sidebar (Ultra-narrow) */}
-          <div className="sidebar-material" style={{ gridColumn: '1 / 2', gridRow: '1 / 3', zIndex: 'var(--z-region-material)' }}>
-            <GlobalWorkspaceBar />
-          </div>
-
-          {/* Left Sidebar (L4 Region Material, Edge-Flush) */}
-          <div className="sidebar-material" style={{ gridColumn: '2 / 3', gridRow: '1 / 3', zIndex: 'var(--z-region-material)', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <div className="relative w-full h-full shrink-0 flex flex-col overflow-hidden">
+          {/* Workspace rail and assets share the persistent navigation surface. */}
+          <aside
+            aria-label={t('statusBar.workspace')}
+            className="workspace-navigation sidebar-material min-w-0 overflow-hidden"
+            style={{ gridColumn: '1 / 3', gridRow: '1 / 3', zIndex: 'var(--z-region-material)', display: 'grid', gridTemplateColumns: 'var(--rail-width) minmax(0, 1fr)' }}
+          >
+            <div className="workspace-rail-surface min-h-0 overflow-hidden">
+              <GlobalWorkspaceBar />
+            </div>
+            <div className="relative min-w-0 min-h-0 flex flex-col overflow-hidden">
               <ContextSidebar 
                 onAddSession={() => window.dispatchEvent(new CustomEvent('app:create-session', { detail: '' }))}
                 onToggleAutoStart={toggleAutoStart}
                 onDeleteSession={deleteSession}
               />
             </div>
-          </div>
+          </aside>
 
             {/* Main Content Area (L5 Content) */}
           <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', zIndex: 'var(--z-content)', backgroundColor: appBgStyle.backgroundColor }} className="flex flex-col min-h-0 overflow-hidden relative">

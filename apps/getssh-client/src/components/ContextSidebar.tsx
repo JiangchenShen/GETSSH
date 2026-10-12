@@ -270,7 +270,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
             onClick={() => { setSelectedSessionIndex(idx); setActiveTabId(null); }}
             className="min-w-0 text-left"
           >
-            <span className={`block truncate text-[12.5px] font-medium ${isSelected ? 'text-ink' : 'text-ink-2 group-hover:text-ink'}`}>
+            <span className="block truncate text-[12.5px] font-medium text-ink">
               {title}
             </span>
             <span className="block truncate font-mono text-[10.5px] text-ink-3 mt-px">
@@ -451,11 +451,12 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
 
   if (isSidebarCollapsed) {
     return (
-      <div className={`drag-region h-full w-full flex flex-col items-center ${topPad} border-r border-line-soft`}>
+      <div className={`drag-region h-full w-full flex flex-col items-center ${topPad}`}>
         <button
           type="button"
           onClick={() => setIsSidebarCollapsed(false)}
           title={t('sidebar.expand')}
+          aria-label={t('sidebar.expand')}
           className="no-drag-region w-[30px] h-[30px] rounded-[7px] grid place-items-center
                      text-ink-3 transition-colors hover:bg-surf hover:text-ink-2"
         >
@@ -470,24 +471,28 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
 
   return (
     <div className={`drag-region h-full w-full flex flex-col gap-[11px] px-3 pb-3.5 ${topPad}
-                     border-r border-line-soft min-w-0`}>
+                     min-w-0`}>
 
       <div className="no-drag-region flex items-center justify-between gap-2 px-0.5">
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
-            detail: { type: 'workspace', title: t('statusBar.workspace') },
+            detail: { type: 'workspace', title: t('statusBar.workspace'), workspacePage: 'all' },
           }))}
           title={`${displayName} · ${t('statusBar.workspace')}`}
-          className="min-w-0 flex items-center gap-1 rounded-md px-1 py-1 text-xs font-semibold text-ink-2 hover:bg-surf hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          className="min-w-0 flex items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
         >
-          <span className="truncate">{displayName}</span>
+          <span className="min-w-0">
+            <span className="block text-[10px] font-medium text-ink-3">{t('statusBar.workspace')}</span>
+            <span className="block truncate text-[13px] font-semibold text-ink">{displayName}</span>
+          </span>
           <ChevronRight className="h-3 w-3 flex-none text-ink-3" />
         </button>
         <button
           type="button"
           onClick={() => setIsSidebarCollapsed(true)}
           title={t('sidebar.collapse')}
+          aria-label={t('sidebar.collapse')}
           className="flex-none w-[22px] h-[22px] rounded-md grid place-items-center
                      text-ink-3 transition-colors hover:bg-surf hover:text-ink-2"
         >
@@ -495,7 +500,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         </button>
       </div>
 
-      <div className="no-drag-region flex items-center gap-2 h-8 px-2.5 rounded-lg bg-panel border border-line-soft
+      <div className="no-drag-region flex items-center gap-2 h-9 px-2.5 rounded-md bg-panel/60 border border-line
                       focus-within:border-primary/60 transition-colors">
         <Search className="w-3.5 h-3.5 flex-none text-ink-3" />
         <input
@@ -504,6 +509,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
           type="text"
           spellCheck={false}
           placeholder={t('sidebar.search')}
+          aria-label={t('sidebar.search')}
           className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[12.5px]
                      text-ink placeholder:text-ink-3"
         />
@@ -647,8 +653,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         type="button"
         onClick={onAddSession}
         className="no-drag-region flex-none flex items-center justify-center gap-[7px] h-[34px] w-full
-                   rounded-lg border border-dashed border-line text-[12.5px] text-ink-2
-                   transition-colors hover:border-primary hover:text-primary"
+                   rounded-md border border-line bg-surf text-[12.5px] font-medium text-ink
+                   transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
       >
         <Plus className="w-3.5 h-3.5" />
         {t('sidebar.newConnection')}

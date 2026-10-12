@@ -55,8 +55,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
 
   return (
     <div className="center-workbench flex h-full min-h-0 w-full min-w-0 bg-bg text-ink" data-glass={glass ? 'true' : 'false'}>
-      <aside className="center-side-nav sidebar-material flex w-[176px] shrink-0 flex-col border-r border-line px-2 py-5 max-[690px]:w-[148px]" aria-label={label('设置导航', 'Settings navigation')}>
-        <h2 className="mb-4 px-3 text-base font-semibold text-ink">{label('设置', 'Settings')}</h2>
+      <aside className="center-side-nav center-page-nav flex w-[160px] shrink-0 flex-col border-r border-line-soft px-2 py-6 max-[690px]:w-[148px]" aria-label={label('设置导航', 'Settings navigation')}>
+        <h2 className="sr-only">{label('设置', 'Settings')}</h2>
         <nav className="min-h-0 space-y-0.5 overflow-y-auto" aria-label={label('设置分类', 'Settings categories')}>
           {nav.map(({ id, title, icon: Icon, group }) => (
             <React.Fragment key={id}>
@@ -65,9 +65,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
                 type="button"
                 onClick={() => setSettingsActiveTab(id)}
                 aria-current={settingsActiveTab === id ? 'page' : undefined}
-                className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${settingsActiveTab === id ? 'bg-primary/10 font-medium text-primary' : 'text-ink-2 hover:bg-surf hover:text-ink'}`}
+                className={`flex min-h-9 w-full items-center gap-2 rounded-r-md border-l-2 px-2.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${settingsActiveTab === id ? 'border-primary bg-surf-2 font-medium text-ink' : 'border-transparent text-ink-2 hover:bg-surf hover:text-ink'}`}
               >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <Icon className={`h-4 w-4 shrink-0 ${settingsActiveTab === id ? 'text-primary' : 'text-ink-3'}`} aria-hidden="true" />
                 <span className="min-w-0 truncate">{title}</span>
               </button>
             </React.Fragment>

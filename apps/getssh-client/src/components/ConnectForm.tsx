@@ -22,6 +22,7 @@ import type { SessionProfile } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { detectProtocol } from '../utils/protocolParser';
 import { TERMINAL_THEMES } from '../utils/themes';
+import { SavedSecretControl } from './SavedSecretControl';
 
 export type ConnectFormSession = Partial<SessionProfile>;
 
@@ -42,6 +43,7 @@ type DisplayProtocol = 'auto' | 'ssh' | 'local' | 'telnet';
 /**
  * A saved password or passphrase never comes to this window. Typing replaces it; an empty field
  * (also after typing and deleting) keeps it, which undefined means when the profile is saved.
+ * Explicitly clearing it also clears its saved flag, so subsequent empty edits stay a clear.
  */
 const secretInput = (value: string, saved?: boolean) => (saved && value === '' ? undefined : value);
 
@@ -118,11 +120,17 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
-  const handleUpdate = (updates: Partial<ConnectFormSession>) => {
+  const handleUpdate = (updates: Partial<ConnectFormSession>, immediate = false) => {
     const updated = { ...localSessionRef.current, ...updates };
     localSessionRef.current = updated;
     setLocalSession(updated);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (immediate) {
+      debounceRef.current = null;
+      lastSubmittedGroupRef.current = updated.group || '';
+      onUpdateSession(index, updated);
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
       lastSubmittedGroupRef.current = updated.group || '';
@@ -286,11 +294,15 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     <button type="button" onClick={() => handleUpdate({ authType: 'key' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${localSession.authType === 'key' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
-                    <label><span className={labelClass}>{t('connection.password')}</span><input value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword ? savedSecretHint : t('connection.password')} /></label>
+                    <div><label><span className={labelClass}>{t('connection.password')}</span><input value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword ? savedSecretHint : t('connection.password')} /></label>
+                      {localSession.hasPassword && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="password" onClear={() => handleUpdate({ password: '', hasPassword: false }, true)} />}
+                    </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => { const path = await window.electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-line bg-surf text-ink-3 transition-colors hover:border-primary/50 hover:text-primary" aria-label={t('common.selectFile')}><FileKey2 className="h-4 w-4" /></button></div></label>
-                      <label><span className={labelClass}>Passphrase</span><input value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase ? savedSecretHint : t('connection.optional')} /></label>
+                      <div><label><span className={labelClass}>Passphrase</span><input value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase ? savedSecretHint : t('connection.optional')} /></label>
+                        {localSession.hasPassphrase && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="passphrase" onClear={() => handleUpdate({ passphrase: '', hasPassphrase: false }, true)} />}
+                      </div>
                     </div>
                   )}
                 </>}
