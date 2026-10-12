@@ -1,7 +1,6 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import type { WebglAddon } from '@xterm/addon-webgl';
-import type { CanvasAddon } from '@xterm/addon-canvas';
+import { WebglAddon } from '@xterm/addon-webgl';
 import type { LigaturesAddon } from '@xterm/addon-ligatures';
 import type { SerializeAddon } from '@xterm/addon-serialize';
 
@@ -10,7 +9,6 @@ export interface XtermCacheEntry {
   fitAddon: FitAddon;
   serializeAddon: SerializeAddon;
   webglAddon?: WebglAddon;
-  canvasAddon?: CanvasAddon;
   ligaturesAddon?: LigaturesAddon;
   element: HTMLDivElement;
   /** Session output offset (main-process ring) already written into `term`. */
@@ -24,13 +22,39 @@ export interface XtermCacheEntry {
 // Global cache to preserve xterm instances and DOM nodes across React unmounts
 export const xtermCache = new Map<string, XtermCacheEntry>();
 
+/** Disposing WebGL restores xterm 6's DOM renderer without replacing its buffer or subscriptions. */
+export function syncTerminalRenderer(entry: XtermCacheEntry, antiGlare: boolean) {
+  if (!antiGlare) {
+    const addon = entry.webglAddon;
+    entry.webglAddon = undefined;
+    addon?.dispose();
+    return;
+  }
+  if (entry.webglAddon) return;
+  let addon: WebglAddon | undefined;
+  try {
+    const webgl = new WebglAddon();
+    addon = webgl;
+    webgl.onContextLoss(() => {
+      if (entry.webglAddon !== webgl) return;
+      entry.webglAddon = undefined;
+      webgl.dispose();
+      console.warn('[Terminal] WebGL context lost; using xterm DOM renderer.');
+    });
+    entry.term.loadAddon(webgl);
+    entry.webglAddon = webgl;
+  } catch (error) {
+    addon?.dispose();
+    console.warn('[Terminal] WebGL unavailable; using xterm DOM renderer:', error);
+  }
+}
+
 export function disposeXtermEntry(sessionId: string) {
   const entry = xtermCache.get(sessionId);
   if (!entry) return;
   xtermCache.delete(sessionId);
   entry.unsubClosed?.();
   entry.webglAddon?.dispose();
-  entry.canvasAddon?.dispose();
   entry.ligaturesAddon?.dispose();
   entry.serializeAddon.dispose();
   entry.fitAddon.dispose();

@@ -224,7 +224,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
           ? <>{!status?.appProtected && <button type="button" onClick={() => open('change-workspace')} className={settingButtonClass}>{zh ? '修改' : 'Change'}</button>}<button type="button" onClick={() => open('remove-workspace')} className={settingDangerButtonClass}>{zh ? '移除' : 'Remove'}</button></>
           : status && !status.appProtected && !isMainWorkspace && <button type="button" onClick={() => open('set-workspace')} className={settingButtonClass}>{zh ? '设置密码' : 'Set password'}</button>}</div>
       </SettingsRow>
-      {workspaceScope?.ownPassword && status?.presenceSupported && <SettingsRow label={presenceName} description={zh ? `用 ${presenceName} 代替输入这个工作区的密码。` : `Use ${presenceName} instead of typing this workspace's password.`}>
+      {workspaceScope?.ownPassword && status?.presenceSupported && <SettingsRow label={presenceName} description={zh ? `此开关对当前所有已解锁、设有单独密码的工作区生效；此次更改不影响已锁定的工作区。开启后可用 ${presenceName} 解锁。` : `This switch applies to all currently unlocked workspaces with their own password. This change does not affect locked workspaces. Enable it to unlock using ${presenceName}.`}>
         <button type="button" disabled={busy} onClick={() => void togglePresence(activeWorkspaceId, !workspaceScope.presence)} className={settingButtonClass}>{workspaceScope.presence ? (zh ? '关闭' : 'Turn off') : (zh ? '开启' : 'Turn on')}</button>
       </SettingsRow>}
       {(form.kind === 'set-workspace' || form.kind === 'change-workspace' || form.kind === 'remove-workspace') && formRows}

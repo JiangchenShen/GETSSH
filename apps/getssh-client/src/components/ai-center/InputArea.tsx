@@ -46,21 +46,21 @@ const BASELINE_PRESETS: Record<string, ModelItem[]> = {
   ],
   openai: [
     { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', badge: 'Balanced', desc: '新一代均衡推理旗舰' },
-    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', badge: 'Flagship', desc: '最强全能深度大模型' },
-    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', badge: 'Fast', desc: '低成本极速推理' },
-    { id: 'gpt-4o', name: 'GPT-4o', badge: 'Omni', desc: '经典极速全模态' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'Mini', desc: '轻量秒级响应' },
+    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', badge: 'Flagship', desc: '通用推理模型' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', badge: 'Fast', desc: '推理模型' },
+    { id: 'gpt-4o', name: 'GPT-4o', badge: 'Omni', desc: '多模态模型' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', badge: 'Mini', desc: '轻量多模态模型' },
     { id: 'o3-mini', name: 'o3-mini', badge: 'Reasoning', desc: '代码与数理强化推理' },
   ],
   claude: [
     { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', badge: 'Adaptive', desc: '自适应思考与代码旗舰' },
     { id: 'claude-opus-5', name: 'Claude Opus 5', badge: 'Deep', desc: '极限复杂推理与架构' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', badge: 'Speed', desc: '轻量秒级极速响应' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', badge: 'Speed', desc: '轻量模型' },
     { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', badge: 'Classic', desc: '经典代码与运维分析' },
   ],
   ollama: [
     { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder', badge: 'Code', desc: '本地运维代码专家' },
-    { id: 'llama3.3:70b', name: 'Llama 3.3 (70B)', badge: 'Reasoning', desc: '开源最强大脑' },
+    { id: 'llama3.3:70b', name: 'Llama 3.3 (70B)', badge: 'Reasoning', desc: '本地通用模型' },
     { id: 'deepseek-r1:14b', name: 'DeepSeek-R1 (14B)', badge: 'CoT', desc: '本地深度推理' },
     { id: 'mistral:latest', name: 'Mistral', badge: 'Local', desc: '轻量快速模型' },
   ],
@@ -70,12 +70,12 @@ const BASELINE_PRESETS: Record<string, ModelItem[]> = {
   ],
   deepseek: [
     { id: 'deepseek-v4-pro', name: 'DeepSeek-V4 Pro', badge: 'Pro', desc: '单模型混合推理，最新旗舰' },
-    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4 Flash', badge: 'Flash', desc: '极致高并发低延迟模型' },
+    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4 Flash', badge: 'Flash', desc: '通用模型' },
   ],
   zhipu: [
     { id: 'glm-5.3', name: 'GLM-5.3', badge: 'V5', desc: '百万上下文，强制深度推理' },
     { id: 'glm-5.2', name: 'GLM-5.2', badge: 'V5', desc: '多模态新一代模型' },
-    { id: 'glm-4.7', name: 'GLM-4.7', badge: 'Fast', desc: '极速代码生成与排障' },
+    { id: 'glm-4.7', name: 'GLM-4.7', badge: 'Fast', desc: '代码生成与排障' },
   ],
   kimi: [
     { id: 'kimi-k3', name: 'Kimi K3', badge: 'K3', desc: '默认 128K 上下文始终推理' },

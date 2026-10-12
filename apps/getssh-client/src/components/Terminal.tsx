@@ -2,13 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { WebglAddon } from '@xterm/addon-webgl';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { AppConfig, useAppStore } from '../store/appStore';
 import { useSessionStore, collectSessionIds, liveSessionIds } from '../store/sessionStore';
-import { disposeOrphanedTerminals, disposeXtermEntry, xtermCache, type XtermCacheEntry } from './terminalCache';
+import { disposeOrphanedTerminals, disposeXtermEntry, syncTerminalRenderer, xtermCache, type XtermCacheEntry } from './terminalCache';
 import { usePluginStore } from '../store/pluginStore';
 import { TERMINAL_THEMES, ThemeName } from '../utils/themes';
 import { sanitizePasteEvent } from '../utils/terminalPaste';
@@ -91,7 +89,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           brightWhite: isDark ? '#FFFFFF' : '#FFFFFF',
         };
       } else {
-        // Soft Mode (Native Canvas / Glassmorphism)
+        // Soft mode uses xterm's built-in DOM renderer for transparent backgrounds.
         baseTheme = {
           background: isDark ? 'transparent' : '#F1F5F9', // Fix light mode transparent disaster
           foreground: isDark ? '#E2E8F0' : '#334155',
@@ -189,38 +187,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         console.warn('[Terminal] Ligatures addon failed to load:', e);
       }
 
-      let webglAddon: WebglAddon | undefined;
-      let canvasAddon: CanvasAddon | undefined;
-      const loadCanvasAddon = () => {
-        try {
-          canvasAddon = new CanvasAddon();
-          term.loadAddon(canvasAddon);
-        } catch (err) {
-          console.warn('[Terminal] Canvas addon failed:', err);
-        }
-      };
-
-      // Load WebGL Addon (Hardware Acceleration) ONLY if antiGlare is true (solid background)
-      if (config.antiGlare) {
-        try {
-          webglAddon = new WebglAddon();
-          // Handle webgl context loss gracefully
-          webglAddon.onContextLoss(() => {
-            if (webglAddon) webglAddon.dispose();
-            console.warn('[Terminal] WebGL context lost. Downgrading to native canvas renderer.');
-            loadCanvasAddon();
-          });
-          term.loadAddon(webglAddon);
-          console.debug('[Terminal] WebGL addon loaded successfully on init');
-        } catch (e) {
-          console.warn('[Terminal] WebGL addon failed to load, downgrading to native canvas:', e);
-          loadCanvasAddon();
-        }
-      } else {
-        loadCanvasAddon();
-      }
-      
-      const entry: XtermCacheEntry = { term, fitAddon, serializeAddon, webglAddon, canvasAddon, ligaturesAddon, element };
+      const entry: XtermCacheEntry = { term, fitAddon, serializeAddon, ligaturesAddon, element };
+      syncTerminalRenderer(entry, !!config.antiGlare);
       // Lives with the cached xterm, not the mount: a close while this pane is unmounted still marks it.
       entry.unsubClosed = window.electronAPI.onSshClosed(sessionId, () => {
         entry.closed = true;
@@ -419,42 +387,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
 
     // Dynamic Renderer Dispatch
     const cache = xtermCache.get(sessionId);
-    if (cache) {
-      if (config.antiGlare) {
-        if (cache.canvasAddon) {
-          cache.canvasAddon.dispose();
-          cache.canvasAddon = undefined;
-        }
-        // High-contrast mode: We can use WebGL!
-        if (!cache.webglAddon) {
-          try {
-            const webglAddon = new WebglAddon();
-            webglAddon.onContextLoss(() => {
-              if (cache.webglAddon) cache.webglAddon.dispose();
-              cache.webglAddon = undefined;
-              console.warn('[Terminal] WebGL context lost during dynamic load.');
-              try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
-            });
-            term.loadAddon(webglAddon);
-            cache.webglAddon = webglAddon;
-            console.debug('[Terminal] WebGL addon dynamically loaded');
-          } catch (e) {
-            console.warn('[Terminal] Dynamic WebGL addon failed to load:', e);
-            try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
-          }
-        }
-      } else {
-        // Soft mode (transparent): WebGL breaks transparent backgrounds, so degrade to Canvas
-        if (cache.webglAddon) {
-          cache.webglAddon.dispose();
-          cache.webglAddon = undefined;
-          console.debug('[Terminal] WebGL addon dynamically disposed (fallback to canvas for transparency)');
-        }
-        if (!cache.canvasAddon) {
-          try { cache.canvasAddon = new CanvasAddon(); term.loadAddon(cache.canvasAddon); } catch(e){}
-        }
-      }
-    }
+    if (cache) syncTerminalRenderer(cache, !!config.antiGlare);
 
     // Request animation frame ensures DOM padding updates have applied before refitting
     const frame = requestAnimationFrame(() => fitAndResize());

@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { disposeOrphanedTerminals, xtermCache, type XtermCacheEntry } from './terminalCache';
+import { disposeOrphanedTerminals, syncTerminalRenderer, xtermCache, type XtermCacheEntry } from './terminalCache';
 import { liveSessionIds } from '../store/sessionStore';
+
+const renderers = vi.hoisted(() => ({ addons: [] as Array<{ dispose: ReturnType<typeof vi.fn>; lose: () => void }> }));
+vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class {
+  dispose = vi.fn();
+  lose = () => {};
+  constructor() { renderers.addons.push(this); }
+  onContextLoss(listener: () => void) { this.lose = listener; }
+} }));
 
 function entry(connected: boolean) {
   const dispose = vi.fn();
@@ -27,5 +35,41 @@ describe('disposeOrphanedTerminals', () => {
     expect(shown.dispose).not.toHaveBeenCalled();
     expect(elsewhere.dispose).not.toHaveBeenCalled();
     xtermCache.clear();
+  });
+});
+
+describe('terminal renderer fallback', () => {
+  function terminal() {
+    renderers.addons.length = 0;
+    return { term: { loadAddon: vi.fn(), dispose: vi.fn(), buffer: { active: { text: 'retained output' } } } } as unknown as XtermCacheEntry;
+  }
+  it('uses the built-in renderer when anti-glare is off', () => {
+    const entry = terminal(); syncTerminalRenderer(entry, false);
+    expect(entry.term.loadAddon).not.toHaveBeenCalled(); expect(renderers.addons).toHaveLength(0);
+  });
+  it('disposes WebGL on a mode switch without destroying the terminal or buffer', () => {
+    const entry = terminal(); const buffer = entry.term.buffer;
+    syncTerminalRenderer(entry, true); syncTerminalRenderer(entry, true);
+    expect(entry.term.loadAddon).toHaveBeenCalledTimes(1);
+    syncTerminalRenderer(entry, false);
+    expect(renderers.addons[0].dispose).toHaveBeenCalledTimes(1); expect(entry.webglAddon).toBeUndefined();
+    expect(entry.term.dispose).not.toHaveBeenCalled(); expect(entry.term.buffer).toBe(buffer);
+  });
+  it('disposes a failed addon and can load a fresh one later', () => {
+    const entry = terminal(); const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(entry.term.loadAddon).mockImplementationOnce(() => { throw new Error('WebGL unavailable'); });
+    syncTerminalRenderer(entry, true);
+    expect(renderers.addons[0].dispose).toHaveBeenCalled(); expect(entry.webglAddon).toBeUndefined();
+    syncTerminalRenderer(entry, true);
+    expect(entry.webglAddon).toBe(renderers.addons[1]); expect(entry.term.dispose).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+  it('falls back after context loss and ignores late loss from an old addon', () => {
+    const entry = terminal(); const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    syncTerminalRenderer(entry, true); const first = renderers.addons[0]; first.lose();
+    expect(first.dispose).toHaveBeenCalledTimes(1); expect(entry.webglAddon).toBeUndefined();
+    syncTerminalRenderer(entry, true); const second = entry.webglAddon; first.lose();
+    expect(entry.webglAddon).toBe(second); expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(entry.term.dispose).not.toHaveBeenCalled(); warn.mockRestore();
   });
 });

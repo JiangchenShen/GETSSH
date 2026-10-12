@@ -109,39 +109,68 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
   // Password settings: the form never gets their values, only which ones are saved.
   const [savedPasswords, setSavedPasswords] = useState<string[]>([]);
   const [clearedPasswords, setClearedPasswords] = useState<string[]>([]);
+  const draftsBeforeClear = useRef<Record<string, string>>({});
+  const [configLoading, setConfigLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
     if (!open || !schema?.length) return;
-    setClearedPasswords([]);
+    let active = true;
+    setConfigLoading(true); setError(''); setClearedPasswords([]); draftsBeforeClear.current = {};
     const plain = schema.filter(field => field.type !== 'password');
     void Promise.all([
       Promise.all(plain.map(async field => [field.id, await window.electronAPI.pluginStorageGet(pluginId, field.id)] as const)),
       window.electronAPI.pluginSavedPasswords(pluginId),
     ])
       .then(([entries, saved]) => {
+        if (!active) return;
         setFormData(Object.fromEntries([
           ...entries.map(([id, value]) => [id, value ?? schema.find(field => field.id === id)?.default]),
           ...schema.filter(field => field.type === 'password').map(field => [field.id, '']),
         ]));
         setSavedPasswords(saved);
       })
-      .catch(reason => setError(String(reason)));
+      .catch(reason => { if (active) setError(String(reason)); })
+      .finally(() => { if (active) setConfigLoading(false); });
+    return () => { active = false; };
   }, [open, pluginId, schema]);
   if (!schema?.length) return null;
   const zh = i18n.language.startsWith('zh');
   const isPassword = (key: string) => schema.some(field => field.id === key && field.type === 'password');
   const clearPassword = (key: string) => {
-    setSavedPasswords(savedPasswords.filter(id => id !== key));
+    if (saving || configLoading || clearedPasswords.includes(key)) return;
+    draftsBeforeClear.current[key] = formData[key] || '';
     setClearedPasswords([...clearedPasswords, key]);
     setFormData({ ...formData, [key]: '' });
   };
+  const undoClear = (key: string) => {
+    if (saving || configLoading) return;
+    setClearedPasswords(clearedPasswords.filter(id => id !== key));
+    setFormData({ ...formData, [key]: draftsBeforeClear.current[key] || '' });
+    delete draftsBeforeClear.current[key];
+  };
   const save = async () => {
+    if (saving || configLoading) return;
     setSaving(true); setError('');
     try {
       // An empty password field keeps what is saved; "Clear" removes it.
       const changes = Object.entries(formData).filter(([key, value]) => !isPassword(key) || value !== '' || clearedPasswords.includes(key));
-      const saved = await Promise.all(changes.map(([key, value]) => window.electronAPI.pluginStorageSet(pluginId, key, value)));
+      const settled = await Promise.allSettled(changes.map(([key, value]) => window.electronAPI.pluginStorageSet(pluginId, key, value)));
+      const saved = settled.map(result => result.status === 'fulfilled' ? result.value : {
+        success: false, error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+      // An acknowledged write is no longer a pending deletion, even if another field or reload fails.
+      const storedPasswords = changes.filter(([key], index) => isPassword(key) && saved[index]?.success);
+      if (storedPasswords.length) {
+        const updatedSaved = new Set(savedPasswords);
+        for (const [key, value] of storedPasswords) {
+          if (value === '') updatedSaved.delete(key); else updatedSaved.add(key);
+          delete draftsBeforeClear.current[key];
+        }
+        setSavedPasswords([...updatedSaved]);
+        setClearedPasswords(pending => pending.filter(key => !storedPasswords.some(([stored]) => stored === key)));
+        setFormData(current => ({ ...current, ...Object.fromEntries(storedPasswords.map(([key]) => [key, ''])) }));
+      }
       for (const result of saved) {
         if (!result?.success) throw new Error(result?.error || (i18n.language.startsWith('zh') ? '插件配置未保存，请重试。' : 'Plugin settings were not saved. Please try again.'));
       }
@@ -151,5 +180,26 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }
   };
-  return <div className="ml-11 mt-3"><button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-primary"><Settings2 size={13} />{i18n.language.startsWith('zh') ? '配置插件' : 'Configure plugin'}</button>{open && <div className="mt-3 max-w-xl space-y-3 border-t border-line-soft pt-3">{schema.map(field => <label key={field.id} className="block text-xs text-ink-2"><span className="font-medium">{field.label}</span>{field.description && <span className="mt-0.5 block text-ink-3">{field.description}</span>}{field.type === 'boolean' ? <input type="checkbox" checked={!!formData[field.id]} onChange={event => setFormData({ ...formData, [field.id]: event.target.checked })} className="mt-2 block h-4 w-4 accent-primary" /> : <><input type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} value={formData[field.id] ?? ''} placeholder={field.type === 'password' && savedPasswords.includes(field.id) ? (zh ? '已保存，留空不修改' : 'Saved. Leave empty to keep it') : undefined} onChange={event => setFormData({ ...formData, [field.id]: field.type === 'number' ? Number(event.target.value) : event.target.value })} className="mt-1.5 block min-h-9 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none focus:border-primary" />{field.type === 'password' && savedPasswords.includes(field.id) && <button type="button" onClick={() => clearPassword(field.id)} className="mt-1 text-xs text-ink-3 hover:text-primary">{zh ? '清除已保存的值' : 'Clear saved value'}</button>}</>}</label>)}{error && <p role="alert" className="text-xs text-down">{error}</p>}<button type="button" onClick={() => void save()} disabled={saving} className={buttonClass}>{saving ? t('common.loading') : (i18n.language.startsWith('zh') ? '保存并重新加载插件' : 'Save & reload plugin')}</button></div>}</div>;
+  return <div className="ml-11 mt-3">
+    <button type="button" onClick={() => setOpen(!open)} disabled={saving} aria-expanded={open} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"><Settings2 size={13} />{zh ? '配置插件' : 'Configure plugin'}</button>
+    {open && <div className="mt-3 max-w-xl space-y-3 border-t border-line-soft pt-3">
+      {schema.map(field => <div key={field.id} className="text-xs text-ink-2">
+        <label className="block">
+          <span className="font-medium">{field.label}</span>
+          {field.description && <span className="mt-0.5 block text-ink-3">{field.description}</span>}
+          {field.type === 'boolean'
+            ? <input type="checkbox" disabled={saving || configLoading} checked={!!formData[field.id]} onChange={event => setFormData({ ...formData, [field.id]: event.target.checked })} className="mt-2 block h-4 w-4 accent-primary" />
+            : <input type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} disabled={saving || configLoading} value={formData[field.id] ?? ''} placeholder={field.type === 'password' && savedPasswords.includes(field.id) && !clearedPasswords.includes(field.id) ? (zh ? '已保存，留空不修改' : 'Saved. Leave empty to keep it') : undefined} onChange={event => setFormData({ ...formData, [field.id]: field.type === 'number' ? Number(event.target.value) : event.target.value })} className="mt-1.5 block min-h-9 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none focus:border-primary disabled:opacity-50" />}
+        </label>
+        {field.type === 'password' && savedPasswords.includes(field.id) && <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {clearedPasswords.includes(field.id) ? <>
+            <span role="status" className="text-ink-3">{formData[field.id] ? (zh ? '保存后替换已保存的值' : 'Will replace on save') : (zh ? '保存后清除' : 'Will clear on save')}</span>
+            <button type="button" disabled={saving || configLoading} onClick={() => undoClear(field.id)} className={buttonClass}>{zh ? '撤销' : 'Undo'}</button>
+          </> : <button type="button" disabled={saving || configLoading} onClick={() => clearPassword(field.id)} className={buttonClass}>{zh ? '清除已保存的值' : 'Clear saved value'}</button>}
+        </div>}
+      </div>)}
+      {error && <p role="alert" className="text-xs text-down">{error}</p>}
+      <button type="button" onClick={() => void save()} disabled={saving || configLoading} className={buttonClass}>{saving || configLoading ? t('common.loading') : (zh ? '保存并重新加载插件' : 'Save & reload plugin')}</button>
+    </div>}
+  </div>;
 };
