@@ -67,7 +67,10 @@ const allSequences = [
   ['asset-folders'],
   ['ipc'],
   ['connect'],
-  ['v2-setup', 'v2-import', 'v2-again', 'v2-again-check'],
+  ['v2-setup', 'v2-import', 'v2-default-port', 'v2-again', 'v2-again-check'],
+  ['v2-password-setup', 'v2-password-import'],
+  ['v2-password-setup', 'v2-dismiss', 'v2-dismissed-check'],
+  ['backup-export', 'backup-import', 'backup-restored'],
   ['rollback-setup', 'damaged'],
   ['legacy', 'rollback-main', 'rollback'],
 ];

@@ -6,7 +6,7 @@ import { tidalBridge } from '../tidal/tidalBridge';
 import { vaultManager } from '../services/vaultManager';
 import { ChatStorageManager } from '../services/chatStorageManager';
 import { DatabaseManager, type Workspace } from '../services/DatabaseManager';
-import { getStore, toStoreError } from '../services/getsshStore';
+import { getStore } from '../services/getsshStore';
 import { isMainWebContents } from '../windowRegistry';
 import { isValidWorkspaceId, resolveWorkspaceDir } from '../utils/workspaceId';
 import { appLock } from '../security/appLock';
@@ -105,22 +105,6 @@ export function setupWorkspaceHandlers() {
     } catch (e) {
       console.error(`[Workspace IPC] Failed to set main workspace ${workspaceId}`, e);
       return { success: false, error: String(e) };
-    }
-  });
-
-  ipcMain.handle('workspace:toggleBiometric', async (event, workspaceId: string, enabled: boolean) => {
-    if (!isMainWebContents(event.sender)) return UNAUTHORIZED;
-    if (!isValidWorkspaceId(workspaceId)) return INVALID_WORKSPACE_ID;
-    // Touch ID / Windows Hello becomes a second way into a workspace that has its own password
-    // (a key of its own in the Secure Enclave or Windows Hello; the workspace must be unlocked).
-    // One switch covers the app and every workspace that has its own password (store.d.ts).
-    try {
-      await getStore().setPresence(enabled === true, 'turn on Touch ID for GETSSH');
-      appLock.notifyChanged();
-      return { success: true };
-    } catch (e) {
-      console.error('Failed to toggle biometric:', e);
-      return { success: false, error: toStoreError(e).code };
     }
   });
 

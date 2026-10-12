@@ -2,7 +2,7 @@ import { app, type IpcMain, type IpcMainInvokeEvent } from 'electron';
 import { appLock } from '../security/appLock';
 import { DatabaseManager } from '../services/DatabaseManager';
 import { toStoreError } from '../services/getsshStore';
-import { applyV2DefaultPort, getV2ImportState, importV2WithPassword } from '../services/legacyV2Profiles';
+import { applyV2DefaultPort, dismissV2Import, getV2ImportState, importV2WithPassword } from '../services/legacyV2Profiles';
 import { isMainWebContents } from '../windowRegistry';
 import { getActiveWorkspaceId } from './workspaceHandler';
 
@@ -18,6 +18,9 @@ import { getActiveWorkspaceId } from './workspaceHandler';
  *
  * legacy-v2:apply-default-port takes the window's appConfig.defaultPort once, for the servers
  * the automatic import gave 22 (status: imported.portDefaulted > 0), and answers the same way.
+ *
+ * legacy-v2:dismiss is the window's "don't ask again": the 2.0 file is recorded as handled and
+ * status no longer reports needsPassword for it.
  */
 
 type Failure = { ok: false; error: string };
@@ -67,6 +70,15 @@ export function registerLegacyImportHandlers(ipcMain: IpcMain) {
       const outcome = await applyV2DefaultPort(port);
       const workspaceId = getActiveWorkspaceId();
       return { ok: true, ...outcome, workspaceId, profiles: DatabaseManager.getProfiles(workspaceId) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+
+  ipcMain.handle('legacy-v2:dismiss', async event => {
+    if (!allowed(event)) return UNAUTHORIZED;
+    try {
+      return { ok: true, ...(await dismissV2Import(app.getPath('userData'))) };
     } catch (error) {
       return failure(error);
     }

@@ -124,11 +124,13 @@ describe('access', () => {
       expect(await call('legacy-v2:status', undefined, event)).toEqual({ ok: false, error: 'unauthorized' });
       expect(await call('legacy-v2:import', { password: V2_PASSWORD }, event)).toEqual({ ok: false, error: 'unauthorized' });
       expect(await call('legacy-v2:apply-default-port', { port: 2222 }, event)).toEqual({ ok: false, error: 'unauthorized' });
+      expect(await call('legacy-v2:dismiss', undefined, event)).toEqual({ ok: false, error: 'unauthorized' });
     }
     mocks.state.ready = false;
     expect(await call('legacy-v2:status')).toEqual({ ok: false, error: 'unauthorized' });
     expect(await call('legacy-v2:import', { password: V2_PASSWORD })).toEqual({ ok: false, error: 'unauthorized' });
     expect(await call('legacy-v2:apply-default-port', { port: 2222 })).toEqual({ ok: false, error: 'unauthorized' });
+    expect(await call('legacy-v2:dismiss')).toEqual({ ok: false, error: 'unauthorized' });
     mocks.state.ready = true;
     // The right password from the wrong sender imported nothing.
     expect(DatabaseManager.getProfiles('home')).toEqual([]);
@@ -181,6 +183,13 @@ describe('legacy-v2:status and legacy-v2:import', () => {
     expect(done.profiles.map((profile: { host: string; port: number }) => [profile.host, profile.port]))
       .toEqual([['web.example.com', 22], ['db.example.com', 2222]]);
     expect(JSON.stringify(done)).not.toContain(SERVER_PASSWORD);
+  });
+
+  it('stops asking after "don\'t ask again" and still imports when asked', async () => {
+    expect(await call('legacy-v2:dismiss')).toEqual({ ok: true, status: 'dismissed' });
+    expect(await call('legacy-v2:status')).toMatchObject({ ok: true, needsPassword: false, imported: { imported: 0, dismissed: true } });
+    expect(await call('legacy-v2:dismiss')).toEqual({ ok: true, status: 'nothing' });
+    expect(await call('legacy-v2:import', { password: V2_PASSWORD })).toMatchObject({ ok: true, status: 'imported' });
   });
 
   it('returns the list of the active workspace, which may not be MAIN', async () => {

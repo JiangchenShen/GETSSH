@@ -43,6 +43,7 @@ import {
   applyV2DefaultPort,
   decryptV2Vault,
   detectV2Profiles,
+  dismissV2Import,
   getV2ImportState,
   importV2WithPassword,
   runAutomaticV2Import,
@@ -383,6 +384,80 @@ describe('importV2WithPassword', () => {
     write('profiles.json', JSON.stringify([{ host: 'a.lan', username: 'u' }, { host: 'b.lan', protocol: 'telnet' }, { host: 'c.lan', port: 2200 }]));
     expect((await importV2WithPassword(dir, null, { ...MAC, defaultPort: 2022 })).imported).toBe(3);
     expect(profiles().map(profile => [profile.host, profile.port])).toEqual([['db.lan', 22], ['a.lan', 2022], ['b.lan', 23], ['c.lan', 2200]]);
+  });
+});
+
+describe('dismissV2Import', () => {
+  it('stops the password question for this file and imports nothing', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    const before = profiles();
+    expect(await dismissV2Import(dir)).toEqual({ status: 'dismissed' });
+    expect(profiles()).toEqual(before);
+    const state = await getV2ImportState(dir, MAC);
+    expect(state.needsPassword).toBe(false);
+    expect(state.imported).toMatchObject({ imported: 0, skipped: 0, changed: false, portDefaulted: 0, dismissed: true });
+    expect(await dismissV2Import(dir)).toEqual({ status: 'nothing' });
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('already');
+  });
+
+  it('still imports the file when the person asks for it later', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    await dismissV2Import(dir);
+    const imported = await importV2WithPassword(dir, V2_PASSWORD, MAC);
+    expect(imported.status).toBe('imported');
+    expect(byHost('web.example.com')).toBeDefined();
+    expect((await getV2ImportState(dir, MAC)).imported?.dismissed).toBeUndefined();
+  });
+
+  it('asks again when the 2.0 file is a different one', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    await dismissV2Import(dir);
+    write('profiles.enc', vault(V2_PASSWORD, ROWS.slice(1)));
+    const state = await getV2ImportState(dir, MAC);
+    expect(state).toMatchObject({ needsPassword: true, imported: { changed: true } });
+    expect(state.imported?.dismissed).toBeUndefined();
+  });
+
+  it('imports a different file automatically when only a dismissal was recorded', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    await dismissV2Import(dir);
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('already');
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    write('profiles.key', mockKeychainKey(V2_PASSWORD));
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('imported');
+    expect(byHost('web.example.com')).toBeDefined();
+  });
+
+  it('keeps the automatic import to its one run when the dismissal followed a real import', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    write('profiles.key', mockKeychainKey(V2_PASSWORD));
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('imported');
+    write('profiles.enc', vault('another 2.0 password', ROWS.slice(1)));
+    expect(await dismissV2Import(dir)).toEqual({ status: 'dismissed' });
+    expect((await getV2ImportState(dir, MAC)).imported).toMatchObject({ dismissed: true, imported: 4 });
+    write('profiles.enc', vault(V2_PASSWORD, [{ host: 'brand-new.example', username: 'root' }]));
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('already');
+    expect(byHost('brand-new.example')).toBeUndefined();
+  });
+
+  it('keeps the servers of an earlier import waiting for the default port', async () => {
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    await importV2WithPassword(dir, V2_PASSWORD, MAC);
+    expect((await getV2ImportState(dir, MAC)).imported?.portDefaulted).toBe(1);
+    write('profiles.enc', vault('a newer 2.0 password', ROWS.slice(1)));
+    expect(await dismissV2Import(dir)).toEqual({ status: 'dismissed' });
+    expect((await getV2ImportState(dir, MAC)).imported).toMatchObject({ dismissed: true, portDefaulted: 1 });
+  });
+
+  it('records an unreadable file too, and does nothing without one', async () => {
+    expect(await dismissV2Import(dir)).toEqual({ status: 'nothing' });
+    expect(marker()).toBeNull();
+    write('profiles.enc', Buffer.from('not a vault'));
+    expect(await dismissV2Import(dir)).toEqual({ status: 'dismissed' });
+    expect((await getV2ImportState(dir, MAC))).toMatchObject({ kind: 'unreadable', needsPassword: false, imported: { dismissed: true, changed: false } });
+    write('profiles.enc', vault(V2_PASSWORD, ROWS));
+    write('profiles.key', mockKeychainKey(V2_PASSWORD));
+    expect((await runAutomaticV2Import(dir, MAC)).status).toBe('imported');
   });
 });
 

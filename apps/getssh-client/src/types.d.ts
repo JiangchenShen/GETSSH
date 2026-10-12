@@ -150,7 +150,6 @@ declare global {
       getWorkspaceStats: (id: string) => Promise<{ success: boolean; error?: string; stats?: any }>;
       getWorkspaceAuditLogs: (id: string) => Promise<{ success: boolean; error?: string; logs?: any[] }>;
       setMainWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>;
-      toggleWorkspaceBiometric: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>;
       promptTouchID: (reason: string) => Promise<{ success: boolean; error?: string }>;
       updateWorkspacePreferences: (id: string, preferencesStr: string) => Promise<{ success: boolean; error?: string }>;
       encryptConfig: (data: any) => Promise<string>;
@@ -249,6 +248,8 @@ declare global {
             status: 'applied' | 'nothing' | 'failed'; changed: number; error?: string;
             workspaceId: string; profiles: import('./store/sessionStore').SessionProfile[];
           }>>;
+          /** "Don't ask again": the 2.0 file is recorded as handled; status() stops reporting needsPassword. */
+          dismiss: () => Promise<import('./types/store').StoreResult<{ status: 'dismissed' | 'nothing' | 'failed'; error?: string }>>;
         };
       };
       ai: {
