@@ -51,7 +51,8 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
     const handleAiSubmit = async (e: Event) => {
       const customEvent = e as CustomEvent;
       const prompt = customEvent.detail;
-      if (!prompt || useWorkspaceStore.getState().isSwitching) return;
+      const phase = useAppLockStore.getState().state?.phase;
+      if (!prompt || useWorkspaceStore.getState().isSwitching || (phase && phase !== 'ready')) return;
 
       let convId = useAiChatStore.getState().activeConversationId;
       const convExists = useAiChatStore.getState().conversations.some(c => c.id === convId);
@@ -73,15 +74,17 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
       let invalidated = false;
       let finished = false;
       const isCurrent = () => !invalidated && useWorkspaceStore.getState().activeWorkspaceId === workspaceName && !useWorkspaceStore.getState().isSwitching
-        && useAppLockStore.getState().state?.phase !== 'locked';
+        && (!useAppLockStore.getState().state || useAppLockStore.getState().state?.phase === 'ready');
       const unsubscribeWorkspace = useWorkspaceStore.subscribe(state => {
-        if (state.activeWorkspaceId !== workspaceName || state.isSwitching) invalidated = true;
+        if (state.activeWorkspaceId !== workspaceName || state.isSwitching) { invalidated = true; cleanup(); }
       });
-      const unsubscribeLock = useAppLockStore.subscribe(state => { if (state.state?.phase === 'locked') invalidated = true; });
+      const unsubscribeLock = useAppLockStore.subscribe(state => { if (state.state && state.state.phase !== 'ready') { invalidated = true; cleanup(); } });
+      const cleanup = () => { unsubscribeWorkspace(); unsubscribeLock(); };
       const finish = () => {
         if (!isCurrent() || finished) return;
         finished = true;
         useAiChatStore.getState().updateMessage(convId!, aiMsgId, { isThinking: false, isStreaming: false });
+        cleanup();
       };
       try {
         await AiBridge.invokePrivileged(
@@ -114,16 +117,17 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
              if (payload.error) {
                finished = true;
                useAiChatStore.getState().updateMessage(convId!, aiMsgId, { content: `[Error] ${payload.error}`, isThinking: false, isStreaming: false });
+               cleanup();
              } else if (payload.isDone) finish();
           }
         );
-        finish();
+        // The invoke response is only an acknowledgement; streaming completes on isDone.
       } catch (err: any) {
-        if (!isCurrent() || finished) return;
-        useAiChatStore.getState().updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
-      } finally {
-        unsubscribeWorkspace();
-        unsubscribeLock();
+        if (isCurrent() && !finished) {
+          finished = true;
+          useAiChatStore.getState().updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
+        }
+        cleanup();
       }
     };
 

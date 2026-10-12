@@ -47,6 +47,22 @@ const render = () => act(async () => root.render(<CommandCenterAiChat onClose={(
 const submit = () => act(async () => { window.dispatchEvent(new CustomEvent('command-center:ai-submit', { detail: 'question' })); });
 
 describe('Command Center shared streaming path', () => {
+  it('continues receiving the stream after an immediate invoke acknowledgement', async () => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await render(); await submit();
+    vi.mocked(AiBridge.saveMessage).mockClear();
+    await act(async () => { emit({ chunk: 'after ACK', isDone: false }); emit({ chunk: ' tail', isDone: true }); });
+    expect(AiBridge.saveMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: 'after ACK tail' }));
+  });
+
+  it('handles asynchronous stream errors after ACK and ignores subsequent late chunks', async () => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await render(); await submit();
+    vi.mocked(AiBridge.saveMessage).mockClear();
+    await act(async () => { emit({ chunk: '', isDone: true, error: 'failure' }); emit({ chunk: 'late', isDone: false }); });
+    expect(AiBridge.saveMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: '[Error] failure' }));
+  });
+
   it('only parses the current reply after a batched token frame, and saves the unpainted tail on done', async () => {
     await render();
     expect(mocks.parse).toHaveBeenCalledTimes(200);

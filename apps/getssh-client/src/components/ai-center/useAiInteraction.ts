@@ -29,6 +29,8 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
   }, [getSessionContext, targetSessionId]);
 
   const generateResponse = useCallback(async (convId: string, aiMsgId: string, promptText: string, overrideSessionId?: string) => {
+    const phase = useAppLockStore.getState().state?.phase;
+    if ((phase && phase !== 'ready') || useWorkspaceStore.getState().isSwitching) { setIsGenerating(false); return; }
     const appConfig = useAppStore.getState().appConfig;
     const aiConfig = useAiStore.getState().aiConfig;
     const searchPayload = useAiStore.getState().getSearchPayload();
@@ -65,21 +67,24 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
     let invalidated = false;
     let finished = false;
     const isCurrent = () => !invalidated && useWorkspaceStore.getState().activeWorkspaceId === activeWsId && !useWorkspaceStore.getState().isSwitching
-      && useAppLockStore.getState().state?.phase !== 'locked';
+      && (!useAppLockStore.getState().state || useAppLockStore.getState().state?.phase === 'ready');
     const unsubscribeWorkspace = useWorkspaceStore.subscribe(state => {
       if (state.activeWorkspaceId !== activeWsId || state.isSwitching) {
         invalidated = true;
         setIsGenerating(false);
+        cleanup();
       }
     });
     const unsubscribeLock = useAppLockStore.subscribe(state => {
-      if (state.state?.phase === 'locked') { invalidated = true; setIsGenerating(false); }
+      if (state.state && state.state.phase !== 'ready') { invalidated = true; setIsGenerating(false); cleanup(); }
     });
+    const cleanup = () => { unsubscribeWorkspace(); unsubscribeLock(); };
     const finish = () => {
       if (!isCurrent() || finished) return;
       finished = true;
       updateMessage(convId, aiMsgId, { isThinking: false, isStreaming: false });
       setIsGenerating(false);
+      cleanup();
     };
     try {
       await AiBridge.invokePrivileged(
@@ -113,6 +118,7 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
             finished = true;
             updateMessage(convId, aiMsgId, { content: `[Error] ${payload.error}`, isThinking: false, isStreaming: false });
             setIsGenerating(false);
+            cleanup();
           } else if (payload.isDone) finish();
         },
         (command: string, requestId: string) => {
@@ -120,15 +126,14 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
            updateMessage(convId, aiMsgId, { approvalRequest: { command, requestId, status: 'pending' } });
         }
       );
-      finish();
+      // invoke acknowledges starting the request; only the later isDone event completes it.
     } catch (err: any) {
-      if (!isCurrent() || finished) return;
-      finished = true;
-      updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
-      setIsGenerating(false);
-    } finally {
-      unsubscribeWorkspace();
-      unsubscribeLock();
+      if (isCurrent() && !finished) {
+        finished = true;
+        updateMessage(convId, aiMsgId, { content: `[Pipeline Error] ${err.message}`, isThinking: false, isStreaming: false });
+        setIsGenerating(false);
+      }
+      cleanup();
     }
   }, [setIsGenerating, targetSessionId]);
 

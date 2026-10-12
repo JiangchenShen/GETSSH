@@ -73,6 +73,59 @@ describe('AI flow identity and completion', () => {
     expect(live().content).toBe('first-tail');
   });
 
+  it('keeps receiving tokens after the main process acknowledges the request before streaming starts', async () => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await act(async () => root.render(<InteractionHarness />));
+    await act(async () => latest.generateResponse('chat', 'live', 'question'));
+    expect(live().isThinking).toBe(true);
+    expect(AiBridge.saveMessage).not.toHaveBeenCalled();
+    await act(async () => { emit({ chunk: 'after ACK', isDone: false }); emit({ chunk: ' tail', isDone: true }); });
+    expect(live()).toMatchObject({ content: 'after ACK tail', isStreaming: false });
+    expect(AiBridge.saveMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: 'after ACK tail' }));
+  });
+
+  it('completes on an asynchronous error after ACK and rejects later callback text', async () => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await act(async () => root.render(<InteractionHarness />));
+    await act(async () => latest.generateResponse('chat', 'live', 'question'));
+    await act(async () => { emit({ chunk: 'queued before error', isDone: false }); emit({ chunk: '', isDone: true, error: 'failure' }); });
+    expect(live()).toMatchObject({ content: '[Error] failure', isStreaming: false, isThinking: false });
+    await act(async () => emit({ chunk: 'late', isDone: false }));
+    expect(live().content).toBe('[Error] failure');
+    expect(AiBridge.saveMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: '[Error] failure' }));
+  });
+
+  it.each(['workspace', 'app lock'])('keeps cancellation scope after an immediate ACK and a %s round trip', async route => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await act(async () => root.render(<InteractionHarness />));
+    await act(async () => latest.generateResponse('chat', 'live', 'question'));
+    await act(async () => emit({ chunk: 'partial', isDone: false }));
+    await act(async () => {
+      if (route === 'workspace') {
+        useWorkspaceStore.setState({ isSwitching: true });
+        useWorkspaceStore.setState({ isSwitching: false });
+      } else {
+        useAppLockStore.setState({ state: { ...ready, phase: 'locked' } });
+        useAppLockStore.setState({ state: ready });
+      }
+    });
+    vi.mocked(AiBridge.saveMessage).mockClear();
+    await act(async () => emit({ chunk: 'late after return', isDone: true }));
+    expect(live().content).toBe('partial');
+    expect(AiBridge.saveMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps a received stream in the shared history when its page closes after ACK', async () => {
+    vi.mocked(AiBridge.invokePrivileged).mockImplementationOnce(async (_request, callback) => { emit = callback!; return { success: true }; });
+    await act(async () => root.render(<InteractionHarness />));
+    await act(async () => latest.generateResponse('chat', 'live', 'question'));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => { emit({ chunk: 'continued while closed', isDone: false }); emit({ chunk: ' tail', isDone: true }); });
+    expect(live().content).toBe('continued while closed tail');
+    expect(AiBridge.saveMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: 'continued while closed tail' }));
+  });
+
   it('invalidates an old stream on switching away and back, preserving its already received partial reply', async () => {
     await act(async () => root.render(<InteractionHarness />));
     let request!: Promise<void>;
