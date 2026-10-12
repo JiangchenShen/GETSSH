@@ -4,7 +4,7 @@
 //! Locking: `main` and `workspaces` are held only for database work, never across a keystore
 //! call that may prompt (Touch ID / Windows Hello) or run Argon2.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1043,30 +1043,52 @@ impl<D: Device> Store<D> {
         }
     }
 
-    /// One Touch ID / Windows Hello prompt per workspace that has it enabled (see store.d.ts).
+    /// One Touch ID / Windows Hello prompt per workspace that has it enabled (see store.d.ts):
+    /// each workspace has its own device key. After the person cancels one, no further prompt
+    /// is shown and the presence workspaces not tried yet are reported as cancelled; the other
+    /// workspaces are still opened, or reported, exactly as they would have been without the
+    /// cancel. Each id is reported once, in the order first given; an id with no workspace is
+    /// not_found (it is never created here).
     pub fn unlock_workspaces(&self, ids: &[String], reason: &str) -> StoreResult<BatchUnlock> {
         let status = self.ks.status();
         let mut unlocked = Vec::new();
         let mut failed = Vec::new();
+        let mut seen = HashSet::new();
+        let mut declined = false;
         for id in ids {
             let scope = workspace_scope(id)?;
-            if self.is_mounted(id) || self.open_workspace(id).unwrap_or(false) {
-                unlocked.push(id.clone());
+            if !seen.insert(id.as_str()) {
                 continue;
+            }
+            if !self.is_mounted(id) && !self.workspace_listed(id)? {
+                failed.push((id.clone(), Code::NotFound));
+                continue;
+            }
+            match self.open_workspace(id) {
+                Ok(true) => {
+                    unlocked.push(id.clone());
+                    continue;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    failed.push((id.clone(), error.code));
+                    continue;
+                }
             }
             let presence = status.scopes.iter().any(|s| s.id == scope && s.presence);
             if !presence {
                 failed.push((id.clone(), Code::NeedsPassword));
                 continue;
             }
+            if declined {
+                failed.push((id.clone(), Code::Cancelled));
+                continue;
+            }
             match self.unlock_workspace(id, UnlockRoute::Presence(reason.to_string())) {
                 Ok(()) => unlocked.push(id.clone()),
                 Err(error) if error.code == Code::Cancelled => {
                     failed.push((id.clone(), Code::Cancelled));
-                    // The person said no: do not prompt again for the rest.
-                    let rest: Vec<String> = ids.iter().filter(|r| !unlocked.contains(r) && !failed.iter().any(|(f, _)| f == *r)).cloned().collect();
-                    failed.extend(rest.into_iter().map(|r| (r, Code::Cancelled)));
-                    break;
+                    declined = true;
                 }
                 Err(error) => failed.push((id.clone(), error.code)),
             }

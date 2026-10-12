@@ -104,7 +104,12 @@ export function lockApp(reason: 'manual' | 'idle' | 'screen-locked' | 'sleep'): 
 /** `current` is required when a master password already exists. At least 12 characters. */
 export function setMasterPassword(password: string, current?: string): Promise<{ recoveryReset: boolean }>;
 export function removeMasterPassword(current: string): Promise<void>;
-/** Enables or disables Touch ID / Windows Hello for the app, and for workspaces that have a password. */
+/**
+ * Enables or disables Touch ID / Windows Hello for the app (with a master password) and for
+ * workspaces that have their own password. Turning it on reaches only those that are unlocked at
+ * that moment; a workspace that is locked, or gets its password later, stays without it until this
+ * runs again while it is open. Turning it off reaches all of them, locked ones too.
+ */
 export function setPresence(enabled: boolean, reason: string): Promise<void>;
 /** Returns the new recovery code; it is shown once and never stored. */
 export function createRecoveryCode(current?: string): Promise<string>;
@@ -142,9 +147,12 @@ export function deleteWorkspace(id: string): Promise<void>;
 export function openWorkspace(id: string): Promise<'open' | 'locked'>;
 export function unlockWorkspace(id: string, route: { password: string } | { presence: string }): Promise<void>;
 /**
- * Unlocks several workspaces with one Touch ID / Windows Hello prompt (used before an export).
- * Workspaces without presence, or whose key could not be used, are reported in `failed` and
- * must be unlocked one by one with their password.
+ * Unlocks several workspaces before an export: one Touch ID / Windows Hello prompt per workspace
+ * that uses it (each has its own device key). Workspaces without presence, or whose key could not
+ * be used, are reported in `failed` and must be unlocked one by one with their password. After the
+ * person cancels a prompt there is no other: the presence workspaces not tried yet are
+ * `cancelled`, workspaces that open without asking are still in `unlocked`, and those without
+ * presence still report `needs_password`. Each id is reported once; an unknown id is not_found.
  */
 export function unlockWorkspaces(ids: string[], reason: string): Promise<{ unlocked: string[]; failed: { id: string; code: StoreErrorCode }[] }>;
 export function lockWorkspace(id: string): void;

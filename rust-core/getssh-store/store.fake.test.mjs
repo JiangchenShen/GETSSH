@@ -609,7 +609,7 @@ test('verifyPassword checks the password that protects the app or the workspace'
   assert.equal(await store.verifyPassword('wrong'), false);
 });
 
-test('unlockWorkspaces: one prompt for every presence workspace; the rest are reported in failed', async () => {
+test('unlockWorkspaces: one prompt per presence workspace, none after a cancel; the rest are reported in failed', async () => {
   await boot({
     workspaces: [
       { id: 'main' },
@@ -626,18 +626,22 @@ test('unlockWorkspaces: one prompt for every presence workspace; the rest are re
     unlocked: ['a', 'b', 'd'],
     failed: [{ id: 'c', code: 'needs_password' }, { id: 'ghost', code: 'not_found' }],
   });
-  assert.equal(fake.snapshot().presencePrompts - before, 1);
+  assert.equal(fake.snapshot().presencePrompts - before, 2);
   store.lockApp('manual');
   fake.setPresence('cancelled');
-  assert.deepEqual((await store.unlockWorkspaces(['a', 'b'], 'Export')).failed,
-    [{ id: 'a', code: 'cancelled' }, { id: 'b', code: 'cancelled' }]);
+  const beforeCancel = fake.snapshot().presencePrompts;
+  assert.deepEqual(await store.unlockWorkspaces(['a', 'd', 'b', 'c'], 'Export'), {
+    unlocked: ['d'],
+    failed: [{ id: 'a', code: 'cancelled' }, { id: 'b', code: 'cancelled' }, { id: 'c', code: 'needs_password' }],
+  });
+  assert.equal(fake.snapshot().presencePrompts - beforeCancel, 1, 'no second prompt after the cancel');
   fake.setPresence('unsupported');
   const unsupported = await store.unlockWorkspaces(['a', 'c'], 'Export');
   assert.deepEqual(unsupported, { unlocked: [], failed: [{ id: 'a', code: 'unavailable' }, { id: 'c', code: 'needs_password' }] });
   await rejectsWith(() => store.unlockWorkspaces('a', 'Export'), 'invalid_argument');
 });
 
-test('setPresence turns Touch ID / Hello on for password workspaces (locked ones on their next unlock)', async () => {
+test('setPresence: on for the open password workspaces only, off for all of them', async () => {
   await boot({ workspaces: [{ id: 'main' }, { id: 'a', password: WS_PW }, { id: 'b', password: 'b-password' }] });
   await store.unlockWorkspace('a', { password: WS_PW });
   fake.setPresence('cancelled');
@@ -646,15 +650,19 @@ test('setPresence turns Touch ID / Hello on for password workspaces (locked ones
   await rejectsWith(() => store.setPresence(true, 'Use Touch ID'), 'unavailable');
   fake.setPresence('ok');
   await store.setPresence(true, 'Use Touch ID');
-  assert.equal(store.appState().presenceEnabled, true);
+  assert.equal(store.appState().presenceEnabled, false, 'the app has no Touch ID of its own without a master password');
   let byId = Object.fromEntries(fake.snapshot().workspaces.map(ws => [ws.id, ws]));
   assert.equal(byId.a.presenceEnabled, true);
-  assert.equal(byId.b.presenceEnabled, false);
-  assert.equal(byId.b.presencePending, true);
+  assert.equal(byId.b.presenceEnabled, false, 'b was locked');
   assert.equal(byId.main.presenceEnabled, false, 'no password: nothing to unlock');
   await store.unlockWorkspace('b', { password: 'b-password' });
+  assert.equal(Object.fromEntries(fake.snapshot().workspaces.map(ws => [ws.id, ws])).b.presenceEnabled, false, 'not turned on by the unlock');
+  await store.setPresence(true, 'Use Touch ID');
   store.lockApp('manual');
   await store.unlockWorkspace('b', { presence: 'Open b' });
+  await store.createWorkspace({ id: 'later', name: 'Later', password: 'later-password' });
+  assert.equal(Object.fromEntries(fake.snapshot().workspaces.map(ws => [ws.id, ws])).later.presenceEnabled, false, 'a new password workspace does not inherit it');
+  store.lockApp('manual');
   await store.setPresence(false, 'Turn off');
   byId = Object.fromEntries(fake.snapshot().workspaces.map(ws => [ws.id, ws]));
   assert.equal(byId.a.presenceEnabled, false);
