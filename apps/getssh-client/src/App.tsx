@@ -40,6 +40,8 @@ import { getAvailableSplitDirection } from './utils/paneHelpers';
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
 import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay';
 import { AppLockScreen } from './components/app-overlays/AppLockScreen';
+import { ForceMasterPasswordChange } from './components/app-overlays/ForceMasterPasswordChange';
+import { LegacyV2Import } from './components/app-overlays/LegacyV2Import';
 import { useAppLockSync } from './hooks/useAppLockSync';
 import { useAppLockStore } from './store/appLockStore';
 
@@ -385,6 +387,7 @@ function App() {
   useAppLockSync();
   const phase = useAppLockStore(state => state.state?.phase);
   const [opened, setOpened] = useState(false);
+  const [passwordDialogActive, setPasswordDialogActive] = useState(false);
   useEffect(() => {
     if (phase === 'ready') setOpened(true);
   }, [phase]);
@@ -393,6 +396,8 @@ function App() {
     <>
       <AppMain />
       {phase !== 'ready' && <AppLockScreen />}
+      {phase === 'ready' && <ForceMasterPasswordChange onActiveChange={setPasswordDialogActive} />}
+      {!passwordDialogActive && <LegacyV2Import />}
     </>
   );
 }

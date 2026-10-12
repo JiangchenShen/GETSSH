@@ -16,10 +16,16 @@ function opened(profiles: unknown): true {
 
 /** Loads the active workspace if it opens without a prompt; false while it needs unlocking. */
 export async function loadActiveWorkspace(): Promise<boolean> {
+  const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+  const sessions = useSessionStore.getState().sessions;
+  const stillCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+    && useSessionStore.getState().sessions === sessions;
   try {
-    return opened(await window.electronAPI.unlockProfiles(''));
+    const profiles = await window.electronAPI.unlockProfiles('');
+    // A later import or workspace switch already replaced the list; keep that newer result.
+    return stillCurrent() ? opened(profiles) : true;
   } catch {
-    return false;
+    return !stillCurrent();
   }
 }
 

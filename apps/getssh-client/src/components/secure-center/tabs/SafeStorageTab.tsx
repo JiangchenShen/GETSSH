@@ -60,6 +60,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       case 'rate_limited': return zh ? `尝试次数过多，请 ${Math.ceil((retryAfterMs ?? 1000) / 1000)} 秒后再试` : `Too many attempts. Try again in ${Math.ceil((retryAfterMs ?? 1000) / 1000)} s`;
       case 'cancelled': return zh ? '已取消' : 'Cancelled';
       case 'main_workspace_needs_master_password': return zh ? '主工作区不能单独设置密码，请先设置主密码' : 'The main workspace cannot have its own password; set a master password instead';
+      case 'master_password_protects_workspaces': return zh ? '这个工作区已由主密码保护，无需单独设置或修改密码' : 'The master password already protects this workspace; a separate password is not needed';
       case 'locked': return zh ? '请先解锁这个工作区' : 'Unlock this workspace first';
       case 'invalid_argument': return zh ? '输入无效' : 'Invalid input';
       default: return zh ? `操作失败（${failure}）` : `Failed (${failure})`;
@@ -220,8 +221,8 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
           ? (isMainWorkspace ? (zh ? '主工作区不能单独设置密码；设置主密码后它会受到保护。' : 'The main workspace cannot have its own password; set a master password to protect it.') : (zh ? '任何使用这台电脑的人都能打开这个工作区。' : 'Anyone using this computer can open this workspace.'))
           : undefined}>
         <div className="flex flex-wrap gap-2">{workspaceScope?.ownPassword
-          ? <><button type="button" onClick={() => open('change-workspace')} className={settingButtonClass}>{zh ? '修改' : 'Change'}</button><button type="button" onClick={() => open('remove-workspace')} className={settingDangerButtonClass}>{zh ? '移除' : 'Remove'}</button></>
-          : (!isMainWorkspace || status?.appProtected) && <button type="button" onClick={() => open('set-workspace')} className={settingButtonClass}>{zh ? '设置密码' : 'Set password'}</button>}</div>
+          ? <>{!status?.appProtected && <button type="button" onClick={() => open('change-workspace')} className={settingButtonClass}>{zh ? '修改' : 'Change'}</button>}<button type="button" onClick={() => open('remove-workspace')} className={settingDangerButtonClass}>{zh ? '移除' : 'Remove'}</button></>
+          : status && !status.appProtected && !isMainWorkspace && <button type="button" onClick={() => open('set-workspace')} className={settingButtonClass}>{zh ? '设置密码' : 'Set password'}</button>}</div>
       </SettingsRow>
       {workspaceScope?.ownPassword && status?.presenceSupported && <SettingsRow label={presenceName} description={zh ? `用 ${presenceName} 代替输入这个工作区的密码。` : `Use ${presenceName} instead of typing this workspace's password.`}>
         <button type="button" disabled={busy} onClick={() => void togglePresence(activeWorkspaceId, !workspaceScope.presence)} className={settingButtonClass}>{workspaceScope.presence ? (zh ? '关闭' : 'Turn off') : (zh ? '开启' : 'Turn on')}</button>
