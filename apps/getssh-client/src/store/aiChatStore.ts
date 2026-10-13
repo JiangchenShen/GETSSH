@@ -17,7 +17,7 @@ export interface ChatMessage {
   isStreaming?: boolean;
   isThinking?: boolean;
   timestamp: number;
-  approvalRequest?: { command: string, requestId: string, status?: 'pending' | 'approved' | 'rejected' };
+  approvalRequest?: { command: string, requestId: string, status?: 'pending' | 'approved' | 'rejected' | 'expired' };
   serverSelectionRequest?: {
     availableServers: { id: string, name: string }[];
     pendingPrompt: string;
@@ -334,6 +334,21 @@ export const useAiChatStore = create<AiChatState>()(
   })
 );
 
+/** The stream has stopped, so its command prompts cannot outlive that security scope. */
+function expirePendingApprovals() {
+  const pending = new Set(useAiChatStore.getState().conversations.flatMap(conv => conv.messages
+    .filter(msg => msg.approvalRequest?.status === 'pending').map(msg => msg.approvalRequest!.requestId)));
+  if (!pending.size) return;
+  useAiChatStore.setState(state => ({ conversations: state.conversations.map(conv => ({
+    ...conv, messages: conv.messages.map(msg => msg.approvalRequest?.status === 'pending'
+      ? { ...msg, isStreaming: false, isThinking: false, approvalRequest: { ...msg.approvalRequest, status: 'expired' as const } } : msg),
+  })) }));
+  for (const requestId of pending) {
+    try { window.electronAPI?.ai?.approveAgentAction?.(requestId, false); }
+    catch { console.warn('[AI] Could not send rejection for an expired command approval.'); }
+  }
+}
+
 useWorkspaceStore.subscribe((next, previous) => {
   if (next.isSwitching && !previous.isSwitching) {
     // switchWorkspace sets this before invoking the main process: persist the partial reply
@@ -343,6 +358,7 @@ useWorkspaceStore.subscribe((next, previous) => {
     for (const conv of state.conversations) for (const msg of conv.messages) {
       if (msg.isStreaming || msg.isThinking) state.updateMessage(conv.id, msg.id, { isStreaming: false, isThinking: false });
     }
+    expirePendingApprovals();
     workspaceGeneration++;
     loadingMessages.clear();
   }
@@ -365,4 +381,5 @@ useAppLockStore.subscribe((next, previous) => {
   useAiChatStore.setState(state => ({ conversations: state.conversations.map(conv => ({
     ...conv, messages: conv.messages.map(msg => msg.isStreaming || msg.isThinking ? { ...msg, isStreaming: false, isThinking: false } : msg),
   })) }));
+  expirePendingApprovals();
 });

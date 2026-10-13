@@ -121,6 +121,10 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     source.current = { workspaceId: activeWorkspaceId, revision: sessionsRevision, loaded: profilesReady };
     if (previous.workspaceId !== activeWorkspaceId || !previous.loaded || !profilesReady || previous.revision === sessionsRevision) return;
     generation.current += 1;
+    setSaveError(''); setSaving(false);
+    // Whole-list imports retain this draft/quick connection by ID. Its local edits may
+    // still be waiting for the debounce; only saved profiles need replacement metadata.
+    if (session.isDraft || session.isQuickConnect) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
     pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);

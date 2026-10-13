@@ -21,7 +21,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
   const phase = useAppLockStore(state => state.state?.phase);
   const workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const vaultLocked = useWorkspaceStore(state => state.isVaultLocked);
-  const locked = phase === 'locked' || vaultLocked;
+  const locked = phase === 'locked';
   const confirmation = useRef<HTMLDivElement>(null);
   const importTrigger = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState('');
@@ -84,7 +84,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     if (running.current || report || locked) return;
     const epoch = generation.current;
     const isCurrent = () => mounted.current && generation.current === epoch && useAppLockStore.getState().state?.phase !== 'locked'
-      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId && !useWorkspaceStore.getState().isVaultLocked;
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId && useWorkspaceStore.getState().isVaultLocked === vaultLocked;
     running.current = true;
     setBusy(true);
     setError('');
@@ -119,13 +119,35 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     const result = await backup().unlockForExport({ workspaceIds: selected });
     if (!isCurrent()) return;
     if (!result.ok) { handleFailure(result); return; }
+    const unverified = result.failed.filter(item => !candidates.find(candidate => candidate.id === item.id)?.unlockWith.includes('password'));
+    if (unverified.length) {
+      const names = unverified.map(item => candidates.find(candidate => candidate.id === item.id)?.name ?? item.id).join(', ');
+      const message = copy(`以下工作区尚未通过验证：${names}。请查看更新后的列表，再次验证所选工作区。`, `These workspaces have not been verified: ${names}. Review the updated list and verify the selected workspaces again.`);
+      setFailed([]); setWorkspacePassword(''); setStep('choose'); setError(message);
+      try {
+        const latest = await backup().candidates();
+        if (!isCurrent()) return;
+        if (latest.ok) {
+          setCandidates(latest.candidates);
+          const available = new Set(latest.candidates.map(candidate => candidate.id));
+          const removed = selected.filter(id => !available.has(id));
+          setSelected(selected.filter(id => available.has(id)));
+          if (removed.length) {
+            const removedNames = removed.map(id => candidates.find(candidate => candidate.id === id)?.name ?? id).join(', ');
+            setError(`${message} ${copy(`以下工作区已不存在，已从选择中移除：${removedNames}。`, `These workspaces no longer exist and were removed from the selection: ${removedNames}.`)}`);
+          }
+        }
+        else setError(`${message} ${storeFailureMessage(latest.error, zh, latest.retryAfterMs)}`);
+      } catch {
+        if (isCurrent()) setError(`${message} ${copy('工作区列表未能更新，请重试。', 'The workspace list could not be updated. Try again.')}`);
+      }
+      return;
+    }
     // A cancelled system prompt is quiet; its workspaces can still be opened with passwords.
     const blocking = result.failed.find(item => !['needs_password', 'wrong_password', 'cancelled', 'unavailable'].includes(item.code));
     if (blocking) { handleFailure({ error: blocking.code }); return; }
-    const passwordFailures = result.failed.filter(item => candidates.find(candidate => candidate.id === item.id)?.unlockWith.includes('password'));
-    setFailed(passwordFailures.map(item => item.id));
-    if (passwordFailures.length) setStep('unlock');
-    else if (!result.failed.length) setStep('password');
+    setFailed(result.failed.map(item => item.id));
+    setStep(result.failed.length ? 'unlock' : 'password');
   });
   const unlockWorkspace = () => run(async isCurrent => {
     const workspaceId = failed[0];

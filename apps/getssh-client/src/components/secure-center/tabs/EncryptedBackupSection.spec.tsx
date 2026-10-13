@@ -150,16 +150,124 @@ describe('Encrypted backup interface', () => {
     await expect(store.openWorkspace('plain')).resolves.toBe('open');
   });
 
-  it('does not request a password when cancelled workspace metadata has no password route', async () => {
-    backup.candidates.mockResolvedValue({ ok: true, candidates: [{
-      id: 'plain', name: 'Unprotected hosts', is_main: false, state: 'locked', profileCount: 0, unlockWith: [],
-    }] });
-    backup.unlockForExport.mockResolvedValue({ ok: true, unlocked: [], failed: [{ id: 'plain', code: 'cancelled' }] });
+  it('refreshes changed workspace metadata after cancellation instead of silently skipping its missing password route', async () => {
+    const opened = { id: 'private', name: 'Private hosts', is_main: false, state: 'open', profileCount: 2, unlockWith: [] };
+    backup.candidates.mockResolvedValueOnce({ ok: true, candidates: [opened] }).mockResolvedValue({ ok: true, candidates: [{ ...opened, state: 'locked', profileCount: 0, unlockWith: ['presence', 'password'] }] });
+    backup.unlockForExport.mockResolvedValue({ ok: true, unlocked: [], failed: [{ id: 'private', code: 'cancelled' }] });
     await render(); await click('Choose workspaces'); await click('Verify and continue');
     expect(container.querySelector('input[type=password]')).toBeNull();
-    expect(container.querySelector('[role=alert]')).toBeNull();
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('have not been verified: Private hosts');
+    expect(backup.candidates).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Locked · 0 profiles');
+    expect((container.querySelector('input[type=checkbox]') as HTMLInputElement).checked).toBe(true);
     expect(button('Verify and continue').disabled).toBe(false);
     expect(unlock).not.toHaveBeenCalled(); expect(backup.export).not.toHaveBeenCalled();
+    await click('Verify and continue');
+    expect(container.querySelector('[role=alert]')).toBeNull();
+    expect(container.textContent).toContain('Unlock workspace: Private hosts');
+  });
+
+  it('preserves the chosen workspaces and verifies all mixed failures again when a selected open workspace locks', async () => {
+    testDirectory = mkdtempSync(join(tmpdir(), 'getssh-ui-backup-metadata-'));
+    store.__fake.reset(); store.configure(join(testDirectory, 'data'), '3.0.0-rc.1');
+    store.__fake.seed({ workspaces: [
+      { id: 'main', name: 'Main hosts', is_main: true },
+      { id: 'newly-locked', name: 'Recently locked hosts', password: 'workspace-password' },
+      { id: 'touch', name: 'Touch ID hosts', password: 'touch-password', presenceEnabled: true },
+    ] });
+    await store.start(); await store.unlockWorkspace('newly-locked', { password: 'workspace-password' });
+    store.__fake.setPresence('cancelled');
+    backup.candidates.mockImplementation(async () => ({ ok: true, candidates: store.exportCandidates() }));
+    backup.unlockForExport.mockImplementation(async ({ workspaceIds }) => ({ ok: true, ...await store.unlockWorkspaces(workspaceIds, 'Export selected workspaces') }));
+    unlock.mockImplementation(async ({ workspaceId, password }) => {
+      await store.unlockWorkspace(workspaceId, { password }); return { ok: true };
+    });
+    await render(); await click('Choose workspaces');
+    await act(async () => (container.querySelector('input[type=checkbox]') as HTMLInputElement).click());
+    store.lockWorkspace('newly-locked');
+    await click('Verify and continue');
+    expect(await backup.unlockForExport.mock.results[0].value).toEqual({ ok: true, unlocked: [], failed: [
+      { id: 'newly-locked', code: 'needs_password' }, { id: 'touch', code: 'cancelled' },
+    ] });
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('have not been verified: Recently locked hosts');
+    expect(backup.candidates).toHaveBeenCalledTimes(2);
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map(input => input.checked)).toEqual([false, true, true]);
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    expect(unlock).not.toHaveBeenCalled(); expect(backup.export).not.toHaveBeenCalled();
+    await click('Verify and continue');
+    expect(backup.unlockForExport).toHaveBeenNthCalledWith(2, { workspaceIds: ['newly-locked', 'touch'] });
+    await fill('Workspace password', 'workspace-password'); await click('Unlock and continue');
+    await fill('Workspace password', 'touch-password'); await click('Unlock and continue');
+    await fill('Backup password', 'long-backup-password'); await fill('Repeat the backup password', 'long-backup-password'); await click('Save backup');
+    expect(unlock.mock.calls.map(([request]) => request.workspaceId)).toEqual(['newly-locked', 'touch']);
+    expect(backup.export).toHaveBeenCalledExactlyOnceWith({ workspaceIds: ['newly-locked', 'touch'], password: 'long-backup-password' });
+  });
+
+  it.each(['failure', 'transport'])('keeps an unverified workspace selected and retryable after candidate refresh %s', async outcome => {
+    const opened = { id: 'private', name: 'Private hosts', is_main: false, state: 'open', profileCount: 2, unlockWith: [] };
+    backup.candidates.mockResolvedValueOnce({ ok: true, candidates: [opened] });
+    if (outcome === 'failure') backup.candidates.mockResolvedValueOnce({ ok: false, error: 'io' });
+    else backup.candidates.mockRejectedValueOnce(new Error('SECRET backend details'));
+    backup.candidates.mockResolvedValue({ ok: true, candidates: [{ ...opened, state: 'locked', profileCount: 0, unlockWith: ['password'] }] });
+    backup.unlockForExport.mockResolvedValue({ ok: true, unlocked: [], failed: [{ id: 'private', code: 'needs_password' }] });
+    await render(); await click('Choose workspaces'); await click('Verify and continue');
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('have not been verified: Private hosts');
+    expect(container.textContent).not.toContain('SECRET');
+    expect((container.querySelector('input[type=checkbox]') as HTMLInputElement).checked).toBe(true);
+    expect(button('Verify and continue').disabled).toBe(false);
+    expect(backup.export).not.toHaveBeenCalled();
+    await click('Verify and continue');
+    expect(backup.candidates).toHaveBeenCalledTimes(3);
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    await click('Verify and continue');
+    expect(container.textContent).toContain('Unlock workspace: Private hosts');
+  });
+
+  it('removes a deleted workspace from the refreshed selection explicitly and preserves every remaining checkbox choice', async () => {
+    const a = { id: 'a', name: 'Deleted hosts', is_main: false, state: 'open', profileCount: 1, unlockWith: [] };
+    const b = { id: 'b', name: 'Chosen hosts', is_main: false, state: 'open', profileCount: 2, unlockWith: [] };
+    const c = { id: 'c', name: 'Excluded hosts', is_main: true, state: 'open', profileCount: 3, unlockWith: [] };
+    backup.candidates.mockResolvedValueOnce({ ok: true, candidates: [a, b, c] }).mockResolvedValue({ ok: true, candidates: [b, c] });
+    backup.unlockForExport.mockResolvedValueOnce({ ok: true, unlocked: ['b'], failed: [{ id: 'a', code: 'not_found' }] })
+      .mockResolvedValue({ ok: true, unlocked: ['b'], failed: [] });
+    await render(); await click('Choose workspaces');
+    await act(async () => container.querySelectorAll<HTMLInputElement>('input[type=checkbox]')[2].click());
+    await click('Verify and continue');
+    expect(backup.unlockForExport).toHaveBeenNthCalledWith(1, { workspaceIds: ['a', 'b'] });
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('have not been verified: Deleted hosts');
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('no longer exist and were removed from the selection: Deleted hosts');
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map(input => input.checked)).toEqual([true, false]);
+    expect(backup.export).not.toHaveBeenCalled();
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    await click('Verify and continue');
+    expect(backup.unlockForExport).toHaveBeenNthCalledWith(2, { workspaceIds: ['b'] });
+    await fill('Backup password', 'long-backup-password'); await fill('Repeat the backup password', 'long-backup-password'); await click('Save backup');
+    expect(backup.export).toHaveBeenCalledExactlyOnceWith({ workspaceIds: ['b'], password: 'long-backup-password' });
+  });
+
+  it('exports selected workspaces while the current workspace remains locked and only disables for an app lock', async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'private', isVaultLocked: true });
+    await render();
+    for (const label of ['Choose workspaces', 'Choose backup file', 'Export JSON', 'Import JSON']) expect(button(label).disabled).toBe(false);
+    await passwordStep();
+    await fill('Backup password', 'long-backup-password'); await fill('Repeat the backup password', 'long-backup-password'); await click('Save backup');
+    expect(backup.export).toHaveBeenCalledExactlyOnceWith({ workspaceIds: ['main', 'private'], password: 'long-backup-password' });
+    expect(useWorkspaceStore.getState().isVaultLocked).toBe(true);
+    await act(async () => useAppLockStore.setState({ state: {
+      phase: 'locked', appProtected: true, presenceSupported: false, presenceEnabled: false,
+      recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false,
+    } }));
+    for (const label of ['Choose workspaces', 'Choose backup file', 'Export JSON', 'Import JSON']) expect(button(label).disabled).toBe(true);
+  });
+
+  it('chooses, reviews and imports a backup while the current workspace remains locked', async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'private', isVaultLocked: true });
+    await render(); await reviewImport();
+    expect(container.querySelector('[role=alertdialog]')).not.toBeNull();
+    await click('Replace all data and import');
+    expect(backup.import).toHaveBeenCalledExactlyOnceWith({ fileId: 'opaque-file', password: 'backup-password' });
+    expect(useWorkspaceStore.getState().isVaultLocked).toBe(true);
+    expect(useBackupRestartStore.getState().report).toEqual({ workspaceIds: ['main'], backupPath: '/tmp/previous-data' });
   });
 
   it('allows retry after a wrong workspace password and displays the rate-limit wait', async () => {
@@ -261,7 +369,7 @@ describe('Encrypted backup interface', () => {
     await click('Choose backup file'); await fill('Backup password', 'transient-import-password');
     await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
     expect(container.querySelector('input[type=password]')).toBeNull();
-    expect(button('Choose backup file').disabled).toBe(true);
+    expect(button('Choose backup file').disabled).toBe(false);
     await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
     await click('Choose backup file');
     expect((container.querySelector('input[type=password]') as HTMLInputElement).value).toBe('');

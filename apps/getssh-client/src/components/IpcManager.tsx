@@ -3,6 +3,7 @@ import { useAppStore } from '../store/appStore';
 import { savedProfiles, useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { usePluginStore } from '../store/pluginStore';
+import { useAppLockStore } from '../store/appLockStore';
 import { findLeaf } from '../utils/paneHelpers';
 
 /**
@@ -102,11 +103,12 @@ export const IpcManager: React.FC = () => {
         // The list belongs to this workspace: skip the save if the workspace changed meanwhile.
         const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
         setTimeout(() => {
-           if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
-           if (useWorkspaceStore.getState().isVaultLocked) return;
-           const sessions = useSessionStore.getState().sessions;
+           const workspace = useWorkspaceStore.getState();
+           const sessions = useSessionStore.getState();
+           if (workspace.activeWorkspaceId !== workspaceId || workspace.isSwitching || workspace.isVaultLocked
+             || sessions.profilesWorkspaceId !== workspaceId || useAppLockStore.getState().state?.phase !== 'ready') return;
            // Main refuses the write if the workspace changed meanwhile or got locked; the osType is re-detected next connect.
-           window.electronAPI.saveProfiles({ payload: savedProfiles(sessions), workspaceId })
+           window.electronAPI.saveProfiles({ payload: savedProfiles(sessions.sessions), workspaceId })
              .catch((err) => console.warn('[IpcManager] Skipped persisting detected OS type:', err));
         }, 50);
       }

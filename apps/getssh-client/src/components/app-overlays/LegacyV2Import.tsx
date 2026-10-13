@@ -26,6 +26,7 @@ export function LegacyV2Import() {
   const [pendingDefaultPort, setPendingDefaultPort] = useState(false);
   const mounted = useRef(false);
   const checkedReady = useRef(false);
+  const skippedReady = useRef(false);
   const appGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
   const inFlight = useRef(false);
@@ -56,6 +57,7 @@ export function LegacyV2Import() {
       setPassword('');
       if (next.state?.phase !== 'ready' || next.state.masterPasswordMustChange) {
         checkedReady.current = false;
+        skippedReady.current = false;
         setPrompt(null);
         setError('');
         setPendingDefaultPort(false);
@@ -65,6 +67,7 @@ export function LegacyV2Import() {
       if (next.activeWorkspaceId === previous.activeWorkspaceId && next.isSwitching === previous.isSwitching && next.isVaultLocked === previous.isVaultLocked) return;
       workspaceGeneration.current++;
       setPassword('');
+      if (skippedReady.current) return;
       // Check again after unlocking/switching. An import may have completed while its reply
       // was being discarded, so the earlier password prompt can no longer be trusted.
       checkedReady.current = false;
@@ -93,13 +96,18 @@ export function LegacyV2Import() {
   };
   const adoptProfiles = (scope: ReturnType<typeof requestScope>, result: { workspaceId: string; profiles: SessionProfile[] }) => {
     if (isCurrentWorkspace(scope) && result.workspaceId === useWorkspaceStore.getState().activeWorkspaceId) {
+      const sessions = useSessionStore.getState();
+      const selected = sessions.sessions[sessions.selectedSessionIndex ?? -1];
+      const updated = [...result.profiles, ...sessions.sessions.filter(profile => profile.isDraft || profile.isQuickConnect)];
+      const selectedIndex = selected ? updated.findIndex(profile => profile === selected || !!profile.id && profile.id === selected.id) : -1;
       // Do not save here: the main process already saved this complete list, including its secret metadata.
-      useSessionStore.getState().replaceSessions(result.profiles, result.workspaceId);
+      sessions.replaceSessions(updated, result.workspaceId);
+      sessions.setSelectedSessionIndex(selectedIndex >= 0 ? selectedIndex : null);
     }
   };
 
   useEffect(() => {
-    if (phase !== 'ready' || mustChangePassword || !configLoaded || isSwitching || vaultLocked || inFlight.current || checkedReady.current || !window.electronAPI?.store?.legacyV2) return;
+    if (phase !== 'ready' || mustChangePassword || !configLoaded || isSwitching || vaultLocked || inFlight.current || skippedReady.current || checkedReady.current || !window.electronAPI?.store?.legacyV2) return;
     checkedReady.current = true;
     const scope = requestScope();
     void (async () => {
@@ -130,7 +138,7 @@ export function LegacyV2Import() {
 
   const portFailure = (code?: string) => {
     if (code === 'cancelled' || code === 'unauthorized') return '';
-    if (code === 'locked') return zh ? '服务器已导入，但默认端口未能设置。请解锁主工作区后重试。' : 'Servers were imported, but the default port could not be set. Unlock the main workspace and retry.';
+    if (code === 'locked') return zh ? '服务器已导入，但默认端口未能设置。请解锁导入这些服务器的工作区后重试。' : 'Servers were imported, but the default port could not be set. Unlock the workspace containing the imported servers and retry.';
     return zh ? '服务器已导入，但默认端口未能设置。请重试；先跳过会保留当前端口。' : 'Servers were imported, but the default port could not be set. Retry, or skip to keep the current ports.';
   };
 
@@ -166,6 +174,7 @@ export function LegacyV2Import() {
 
   const skip = () => {
     if (inFlight.current) return;
+    skippedReady.current = true;
     setPassword('');
     setError('');
     setPrompt(null);

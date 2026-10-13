@@ -8,8 +8,11 @@ import { useSessionStore, type SessionProfile } from '../../store/sessionStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type { AppLockState } from '../../types/ipc';
 import { LegacyV2Import } from './LegacyV2Import';
+import { ConnectFormOverlay } from './ConnectFormOverlay';
+import { useSessionManager } from '../../hooks/useSessionManager';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'zh-CN' } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }) }));
+vi.mock('framer-motion', () => ({ motion: { button: ({ whileTap: _whileTap, ...props }: any) => <button {...props} /> } }));
 
 const appState: AppLockState = {
   phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false,
@@ -45,8 +48,8 @@ beforeEach(() => {
   importV2 = vi.fn().mockResolvedValue(imported);
   applyDefaultPort = vi.fn().mockResolvedValue({ ok: true, status: 'applied', changed: 1, workspaceId: 'current', profiles });
   dismissV2 = vi.fn().mockResolvedValue({ ok: true, status: 'dismissed' });
-  saveProfiles = vi.fn();
-  window.electronAPI = { saveProfiles, store: { legacyV2: { status, import: importV2, applyDefaultPort, dismiss: dismissV2 } } } as unknown as Window['electronAPI'];
+  saveProfiles = vi.fn().mockResolvedValue(true);
+  window.electronAPI = { saveProfiles, assetFolders: { list: vi.fn().mockResolvedValue({ success: true, folders: [] }) }, store: { legacyV2: { status, import: importV2, applyDefaultPort, dismiss: dismissV2 } } } as unknown as Window['electronAPI'];
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -55,15 +58,24 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 const render = () => act(async () => root.render(<LegacyV2Import />));
 const typePassword = (value: string) => act(async () => {
-  const input = container.querySelector<HTMLInputElement>('input[type="password"]')!;
+  const input = container.querySelector<HTMLInputElement>('[role="dialog"] input[type="password"]')!;
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
-const submit = () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+const submit = () => act(async () => container.querySelector('[role="dialog"] form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 const click = (label: string) => act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === label)!.click());
+function EditingHarness() {
+  const sessions = useSessionStore(state => state.sessions);
+  const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
+  const appConfig = useAppStore(state => state.appConfig);
+  const { syncProfiles, handleConnect } = useSessionManager();
+  return <><LegacyV2Import /><ConnectFormOverlay sessions={sessions} selectedSessionIndex={selectedSessionIndex} activeTabId={null}
+    appConfig={appConfig} isDark connecting={false} error={null} onCancel={() => {}} handleConnect={handleConnect} syncProfiles={syncProfiles} /></>;
+}
 
 describe('GETSSH 2.0 import', () => {
   it('waits for ready, loaded configuration and mandatory master-password replacement, then checks once', async () => {
@@ -121,6 +133,99 @@ describe('GETSSH 2.0 import', () => {
     expect(useSessionStore.getState().sessionsRevision).toBe(revision + 1);
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(saveProfiles).not.toHaveBeenCalled();
+  });
+
+  it.each(['import', 'defaultPort'])('keeps the real draft editor on its stable ID after %s and does not autosave into another server 400ms later', async route => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const draft: SessionProfile = { id: 'draft', isDraft: true, alias: 'draft-before', host: 'draft.test', username: 'user' };
+    const existing: SessionProfile = { id: 'existing', alias: 'existing-before', host: 'existing.test', username: 'user' };
+    const quick: SessionProfile = { id: 'quick', isQuickConnect: true, host: 'quick.test', username: 'user' };
+    const newlyImported: SessionProfile = { id: 'new-imported', alias: 'imported-before', host: 'legacy.test', username: 'user' };
+    const saved = [newlyImported, existing];
+    useSessionStore.getState().replaceSessions([draft, existing, quick], 'current');
+    useSessionStore.getState().setSelectedSessionIndex(0);
+    const pending = deferred<any>();
+    if (route === 'import') importV2.mockReturnValueOnce(pending.promise);
+    else { status.mockResolvedValue(withMissingPort); applyDefaultPort.mockReturnValueOnce(pending.promise); }
+    await act(async () => root.render(<EditingHarness />));
+    const alias = () => container.querySelector<HTMLInputElement>('input[placeholder="connection.placeholder.alias"]')!;
+    expect(alias().value).toBe('draft-before');
+    if (route === 'import') { await typePassword('old-master'); await submit(); }
+    await act(async () => pending.resolve(route === 'import'
+      ? { ...imported, profiles: saved }
+      : { ok: true, status: 'applied', changed: 1, workspaceId: 'current', profiles: saved }));
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([newlyImported, existing, draft, quick]);
+    expect(state.sessions[state.selectedSessionIndex!].id).toBe('draft');
+    expect(state.selectedSessionIndex).toBe(2);
+    expect(alias().value).toBe('draft-before');
+    expect(saveProfiles).not.toHaveBeenCalled();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(alias(), 'draft-after');
+      alias().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => vi.advanceTimersByTime(399));
+    expect(saveProfiles).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(useSessionStore.getState().sessions.find(profile => profile.id === 'draft')).toMatchObject({ isDraft: true, alias: 'draft-after' });
+    expect(useSessionStore.getState().sessions.filter(profile => !profile.isDraft && !profile.isQuickConnect)).toEqual(saved);
+    expect(useSessionStore.getState().sessions.find(profile => profile.id === 'quick')).toEqual(quick);
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: saved });
+  });
+
+  it.each(['import', 'defaultPort'])('restores the selected saved server by ID after %s reorders the list', async route => {
+    const existing: SessionProfile = { id: 'existing', host: 'existing.test', username: 'user' };
+    const quick: SessionProfile = { id: 'quick', isQuickConnect: true, host: 'quick.test', username: 'user' };
+    useSessionStore.getState().replaceSessions([existing, quick], 'current');
+    useSessionStore.getState().setSelectedSessionIndex(0);
+    if (route === 'import') importV2.mockResolvedValue({ ...imported, profiles: [...profiles, existing] });
+    else {
+      status.mockResolvedValue(withMissingPort);
+      applyDefaultPort.mockResolvedValue({ ok: true, status: 'applied', changed: 1, workspaceId: 'current', profiles: [...profiles, existing] });
+    }
+    await render();
+    if (route === 'import') { await typePassword('old-master'); await submit(); }
+    expect(useSessionStore.getState().selectedSessionIndex).toBe(1);
+    expect(useSessionStore.getState().sessions[1]).toEqual(existing);
+    expect(useSessionStore.getState().sessions[2]).toEqual(quick);
+    expect(saveProfiles).not.toHaveBeenCalled();
+  });
+
+  it.each(['import', 'defaultPort'])('keeps draft input typed before %s completes and lets its pending 400ms autosave update only that draft', async route => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const draft: SessionProfile = { id: 'draft', isDraft: true, alias: 'draft-before', host: 'draft.test', username: 'user' };
+    const existing: SessionProfile = { id: 'existing', alias: 'existing-before', host: 'existing.test', username: 'user' };
+    const quick: SessionProfile = { id: 'quick', isQuickConnect: true, host: 'quick.test', username: 'user' };
+    const newlyImported: SessionProfile = { id: 'new-imported', alias: 'imported-before', host: 'legacy.test', username: 'user' };
+    const saved = [newlyImported, existing];
+    useSessionStore.getState().replaceSessions([draft, existing, quick], 'current');
+    useSessionStore.getState().setSelectedSessionIndex(0);
+    const pending = deferred<any>();
+    if (route === 'import') importV2.mockReturnValueOnce(pending.promise);
+    else { status.mockResolvedValue(withMissingPort); applyDefaultPort.mockReturnValueOnce(pending.promise); }
+    await act(async () => root.render(<EditingHarness />));
+    if (route === 'import') { await typePassword('old-master'); await submit(); }
+    const alias = () => container.querySelector<HTMLInputElement>('input[placeholder="connection.placeholder.alias"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(alias(), 'draft-pending');
+      alias().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(alias().value).toBe('draft-pending');
+    await act(async () => vi.advanceTimersByTime(399));
+    expect(saveProfiles).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions[0].alias).toBe('draft-before');
+    await act(async () => pending.resolve(route === 'import'
+      ? { ...imported, profiles: saved }
+      : { ok: true, status: 'applied', changed: 1, workspaceId: 'current', profiles: saved }));
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionIndex).toBe(2);
+    expect(state.sessions[state.selectedSessionIndex!].id).toBe('draft');
+    expect(alias().value).toBe('draft-pending');
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(useSessionStore.getState().sessions.find(profile => profile.id === 'draft')).toMatchObject({ isDraft: true, alias: 'draft-pending' });
+    expect(useSessionStore.getState().sessions.filter(profile => !profile.isDraft && !profile.isQuickConnect)).toEqual(saved);
+    expect(useSessionStore.getState().sessions.find(profile => profile.id === 'quick')).toEqual(quick);
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: saved });
   });
 
   it('waits for a workspace switch to finish before applying the missing default port', async () => {
@@ -193,6 +298,10 @@ describe('GETSSH 2.0 import', () => {
     await render();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('服务器已导入');
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('默认端口未能设置');
+    if (failure === 'failed') {
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain('解锁导入这些服务器的工作区');
+      expect(container.querySelector('[role="alert"]')?.textContent).not.toContain('主工作区');
+    }
     expect(container.textContent).not.toContain('未能导入');
     expect(container.textContent).not.toContain('private-file-details');
     expect(container.querySelector('input')).toBeNull();
@@ -269,6 +378,34 @@ describe('GETSSH 2.0 import', () => {
     expect(importV2).not.toHaveBeenCalled();
     expect(container.querySelector('input')).toBeNull();
     expect(useSessionStore.getState().sessions[0].id).toBe('existing');
+  });
+
+  it.each(['password', 'unreadable', 'defaultPort'])('remembers skipping the %s prompt across workspace changes until the application locks', async prompt => {
+    if (prompt === 'unreadable') status.mockResolvedValue({ ...noData, kind: 'unreadable' });
+    else if (prompt === 'defaultPort') {
+      status.mockResolvedValue(withMissingPort);
+      applyDefaultPort.mockResolvedValue({ ok: false, error: 'locked' });
+    }
+    await render();
+    if (prompt === 'password') await typePassword('not retained');
+    await click('先跳过');
+    await act(async () => useWorkspaceStore.setState({ isSwitching: true }));
+    await act(async () => useWorkspaceStore.setState({ activeWorkspaceId: 'other', isSwitching: false }));
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+    await act(async () => useWorkspaceStore.setState({ activeWorkspaceId: 'current' }));
+    await render();
+    expect(status).toHaveBeenCalledTimes(1);
+    if (prompt === 'defaultPort') expect(applyDefaultPort).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('input')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(importV2).not.toHaveBeenCalled();
+    await act(async () => useAppLockStore.setState({ state: { ...appState, phase: 'locked' } }));
+    await act(async () => useAppLockStore.setState({ state: { ...appState } }));
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    if (prompt === 'password') expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
   });
 
   it('keeps keyboard focus in the prompt and releases it when the app locks', async () => {

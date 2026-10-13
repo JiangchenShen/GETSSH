@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppLockState, SecurityStatus } from '../types/ipc';
 import { useAppLockStore } from '../store/appLockStore';
+import { useBackupRestartStore } from '../store/backupStore';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en-US' } }) }));
 vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any) => select({ isMac: true }) }));
@@ -26,14 +27,16 @@ let show: ReturnType<typeof vi.fn>;
 let close: ReturnType<typeof vi.fn>;
 let status: ReturnType<typeof vi.fn>;
 const onClear = vi.fn();
+const importedBackup = { workspaceIds: ['current'], backupPath: '/tmp/previous-data' };
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks();
   open = vi.fn().mockResolvedValue({ ok: true }); show = vi.fn().mockResolvedValue({ ok: true }); close = vi.fn().mockResolvedValue({ ok: true }); status = vi.fn().mockResolvedValue(metadata());
   useAppLockStore.setState({ state: ready() }); useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false });
+  useBackupRestartStore.setState({ report: null });
   window.electronAPI = { store: { reveal: { open, show, close } }, security: { status } } as unknown as Window['electronAPI'];
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); useAppLockStore.setState({ state: null }); });
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); useAppLockStore.setState({ state: null }); useBackupRestartStore.setState({ report: null }); });
 const render = async (profileId = 'server', field: 'password' | 'passphrase' = 'password') => act(async () => root.render(<SavedSecretControl workspaceId="current" profileId={profileId} field={field} onClear={onClear} />));
 const click = async (text: string) => act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === text)!.click());
 const input = async (value: string) => act(async () => {
@@ -68,10 +71,21 @@ describe('saved-secret system viewing', () => {
     expect(show).toHaveBeenCalledTimes(1);
   });
 
-  it('never offers password input for a workspace with neither a master nor an own password', async () => {
+  it('views with supported presence in the default workspace without a master, own password, or unlock toggle', async () => {
     status.mockResolvedValue(metadata(false, false)); await render(); await click('View password');
     expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
-    expect(container.textContent).toContain('No password or enabled system verification'); expect(open).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'presence' });
+    expect(show).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', profileId: 'server', field: 'password', language: 'en-US' });
+    expect(close).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current' });
+    expect(container.textContent).not.toContain('No password or supported system verification');
+    expect(container.textContent).not.toMatch(/restart/i);
+  });
+
+  it('explains that viewing is unavailable when neither password nor supported presence exists', async () => {
+    const info = metadata(false, false); info.presenceSupported = false; status.mockResolvedValue(info);
+    await render(); await click('View password');
+    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
+    expect(container.textContent).toContain('No password or supported system verification'); expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
   });
 
@@ -82,12 +96,12 @@ describe('saved-secret system viewing', () => {
     { appProtected: false, state: 'unsupported', supported: false, enabled: true },
     { appProtected: false, state: 'disabled', supported: true, enabled: false },
     { appProtected: false, state: 'enabled', supported: true, enabled: true },
-  ])('chooses the current scope route ($state, master=$appProtected)', async ({ appProtected, supported, enabled }) => {
+  ])('uses presence support independently of the unlock scope ($state, master=$appProtected)', async ({ appProtected, supported, enabled }) => {
     const info = metadata(appProtected, !appProtected); info.presenceSupported = supported;
     info.scopes.find(scope => scope.id === 'app')!.presence = appProtected ? enabled : !enabled;
     info.scopes.find(scope => scope.workspaceId === 'current')!.presence = appProtected ? !enabled : enabled;
     status.mockResolvedValue(info); await render(); await click('View password');
-    if (supported && enabled) {
+    if (supported) {
       expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'presence' }); expect(show).toHaveBeenCalledTimes(1);
     } else {
       expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled(); expect(container.querySelector('input')).not.toBeNull();
@@ -112,6 +126,53 @@ describe('saved-secret system viewing', () => {
     await render(); await click('View password'); await input('typed verification only'); await click('Verify & view');
     expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'password', password: 'typed verification only' });
     expect(container.textContent).toContain('Password verification is unavailable'); expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
+  });
+
+  it.each([false, true])('requires restart after backup import without offering password fallback (presence supported=%s)', async supported => {
+    const info = metadata(true); info.presenceSupported = supported; status.mockResolvedValue(info);
+    useBackupRestartStore.setState({ report: importedBackup });
+    await render(); await click('View password');
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Restart the app to use storage again');
+    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
+    expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toContain('Enter a password to verify');
+    expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled(); expect(status).not.toHaveBeenCalled();
+    expect(Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'View password')!.disabled).toBe(true);
+  });
+
+  it('clears a typed verification password when a backup import requires restart', async () => {
+    status.mockResolvedValue(metadata(true)); await render(); await click('Verify with a password'); await input('private verification draft');
+    await act(async () => useBackupRestartStore.setState({ report: importedBackup }));
+    expect(container.querySelector('input')).toBeNull(); expect(container.innerHTML).not.toContain('private verification draft');
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Restart the app to use storage again');
+    expect(container.textContent).not.toContain('Verify with a password'); expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled();
+    // Clearing the in-memory notice simulates a new storage lifecycle; the old typed draft must not return.
+    await act(async () => useBackupRestartStore.setState({ report: null })); await click('Verify with a password');
+    expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+    await click('Verify & view'); expect(open).not.toHaveBeenCalled(); expect(close).toHaveBeenCalledWith({ workspaceId: 'current' });
+  });
+
+  it.each(['granted', 'unavailable'] as const)('discards a late %s open after backup import and keeps the restart message', async result => {
+    let complete!: (value: { ok: true } | { ok: false; error: 'unavailable' }) => void;
+    open.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    await render(); await click('View password');
+    await act(async () => useBackupRestartStore.setState({ report: importedBackup }));
+    await act(async () => complete(result === 'granted' ? { ok: true } : { ok: false, error: 'unavailable' }));
+    expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'presence' }); expect(show).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(result === 'granted' ? 2 : 1);
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Restart the app to use storage again');
+    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
+    expect(container.textContent).not.toContain('System verification is unavailable'); expect(container.textContent).not.toContain('Touch ID');
+  });
+
+  it('does not reopen or offer a password when an imported backup invalidates an active system dialog', async () => {
+    let complete!: (value: { ok: false; error: 'locked' }) => void;
+    show.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    await render(); await click('View password');
+    await act(async () => useBackupRestartStore.setState({ report: importedBackup }));
+    await act(async () => complete({ ok: false, error: 'locked' }));
+    expect(open).toHaveBeenCalledTimes(1); expect(show).toHaveBeenCalledTimes(1); expect(close).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Restart the app to use storage again');
+    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
   });
 
   it.each(['null', 'rejected'])('does not assume presence support when status is %s', async result => {

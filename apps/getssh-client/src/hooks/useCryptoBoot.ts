@@ -16,13 +16,16 @@ export const useCryptoBoot = () => {
       const revision = useSessionStore.getState().sessionsRevision;
       const res = await window.electronAPI.checkProfiles();
       if (!active || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
-        || useAppLockStore.getState().state?.phase === 'locked') return;
-      if (useSessionStore.getState().sessionsRevision !== revision) {
-        if (useSessionStore.getState().profilesWorkspaceId === workspaceId) useWorkspaceStore.setState({ isVaultLocked: false });
-        return;
-      }
+        || useWorkspaceStore.getState().isSwitching || useAppLockStore.getState().state?.phase !== 'ready') return;
+      // `none` also means the main process has not unlocked the app. It cannot prove
+      // that the saved list is empty; useAppLockSync loads that list after unlocking.
+      if (res.status === 'none') return;
       setWorkspaceUnprotected(!res.hasPassword);
       if (res.status === 'plain') {
+        if (useSessionStore.getState().sessionsRevision !== revision && useSessionStore.getState().profilesWorkspaceId === workspaceId) {
+          useWorkspaceStore.setState({ isVaultLocked: false });
+          return;
+        }
         if (!(await loadActiveWorkspace())) useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
         return;
       }
@@ -31,9 +34,6 @@ export const useCryptoBoot = () => {
         if (res.biometricEnabled) await unlockActiveWorkspaceWithPresence();
         return;
       }
-      const sessions = useSessionStore.getState();
-      sessions.replaceSessions(sessions.sessions.filter(profile => profile.isDraft || profile.isQuickConnect), workspaceId);
-      useWorkspaceStore.setState({ isVaultLocked: false });
     };
     bootCrypto().catch(error => console.error('[CryptoBoot] Failed to open the active workspace:', error));
     return () => { active = false; };

@@ -3,17 +3,29 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { useAiChatStore } from '../../store/aiChatStore';
+import { useAppLockStore } from '../../store/appLockStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 export const ApprovalCard: React.FC<{
   msg: any;
   activeConversationId: string | null;
 }> = ({ msg, activeConversationId }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   
   const [lockCountdown, setLockCountdown] = React.useState(3);
 
   const command = msg.approvalRequest?.command || '';
+  const decide = (approved: boolean) => {
+    const phase = useAppLockStore.getState().state?.phase;
+    const current = useAiChatStore.getState().conversations.find(conv => conv.id === activeConversationId)
+      ?.messages.find(message => message.id === msg.id)?.approvalRequest;
+    if ((phase && phase !== 'ready') || useWorkspaceStore.getState().isSwitching || !current || current.status !== 'pending' || current.requestId !== msg.approvalRequest?.requestId) return;
+    window.electronAPI.ai.approveAgentAction(current.requestId, approved);
+    useAiChatStore.getState().updateMessage(activeConversationId!, msg.id, {
+      approvalRequest: { ...current, status: approved ? 'approved' : 'rejected' },
+    });
+  };
   
   const isHighRisk = React.useMemo(() => {
     const patterns = [
@@ -42,6 +54,10 @@ export const ApprovalCard: React.FC<{
         {t('ai.approvedText', '已授权，代理正在执行...')}
       </div>
     );
+  }
+
+  if (msg.approvalRequest?.status === 'expired') {
+    return <p className="mt-3 text-xs text-ink-3">{i18n.language.startsWith('zh') ? '授权请求已过期，请重新发起。' : 'Approval expired. Start a new request.'}</p>;
   }
 
   if (msg.approvalRequest?.status === 'rejected') {
@@ -82,12 +98,7 @@ export const ApprovalCard: React.FC<{
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-500/20'
                 : 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-amber-500/20'
             }`}
-            onClick={() => {
-              window.electronAPI.ai.approveAgentAction(msg.approvalRequest!.requestId, true);
-              useAiChatStore.getState().updateMessage(activeConversationId!, msg.id, {
-                approvalRequest: { ...msg.approvalRequest!, status: 'approved' }
-              });
-            }}
+            onClick={() => decide(true)}
           >
             {isLocked ? `${t('ai.lockedBtn', '风险锁定')} (${lockCountdown}s)` : t('ai.approveBtn', '允许执行')}
           </button>
@@ -97,12 +108,7 @@ export const ApprovalCard: React.FC<{
                 ? (isDark ? 'border-red-500/30 text-red-400 hover:bg-red-500/10' : 'border-red-200 text-red-600 hover:bg-red-50')
                 : (isDark ? 'border-white/20 text-white hover:bg-white/10' : 'border-slate-300 text-slate-700 hover:bg-slate-100')
             }`}
-            onClick={() => {
-              window.electronAPI.ai.approveAgentAction(msg.approvalRequest!.requestId, false);
-              useAiChatStore.getState().updateMessage(activeConversationId!, msg.id, {
-                approvalRequest: { ...msg.approvalRequest!, status: 'rejected' }
-              });
-            }}
+            onClick={() => decide(false)}
           >
             {t('ai.rejectBtn', '拒绝')}
           </button>

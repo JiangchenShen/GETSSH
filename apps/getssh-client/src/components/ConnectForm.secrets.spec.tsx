@@ -57,6 +57,19 @@ const typeAlias = async (value: string) => act(async () => {
 });
 
 describe('saved credential editing', () => {
+  it('keeps the retained draft editable after an import invalidates its pending save acknowledgement', async () => {
+    let finish!: (value: boolean) => void;
+    onSaveSession.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const draft = { ...saved, host: 'server.example', username: 'user', isDraft: true };
+    await render(draft); await click('Clear saved password');
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await act(async () => useSessionStore.getState().replaceSessions([draft], 'default'));
+    expect(container.textContent).toContain('Will clear on save');
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Save changes')!.disabled).toBe(false);
+    await act(async () => finish(true));
+    expect(onConnect).not.toHaveBeenCalled(); expect(container.textContent).toContain('Will clear on save');
+  });
+
   it('keeps an existing password when typing and deleting without explicit clearing', async () => {
     await render(); await typeSecret('temporary edit'); await typeSecret(''); await saveDebounced();
     expect(onUpdateSession).toHaveBeenLastCalledWith(0, expect.objectContaining({ password: undefined, hasPassword: true }));

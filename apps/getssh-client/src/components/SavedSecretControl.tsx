@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppLockStore } from '../store/appLockStore';
 import { useAppStore } from '../store/appStore';
+import { useBackupRestartStore } from '../store/backupStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { RevealRoute, SecretField, StoreResult } from '../types/store';
 import { storeFailureMessage } from '../utils/storeFeedback';
@@ -31,6 +32,7 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(store => store.isMac);
+  const restartRequired = useBackupRestartStore(store => !!store.report);
   const [permission, setPermission] = useState<'master' | 'workspace' | 'presence' | 'unknown' | null>(null);
   const [canUsePresence, setCanUsePresence] = useState(false);
   const [panel, setPanel] = useState(false);
@@ -42,9 +44,9 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
   const generation = useRef(0);
   const identity = useRef({ workspaceId, profileId, field });
   identity.current = { workspaceId, profileId, field };
-  const canUsePassword = permission === 'master' || permission === 'workspace';
+  const canUsePassword = !restartRequired && (permission === 'master' || permission === 'workspace');
   const presenceName = isMac ? 'Touch ID' : 'Windows Hello';
-  const noVerification = zh ? '没有可用的密码或已启用的系统验证，无法查看已保存的密码。' : 'No password or enabled system verification is available to view the saved secret.';
+  const noVerification = zh ? '没有可用的密码或受支持的系统验证，无法查看已保存的密码。' : 'No password or supported system verification is available to view the saved secret.';
 
   const close = () => {
     const api = window.electronAPI.store.reveal;
@@ -57,18 +59,19 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
     const valid = (requestGeneration: number) => alive.current && generation.current === requestGeneration
       && identity.current.workspaceId === workspaceId && identity.current.profileId === profileId && identity.current.field === field
       && useAppLockStore.getState().state?.phase === 'ready'
+      && !useBackupRestartStore.getState().report
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId && !useWorkspaceStore.getState().isSwitching && !useWorkspaceStore.getState().isVaultLocked;
     const loadPermission = (requestGeneration: number) => {
       void window.electronAPI.security.status().then(status => {
         if (!valid(requestGeneration)) return;
         if (!status) { setPermission('unknown'); setCanUsePresence(false); return; }
         const workspaceScope = status.scopes.find(item => item.workspaceId === workspaceId);
-        const scope = status.appProtected ? status.scopes.find(item => item.id === 'app') : workspaceScope;
         setPermission(status.appProtected ? 'master' : workspaceScope?.ownPassword ? 'workspace' : 'presence');
-        setCanUsePresence(status.presenceSupported && !!scope?.presence);
+        // Viewing verifies presence independently of the scope's unlock preference.
+        setCanUsePresence(status.presenceSupported);
       }).catch(() => { if (valid(requestGeneration)) { setPermission('unknown'); setCanUsePresence(false); } });
     };
-    loadPermission(generation.current);
+    if (valid(generation.current)) loadPermission(generation.current);
     const invalidate = () => {
       generation.current += 1; setPermission(null); setCanUsePresence(false); setPanel(false); setUsePassword(false); setPassword(''); setError(''); setBusy(false); close();
       if (valid(generation.current)) loadPermission(generation.current);
@@ -79,13 +82,17 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
     const stopWorkspace = useWorkspaceStore.subscribe((next, previous) => {
       if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
     });
-    return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); close(); };
+    const stopBackup = useBackupRestartStore.subscribe((next, previous) => {
+      if (next.report !== previous.report) invalidate();
+    });
+    return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); stopBackup(); close(); };
   }, [workspaceId, profileId, field]);
 
   const capture = () => ({ generation: generation.current, workspaceId, profileId, field });
   const valid = (request: ReturnType<typeof capture>) => alive.current && request.generation === generation.current
     && identity.current.workspaceId === request.workspaceId && identity.current.profileId === request.profileId && identity.current.field === request.field
     && useAppLockStore.getState().state?.phase === 'ready'
+    && !useBackupRestartStore.getState().report
     && useWorkspaceStore.getState().activeWorkspaceId === request.workspaceId && !useWorkspaceStore.getState().isSwitching && !useWorkspaceStore.getState().isVaultLocked;
 
   const failure = (result: StoreResult, route: RevealRoute) => {
@@ -105,7 +112,7 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
       setPermission('presence'); setUsePassword(false);
       setError(canUsePresence
         ? (zh ? `这个工作区没有可用于验证的密码，请使用 ${presenceName}` : `This workspace has no password for verification. Use ${presenceName}`)
-        : (zh ? '这个工作区没有可用于验证的密码，且系统验证未启用，无法查看已保存的密码。' : 'This workspace has no password for verification or enabled system verification to view saved secrets.'));
+        : (zh ? '这个工作区没有可用于验证的密码，且设备不支持系统验证，无法查看已保存的密码。' : 'This workspace has no password for verification or supported system verification to view saved secrets.'));
       return;
     }
     setError(storeFailureMessage(result.error, zh, result.retryAfterMs));
@@ -161,7 +168,7 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
 
   return <div className="mt-2 space-y-2">
     <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={disabled || busy || permission === null} className={settingButtonClass} onClick={() => {
+      <button type="button" disabled={disabled || restartRequired || busy || permission === null} className={settingButtonClass} onClick={() => {
         const request = capture();
         if (!valid(request)) return;
         setPanel(true); setError(''); setPassword('');
@@ -173,7 +180,8 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear, pen
         <button type="button" disabled={disabled || busy || !onUndoClear} className={settingButtonClass} onClick={onUndoClear}>{zh ? '撤销' : 'Undo'}</button>
       </> : <button type="button" disabled={disabled || busy} className={settingButtonClass} onClick={onClear}>{field === 'password' ? (zh ? '清除已保存的密码' : 'Clear saved password') : (zh ? '清除已保存的口令' : 'Clear saved passphrase')}</button>}
     </div>
-    {panel && <div className="space-y-2 border-l-2 border-line pl-3">
+    {restartRequired && <p role="alert" className="text-xs text-down">{storeFailureMessage('unavailable', zh)}</p>}
+    {panel && !restartRequired && <div className="space-y-2 border-l-2 border-line pl-3">
       <p className="text-xs leading-relaxed text-ink-3">{zh ? '密码只在系统对话框中显示和复制，不会填入连接表单。' : 'The secret is shown and copied only in the system dialog; it is not filled into this form.'}</p>
       {canUsePassword && usePassword && <>
         <label className="block text-xs text-ink-2">{permission === 'master' ? (zh ? '主密码' : 'Master password') : (zh ? '工作区密码' : 'Workspace password')}
