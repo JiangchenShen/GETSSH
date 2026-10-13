@@ -229,6 +229,7 @@ export function setupWorkspaceHandlers() {
     const previousWorkspaceId = getActiveWorkspaceId();
     
     // We must ensure atomic safety during the transition to prevent partial tearing.
+    switchesInProgress++;
     try {
       const getsshRoot = path.join(os.homedir(), '.getssh');
       const wsPath = resolveWorkspaceDir(targetWorkspaceId);
@@ -324,8 +325,22 @@ export function setupWorkspaceHandlers() {
       console.error(`[Workspace IPC] CRITICAL FAILURE during leap to ${targetWorkspaceId}:`, error);
       // In a catastrophic failure, we should ideally rollback, but for now we throw hard.
       throw new Error(`Workspace Transition Failed: ${error.message}`);
+    } finally {
+      switchesInProgress--;
     }
   });
+}
+
+/**
+ * Number of workspace:switch calls still running. The window empties its server list as soon as a
+ * switch starts, while the old workspace stays the active one here until the switch commits: a
+ * whole-list save-profiles sent in between would replace the old workspace's list with an empty
+ * one. cryptoHandler refuses saves while this is not 0.
+ */
+let switchesInProgress = 0;
+
+export function isWorkspaceSwitching(): boolean {
+  return switchesInProgress > 0;
 }
 
 export async function bootstrapAppWorkspace() {
