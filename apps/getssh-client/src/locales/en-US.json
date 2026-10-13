@@ -760,6 +760,7 @@
       "disconnecting": "Disconnecting...",
       "connecting": "Connecting...",
       "connectBtn": "Connect",
+      "loadingProfiles": "Loading saved hosts…",
       "protocol": {
         "label": "Protocol",
         "auto": "Auto",

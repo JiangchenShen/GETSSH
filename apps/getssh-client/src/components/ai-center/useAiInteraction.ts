@@ -89,7 +89,7 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
     try {
       await AiBridge.invokePrivileged(
         {
-          requestId: aiMsgId,
+          requestId: crypto.randomUUID(),
           prompt: promptText,
           contextData: { 
             workspaceName, 

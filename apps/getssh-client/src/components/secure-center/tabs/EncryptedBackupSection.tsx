@@ -122,8 +122,10 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     // A cancelled system prompt is quiet; its workspaces can still be opened with passwords.
     const blocking = result.failed.find(item => !['needs_password', 'wrong_password', 'cancelled', 'unavailable'].includes(item.code));
     if (blocking) { handleFailure({ error: blocking.code }); return; }
-    setFailed(result.failed.map(item => item.id));
-    setStep(result.failed.length ? 'unlock' : 'password');
+    const passwordFailures = result.failed.filter(item => candidates.find(candidate => candidate.id === item.id)?.unlockWith.includes('password'));
+    setFailed(passwordFailures.map(item => item.id));
+    if (passwordFailures.length) setStep('unlock');
+    else if (!result.failed.length) setStep('password');
   });
   const unlockWorkspace = () => run(async isCurrent => {
     const workspaceId = failed[0];

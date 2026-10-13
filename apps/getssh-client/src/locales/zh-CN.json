@@ -892,6 +892,7 @@
       "disconnecting": "正在断开连接...",
       "connecting": "正在连接...",
       "connectBtn": "连接",
+      "loadingProfiles": "正在读取已保存主机…",
       "protocol": {
         "label": "连接协议",
         "auto": "智能识别",

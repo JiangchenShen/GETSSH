@@ -85,7 +85,7 @@ export const AssetBridgeTab: React.FC = () => {
       const selected = sessions.sessions[sessions.selectedSessionIndex ?? -1];
       const updated = [...currentProfiles, ...sessions.sessions.filter(profile => profile.isDraft || profile.isQuickConnect)];
       const selectedIndex = selected ? updated.findIndex(profile => profile === selected || (profile.id && profile.id === selected.id)) : -1;
-      sessions.setSessions(updated);
+      sessions.replaceSessions(updated, targetWorkspaceId);
       sessions.setSelectedSessionIndex(selectedIndex >= 0 ? selectedIndex : null);
       useWorkspaceStore.setState({ runbooks: (currentAssets.runbooks || []).map(runbook => ({
         ...runbook,

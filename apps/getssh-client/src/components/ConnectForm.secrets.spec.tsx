@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../store/appStore';
 import { useAppLockStore } from '../store/appLockStore';
+import { useSessionStore } from '../store/sessionStore';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
   t: (key: string) => ({ 'connection.password': 'Password', 'connection.privateKey': 'Private key', 'common.cancel': 'Cancel' } as Record<string, string>)[key] ?? key,
@@ -32,6 +33,7 @@ beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks(); onUpdateSession.mockReset(); onConnect.mockReset(); vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   useAppLockStore.setState({ state: { phase: 'ready', appProtected: false, presenceSupported: true, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false } });
   useWorkspaceStore.setState({ activeWorkspaceId: 'default', isSwitching: false, isVaultLocked: false });
+  useSessionStore.setState({ profilesWorkspaceId: 'default' });
   window.electronAPI = {
     assetFolders: { list: vi.fn().mockResolvedValue({ success: true, folders: [] }) },
     security: { status: vi.fn().mockResolvedValue({ appProtected: false, scopes: [] }) },

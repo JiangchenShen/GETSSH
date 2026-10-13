@@ -15,7 +15,10 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { SavedSecretControl } from './SavedSecretControl';
 
 const ready = (): AppLockState => ({ phase: 'ready', appProtected: false, presenceSupported: true, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false });
-const metadata = (appProtected = false, ownPassword = false): SecurityStatus => ({ appProtected, recoveryConfigured: false, presenceSupported: true, deviceBackend: null, scopes: [{ id: 'ws:current', workspaceId: 'current', ownPassword, protected: appProtected || ownPassword, presence: true, unlocked: true, recovery: false, revealRemainingMs: null }] });
+const metadata = (appProtected = false, ownPassword = true): SecurityStatus => ({ appProtected, recoveryConfigured: false, presenceSupported: true, deviceBackend: null, scopes: [
+  { id: 'app', workspaceId: null, ownPassword: appProtected, protected: appProtected, presence: appProtected, unlocked: true, recovery: false, revealRemainingMs: null },
+  { id: 'ws:current', workspaceId: 'current', ownPassword: ownPassword && !appProtected, protected: appProtected || ownPassword, presence: ownPassword && !appProtected, unlocked: true, recovery: false, revealRemainingMs: null },
+] });
 let root: Root;
 let container: HTMLDivElement;
 let open: ReturnType<typeof vi.fn>;
@@ -66,8 +69,55 @@ describe('saved-secret system viewing', () => {
   });
 
   it('never offers password input for a workspace with neither a master nor an own password', async () => {
-    open.mockResolvedValue({ ok: false, error: 'unavailable' }); await render(); await click('View password');
-    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password'); expect(container.textContent).toContain('Touch ID');
+    status.mockResolvedValue(metadata(false, false)); await render(); await click('View password');
+    expect(container.querySelector('input')).toBeNull(); expect(container.textContent).not.toContain('Verify with a password');
+    expect(container.textContent).toContain('No password or enabled system verification'); expect(open).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
+  });
+
+  it.each([
+    { appProtected: true, state: 'unsupported', supported: false, enabled: true },
+    { appProtected: true, state: 'disabled', supported: true, enabled: false },
+    { appProtected: true, state: 'enabled', supported: true, enabled: true },
+    { appProtected: false, state: 'unsupported', supported: false, enabled: true },
+    { appProtected: false, state: 'disabled', supported: true, enabled: false },
+    { appProtected: false, state: 'enabled', supported: true, enabled: true },
+  ])('chooses the current scope route ($state, master=$appProtected)', async ({ appProtected, supported, enabled }) => {
+    const info = metadata(appProtected, !appProtected); info.presenceSupported = supported;
+    info.scopes.find(scope => scope.id === 'app')!.presence = appProtected ? enabled : !enabled;
+    info.scopes.find(scope => scope.workspaceId === 'current')!.presence = appProtected ? !enabled : enabled;
+    status.mockResolvedValue(info); await render(); await click('View password');
+    if (supported && enabled) {
+      expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'presence' }); expect(show).toHaveBeenCalledTimes(1);
+    } else {
+      expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled(); expect(container.querySelector('input')).not.toBeNull();
+      expect(container.textContent).toContain(appProtected ? 'Master password' : 'Workspace password');
+      expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
+      await input('typed verification only'); await click('Verify & view');
+      expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'password', password: 'typed verification only' }); expect(show).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('falls back from runtime unavailable without suggesting hardware verification or restart again', async () => {
+    open.mockResolvedValueOnce({ ok: false, error: 'unavailable' }).mockResolvedValue({ ok: true });
+    await render(); await click('View password'); expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'presence' });
+    expect(container.querySelector('input')).not.toBeNull(); expect(container.textContent).toContain('System verification is unavailable');
+    expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
+    await input('typed verification only'); await click('Verify & view'); await click('View password');
+    expect(open).toHaveBeenCalledTimes(2); expect(container.querySelector('input')).not.toBeNull(); expect(container.textContent).not.toContain('Touch ID');
+  });
+
+  it('does not suggest device verification or restarting when password verification is unavailable', async () => {
+    const info = metadata(); info.presenceSupported = false; status.mockResolvedValue(info); open.mockResolvedValue({ ok: false, error: 'unavailable' });
+    await render(); await click('View password'); await input('typed verification only'); await click('Verify & view');
+    expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'password', password: 'typed verification only' });
+    expect(container.textContent).toContain('Password verification is unavailable'); expect(container.textContent).not.toContain('Touch ID'); expect(container.textContent).not.toMatch(/restart/i);
+  });
+
+  it.each(['null', 'rejected'])('does not assume presence support when status is %s', async result => {
+    if (result === 'null') status.mockResolvedValue(null); else status.mockRejectedValue(new Error('status unavailable'));
+    await render(); await click('View password'); expect(open).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Could not confirm verification methods'); expect(container.textContent).not.toContain('Touch ID'); expect(container.querySelector('input')).toBeNull();
   });
 
   it('treats cancelled presence as quiet and still offers confirmed password verification', async () => {
@@ -85,6 +135,20 @@ describe('saved-secret system viewing', () => {
     await render(); await click('View password'); expect(open).toHaveBeenCalledTimes(2); expect(show).toHaveBeenCalledTimes(2);
     show.mockResolvedValue({ ok: false, error: 'locked' }); await click('View password');
     expect(open).toHaveBeenCalledTimes(4); expect(show).toHaveBeenCalledTimes(4);
+    expect(open.mock.calls.every(([request]) => request.method === 'presence')).toBe(true);
+  });
+
+  it.each([false, true])('requires freshly entered password after expiration without switching routes (presence supported=%s)', async supported => {
+    const info = metadata(); info.presenceSupported = supported; status.mockResolvedValue(info);
+    show.mockResolvedValueOnce({ ok: false, error: 'locked' }).mockResolvedValue({ ok: true });
+    await render(); await click('Verify with a password'); await input('old typed verification'); await click('Verify & view');
+    expect(open).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', method: 'password', password: 'old typed verification' }); expect(show).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Enter the password again'); expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+    expect(container.innerHTML).not.toContain('old typed verification'); expect(container.textContent).not.toContain('Touch ID');
+    await click('Verify & view'); expect(open).toHaveBeenCalledTimes(1);
+    await input('freshly typed verification'); await click('Verify & view');
+    expect(open).toHaveBeenCalledTimes(2); expect(open).toHaveBeenLastCalledWith({ workspaceId: 'current', method: 'password', password: 'freshly typed verification' });
+    expect(open.mock.calls.every(([request]) => request.method === 'password')).toBe(true); expect(show).toHaveBeenCalledTimes(2); expect(container.querySelector('input')).toBeNull();
   });
 
   it('stops quietly when the show call reports unauthorized', async () => {

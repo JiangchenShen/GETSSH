@@ -86,6 +86,30 @@ describe('chat render work', () => {
 });
 
 describe('earlier message pages', () => {
+  it.each([false, true])('follows a new user question after loading earlier history (batched assistant: %s)', async batchedAssistant => {
+    useAiChatStore.setState({ conversations: [conversation([message(2, 'user'), message(3)], 'older')] });
+    vi.mocked(AiBridge.getMessages).mockResolvedValueOnce({ messages: [message(0, 'user'), message(1)], before: null });
+    await render();
+    const scroll = container.querySelector<HTMLDivElement>('[data-testid="ai-chat-scroll"]')!;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, get: () => scroll.querySelectorAll('[data-message-id]').length * 20 });
+    scroll.scrollTop = 10;
+    mocks.scroll.mockClear();
+    await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
+    expect(container.querySelectorAll('[data-message-id]')).toHaveLength(4);
+    expect(mocks.scroll).not.toHaveBeenCalled();
+    await act(async () => {
+      useAiChatStore.getState().addMessage('chat', message(4, 'user'));
+      if (batchedAssistant) useAiChatStore.getState().addMessage('chat', { ...message(5), content: '', isThinking: true });
+    });
+    expect(mocks.scroll).toHaveBeenCalledExactlyOnceWith({ behavior: 'auto' });
+    if (batchedAssistant) {
+      mocks.scroll.mockClear();
+      await act(async () => useAiChatStore.getState().appendChunk('chat', 'm5', 'reply'));
+      await paint();
+      expect(mocks.scroll).toHaveBeenCalledExactlyOnceWith({ behavior: 'auto' });
+    }
+  });
+
   it('loads a 450-message conversation in two pages while preserving the scroll anchor', async () => {
     const messages = Array.from({ length: 450 }, (_, index) => message(index, 'user'));
     useAiChatStore.setState({ conversations: [conversation(messages.slice(250), '250')] });

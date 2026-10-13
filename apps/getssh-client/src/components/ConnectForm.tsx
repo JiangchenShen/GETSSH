@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AppConfig } from '../store/appStore';
-import type { SessionProfile } from '../store/sessionStore';
+import { useSessionStore, type SessionProfile } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { detectProtocol } from '../utils/protocolParser';
 import { TERMINAL_THEMES } from '../utils/themes';
@@ -60,6 +60,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const { t, i18n } = useTranslation();
   const savedSecretHint = i18n.language.startsWith('zh') ? '已保存，留空则不修改' : 'Saved. Leave empty to keep it';
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const profilesReady = useSessionStore(state => state.profilesWorkspaceId === activeWorkspaceId);
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
   const [displayProtocol, setDisplayProtocol] = useState<DisplayProtocol>('auto');
@@ -184,7 +185,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   };
 
   const submit = () => {
-    if (!canConnect) return;
+    if (!canConnect || !profilesReady) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
     const readySession = { ...localSession, isDraft: Boolean(localSession.isQuickConnect), protocol: effectiveProtocol };
@@ -220,8 +221,8 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
             <span className={`h-1.5 w-1.5 rounded-full ${canConnect ? 'bg-ok' : 'bg-warn'}`} />{endpoint}
           </div>
           <button type="button" onClick={onCancel} className="h-10 rounded-xl border border-line px-4 text-[12px] font-semibold text-ink-2 transition-all hover:bg-surf hover:text-ink active:scale-[0.98]">{t('common.cancel')}</button>
-          <motion.button whileTap={{ scale: 0.96 }} type="submit" disabled={connecting || !canConnect} className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-[12px] font-bold text-black shadow-[0_10px_28px_rgba(var(--primary-color),0.22)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
-            {connecting ? t('connection.connecting') : t('connection.connectBtn')}<ArrowRight className="h-3.5 w-3.5" />
+          <motion.button whileTap={{ scale: 0.96 }} type="submit" disabled={connecting || !canConnect || !profilesReady} className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-[12px] font-bold text-black shadow-[0_10px_28px_rgba(var(--primary-color),0.22)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
+            {!profilesReady ? t('connection.loadingProfiles') : connecting ? t('connection.connecting') : t('connection.connectBtn')}<ArrowRight className="h-3.5 w-3.5" />
           </motion.button>
         </div>
       </header>

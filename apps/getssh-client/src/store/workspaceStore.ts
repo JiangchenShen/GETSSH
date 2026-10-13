@@ -107,7 +107,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ isSwitching: true });
 
     // Zero-Trust: clear sessions from memory immediately before switching
-    useSessionStore.getState().setSessions([]);
+    useSessionStore.getState().replaceSessions([], null);
     const leaveWorkspace = () => {
       const sessionState = useSessionStore.getState();
       sessionState.setTabs(sessionState.tabs.map(tab => tab.workspaceId
@@ -142,7 +142,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             }
           } else {
             set({ isVaultLocked: false });
-            useSessionStore.getState().setSessions((res as any).profiles || []);
+            useSessionStore.getState().replaceSessions((res as any).profiles || [], targetId);
           }
           return true;
         }

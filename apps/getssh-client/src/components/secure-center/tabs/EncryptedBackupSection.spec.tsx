@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportTab } from './ExportTab';
@@ -20,6 +24,9 @@ let root: Root;
 let container: HTMLDivElement;
 let backup: Record<string, ReturnType<typeof vi.fn>>;
 let unlock: ReturnType<typeof vi.fn>;
+const require = createRequire(import.meta.url);
+const store = require('../../../../../../rust-core/getssh-store/store.fake.js');
+let testDirectory: string | undefined;
 const candidates = [
   { id: 'main', name: 'Main hosts', is_main: true, state: 'open', profileCount: 3, unlockWith: [] },
   { id: 'private', name: 'Private hosts', is_main: false, state: 'locked', profileCount: 0, unlockWith: ['password'] },
@@ -45,7 +52,10 @@ beforeEach(() => {
   } as unknown as Window['electronAPI'];
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+  if (testDirectory) { store.__fake.reset(); rmSync(testDirectory, { recursive: true, force: true }); testDirectory = undefined; }
+});
 
 const render = () => act(async () => root.render(<ExportTab />));
 function button(label: string) {
@@ -94,6 +104,57 @@ describe('Encrypted backup interface', () => {
     await render(); await click('Choose workspaces'); await click('Verify and continue');
     expect(container.querySelector('[role=alert]')).toBeNull();
     expect(backup.export).not.toHaveBeenCalled();
+  });
+
+  it('only requests eligible workspace passwords after cancelled mixed-workspace verification with the actual fake store API', async () => {
+    testDirectory = mkdtempSync(join(tmpdir(), 'getssh-ui-backup-cancel-'));
+    store.__fake.reset(); store.configure(join(testDirectory, 'data'), '3.0.0-rc.1');
+    store.__fake.seed({ workspaces: [
+      { id: 'touch', name: 'Touch ID hosts', password: 'touch-password', presenceEnabled: true },
+      { id: 'plain', name: 'Unprotected hosts' },
+      { id: 'password', name: 'Password hosts', password: 'workspace-password' },
+      { id: 'touch-later', name: 'Later Touch ID hosts', password: 'later-password', presenceEnabled: true },
+      { id: 'main', name: 'Main hosts', is_main: true },
+    ] });
+    await store.start(); store.lockWorkspace('plain'); store.__fake.setPresence('cancelled');
+    backup.candidates.mockImplementation(async () => ({ ok: true, candidates: store.exportCandidates() }));
+    let verification: unknown;
+    backup.unlockForExport.mockImplementation(async ({ workspaceIds }) => {
+      verification = await store.unlockWorkspaces(workspaceIds, 'Export selected workspaces');
+      return { ok: true, ...verification as object };
+    });
+    unlock.mockImplementation(async ({ workspaceId, password }) => {
+      await store.unlockWorkspace(workspaceId, { password }); return { ok: true };
+    });
+
+    await render(); await click('Choose workspaces'); await click('Verify and continue');
+    expect(verification).toEqual({
+      unlocked: ['plain', 'main'],
+      failed: [{ id: 'touch', code: 'cancelled' }, { id: 'password', code: 'needs_password' }, { id: 'touch-later', code: 'cancelled' }],
+    });
+    expect(store.__fake.snapshot().presencePrompts).toBe(1);
+    expect(container.querySelector('[role=alert]')).toBeNull();
+    expect(container.textContent).toContain('Unlock workspace: Touch ID hosts');
+    await fill('Workspace password', 'touch-password'); await click('Unlock and continue');
+    expect(container.textContent).toContain('Unlock workspace: Password hosts');
+    await fill('Workspace password', 'workspace-password'); await click('Unlock and continue');
+    expect(container.textContent).toContain('Unlock workspace: Later Touch ID hosts');
+    await fill('Workspace password', 'later-password'); await click('Unlock and continue');
+    expect(container.textContent).toContain('Set a backup password');
+    expect(unlock.mock.calls.map(([request]) => request.workspaceId)).toEqual(['touch', 'password', 'touch-later']);
+    await expect(store.openWorkspace('plain')).resolves.toBe('open');
+  });
+
+  it('does not request a password when cancelled workspace metadata has no password route', async () => {
+    backup.candidates.mockResolvedValue({ ok: true, candidates: [{
+      id: 'plain', name: 'Unprotected hosts', is_main: false, state: 'locked', profileCount: 0, unlockWith: [],
+    }] });
+    backup.unlockForExport.mockResolvedValue({ ok: true, unlocked: [], failed: [{ id: 'plain', code: 'cancelled' }] });
+    await render(); await click('Choose workspaces'); await click('Verify and continue');
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    expect(container.querySelector('[role=alert]')).toBeNull();
+    expect(button('Verify and continue').disabled).toBe(false);
+    expect(unlock).not.toHaveBeenCalled(); expect(backup.export).not.toHaveBeenCalled();
   });
 
   it('allows retry after a wrong workspace password and displays the rate-limit wait', async () => {

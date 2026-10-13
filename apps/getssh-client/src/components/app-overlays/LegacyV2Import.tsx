@@ -86,7 +86,7 @@ export function LegacyV2Import() {
   const adoptProfiles = (scope: ReturnType<typeof requestScope>, result: { workspaceId: string; profiles: SessionProfile[] }) => {
     if (isCurrentWorkspace(scope) && result.workspaceId === useWorkspaceStore.getState().activeWorkspaceId) {
       // Do not save here: the main process already saved this complete list, including its secret metadata.
-      useSessionStore.getState().setSessions(result.profiles);
+      useSessionStore.getState().replaceSessions(result.profiles, result.workspaceId);
     }
   };
 

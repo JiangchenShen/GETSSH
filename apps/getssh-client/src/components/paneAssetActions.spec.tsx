@@ -41,6 +41,7 @@ beforeEach(() => {
     sessions: [{ id: 'existing', host: 'existing.invalid', username: 'test' }, { id: 'draft', isDraft: true, host: '', username: 'editing' }, { id: 'quick', isQuickConnect: true, host: 'temporary.invalid', username: 'test' }],
     selectedSessionIndex: 1,
     setSessions: vi.fn((sessions: any[]) => { mocks.session.sessions = sessions; }),
+    replaceSessions: vi.fn((sessions: any[], workspaceId: string) => { mocks.session.sessions = sessions; mocks.session.profilesWorkspaceId = workspaceId; }),
     setSelectedSessionIndex: vi.fn((index: number | null) => { mocks.session.selectedSessionIndex = index; }),
   };
   mocks.workspace = {
@@ -111,6 +112,8 @@ describe('asset bridge import', () => {
     await prepareImport();
     await click(importButton());
     expect(window.electronAPI.bridgeImportProfiles).toHaveBeenCalledWith('target', [sourceProfile], [sourceRunbook]);
+    expect(mocks.session.replaceSessions).toHaveBeenCalledWith(expect.any(Array), 'target');
+    expect(mocks.session.profilesWorkspaceId).toBe('target');
     expect(mocks.session.sessions.map((profile: any) => profile.id)).toEqual(['existing', 'imported', 'draft', 'quick']);
     expect(mocks.session.sessions[1]).toMatchObject({ group: 'Imported', autoStart: false });
     expect(mocks.session.sessions[2]).toBe(draft);
@@ -130,6 +133,7 @@ describe('asset bridge import', () => {
     await act(async () => importing.resolve({ success: true }));
     expect(window.electronAPI.unlockProfiles).not.toHaveBeenCalled();
     expect(mocks.session.setSessions).not.toHaveBeenCalled();
+    expect(mocks.session.replaceSessions).not.toHaveBeenCalled();
     expect(mocks.workspace.runbooks).toEqual([]);
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
@@ -155,6 +159,7 @@ describe('asset bridge import', () => {
     else mocks.workspace.isVaultLocked = true;
     await act(async () => loading.resolve([{ id: 'imported', host: 'sample.invalid', username: 'test' }]));
     expect(mocks.session.setSessions).not.toHaveBeenCalled();
+    expect(mocks.session.replaceSessions).not.toHaveBeenCalled();
     expect(mocks.workspace.runbooks).toEqual([]);
   });
 });

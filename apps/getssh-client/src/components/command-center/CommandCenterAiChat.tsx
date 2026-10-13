@@ -89,7 +89,7 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
       try {
         await AiBridge.invokePrivileged(
           {
-            requestId: aiMsgId,
+            requestId: crypto.randomUUID(),
             prompt,
             contextData: { 
               workspaceName, 

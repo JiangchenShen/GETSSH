@@ -26,7 +26,9 @@ export const useSessionManager = () => {
   // The main process refuses the save while the workspace is locked; no password travels with it.
   const syncProfiles = async (updatedSessions: SessionProfile[]) => {
     setSessions(updatedSessions);
-    await window.electronAPI.saveProfiles({ payload: savedProfiles(updatedSessions), workspaceId: useWorkspaceStore.getState().activeWorkspaceId });
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (useSessionStore.getState().profilesWorkspaceId !== workspaceId) return;
+    await window.electronAPI.saveProfiles({ payload: savedProfiles(updatedSessions), workspaceId });
   };
 
   const handleSetup = async (pwd: string) => {

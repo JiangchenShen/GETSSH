@@ -27,7 +27,7 @@ export function useAppLockSync() {
       if (state.phase === 'locked') {
         // Whatever the locked app had loaded leaves the window too.
         wasLocked = true;
-        useSessionStore.getState().setSessions([]);
+        useSessionStore.getState().replaceSessions([], null);
       } else if (state.phase === 'ready') {
         if (wasLocked) {
           wasLocked = false;
@@ -51,7 +51,7 @@ async function reloadActiveWorkspace() {
   const result = await window.electronAPI.checkProfiles().catch(() => null);
   if (!result) return;
   useCryptoStore.getState().setWorkspaceUnprotected(!result.hasPassword);
-  if (result.status === 'plain' && (await loadActiveWorkspace())) return;
+  if ((result.status === 'plain' || result.status === 'none') && (await loadActiveWorkspace())) return;
   useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
 }
 
@@ -61,7 +61,7 @@ async function recheckActiveWorkspace() {
   try {
     const result = await window.electronAPI.checkProfiles();
     if (result.status === 'encrypted') {
-      useSessionStore.getState().setSessions([]);
+      useSessionStore.getState().replaceSessions([], null);
       useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
       useCryptoStore.getState().setWorkspaceUnprotected(!result.hasPassword);
     }

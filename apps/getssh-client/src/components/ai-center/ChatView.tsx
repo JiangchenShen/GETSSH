@@ -141,6 +141,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
   const olderRequest = useRef<object | null>(null);
   const anchor = useRef<{ id: string; height: number; top: number } | null>(null);
   const lastMessage = messages[messages.length - 1];
+  const latestUserId = messages.findLast(message => message.role === 'user')?.id;
+  const previousTail = useRef({ id: lastMessage?.id, userId: latestUserId });
 
   useEffect(() => {
     olderRequest.current = null;
@@ -158,9 +160,15 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
     }
   }, [messages, olderLoading, activeConversationId]);
   useEffect(() => {
+    // User and assistant placeholders may be added in one React batch. A changed tail and
+    // latest user identify that send, while prepending history leaves the tail unchanged.
+    if (latestUserId && latestUserId !== previousTail.current.userId && lastMessage?.id !== previousTail.current.id) {
+      followLatest.current = true;
+    }
+    previousTail.current = { id: lastMessage?.id, userId: latestUserId };
     if (followLatest.current && !olderRequest.current && !anchor.current) scrollEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
     // Prepending history leaves the last id/content unchanged and must not jump to the bottom.
-  }, [activeConversationId, lastMessage?.id, lastMessage?.content, reduceMotion]);
+  }, [activeConversationId, lastMessage?.id, lastMessage?.content, latestUserId, reduceMotion]);
 
   const loadEarlier = async () => {
     if (!activeConversationId || !olderMessages || olderRequest.current) return;

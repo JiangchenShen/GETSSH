@@ -116,6 +116,9 @@ export const savedProfiles = (sessions: SessionProfile[]) => sessions.filter(ses
 
 interface SessionStore {
   sessions: SessionProfile[];
+  sessionsRevision: number;
+  /** Workspace whose complete saved list is in memory; null while locked or not yet loaded. */
+  profilesWorkspaceId: string | null;
   expandedGroups: string[];
   tabs: Tab[];
   activeTabId: string | null;
@@ -130,6 +133,7 @@ interface SessionStore {
   registeredPanels: Record<string, { title: string, renderUrl: string, pluginId: string }>;
 
   setSessions: (sessions: SessionProfile[]) => void;
+  replaceSessions: (sessions: SessionProfile[], workspaceId: string | null) => void;
   setExpandedGroups: (groups: string[]) => void;
   setTabs: (tabs: Tab[]) => void;
   setActiveTabId: (id: string | null) => void;
@@ -256,6 +260,8 @@ function mutateSizesInTree(node: PaneNode, targetPaneId: string, sizes: [number,
 export const useSessionStore = create<SessionStore>()(
   immer((set, get) => ({
     sessions: [],
+    sessionsRevision: 0,
+    profilesWorkspaceId: null,
     expandedGroups: [],
     tabs: [],
     activeTabId: null,
@@ -270,6 +276,11 @@ export const useSessionStore = create<SessionStore>()(
     registeredPanels: {},
 
     setSessions: (sessions) => set(state => { state.sessions = sessions; }),
+    replaceSessions: (sessions, workspaceId) => set(state => {
+      state.sessions = sessions;
+      state.sessionsRevision++;
+      state.profilesWorkspaceId = workspaceId;
+    }),
     setExpandedGroups: (expandedGroups) => set(state => { state.expandedGroups = expandedGroups; }),
     setTabs: (tabs) => set(state => { state.tabs = tabs; }),
     setActiveTabId: (id) => set(state => {
