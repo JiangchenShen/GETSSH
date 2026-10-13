@@ -4,6 +4,7 @@ import { isMainWebContents } from '../windowRegistry';
 import { appLock } from '../security/appLock';
 import { DatabaseManager } from '../services/DatabaseManager';
 import { toStoreError } from '../services/getsshStore';
+import { isWorkspaceSwitching } from './workspaceHandler';
 
 /**
  * Profiles of the active workspace. Unlocking goes through getssh-store; the renderer never
@@ -85,6 +86,9 @@ export function registerCryptoHandlers(ipcMain: IpcMain, _app: App) {
     if (typeof requestedWorkspaceId === 'string' && requestedWorkspaceId && requestedWorkspaceId !== workspaceId) {
       throw new Error('workspace_changed');
     }
+    // A save sent while a switch runs carries the list the window has already emptied (it is a
+    // whole-list save: the servers left out would be deleted). The next edit saves again.
+    if (isWorkspaceSwitching()) throw new Error('workspace_changed');
     if (!Array.isArray(payload)) throw new Error('invalid_argument');
 
     const profilesToSave = (payload as any[]).map((p: any) => ({

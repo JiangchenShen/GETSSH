@@ -380,11 +380,16 @@ async function run(): Promise<string> {
       // A listed workspace whose folder went missing gets it back; an unknown id is refused.
       fs.rmSync(path.join(base, 'workspaces', 'team'), { recursive: true, force: true });
       await assert.rejects(call('workspace:switch', 'nowhere'), /does not exist/);
-      const intoTeam = await call('workspace:switch', 'team');
+      // The window empties its list as soon as a switch starts; a whole-list save in between is refused.
+      const switching = call('workspace:switch', 'team');
+      await assert.rejects(Promise.resolve().then(() => call('save-profiles', { payload: [], workspaceId: 'default' })), /workspace_changed/);
+      const intoTeam = await switching;
       assert.ok(fs.existsSync(path.join(base, 'workspaces', 'team')));
       assert.equal(intoTeam.isLocked, false);
       assert.equal(intoTeam.visualMeta.hasPassword, true);
       const backHome = await call('workspace:switch', 'default');
+      assert.ok(DM.getProfiles('default').some(p => p.host === 'web.example'), 'the save refused during the switch deleted nothing');
+      assert.equal(await call('save-profiles', { payload: [{ id: 'web', host: 'web.example', username: 'root', group: 'G' }], workspaceId: 'default' }), true, 'saves work again once the switch is done');
       assert.ok(backHome.profiles[0].hasPassword && !JSON.stringify(backHome).includes('pw1'), 'workspace:switch carries no password');
       assert.ok(!DM.isWorkspaceOpen('team'), 'leaving a workspace with its own password locks it');
       assert.equal((await listed()).team.protected, true);
