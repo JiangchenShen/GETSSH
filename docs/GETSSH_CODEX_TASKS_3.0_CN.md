@@ -388,3 +388,76 @@ U1–U17 都做了，测试从 623 个增加到 770 个，类型检查、构建�
   - 删掉 4 个旧的数据库导出导入通道（`exportDatabaseAll` 等）；
   - 删掉 `@xterm/addon-canvas`（`package.json`、`vite.config.mts`、lockfile）。
 - Touch ID 的真机行为要负责人在场时测。
+
+## 10-13 复查（`feat/ui-store`，`2a3551c`）
+
+R1–R18 都处理了，大多数撤掉修复后测试会失败；整套测试 75 个文件、860 个测试全部通过（交付时报的 377 个只是其中一部分，下次请跑整套 `pnpm exec vitest run`）。合并提交 `2cd6c5d` 和自动合并的结果一致，改动都在 `src/**` 里。官网工作目录已挪到 `/Volumes/Developer/GETSSH-WEBSITE-codex`，没有合进 `main`。
+
+复查又发现下面这些问题，行号以 `2a3551c` 为准。R19–R23 修完才能合并进 `v3-next`：负责人每天用 `v3-next` 处理真实数据，其中三条会丢数据或改错数据。
+
+先 `git merge v3-next`：Claude 10-13 在主进程加了一道保护，工作区切换期间拒绝整份保存（R19 的兜底）。
+
+### 合并前要修
+
+#### R19 系统识别后的保存没有保护，切换工作区时可能删光所有服务器（高）
+
+- **位置**：`src/components/IpcManager.tsx:104-110`。这段代码原来就有，但 R1 的保护没覆盖到它。
+- **问题**：
+  - 连接后大约 1.2 秒收到系统识别结果，50 毫秒后整份保存列表；
+  - 如果这 50 毫秒里用户切换了工作区，`switchWorkspace` 会先清空列表（`workspaceStore.ts:110`），而 `activeWorkspaceId` 要等主进程回复才变，所以检查能通过，结果把空列表存进原来的工作区。
+  - 主进程 10-13 起在切换期间会拒绝这类保存，但界面这边也要补上。
+- **要做**：保存前和其他整份保存一样检查：`profilesWorkspaceId === workspaceId`，并且不在切换中（`!isSwitching`）、工作区没锁、应用没锁。
+- **验收**：spec 模拟收到系统识别结果、50 毫秒内开始切换工作区，结果没有调用 `saveProfiles`。
+
+#### R20 默认设置下无法查看已保存的密码（高）
+
+- **位置**：`src/components/SavedSecretControl.tsx:68`。
+- **问题**：
+  - 现在只有 `presenceSupported` 为真，**并且**对应范围的 `presence` 也为真时，才允许用 Touch ID。可是没有单独密码的工作区，`presence` 永远是 `false`；
+  - 默认设置（没有主密码、工作区也没有单独密码）下，两种验证方式都不能用，已保存的密码一个都看不了。
+  - 这是 R2 写错了，不怪实现：查看密码时用 Touch ID，只是让系统确认一下"本人在场"（`open_reveal_with_presence` 只调用 `verify_presence`），和这个范围有没有开启 Touch ID 解锁无关。
+- **要做**：
+  - 只要 `presenceSupported` 为真，就可以用 Touch ID / Windows Hello 查看；不再看 `scope.presence`；
+  - 输入密码那条路照旧：设了主密码时输主密码，工作区有单独密码时输工作区密码，两样都没有就不显示；
+  - 两样都不能用（不支持 Touch ID，也没有密码）时，说明无法查看。
+- **验收**：spec 覆盖默认设置、支持 Touch ID 的情况，点"查看密码"会调用 `open({ method: 'presence' })`。
+
+#### R21 应用还没解锁时，开机检查把只剩草稿的列表当成了完整列表（中，可能丢数据）
+
+- **位置**：`src/hooks/useCryptoBoot.ts:34-35`。
+- **问题**：`check-profiles` 在应用没解锁时返回 `status: 'none'`（`electron/main/handlers/cryptoHandler.ts:38`）。这里却调了 `replaceSessions(只有草稿的列表, workspaceId)`，等于宣布"这个工作区的完整列表已经在内存里了"。解锁后的下一次保存，会把只有草稿的列表整份存进去，其他服务器都会被删掉。
+- **要做**：`status` 是 `none` 时什么都不改，等应用解锁后由 `useAppLockSync` 重新加载。
+- **验收**：spec 模拟 `checkProfiles` 返回 `none` 时，`profilesWorkspaceId` 仍是 `null`，之后的保存被拒绝。
+
+#### R22 2.0 导入替换列表时丢掉草稿，可能把输入存进别的服务器（中）
+
+- **位置**：`src/components/app-overlays/LegacyV2Import.tsx:94-98`（`adoptProfiles`）。
+- **问题**：
+  - 这里直接用导入返回的列表替换，没有合并草稿和快速连接，也没有调整 `selectedSessionIndex`；
+  - 如果用户正在编辑一个草稿（第 n 项），替换后第 n 项变成了某个已保存的服务器，连接表单会切到它；用户接着输入，自动保存就写进了这个服务器。
+- **要做**：照 `loadProfiles`（`workspaceUnlock.ts:39-43`）和 `AssetBridgeTab.tsx:84-89` 的做法，合并草稿和快速连接，并把选中项移到同一个服务器上。
+- **验收**：spec 中编辑草稿时完成导入，草稿还在，选中项不变。
+
+#### R23 "先跳过"在切换工作区后失效，提示框又弹出来（中）
+
+- **位置**：`src/components/app-overlays/LegacyV2Import.tsx:64-75`。
+- **问题**：每次切换工作区、锁定或解锁工作区，都会清掉 `checkedReady`，然后重新调 `status()` 并弹出提示框。R7 原本就是为了解决反复弹框，现在弹得比以前更频繁；每次重新检查还会再解密一遍 2.0 文件。
+- **要做**：用户选了"先跳过"，就在这次运行里记住，直到应用锁定或重启。工作区变化时仍然清掉密码，但不重新弹框。
+- **验收**：spec 中先跳过，再切换工作区，结果没有再调用 `status()`，也没有弹框。
+
+### 可以合并以后再修
+
+| 编号 | 位置 | 问题 | 要做 |
+|---|---|---|---|
+| R24 | `useCryptoBoot.ts:20-23` | 开机检查期间如果列表被别处替换过，直接返回，不再自动弹 Touch ID，用户只看到输入密码的界面 | 列表被替换时也照常判断要不要自动弹 Touch ID |
+| R25 | `EncryptedBackupSection.tsx:24,125-128` | ① 用户选完工作区后，有工作区被锁上，它不在可以输密码的名单里，就被悄悄过滤掉，流程停住，也没有提示；② 当前工作区锁着时，导出和导入按钮都变灰，也不说明原因，可主进程并不要求当前工作区已解锁 | ① 被过滤掉的工作区要提示，并重新读取候选列表；② 只在应用锁定时禁用（和 `ExportTab.tsx:20` 一样） |
+| R26 | `SavedSecretControl.tsx:95-101` | 导入备份后、重启前点"查看密码"，`unavailable` 被当成"系统验证不可用"，要用户输密码，可输了也没用，而且没提要重启 | 导入后（`useBackupRestartStore` 为真）显示"需要重启"，不再要密码 |
+| R27 | `LegacyV2Import.tsx:133` | 默认端口没设上时，提示"请解锁主工作区后重试"。可主工作区在应用解锁后不会单独锁着；锁着的是导入时的那个工作区，它后来可能已经不是主工作区了 | 改成"请解锁导入这些服务器的工作区后重试"，或者不指明是哪个工作区 |
+| R28 | `aiChatStore.ts:365-367` | 锁屏时把回复标成结束，但命令确认卡片还是"待确认"，解锁后仍能点"允许"。命令会在服务器上执行，可输出已经不显示了（原来就有的问题） | 锁屏时把待确认的卡片标成过期，并回复主进程拒绝 |
+| R29 | 官网 `en.json`、`zh.json` 第 96、117 行；官网仓库的 `README.md`、`README_CN.md` | ① 官网写"防眩光模式"，应用里这个设置叫"终端防瞎眼"/"High-Contrast Terminal"，用户找不到；② 官网仓库的两个 README 还写着零拷贝、绕过 V8 堆、"xterm.js + WebGL" | ① 用应用里的设置名称；② 一起改掉 |
+
+### Claude 这边（10-13）
+
+- 已做：主进程在工作区切换期间拒绝整份保存（`workspaceHandler.ts` 的 `isWorkspaceSwitching`，`cryptoHandler.ts` 的 `save-profiles`），端到端测试覆盖了这种情况。这道保护在现在的 `v3-next` 上也有用：R19 那段代码在 `v3-next` 里本来就有。
+- 等 R19–R23 修完：复查一次，删掉 4 个旧的数据库导出导入通道和 `@xterm/addon-canvas`，再合并进 `v3-next`。
+- 之后可以考虑：整份保存带上"列表版本"，主进程发现版本对不上就拒绝。这样不管界面哪里出错，都不会因为整份保存删掉服务器。要改主进程和界面两边，3.0 之后再定。
