@@ -4,7 +4,7 @@
 // The app side of getssh-store: appLock (with the migration of 3.0 development-build data and the
 // GETSSH 2.0 import), and DatabaseManager on top of the store. better-sqlite3-multiple-ciphers (a
 // devDependency since step S6) only writes the development-build layouts these phases migrate.
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -15,6 +15,8 @@ import { Server as SshServer, utils as sshUtils } from 'ssh2';
 import { registerAssetFolderHandlers } from '../../../electron/main/handlers/assetFolderHandler';
 import { registerCryptoHandlers } from '../../../electron/main/handlers/cryptoHandler';
 import { registerKeystoreHandlers } from '../../../electron/main/handlers/keystoreHandler';
+import { registerLegacyImportHandlers } from '../../../electron/main/handlers/legacyImportHandler';
+import { registerStoreHandlers } from '../../../electron/main/handlers/storeHandler';
 import { registerSshHandlers } from '../../../electron/main/handlers/sshHandler';
 import { bootstrapAppWorkspace, setupWorkspaceHandlers } from '../../../electron/main/handlers/workspaceHandler';
 import { DatabaseManager as DM } from '../../../electron/main/services/DatabaseManager';
@@ -123,6 +125,47 @@ const hosts = (workspaceId: string) => DM.getProfiles(workspaceId).map(p => {
   const secrets = getStore().connectSecrets(workspaceId, p.id);
   return `${p.host}:${secrets.password?.toString('utf8')}`;
 }).sort();
+
+type Handler = (event: unknown, ...args: unknown[]) => any;
+
+/**
+ * The renderer's IPC channels, called as the main window would call them (a hidden window;
+ * nothing is shown). File dialogs answer with the given paths instead of opening.
+ */
+function mainWindowChannels(files: { save?: string; open?: string } = {}) {
+  const win = new BrowserWindow({ show: false });
+  setMainWindow(win);
+  const handlers = new Map<string, Handler>();
+  const handle = (channel: string, run: Handler) => { handlers.set(channel, run); };
+  (ipcMain as unknown as { handle: typeof handle }).handle = handle;
+  const fakeIpc = { handle } as unknown as Electron.IpcMain;
+  registerKeystoreHandlers(fakeIpc);
+  registerCryptoHandlers(fakeIpc, app);
+  registerStoreHandlers(fakeIpc);
+  registerLegacyImportHandlers(fakeIpc);
+  setupWorkspaceHandlers();
+  const dialogs = dialog as unknown as Record<string, unknown>;
+  dialogs.showSaveDialog = async () => (files.save ? { canceled: false, filePath: files.save } : { canceled: true });
+  dialogs.showOpenDialog = async () => (files.open ? { canceled: false, filePaths: [files.open] } : { canceled: true, filePaths: [] });
+  const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  return (channel: string, ...args: unknown[]) => {
+    const run = handlers.get(channel);
+    if (!run) throw new Error(`no handler for ${channel}`);
+    return run(event, ...args);
+  };
+}
+
+/** profiles.enc as GETSSH 2.0 wrote it (getssh-vault V2), and profiles.key unless `key` is false. */
+function writeV2Profiles(userData: string, master: string, rows: unknown[], key = true) {
+  fs.mkdirSync(userData, { recursive: true });
+  const salt = crypto.randomBytes(32);
+  const iv = crypto.randomBytes(12);
+  const derived = crypto.pbkdf2Sync(Buffer.from(master, 'utf8'), salt, 100000, 32, 'sha256');
+  const cipher = crypto.createCipheriv('aes-256-gcm', derived, iv);
+  const ct = Buffer.concat([cipher.update(JSON.stringify(rows), 'utf8'), cipher.final()]);
+  fs.writeFileSync(path.join(userData, 'profiles.enc'), Buffer.concat([Buffer.from('GETSSH_V2'), salt, iv, cipher.getAuthTag(), ct]));
+  if (key) fs.writeFileSync(path.join(userData, 'profiles.key'), safeStorage.encryptString(master));
+}
 
 async function run(): Promise<string> {
   trace('app ready');
@@ -527,13 +570,7 @@ async function run(): Promise<string> {
         { host: 'old-db.example', username: 'dba', privateKeyPath: '~/.ssh/id_ed25519', autoStart: true },
         { host: '', username: '', password: '' },
       ];
-      const salt = crypto.randomBytes(32);
-      const iv = crypto.randomBytes(12);
-      const key = crypto.pbkdf2Sync(Buffer.from(master, 'utf8'), salt, 100000, 32, 'sha256');
-      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-      const ct = Buffer.concat([cipher.update(JSON.stringify(rows), 'utf8'), cipher.final()]);
-      fs.writeFileSync(path.join(userData, 'profiles.enc'), Buffer.concat([Buffer.from('GETSSH_V2'), salt, iv, cipher.getAuthTag(), ct]));
-      fs.writeFileSync(path.join(userData, 'profiles.key'), safeStorage.encryptString(master));
+      writeV2Profiles(userData, master, rows);
       fs.writeFileSync(marker('v2-snapshot.json'), JSON.stringify(v2Files(userData)));
       return 'GETSSH 2.0 files written';
     }
@@ -570,6 +607,153 @@ async function run(): Promise<string> {
       await appLock.start();
       assert.deepEqual(DM.getProfiles('default').map(p => p.host), ['old-web.example'], 'a deleted server does not come back');
       return 'GETSSH 2.0 import not repeated';
+    }
+
+    case 'v2-default-port': {
+      // The automatic import gave the server without a port 22; the window then sends its
+      // Default Port once (legacy-v2:apply-default-port) and adopts the returned list.
+      await appLock.start();
+      const call = mainWindowChannels();
+      const before = await call('legacy-v2:status');
+      assert.equal(before.ok, true);
+      assert.equal(before.needsPassword, false);
+      assert.equal(before.imported?.portDefaulted, 1, 'old-db.example had no port');
+      const applied = await call('legacy-v2:apply-default-port', { port: 2200 });
+      assert.equal(applied.status, 'applied');
+      assert.equal(applied.workspaceId, 'default');
+      assert.equal(applied.profiles.find((p: any) => p.host === 'old-db.example')?.port, 2200);
+      assert.equal(applied.profiles.find((p: any) => p.host === 'old-web.example')?.port, 2222, 'a port 2.0 saved stays');
+      assert.ok(!JSON.stringify(applied).includes('old-pw'), 'the answer carries no password');
+      assert.equal((await call('legacy-v2:status')).imported.portDefaulted, 0);
+      assert.equal((await call('legacy-v2:apply-default-port', { port: 2200 })).status, 'nothing', 'it is applied once');
+      assert.deepEqual(await call('legacy-v2:apply-default-port', { port: 70000 }), { ok: false, error: 'invalid_argument' });
+      return 'GETSSH 2.0 default port applied once';
+    }
+
+    case 'v2-password-setup':
+      // A 2.0 list whose master password GETSSH cannot read (no profiles.key): the user types it.
+      writeV2Profiles(app.getPath('userData'), 'typed-v2-pw', [
+        { host: 'typed.example', username: 'ops', password: 'typed-secret' },
+        { host: 'typed-key.example', username: 'ops', privateKeyPath: '~/.ssh/id_ed25519', port: 2022 },
+      ], false);
+      return 'GETSSH 2.0 files without the saved password written';
+
+    case 'v2-password-import': {
+      await appLock.start();
+      assert.deepEqual(DM.getProfiles('default'), [], 'nothing is imported without the password');
+      const call = mainWindowChannels();
+      const status = await call('legacy-v2:status');
+      assert.equal(status.ok, true);
+      assert.equal(status.kind, 'encrypted');
+      assert.equal(status.needsPassword, true);
+      assert.equal(status.imported, null);
+      const wrong = await call('legacy-v2:import', { password: 'not-it', defaultPort: 2200 });
+      assert.equal(wrong.ok, true);
+      assert.equal(wrong.status, 'wrong_password');
+      assert.deepEqual(DM.getProfiles('default'), []);
+      const imported = await call('legacy-v2:import', { password: 'typed-v2-pw', defaultPort: 2200 });
+      assert.equal(imported.status, 'imported');
+      assert.equal(imported.imported, 2);
+      assert.equal(imported.workspaceId, 'default');
+      assert.deepEqual(imported.profiles.map((p: any) => `${p.host}:${p.port}`).sort(), ['typed-key.example:2022', 'typed.example:2200'], 'the typed Default Port fills the missing port');
+      assert.ok(!JSON.stringify(imported).includes('typed-secret'), 'the answer carries no password');
+      const typed = DM.getProfiles('default').find(p => p.host === 'typed.example')!;
+      assert.equal(getStore().connectSecrets('default', typed.id).password?.toString('utf8'), 'typed-secret');
+      const after = await call('legacy-v2:status');
+      assert.equal(after.needsPassword, false);
+      assert.equal(after.imported.portDefaulted, 0);
+      assert.equal((await call('legacy-v2:import', { password: 'typed-v2-pw' })).status, 'already');
+      return 'GETSSH 2.0 servers imported with the typed password';
+    }
+
+    case 'v2-dismiss': {
+      await appLock.start();
+      const call = mainWindowChannels();
+      assert.equal((await call('legacy-v2:status')).needsPassword, true);
+      assert.deepEqual(await call('legacy-v2:dismiss'), { ok: true, status: 'dismissed' });
+      return 'GETSSH 2.0 password question dismissed';
+    }
+
+    case 'v2-dismissed-check': {
+      // After a relaunch the question stays away, and an import on request still works. The saved
+      // 2.0 password is there now, so the automatic import would take the file if the dismissal
+      // did not hold.
+      fs.writeFileSync(path.join(app.getPath('userData'), 'profiles.key'), safeStorage.encryptString('typed-v2-pw'));
+      await appLock.start();
+      const call = mainWindowChannels();
+      const status = await call('legacy-v2:status');
+      assert.equal(status.needsPassword, false);
+      assert.equal(status.imported.dismissed, true);
+      assert.deepEqual(DM.getProfiles('default'), []);
+      assert.equal((await call('legacy-v2:import', { password: 'typed-v2-pw' })).status, 'imported');
+      return 'GETSSH 2.0 question stays dismissed after a relaunch';
+    }
+
+    case 'backup-export': {
+      // The encrypted backup through the window's channels: candidates, one batch unlock, the
+      // password of a workspace that needs it, export. Nothing asks for Touch ID / Windows Hello.
+      await appLock.start();
+      await bootstrapAppWorkspace();
+      const call = mainWindowChannels({ save: marker('backup.getssh-backup') });
+      assert.equal(await call('save-profiles', { payload: [{ id: 'web', host: 'web.example', username: 'root', password: 'pw-web' }], workspaceId: 'default' }), true);
+      assert.equal((await call('workspace:create', 'team', { name: 'Team' })).success, true);
+      assert.deepEqual(await call('workspace:set-password', { workspaceId: 'team', password: 'team-password' }), { ok: true });
+      DM.saveProfiles('team', [{ id: 'db', host: 'db.example', username: 'dba', password: 'pw-db' }]);
+      DM.lockWorkspace('team');
+
+      const candidates = await call('store:backup:candidates', {});
+      assert.equal(candidates.ok, true);
+      const byId = Object.fromEntries(candidates.candidates.map((c: any) => [c.id, c]));
+      assert.deepEqual(byId.default.unlockWith, []);
+      assert.equal(byId.team.state, 'locked');
+      assert.ok(byId.team.unlockWith.includes('password'));
+      const unlock = await call('store:backup:unlock-for-export', { workspaceIds: ['default', 'team'] });
+      assert.deepEqual(unlock.unlocked, ['default']);
+      assert.deepEqual(unlock.failed, [{ id: 'team', code: 'needs_password' }]);
+      assert.deepEqual(await call('workspace:unlock', { workspaceId: 'team', method: 'password', password: 'team-password' }), { ok: true });
+      assert.deepEqual(await call('store:backup:export', { workspaceIds: ['default', 'team'], password: 'too-short' }), { ok: false, error: 'invalid_argument' });
+      const exported = await call('store:backup:export', { workspaceIds: ['default', 'team'], password: 'backup-password-1' });
+      assert.equal(exported.ok, true, JSON.stringify(exported));
+      assert.equal(exported.report.path, marker('backup.getssh-backup'));
+      assert.deepEqual([...exported.report.workspaceIds].sort(), ['default', 'team']);
+      assert.ok(fs.statSync(exported.report.path).size > 0);
+      assert.ok(!fs.readFileSync(exported.report.path).includes(Buffer.from('pw-web')), 'the backup file is encrypted');
+      // Changed after the export, so the import has something to undo.
+      DM.saveProfiles('default', [{ id: 'later', host: 'later.example', username: 'root' }]);
+      return 'encrypted backup exported through the window channels';
+    }
+
+    case 'backup-import': {
+      await appLock.start();
+      const call = mainWindowChannels({ open: marker('backup.getssh-backup') });
+      const file = await call('store:backup:choose-import-file', {});
+      assert.equal(file.ok, true);
+      assert.equal(file.fileName, 'backup.getssh-backup');
+      const wrong = await call('store:backup:inspect', { fileId: file.fileId, password: 'not-the-password' });
+      assert.equal(wrong.ok, false);
+      assert.equal(wrong.error, 'wrong_password');
+      const inspected = await call('store:backup:inspect', { fileId: file.fileId, password: 'backup-password-1' });
+      assert.equal(inspected.ok, true);
+      assert.deepEqual(inspected.info.workspaces.map((w: any) => [w.id, w.hasPassword]).sort(), [['default', false], ['team', true]]);
+      assert.deepEqual(DM.getProfiles('default').map(p => p.host), ['later.example'], 'inspect changes nothing');
+      const imported = await call('store:backup:import', { fileId: file.fileId, password: 'backup-password-1' });
+      assert.equal(imported.ok, true, JSON.stringify(imported));
+      assert.ok(imported.report.backupPath && fs.existsSync(path.join(imported.report.backupPath, 'main.db')), 'the old data folder is kept');
+      assert.deepEqual(await call('store:backup:candidates', {}), { ok: false, error: 'unavailable' }, 'nothing else until the relaunch');
+      fs.writeFileSync(marker('backup-old-data.txt'), imported.report.backupPath);
+      // The phase ends here; the next phase is the relaunch.
+      return 'encrypted backup imported';
+    }
+
+    case 'backup-restored': {
+      await appLock.start();
+      assert.equal(appLock.state().phase, 'ready');
+      assert.deepEqual(hosts('default'), ['web.example:pw-web'], 'the exported list is back, with its password');
+      assert.equal(DM.isWorkspaceOpen('team'), false, 'a workspace with its own password stays locked');
+      assert.equal(await DM.unlockWorkspaceWithPassword('team', 'team-password'), true);
+      assert.deepEqual(hosts('team'), ['db.example:pw-db']);
+      assert.ok(fs.existsSync(fs.readFileSync(marker('backup-old-data.txt'), 'utf8')), 'the old data folder is still there after the relaunch');
+      return 'backup restored after the relaunch';
     }
 
     case 'rollback-setup':

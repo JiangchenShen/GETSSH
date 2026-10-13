@@ -299,3 +299,92 @@
 - **迁移后提醒用户重新开启 Touch ID、创建恢复码**：`getState()` 的 `migration` 字段已经有了。这件事也跟阶段 B 一起定。
 - **用"您"还是"你"**：等负责人定，定了以后再统一应用和官网的文案。
 - **服务器配置仍然走旧的保存通道**：旧通道背后已经是 store，能正常用，3.0 不用改成 `store.profiles`。
+
+## 10-12 审查结果（`feat/ui-store`，`a486014`）
+
+U1–U17 都做了，测试从 623 个增加到 770 个，类型检查、构建、文案检查都通过；没有改 `src/**` 以外的文件，也没有削弱已有测试。审查发现下面这些问题，行号以 `a486014` 为准。
+
+开工前先 `git merge v3-next`：Claude 10-12 的提交里有 R3 的后端修复和 R7 要用的新接口。
+
+### 合并前要修
+
+#### R1 加载服务器列表时丢弃结果，可能删掉所有已保存的服务器（高）
+
+- **位置**：`src/lib/workspaceUnlock.ts:19-29`。
+- **问题**：`stillCurrent()` 比较的是 `sessions` 数组本身。只要加载期间列表被别处改过，就把读到的列表丢掉，并直接返回 `true`。
+  - 例子：开机或解锁后，加载还没完成时用户点了"+"，`useCoreAppEvents.ts:56` 加进一个草稿，于是读到的列表被丢掉，窗口里只剩这个草稿；
+  - 用户接着连接或保存，`syncProfiles` 整份保存 `[草稿]`，工作区里其他服务器就都被删掉了。
+  - 丢弃时也没有调 `opened()`，锁定状态不会被清掉。
+- **要做**：
+  - 只有工作区变了，或者 2.0 导入已经换过列表时，才保留现在的列表。可以在 `sessionStore` 里加一个版本号，只在整份替换（2.0 导入、切换工作区）时加一，比较版本号而不是比较数组；
+  - 其他情况一律用读到的列表，再把现在列表里的草稿和快速连接合进去，参考 `AssetBridgeTab.tsx:85` 的做法；
+  - 不管走哪条路，都要清掉锁定状态。
+- **验收**：vitest。加载等待期间加一个草稿，加载完成后，列表里既有读到的服务器，也有这个草稿；之后保存，提交的整份列表里包含读到的服务器。
+
+#### R2 "查看密码"不管电脑支不支持，都先用 Touch ID（中）
+
+- **位置**：`src/components/SavedSecretControl.tsx:139`、`:117`、`:58-60`。
+- **问题**：
+  - 没有 Touch ID 的 Mac、没有 Windows Hello 的电脑，点"查看密码"会先走 Touch ID，然后显示"此功能暂时不可用，请重启应用后重试"。重启并不能解决；
+  - 查看窗口过期后（`show` 返回 `locked`），重新打开时只走 Touch ID，即使用户刚才是输密码验证的。
+- **要做**：
+  - 从 `security.status()` 判断能不能用 Touch ID：`presenceSupported`，再加上对应范围的 `presence`。设了主密码时看 `id: 'app'` 那一项，否则看这个工作区那一项；
+  - 不能用时，点"查看密码"直接展开输入密码；两样都没有时，说明无法查看；
+  - 查看窗口过期后，用户上次怎么验证的就怎么重新验证。用的是密码就重新让用户输入，不要保存密码；
+  - 修 spec：`unavailable` 之后不应该再提示 Touch ID。
+- **验收**：spec 覆盖三种情况：不支持 Touch ID、支持但没开、开了。前两种不出现"重启应用"的提示。
+
+#### R3 导出时取消 Touch ID，会要求给没有密码的工作区输入密码（中）
+
+- **位置**：`src/components/secure-center/tabs/EncryptedBackupSection.tsx:123-126`。
+- **问题**：真模块原来在用户取消后，把剩下所有工作区都标成 `cancelled`，界面就为每一个都要密码，包括根本没有密码的。
+- **后端已修**（Claude，10-12）：取消后，不需要验证的工作区照常打开，没开 Touch ID 的仍然返回 `needs_password`，只有还没打开、开了 Touch ID 的才标 `cancelled`。
+- **要做**：`git merge v3-next` 后补一个 spec 覆盖这种情况；界面只为 `unlockWith` 里有 `password` 的工作区要密码，作为保险。
+
+#### R4 点过"加载更早的消息"以后，新消息不再自动滚到底（中）
+
+- **位置**：`src/components/ai-center/ChatView.tsx:171`。
+- **问题**：`followLatest` 被设成 `false` 以后，只有滚回底部或者切换对话才会恢复。用户发出新问题后，自己的消息和回复都在视野外面。
+- **要做**：用户发出新消息时（最后一条变成 `role: 'user'`），把 `followLatest` 设回 `true`。
+- **验收**：spec 覆盖先加载更早的消息、再发新消息，结果滚到底部。
+
+#### R5 锁屏打断生成后点重试，旧请求的输出会混进新回复（中）
+
+- **位置**：`src/components/ai-center/useAiInteraction.ts:92`（`requestId: aiMsgId`）。`CommandCenterAiChat.tsx` 也一样。
+- **问题**：
+  - 锁屏或切换工作区时，界面把回复标成结束，但主进程的请求还在跑，没有办法中止；
+  - 重试用的还是同一个 `requestId`，旧请求后面的片段、结束信号和命令确认请求，都会发到重试的这条回复上。
+- **要做**：每次生成都用一个新的 `requestId`，比如 `${aiMsgId}:${次数}` 或者 `crypto.randomUUID()`。消息 id 不变。
+- **验收**：spec 模拟这个过程：生成到一半锁屏，解锁后重试，再往旧的 `requestId` 发片段，结果片段不会出现在回复里。
+
+### 可以合并以后再修
+
+| 编号 | 位置 | 问题 | 要做 |
+|---|---|---|---|
+| R6 | `SafeStorageTab.tsx:227` | 新说明写"此次更改不影响已锁定的工作区"，但关闭时会影响 | 照真模块的行为写（Claude 已用测试确认，假实现 10-12 起也一样）：开启时，只对当前已解锁、有单独密码的工作区生效；之后才设密码的工作区不会自动开启，要再开一次；关闭时对所有工作区生效 |
+| R7 | `LegacyV2Import.tsx:107,143-148` | 选"暂时跳过"只在这次启动内有效，每次解锁都会再弹；读不出来的 2.0 文件每次都会报错 | Claude 已加 `store.legacyV2.dismiss()`（见 `src/types.d.ts`）。弹框加"不再提示"，调用它。`status().imported?.dismissed` 为真时不弹框、不报错，`kind` 是 `unreadable` 时也一样；文件换过以后后端不再报告 `dismissed`，界面照常询问。`portDefaulted > 0` 仍要处理，判断放在 `dismissed` 之前 |
+| R8 | `LegacyV2Import.tsx:130` | 默认端口没设上时，提示写"服务器未能导入"，可实际上已经导入了，而且只有"跳过"按钮 | 单独写一句提示：服务器已导入，默认端口没设上；加"重试" |
+| R9 | `LegacyV2Import.tsx:94,225` | 当前工作区锁着时弹框，输入框和按钮都不能用，也没有说明，还盖住了工作区的解锁界面 | 导入写的是主工作区，不需要当前工作区已解锁：输入框照常可用，只是返回的列表等当前工作区解锁后再用；或者等解锁后再弹 |
+| R10 | `ConnectForm.tsx:298` | "清除已保存的密码"点了立刻删除，没有确认，也不能撤销 | 和插件设置一样：点了以后先显示"保存后清除"，可以撤销，保存时才真正清除 |
+| R11 | `storeFeedback.ts:16`、`EncryptedBackupSection.tsx:195` | 导入后"需要重启"只在导出页显示；在其他地方，`unavailable` 仍然显示成"此功能暂时不可用" | `useBackupRestartStore` 为真时全局显示一条"需要重启"的提示，`storeFailureMessage('unavailable')` 也说要重启 |
+| R12 | `EncryptedBackupSection.tsx:145,43-47` | 导出失败后，备份密码和确认密码还留在状态里；没有主密码时自动锁定，也不会清掉 | 失败时清空两个密码；`isVaultLocked` 变化或工作区锁定时也清空 |
+| R13 | `PluginSettings.tsx:145` | 点"清除已保存的值"后，之前输入的值保存在 `draftsBeforeClear` 里，关掉面板也不清 | 关面板时清空 `draftsBeforeClear` |
+| R14 | `EncryptedBackupSection.spec.tsx:90,166` | 测的是主进程不会返回的结果：`relaunch` 不会返回 `unavailable`，`unlockForExport` 不会整体返回 `cancelled` | 换成真实可能出现的：`relaunch` 的 `unauthorized`、`invalid_argument`；`unlockForExport` 的 `failed` 里有 `cancelled` |
+| R15 | `useAiConversation.ts:61,77` | `onRetry`、`onServerSelect` 依赖 `isGenerating`，开始和结束生成时所有消息都会重新渲染 | 用 ref 读 `isGenerating`，回调保持不变 |
+| R16 | `ChatView.spec.tsx:75` | "不订阅别的对话"这个测试，就算 `ChatView` 改回订阅全部对话也会通过 | 统计 `ChatView` 自己的渲染次数 |
+| R17 | `ChatView.tsx:155-156` | 加载更早的消息时，滚动位置在后一次渲染才恢复，可能闪一下；加载期间底部有新内容，位置会偏 | 在同一次提交里恢复：用插入前第一条可见消息做锚点 |
+| R18 | 官网 | 改动在 `codex/ui-store-copy` 分支上，工作目录在 `/private/tmp/getssh-ui-store-mepcx951/website`，系统清理临时文件时可能被删；`en.json`、`zh.json` 第 96、117 行写着"xterm.js + WebGL 渲染"，但默认设置用的是 xterm 自带的渲染，开了防眩光才用 WebGL | 工作目录挪到 `/Volumes/Developer` 下；改这两处说法；合并进 `main` 前问负责人，官网合并后会直接上线 |
+
+### Claude 这边（10-12）
+
+- 已做：
+  - 批量解锁在取消后的处理（R3 的后端部分），Rust 测试 2 个；
+  - 删掉没人用的 `toggleWorkspaceBiometric`（`types.d.ts`、preload、`workspace:toggleBiometric`）；
+  - 新增 `store.legacyV2.dismiss()`（R7 用）：只是选过"不再提示"、没有导入过时，之后出现的新 2.0 文件照常自动导入；已经导入过一次的，自动导入仍然只有那一次。单元测试 8 个，端到端测试 2 个阶段；
+  - 批量解锁还改了三处：同一个工作区只报告一次；不存在的工作区返回 `not_found`，不会被新建；打开工作区出错时返回真实的错误码，不再一律报 `needs_password`；
+  - 假实现的 Touch ID 行为改成和真模块一致：开关只影响当时已解锁的工作区；新设密码的工作区不会自动开启；导出时每个工作区各问一次，取消后不再问；没有主密码时，`appState().presenceEnabled` 为 `false`。原来假实现是"一次验证解开全部、自动沿用、下次解锁时补开"，那是设计里想要的，真模块还没做到，放到 3.x；
+  - 端到端测试用真模块验证了：加密备份从导出、导入到重启的完整往返（密码和有单独密码的工作区都恢复了）；输入 2.0 密码导入（输错能重输）；默认端口只补一次。端到端测试从 22 个阶段增加到 31 个。
+- 等 `feat/ui-store` 合并时做：
+  - 删掉 4 个旧的数据库导出导入通道（`exportDatabaseAll` 等）；
+  - 删掉 `@xterm/addon-canvas`（`package.json`、`vite.config.mts`、lockfile）。
+- Touch ID 的真机行为要负责人在场时测。

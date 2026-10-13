@@ -94,7 +94,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkspaceStats: (id: string) => ipcRenderer.invoke('workspace:getStats', id),
   getWorkspaceAuditLogs: (id: string) => ipcRenderer.invoke('workspace:getAuditLogs', id),
   setMainWorkspace: (id: string) => ipcRenderer.invoke('workspace:setMain', id),
-  toggleWorkspaceBiometric: (id: string, enabled: boolean) => ipcRenderer.invoke('workspace:toggleBiometric', id, enabled),
   promptTouchID: (reason: string) => ipcRenderer.invoke('system:promptTouchID', reason),
   updateWorkspacePreferences: (id: string, preferencesStr: string) => ipcRenderer.invoke('workspace:updatePreferences', id, preferencesStr),
   exportProfiles: () => ipcRenderer.invoke('export-profiles'),
@@ -307,6 +306,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       status: () => ipcRenderer.invoke('legacy-v2:status'),
       import: (request: { password?: string; defaultPort?: number }) => ipcRenderer.invoke('legacy-v2:import', request),
       applyDefaultPort: (request: { port: number }) => ipcRenderer.invoke('legacy-v2:apply-default-port', request),
+      dismiss: () => ipcRenderer.invoke('legacy-v2:dismiss'),
     },
   },
 

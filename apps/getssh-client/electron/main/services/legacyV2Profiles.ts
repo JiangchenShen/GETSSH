@@ -75,6 +75,18 @@ export interface V2ImportSummary {
   changed: boolean;
   /** Imported servers that had no port in 2.0 and got 22: they wait for applyV2DefaultPort. */
   portDefaulted: number;
+  /** The person chose not to import this 2.0 file (dismissV2Import), and it has not changed since. */
+  dismissed?: true;
+}
+
+/**
+ * - dismissed: the 2.0 file is recorded as handled; status() no longer asks for its password
+ * - nothing: there is no 2.0 file, or this one is already recorded
+ * - failed: the record could not be written (`error` holds the store code)
+ */
+export interface V2DismissResult {
+  status: 'dismissed' | 'nothing' | 'failed';
+  error?: string;
 }
 
 /**
@@ -119,6 +131,10 @@ interface ImportRecord {
   skipped: number;
   /** Imported servers that got port 22 for want of 2.0's default port, by the workspace they went into. */
   portDefaulted: WaitingPorts[];
+  /** Recorded by dismissV2Import: this file was not imported. */
+  dismissed?: true;
+  /** The dismissal replaced the record of a real import: the automatic import has run. */
+  importedEarlier?: true;
 }
 
 interface WaitingPorts {
@@ -335,6 +351,8 @@ function readRecord(): ImportRecord | null {
       imported: count(value.imported),
       skipped: count(value.skipped),
       portDefaulted: readWaiting(value.portDefaulted),
+      ...(value.dismissed === true ? { dismissed: true as const } : {}),
+      ...(value.importedEarlier === true ? { importedEarlier: true as const } : {}),
     };
   } catch {
     return null;
@@ -494,7 +512,14 @@ async function importProfiles(dir: string, password: string | null, automatic: b
     if (found.kind === 'none') return result('nothing');
     if (found.kind === 'unreadable') return result('unreadable');
     const record = readRecord();
-    if (record && (automatic || record.sha256 === found.source.sha256)) return result('already');
+    const sameFile = !!record && record.sha256 === found.source.sha256;
+    // The automatic import runs once. A dismissal alone does not count as that run, so a different
+    // 2.0 file later is imported as if nothing had been recorded; the dismissed file never is.
+    // On request, a dismissed file is imported too.
+    const done = automatic
+      ? !!record && (!record.dismissed || !!record.importedEarlier || sameFile)
+      : sameFile && !record?.dismissed;
+    if (done) return result('already');
     let rows: unknown[] | null;
     if (found.kind === 'plain') {
       rows = found.rows;
@@ -614,6 +639,41 @@ export function applyV2DefaultPort(port: number): Promise<V2PortResult> {
   return queued(() => applyDefaultPort(port), code => ({ status: 'failed', changed: 0, error: code }));
 }
 
+/**
+ * The person chose not to import the 2.0 list (the window's "don't ask again"): records the file
+ * as handled without adding anything, so status() stops asking for its password and reports
+ * `dismissed`. Servers of an earlier import that wait for the default port keep waiting. A
+ * different 2.0 file later is treated as new (asked for, or imported automatically if no import
+ * ran before), and importV2WithPassword still imports this one when called.
+ */
+export function dismissV2Import(dir: string): Promise<V2DismissResult> {
+  return queued(async (): Promise<V2DismissResult> => {
+    const found = readSource(dir);
+    try {
+      if (found.kind === 'none') return { status: 'nothing' };
+      const record = readRecord();
+      // An unreadable file may have no bytes to hash: '' then stands for it.
+      const sha256 = found.source?.sha256 ?? '';
+      if (record && record.sha256 === sha256) return { status: 'nothing' };
+      // What an earlier import did stays in the record; only the file it stands for changes.
+      const next: ImportRecord = {
+        at: Date.now(),
+        source: found.source?.name ?? '',
+        sha256,
+        imported: record?.imported ?? 0,
+        skipped: record?.skipped ?? 0,
+        portDefaulted: record?.portDefaulted ?? [],
+        dismissed: true,
+        ...(record && (!record.dismissed || record.importedEarlier) ? { importedEarlier: true as const } : {}),
+      };
+      DatabaseManager.setGlobalSetting(V2_IMPORT_SETTING, JSON.stringify(next));
+      return { status: 'dismissed' };
+    } finally {
+      release(found);
+    }
+  }, code => ({ status: 'failed', error: code }));
+}
+
 /** For the window: what is there, whether importing it needs the typed password, and what was done. */
 export async function getV2ImportState(dir: string, options: V2ImportOptions = {}): Promise<V2ImportState> {
   const found = readSource(dir);
@@ -631,7 +691,10 @@ export async function getV2ImportState(dir: string, options: V2ImportOptions = {
       kind: found.kind,
       needsPassword,
       imported: record
-        ? { at: record.at, source: record.source, imported: record.imported, skipped: record.skipped, changed, portDefaulted: waitingCount(record) }
+        ? {
+            at: record.at, source: record.source, imported: record.imported, skipped: record.skipped, changed, portDefaulted: waitingCount(record),
+            ...(record.dismissed && !changed ? { dismissed: true as const } : {}),
+          }
         : null,
     };
   } finally {

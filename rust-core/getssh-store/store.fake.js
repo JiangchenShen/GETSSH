@@ -91,13 +91,19 @@
  *     createRecoveryCode() needs `current` (the master password) while one is set.
  *   - masterPasswordMustChange turns on when a password unlock used a master password shorter than
  *     12 characters and stays on, while the app is unlocked, until the master password changes.
- *   - A new workspace password inherits the app-wide presence setting; setPresence(true) reaches
- *     locked password workspaces on their next password unlock.
+ *   - Like the native module (10-12): setPresence(true) reaches the app (with a master password)
+ *     and the password workspaces that are open; a locked one, or a workspace that gets its
+ *     password later, has no Touch ID / Hello until setPresence(true) runs again while it is open.
+ *     setPresence(false) reaches every workspace, locked ones too. appState().presenceEnabled is
+ *     the app's own (false without a master password). The seed's presenceEnabled still applies to
+ *     the seeded workspaces.
  *   - deleteWorkspace() also deletes a locked workspace, as DatabaseManager does today.
  *   - exportCandidates(): profileCount is 0 for a locked workspace (its database cannot be read);
  *     unlockWith is [] for open workspaces and for locked ones that open without asking.
  *   - unlockWorkspaces() lists workspaces that were already open (or open without asking) in
- *     `unlocked`, so every id ends up in exactly one of the two lists.
+ *     `unlocked`, so every id ends up in exactly one of the two lists. Like the native module it
+ *     asks once per presence workspace, and after a cancel no more: the presence workspaces left
+ *     are `cancelled`.
  *   - AI memory vector functions need the workspace to be open, like every other workspace data.
  *   - workspaceStats().size is in MB with two decimals, as DatabaseManager returns it today.
  *   - copyProfiles keeps profile ids (an existing profile with the same id is replaced), copies the
@@ -460,7 +466,7 @@ function mustChangeMaster() {
 function workspaceRecord({ id, name, themeColor = null, is_main = false, password = null, presenceEnabled = false, preferences = '{}' }) {
   const t = now();
   return {
-    id, name, themeColor, is_main, password, presenceEnabled, presencePending: false, preferences,
+    id, name, themeColor, is_main, password, presenceEnabled, preferences,
     created_at: t, updated_at: t, open: false,
     profiles: [], folders: new Map(), runbooks: [], sessions: [], messages: [], auditLogs: [], sshKeys: [],
   };
@@ -698,7 +704,7 @@ function appState() {
     masterPassword: Boolean(S.master),
     masterPasswordMustChange: mustChangeMaster(),
     presenceSupported: presenceResult !== 'unsupported',
-    presenceEnabled: S.presenceEnabled,
+    presenceEnabled: Boolean(S.master) && S.presenceEnabled,
     recoveryConfigured: Boolean(S.recovery),
     deviceKeyLost: false,
     deviceBackend: backend,
@@ -767,7 +773,6 @@ async function setMasterPassword(password, current) {
   for (const ws of S.workspaces) {
     ws.password = null;
     ws.presenceEnabled = false;
-    ws.presencePending = false;
     S.rate.delete(`ws:${ws.id}`);
   }
   const recoveryReset = S.recovery !== null;
@@ -799,18 +804,14 @@ async function setPresence(enabled, reason) {
   if (typeof reason !== 'string') fail('invalid_argument', 'reason must be a string');
   if (!enabled) {
     S.presenceEnabled = false;
-    for (const ws of S.workspaces) {
-      ws.presenceEnabled = false;
-      ws.presencePending = false;
-    }
+    for (const ws of S.workspaces) ws.presenceEnabled = false;
     return;
   }
   askPresence(reason, true);
   S.presenceEnabled = true;
   for (const ws of S.workspaces) {
-    if (ws.password === null) continue;
-    if (ws.open) ws.presenceEnabled = true;
-    else ws.presencePending = true; // its key is not in memory: enabled on its next unlock
+    // A locked workspace's key is not in memory: it stays as it is (as in the native module).
+    if (ws.password !== null && ws.open) ws.presenceEnabled = true;
   }
 }
 
@@ -888,7 +889,7 @@ async function createWorkspace(input) {
     name,
     themeColor: nullableText(input.themeColor, 'themeColor'),
     password,
-    presenceEnabled: password !== null && S.presenceEnabled,
+    presenceEnabled: false,
   });
   ws.open = true;
   S.workspaces.push(ws);
@@ -946,10 +947,6 @@ async function unlockWorkspace(id, route) {
     else askPresence(route.presence, ws.presenceEnabled);
   }
   ws.open = true;
-  if (ws.presencePending) {
-    ws.presenceEnabled = true;
-    ws.presencePending = false;
-  }
 }
 
 async function unlockWorkspaces(ids, reason) {
@@ -969,16 +966,21 @@ async function unlockWorkspaces(ids, reason) {
     } else if (!ws.presenceEnabled) outcome.set(id, 'needs_password');
     else viaPresence.push(ws);
   }
-  if (viaPresence.length) {
-    let code = null;
+  // One prompt per workspace (each has its own device key); none after a cancel.
+  let declined = false;
+  for (const ws of viaPresence) {
+    if (declined) {
+      outcome.set(ws.id, 'cancelled');
+      continue;
+    }
     try {
       askPresence(reason, true);
+      ws.open = true;
+      outcome.set(ws.id, null);
     } catch (error) {
-      code = errorCode(error);
-    }
-    for (const ws of viaPresence) {
-      if (code === null) ws.open = true;
+      const code = errorCode(error);
       outcome.set(ws.id, code);
+      if (code === 'cancelled') declined = true;
     }
   }
   const unlocked = [];
@@ -1006,8 +1008,6 @@ async function setWorkspacePassword(id, password, current) {
   if (ws.password !== null) {
     if (current === undefined || current === null) fail('needs_password', '`current` is required to change a workspace password');
     requirePassword(`ws:${ws.id}`, ws.password, current, 'workspace password');
-  } else {
-    ws.presenceEnabled = S.presenceEnabled;
   }
   ws.password = next;
   ws.open = true;
@@ -1021,7 +1021,6 @@ async function removeWorkspacePassword(id, current) {
   requirePassword(`ws:${ws.id}`, ws.password, current, 'workspace password');
   ws.password = null;
   ws.presenceEnabled = false;
-  ws.presencePending = false;
   ws.open = true;
   ws.updated_at = now();
 }
@@ -2144,7 +2143,6 @@ function snapshot() {
     latencyMs,
     workspaces: sortedWorkspaces().map(ws => ({
       ...workspaceRow(ws),
-      presencePending: ws.presencePending,
       profiles: ws.profiles.map(p => profileRow(ws, p)),
       sshKeys: ws.sshKeys.map(sshKeyRow),
       assetFolders: [...ws.folders.keys()],

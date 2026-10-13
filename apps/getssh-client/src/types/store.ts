@@ -55,6 +55,8 @@ export interface LegacyV2Status {
     changed: boolean;
     /** Imported servers that had no port in 2.0 and got 22: call `applyDefaultPort` once. */
     portDefaulted: number;
+    /** The person chose "don't ask again" (`dismiss`) for this file, and it has not changed since: show nothing. */
+    dismissed?: true;
   } | null;
 }
 

@@ -540,7 +540,8 @@ impl<D: Device> Keystore<D> {
         self.argon2
     }
 
-    #[cfg(test)]
+    /// For tests here and in getssh-store (the fake-device feature), which drive FakeDevice.
+    #[cfg(any(test, feature = "fake-device"))]
     pub fn device(&self) -> &D {
         &self.device
     }

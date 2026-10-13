@@ -635,6 +635,51 @@ fn the_first_master_password_replaces_workspace_passwords() {
 }
 
 #[test]
+fn a_cancelled_batch_unlock_still_opens_what_needs_no_prompt() {
+    use std::sync::atomic::Ordering;
+    let env = Env::new();
+    {
+        let store = env.started();
+        for id in ["a", "b"] {
+            store.create_workspace(Some(id), id, None, Some("eight-chars")).unwrap();
+        }
+        store.set_presence(true, "test").unwrap();
+        store.create_workspace(Some("c"), "c", None, None).unwrap();
+        store.create_workspace(Some("d"), "d", None, Some("eight-chars")).unwrap();
+    }
+    // After a relaunch: the password workspaces are locked; c needs no password and is open.
+    let store = env.started();
+    store.keystore().device().cancel_next.store(true, Ordering::SeqCst);
+    let ids: Vec<String> = ["default", "a", "c", "a", "b", "d", "ghost"].iter().map(|id| id.to_string()).collect();
+    let result = store.unlock_workspaces(&ids, "Export").unwrap();
+    assert_eq!(result.unlocked, ["default", "c"], "a workspace without a password opens after the cancel too");
+    assert_eq!(
+        result.failed,
+        [("a".into(), Code::Cancelled), ("b".into(), Code::Cancelled), ("d".into(), Code::NeedsPassword), ("ghost".into(), Code::NotFound)],
+        "each id once; an unknown id is not created"
+    );
+    assert_eq!(store.keystore().device().prompts(), 1, "no second prompt after the cancel");
+    assert!(store.workspace("ghost").is_err());
+}
+
+#[test]
+fn turning_presence_on_reaches_unlocked_workspaces_and_turning_it_off_reaches_all() {
+    let env = Env::new();
+    let store = env.started();
+    for id in ["a", "b"] {
+        store.create_workspace(Some(id), id, None, Some("eight-chars")).unwrap();
+    }
+    let presence = |id: &str| store.workspace(id).unwrap().presence_enabled;
+    store.set_presence(true, "test").unwrap();
+    assert!(presence("a") && presence("b"));
+    store.lock_workspace("b").unwrap();
+    store.set_presence(false, "test").unwrap();
+    assert!(!presence("a") && !presence("b"), "turning it off also reaches the locked workspace");
+    store.set_presence(true, "test").unwrap();
+    assert!(presence("a") && !presence("b"), "turning it on skips the locked workspace");
+}
+
+#[test]
 fn presence_unlock_where_it_is_not_enabled_asks_for_the_password() {
     let env = Env::new();
     let store = env.started();
