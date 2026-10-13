@@ -33,6 +33,7 @@ let container: HTMLDivElement;
 let status: ReturnType<typeof vi.fn>;
 let importV2: ReturnType<typeof vi.fn>;
 let applyDefaultPort: ReturnType<typeof vi.fn>;
+let dismissV2: ReturnType<typeof vi.fn>;
 let saveProfiles: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,8 +44,9 @@ beforeEach(() => {
   status = vi.fn().mockResolvedValue(waiting);
   importV2 = vi.fn().mockResolvedValue(imported);
   applyDefaultPort = vi.fn().mockResolvedValue({ ok: true, status: 'applied', changed: 1, workspaceId: 'current', profiles });
+  dismissV2 = vi.fn().mockResolvedValue({ ok: true, status: 'dismissed' });
   saveProfiles = vi.fn();
-  window.electronAPI = { saveProfiles, store: { legacyV2: { status, import: importV2, applyDefaultPort } } } as unknown as Window['electronAPI'];
+  window.electronAPI = { saveProfiles, store: { legacyV2: { status, import: importV2, applyDefaultPort, dismiss: dismissV2 } } } as unknown as Window['electronAPI'];
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -61,6 +63,7 @@ const typePassword = (value: string) => act(async () => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const submit = () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+const click = (label: string) => act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === label)!.click());
 
 describe('GETSSH 2.0 import', () => {
   it('waits for ready, loaded configuration and mandatory master-password replacement, then checks once', async () => {
@@ -83,6 +86,7 @@ describe('GETSSH 2.0 import', () => {
   });
 
   it('retries a wrong 2.0 password and replaces the complete active list without saving it again', async () => {
+    const revision = useSessionStore.getState().sessionsRevision;
     importV2.mockImplementationOnce(async request => {
       expect(request).toEqual({ password: 'wrong', defaultPort: 2222 });
       return { ...imported, status: 'wrong_password', profiles: [] };
@@ -100,17 +104,21 @@ describe('GETSSH 2.0 import', () => {
     expect(importV2.mock.calls.map(([request]) => request.defaultPort)).toEqual([2222, 2222]);
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(useSessionStore.getState().sessions).toEqual(profiles);
+    expect(useSessionStore.getState().sessionsRevision).toBe(revision + 1);
+    expect(useSessionStore.getState().profilesWorkspaceId).toBe('current');
     expect(useSessionStore.getState().sessions[0].hasPassword).toBe(true);
     expect(useSessionStore.getState().sessions[0].password).toBeUndefined();
     expect(saveProfiles).not.toHaveBeenCalled();
   });
 
   it.each([22, 2222])('acknowledges defaulted ports using configured port %s and adopts profiles', async port => {
+    const revision = useSessionStore.getState().sessionsRevision;
     status.mockResolvedValue(withMissingPort);
     useAppStore.setState({ appConfig: { ...DEFAULT_CONFIG, defaultPort: port } });
     await render();
     expect(applyDefaultPort).toHaveBeenCalledExactlyOnceWith({ port });
     expect(useSessionStore.getState().sessions).toEqual(profiles);
+    expect(useSessionStore.getState().sessionsRevision).toBe(revision + 1);
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(saveProfiles).not.toHaveBeenCalled();
   });
@@ -119,9 +127,127 @@ describe('GETSSH 2.0 import', () => {
     status.mockResolvedValue(withMissingPort);
     useWorkspaceStore.setState({ isSwitching: true });
     await render();
+    expect(status).not.toHaveBeenCalled();
     expect(applyDefaultPort).not.toHaveBeenCalled();
     await act(async () => useWorkspaceStore.setState({ isSwitching: false }));
     expect(applyDefaultPort).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['encrypted', 'unreadable'] as const)('persists dismissal of an %s file, but asks again for a new fingerprint', async kind => {
+    let fingerprint = 'old';
+    let dismissedFingerprint: string | null = null;
+    status.mockImplementation(async () => ({
+      ...waiting, kind, needsPassword: kind === 'encrypted',
+      imported: dismissedFingerprint === fingerprint ? { ...withMissingPort.imported, portDefaulted: 0, dismissed: true } : null,
+    }));
+    dismissV2.mockImplementation(async () => { dismissedFingerprint = fingerprint; return { ok: true, status: 'dismissed' }; });
+    await render();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    if (kind === 'encrypted') await typePassword('not retained');
+    await click('不再提示');
+    expect(dismissV2).toHaveBeenCalledExactlyOnceWith();
+    expect(importV2).not.toHaveBeenCalled();
+    expect(container.querySelector('input')).toBeNull();
+    await act(async () => useAppLockStore.setState({ state: { ...appState, phase: 'locked' } }));
+    await act(async () => useAppLockStore.setState({ state: { ...appState } }));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    fingerprint = 'new';
+    await act(async () => useAppLockStore.setState({ state: { ...appState, phase: 'locked' } }));
+    await act(async () => useAppLockStore.setState({ state: { ...appState } }));
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    if (kind === 'encrypted') expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+    else expect(container.querySelector('[role="alert"]')?.textContent).toContain('无法读取');
+    expect(useSessionStore.getState().sessions[0].id).toBe('existing');
+  });
+
+  it.each(['encrypted', 'unreadable'] as const)('still applies missing ports before respecting dismissal of an %s file', async kind => {
+    status.mockResolvedValue({ ...withMissingPort, kind, needsPassword: true, imported: { ...withMissingPort.imported, dismissed: true } });
+    await render();
+    expect(applyDefaultPort).toHaveBeenCalledExactlyOnceWith({ port: 2222 });
+    expect(useSessionStore.getState().sessions).toEqual(profiles);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(dismissV2).not.toHaveBeenCalled();
+  });
+
+  it.each(['failure', 'transport'])('keeps the dismissal choice available after a %s error without retaining the password', async failure => {
+    if (failure === 'failure') dismissV2.mockResolvedValueOnce({ ok: true, status: 'failed', error: 'private-file-details' });
+    else dismissV2.mockRejectedValueOnce(new Error('private-file-details'));
+    await render();
+    await typePassword('not retained');
+    await click('不再提示');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('未能保存');
+    expect(container.textContent).not.toContain('private-file-details');
+    expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+    await click('不再提示');
+    expect(dismissV2).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it.each(['failed', 'unavailable', 'transport'])('explains that import succeeded when the default port %s, then retries only the port', async failure => {
+    status.mockResolvedValue(withMissingPort);
+    if (failure === 'failed') applyDefaultPort.mockResolvedValueOnce({ ok: true, status: 'failed', changed: 0, error: 'locked', workspaceId: 'current', profiles: [] });
+    else if (failure === 'unavailable') applyDefaultPort.mockResolvedValueOnce({ ok: false, error: 'unavailable' });
+    else applyDefaultPort.mockRejectedValueOnce(new Error('private-file-details'));
+    await render();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('服务器已导入');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('默认端口未能设置');
+    expect(container.textContent).not.toContain('未能导入');
+    expect(container.textContent).not.toContain('private-file-details');
+    expect(container.querySelector('input')).toBeNull();
+    await click('重试');
+    expect(applyDefaultPort.mock.calls.map(([request]) => request)).toEqual([{ port: 2222 }, { port: 2222 }]);
+    expect(importV2).not.toHaveBeenCalled();
+    expect(dismissV2).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledTimes(1);
+    expect(useSessionStore.getState().sessions).toEqual(profiles);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(saveProfiles).not.toHaveBeenCalled();
+  });
+
+  it('asks for the new legacy file only after retrying ports left by an earlier import', async () => {
+    status.mockResolvedValue({ ...waiting, imported: withMissingPort.imported });
+    applyDefaultPort.mockResolvedValueOnce({ ok: false, error: 'failed' });
+    await render();
+    expect(container.querySelector('input')).toBeNull();
+    await click('重试');
+    expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('waits for vault unlock before checking status or taking focus from the workspace unlock UI', async () => {
+    useWorkspaceStore.setState({ isVaultLocked: true });
+    const outside = document.createElement('button'); document.body.append(outside); outside.focus();
+    try {
+      await render();
+      expect(status).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(outside);
+      await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+      expect(status).toHaveBeenCalledTimes(1);
+      expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
+      expect(document.activeElement).toBe(container.querySelector('input'));
+      await typePassword('not retained');
+      await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(outside);
+      await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+      expect(status).toHaveBeenCalledTimes(2);
+      expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+    } finally { outside.remove(); }
+  });
+
+  it('drops status from before a vault lock/unlock round trip instead of resurfacing a stale prompt', async () => {
+    const pending = deferred<typeof waiting>();
+    status.mockReturnValueOnce(pending.promise).mockResolvedValue(noData);
+    await render();
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+    expect(status).toHaveBeenCalledTimes(2);
+    await act(async () => pending.resolve(waiting));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it.each(['unreadable', 'failed'])('describes %s without echoing backend details, and allows skipping', async outcome => {

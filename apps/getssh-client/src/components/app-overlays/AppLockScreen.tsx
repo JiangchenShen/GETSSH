@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Fingerprint, KeyRound, Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { useAppLockStore } from '../../store/appLockStore';
 import { useAppStore } from '../../store/appStore';
+import { useBackupRestartStore } from '../../store/backupStore';
+import { BackupRestartNotice } from './BackupRestartNotice';
 
 /**
  * Lock screen for the master password (and the recovery code). The main process does all the
@@ -13,6 +15,7 @@ export const AppLockScreen: React.FC = () => {
   const zh = i18n.language.startsWith('zh');
   const state = useAppLockStore(store => store.state);
   const isMac = useAppStore(store => store.isMac);
+  const restartReport = useBackupRestartStore(store => store.report);
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
@@ -54,19 +57,27 @@ export const AppLockScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state?.phase === 'locked' && state.presenceEnabled && !autoPrompted.current) {
+    if (!restartReport && state?.phase === 'locked' && state.presenceEnabled && !autoPrompted.current) {
       autoPrompted.current = true;
       void unlock({ method: 'presence' });
     }
     if (state?.phase === 'ready') autoPrompted.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.phase, state?.presenceEnabled]);
+  }, [state?.phase, state?.presenceEnabled, restartReport]);
+
+  useEffect(() => {
+    if (restartReport) { setPassword(''); setCode(''); setError(''); }
+  }, [restartReport]);
 
   const shell = (children: React.ReactNode) => (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-panel text-ink" role="dialog" aria-modal="true">
       <div className="w-full max-w-sm px-6">{children}</div>
     </div>
   );
+
+  // The replaced store cannot unlock again until restart. Keep that action reachable
+  // inside the lock screen without exposing the workbench underneath it.
+  if (restartReport) return shell(<BackupRestartNotice />);
 
   if (!state || state.phase === 'starting') {
     return shell(<div className="flex items-center justify-center gap-2 text-sm text-ink-3"><Loader2 className="h-4 w-4 animate-spin" />{zh ? '正在打开 GETSSH…' : 'Opening GETSSH…'}</div>);

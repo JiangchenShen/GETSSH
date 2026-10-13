@@ -23,6 +23,9 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { detectProtocol } from '../utils/protocolParser';
 import { TERMINAL_THEMES } from '../utils/themes';
 import { SavedSecretControl } from './SavedSecretControl';
+import type { SecretField } from '../types/store';
+import { settingButtonClass } from './settings/SettingsControls';
+import { useAppLockStore } from '../store/appLockStore';
 
 export type ConnectFormSession = Partial<SessionProfile>;
 
@@ -36,6 +39,7 @@ interface ConnectFormProps {
   onCancel: () => void;
   onConnect: (session: ConnectFormSession) => void;
   onUpdateSession: (index: number, updatedSession: ConnectFormSession) => void;
+  onSaveSession?: (index: number, updatedSession: ConnectFormSession) => Promise<boolean>;
 }
 
 type DisplayProtocol = 'auto' | 'ssh' | 'local' | 'telnet';
@@ -43,7 +47,7 @@ type DisplayProtocol = 'auto' | 'ssh' | 'local' | 'telnet';
 /**
  * A saved password or passphrase never comes to this window. Typing replaces it; an empty field
  * (also after typing and deleting) keeps it, which undefined means when the profile is saved.
- * Explicitly clearing it also clears its saved flag, so subsequent empty edits stay a clear.
+ * Explicit clears stay local until Save or Connect acknowledges them; autosave keeps the secret.
  */
 const secretInput = (value: string, saved?: boolean) => (saved && value === '' ? undefined : value);
 
@@ -56,11 +60,15 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   onCancel,
   onConnect,
   onUpdateSession,
+  onSaveSession,
 }) => {
   const { t, i18n } = useTranslation();
   const savedSecretHint = i18n.language.startsWith('zh') ? '已保存，留空则不修改' : 'Saved. Leave empty to keep it';
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const profilesReady = useSessionStore(state => state.profilesWorkspaceId === activeWorkspaceId);
+  const sessionsRevision = useSessionStore(state => state.sessionsRevision);
+  const sessionIdentity = session.id ?? index;
+  const source = useRef({ workspaceId: activeWorkspaceId, revision: sessionsRevision, loaded: profilesReady });
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
   const [displayProtocol, setDisplayProtocol] = useState<DisplayProtocol>('auto');
@@ -68,6 +76,14 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const [autoFlash, setAutoFlash] = useState(false);
   const [showProtocolHelp, setShowProtocolHelp] = useState(false);
   const [localSession, setLocalSession] = useState(session);
+  const [pendingClears, setPendingClears] = useState<Partial<Record<SecretField, { previous?: string }>>>({});
+  const pendingClearsRef = useRef(pendingClears);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const alive = useRef(false);
+  const generation = useRef(0);
+  const identity = useRef({ workspaceId: activeWorkspaceId, profileId: session.id, index });
+  identity.current = { workspaceId: activeWorkspaceId, profileId: session.id, index };
   const [folders, setFolders] = useState<string[]>([]);
   const folderListId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,13 +104,34 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   }, [activeWorkspaceId, isVaultLocked, isSwitching]);
 
   useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    generation.current += 1;
+    pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
     localSessionRef.current = session;
     lastSubmittedGroupRef.current = null;
     setLocalSession(session);
     const isSaved = !session.isDraft && Boolean(session.host || session.protocol === 'local');
     setIsAutoLocked(isSaved);
     setDisplayProtocol(isSaved ? (session.protocol || 'ssh') : (session.protocol || 'auto'));
-  }, [index, session.id]);
+  }, [sessionIdentity, activeWorkspaceId]);
+
+  useEffect(() => {
+    const previous = source.current;
+    source.current = { workspaceId: activeWorkspaceId, revision: sessionsRevision, loaded: profilesReady };
+    if (previous.workspaceId !== activeWorkspaceId || !previous.loaded || !profilesReady || previous.revision === sessionsRevision) return;
+    generation.current += 1;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
+    localSessionRef.current = session; setLocalSession(session);
+  }, [activeWorkspaceId, sessionsRevision, profilesReady]);
+
+  const autosaveProfile = (profile: ConnectFormSession) => {
+    const masked = { ...profile };
+    for (const field of Object.keys(pendingClearsRef.current) as SecretField[]) masked[field] = undefined;
+    return masked;
+  };
 
   useEffect(() => {
     const incomingGroup = session.group || '';
@@ -112,31 +149,93 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
       debounceRef.current = setTimeout(() => {
         debounceRef.current = null;
         lastSubmittedGroupRef.current = updated.group || '';
-        onUpdateSession(index, updated);
+        onUpdateSession(identity.current.index, autosaveProfile(updated));
       }, 400);
     }
   }, [session.group]);
 
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+  useEffect(() => {
+    alive.current = true;
+    const invalidate = () => {
+      generation.current += 1;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
+      const cleared = { ...localSessionRef.current, password: undefined, passphrase: undefined };
+      localSessionRef.current = cleared; setLocalSession(cleared);
+    };
+    const stop = useWorkspaceStore.subscribe((next, previous) => {
+      if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
+    });
+    const stopApp = useAppLockStore.subscribe((next, previous) => {
+      if (next.state?.phase !== previous.state?.phase) invalidate();
+    });
+    return () => {
+      alive.current = false; generation.current += 1; stop(); stopApp();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      pendingClearsRef.current = {};
+      localSessionRef.current = { ...localSessionRef.current, password: undefined, passphrase: undefined };
+    };
   }, []);
 
-  const handleUpdate = (updates: Partial<ConnectFormSession>, immediate = false) => {
+  const handleUpdate = (updates: Partial<ConnectFormSession>) => {
+    if (saving) return;
     const updated = { ...localSessionRef.current, ...updates };
     localSessionRef.current = updated;
     setLocalSession(updated);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (immediate) {
-      debounceRef.current = null;
-      lastSubmittedGroupRef.current = updated.group || '';
-      onUpdateSession(index, updated);
-      return;
-    }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
       lastSubmittedGroupRef.current = updated.group || '';
-      onUpdateSession(index, updated);
+      onUpdateSession(identity.current.index, autosaveProfile(updated));
     }, 400);
+  };
+
+  const clearSecret = (field: SecretField) => {
+    if (saving || !profilesReady || isSwitching || isVaultLocked || pendingClearsRef.current[field]) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const pending = { ...pendingClearsRef.current, [field]: { previous: localSessionRef.current[field] } };
+    pendingClearsRef.current = pending; setPendingClears(pending); setSaveError('');
+    const updated = { ...localSessionRef.current, [field]: '' };
+    localSessionRef.current = updated; setLocalSession(updated);
+  };
+  const undoClear = (field: SecretField) => {
+    const draft = pendingClearsRef.current[field];
+    if (saving || !draft) return;
+    const pending = { ...pendingClearsRef.current }; delete pending[field];
+    pendingClearsRef.current = pending; setPendingClears(pending); setSaveError('');
+    handleUpdate({ [field]: draft.previous });
+  };
+  const currentRequest = (requestGeneration: number, revision: number, profileId: string | undefined) => alive.current && generation.current === requestGeneration
+    && identity.current.workspaceId === activeWorkspaceId && identity.current.profileId === profileId && (profileId !== undefined || identity.current.index === index)
+    && useWorkspaceStore.getState().activeWorkspaceId === activeWorkspaceId && !useWorkspaceStore.getState().isSwitching && !useWorkspaceStore.getState().isVaultLocked
+    && useSessionStore.getState().profilesWorkspaceId === activeWorkspaceId && useSessionStore.getState().sessionsRevision === revision;
+  const savePending = async (profile: ConnectFormSession): Promise<ConnectFormSession | null> => {
+    if (saving || !profilesReady || !onSaveSession) return null;
+    const requestGeneration = generation.current;
+    const revision = useSessionStore.getState().sessionsRevision;
+    const profileId = profile.id;
+    if (!currentRequest(requestGeneration, revision, profileId)) return null;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    const committed = { ...profile, isDraft: false };
+    for (const field of Object.keys(pendingClearsRef.current) as SecretField[]) committed[field === 'password' ? 'hasPassword' : 'hasPassphrase'] = !!committed[field];
+    setSaving(true); setSaveError('');
+    try {
+      const acknowledged = await onSaveSession(identity.current.index, committed);
+      if (!currentRequest(requestGeneration, revision, profileId)) return null;
+      if (acknowledged !== true) throw new Error('Save not acknowledged');
+      const clean = { ...committed, password: undefined, passphrase: undefined };
+      pendingClearsRef.current = {}; setPendingClears({});
+      localSessionRef.current = clean; setLocalSession(clean);
+      return clean;
+    } catch {
+      if (currentRequest(requestGeneration, revision, profileId)) setSaveError(i18n.language.startsWith('zh') ? '保存未完成，请重试。' : 'Could not save changes. Try again.');
+      return null;
+    } finally {
+      if (currentRequest(requestGeneration, revision, profileId)) setSaving(false);
+    }
   };
 
   const effectiveProtocol: Exclude<DisplayProtocol, 'auto'> = displayProtocol === 'auto' ? 'ssh' : displayProtocol;
@@ -184,13 +283,17 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     handleUpdate({ protocol, port: localSession.port || (protocol === 'telnet' ? 23 : protocol === 'ssh' ? (appConfig.defaultPort || 22) : undefined) });
   };
 
-  const submit = () => {
-    if (!canConnect || !profilesReady) return;
+  const submit = async () => {
+    if (!canConnect || !profilesReady || saving) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
-    const readySession = { ...localSession, isDraft: Boolean(localSession.isQuickConnect), protocol: effectiveProtocol };
+    let readySession: ConnectFormSession = { ...localSessionRef.current, isDraft: Boolean(localSessionRef.current.isQuickConnect), protocol: effectiveProtocol };
     lastSubmittedGroupRef.current = readySession.group || '';
-    onUpdateSession(index, readySession);
+    if (Object.keys(pendingClearsRef.current).length) {
+      const saved = await savePending(readySession);
+      if (!saved) return;
+      readySession = saved;
+    } else onUpdateSession(identity.current.index, readySession);
     onConnect(readySession);
   };
 
@@ -205,7 +308,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   ];
 
   return (
-    <form onSubmit={(event) => { event.preventDefault(); submit(); }} className="flex h-full w-full flex-col text-ink">
+    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="flex h-full w-full flex-col text-ink">
       <header className="flex flex-none items-center justify-between gap-5 border-b border-line-soft bg-panel/35 px-7 py-4 backdrop-blur-xl">
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
@@ -220,17 +323,24 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           <div className="hidden items-center gap-2 rounded-xl border border-line-soft bg-surf/80 px-3 py-2 font-mono text-[11px] text-ink-2 lg:flex">
             <span className={`h-1.5 w-1.5 rounded-full ${canConnect ? 'bg-ok' : 'bg-warn'}`} />{endpoint}
           </div>
-          <button type="button" onClick={onCancel} className="h-10 rounded-xl border border-line px-4 text-[12px] font-semibold text-ink-2 transition-all hover:bg-surf hover:text-ink active:scale-[0.98]">{t('common.cancel')}</button>
-          <motion.button whileTap={{ scale: 0.96 }} type="submit" disabled={connecting || !canConnect || !profilesReady} className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-[12px] font-bold text-black shadow-[0_10px_28px_rgba(var(--primary-color),0.22)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="button" disabled={saving} onClick={() => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = null; pendingClearsRef.current = {}; setPendingClears({}); setSaveError('');
+            const clean = { ...localSessionRef.current, password: undefined, passphrase: undefined };
+            localSessionRef.current = clean; setLocalSession(clean); onCancel();
+          }} className="h-10 rounded-xl border border-line px-4 text-[12px] font-semibold text-ink-2 transition-all hover:bg-surf hover:text-ink active:scale-[0.98]">{t('common.cancel')}</button>
+          {Object.keys(pendingClears).length > 0 && <button type="button" disabled={saving || !profilesReady} onClick={() => void savePending(localSessionRef.current)} className={settingButtonClass}>{saving ? (i18n.language.startsWith('zh') ? '正在保存…' : 'Saving…') : (i18n.language.startsWith('zh') ? '保存更改' : 'Save changes')}</button>}
+          <motion.button whileTap={{ scale: 0.96 }} type="submit" disabled={saving || connecting || !canConnect || !profilesReady} className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-[12px] font-bold text-black shadow-[0_10px_28px_rgba(var(--primary-color),0.22)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
             {!profilesReady ? t('connection.loadingProfiles') : connecting ? t('connection.connecting') : t('connection.connectBtn')}<ArrowRight className="h-3.5 w-3.5" />
           </motion.button>
         </div>
       </header>
 
-      <div className="relative flex-1 overflow-y-auto px-6 py-5">
+      <fieldset disabled={saving} className="relative m-0 min-h-0 min-w-0 flex-1 overflow-y-auto border-0 px-6 py-5">
         <div className="pointer-events-none absolute inset-0 dashboard-grid" />
         <div className="relative mx-auto flex w-full max-w-[1320px] flex-col gap-4">
           {error && <div className="rounded-xl border border-down/35 bg-down/10 px-4 py-3 text-[12px] font-medium text-down">{error}</div>}
+          {saveError && <p role="alert" className="rounded-md border-l-2 border-down bg-down/10 px-3 py-2 text-xs text-down">{saveError}</p>}
 
           <section className={`${cardClass} relative overflow-hidden`}>
             <div className="pointer-events-none absolute -right-24 -top-24 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
@@ -295,14 +405,14 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     <button type="button" onClick={() => handleUpdate({ authType: 'key' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${localSession.authType === 'key' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
-                    <div><label><span className={labelClass}>{t('connection.password')}</span><input value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword ? savedSecretHint : t('connection.password')} /></label>
-                      {localSession.hasPassword && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="password" onClear={() => handleUpdate({ password: '', hasPassword: false }, true)} />}
+                    <div><label><span className={labelClass}>{t('connection.password')}</span><input disabled={saving} value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword && !pendingClears.password) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword && !pendingClears.password ? savedSecretHint : t('connection.password')} /></label>
+                      {localSession.hasPassword && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="password" disabled={saving || !profilesReady} pendingClear={!!pendingClears.password} pendingReplacement={!!localSession.password} onClear={() => clearSecret('password')} onUndoClear={() => undoClear('password')} />}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => { const path = await window.electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-line bg-surf text-ink-3 transition-colors hover:border-primary/50 hover:text-primary" aria-label={t('common.selectFile')}><FileKey2 className="h-4 w-4" /></button></div></label>
-                      <div><label><span className={labelClass}>Passphrase</span><input value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase ? savedSecretHint : t('connection.optional')} /></label>
-                        {localSession.hasPassphrase && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="passphrase" onClear={() => handleUpdate({ passphrase: '', hasPassphrase: false }, true)} />}
+                      <div><label><span className={labelClass}>Passphrase</span><input disabled={saving} value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase && !pendingClears.passphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase && !pendingClears.passphrase ? savedSecretHint : t('connection.optional')} /></label>
+                        {localSession.hasPassphrase && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="passphrase" disabled={saving || !profilesReady} pendingClear={!!pendingClears.passphrase} pendingReplacement={!!localSession.passphrase} onClear={() => clearSecret('passphrase')} onUndoClear={() => undoClear('passphrase')} />}
                       </div>
                     </div>
                   )}
@@ -353,8 +463,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
             </aside>
           </div>
         </div>
-      </div>
-
+      </fieldset>
       {showProtocolHelp && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-scrim p-5 backdrop-blur-sm" onClick={() => setShowProtocolHelp(false)}>
         <div className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-line bg-panel shadow-2xl" onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-line-soft px-5 py-4"><div className="flex items-center gap-2 text-[13px] font-semibold"><Info className="h-4 w-4 text-primary" />{t('connection.protocol.label')}</div><button type="button" onClick={() => setShowProtocolHelp(false)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-3 hover:bg-surf hover:text-ink"><X className="h-4 w-4" /></button></div>

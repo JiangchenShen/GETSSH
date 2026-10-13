@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { useAiChatStore } from '../../store/aiChatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -13,20 +13,27 @@ export function useAiConversation(targetSessionId?: string) {
   const addMessage = useAiChatStore(state => state.addMessage);
   const updateMessage = useAiChatStore(state => state.updateMessage);
   const setView = useAiChatStore(state => state.setView);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerating, setGeneratingState] = useState(false);
+  const generating = useRef(false);
+  const setIsGenerating = useCallback((value: boolean) => {
+    generating.current = value;
+    setGeneratingState(value);
+  }, []);
   const [prompt, setPrompt] = useState('');
+  const currentPrompt = useRef(prompt);
+  currentPrompt.current = prompt;
   const { getSessionContext, handlePaperPlane, generateResponse } = useAiInteraction(setIsGenerating, targetSessionId);
 
   useEffect(() => {
     setIsGenerating(false);
     setPrompt('');
     if (activeWorkspaceId) void loadWorkspaceChats();
-  }, [activeWorkspaceId, loadWorkspaceChats]);
+  }, [activeWorkspaceId, loadWorkspaceChats, setIsGenerating]);
 
   const handleSubmit = useCallback(async (event: React.FormEvent) => {
     event.preventDefault();
-    const currentPrompt = prompt.trim();
-    if (!currentPrompt || isGenerating || useWorkspaceStore.getState().isSwitching) return;
+    const promptText = currentPrompt.current.trim();
+    if (!promptText || generating.current || useWorkspaceStore.getState().isSwitching) return;
 
     let convId = activeConversationId;
     if (!convId || !useAiChatStore.getState().conversations.some(c => c.id === convId)) {
@@ -36,13 +43,13 @@ export function useAiConversation(targetSessionId?: string) {
     setPrompt('');
     setIsGenerating(true);
     setView('chat');
-    addMessage(convId, { id: `user-${Date.now()}`, role: 'user', content: currentPrompt, timestamp: Date.now() });
+    addMessage(convId, { id: `user-${Date.now()}`, role: 'user', content: promptText, timestamp: Date.now() });
 
     const { activeSession, allSessions } = getSessionContext();
     if (!activeSession && targetSessionId === undefined && allSessions.length > 1) {
       addMessage(convId, {
         id: `ai-${Date.now() + 1}`, role: 'assistant', content: '', timestamp: Date.now(),
-        serverSelectionRequest: { availableServers: allSessions, pendingPrompt: currentPrompt, status: 'pending' },
+        serverSelectionRequest: { availableServers: allSessions, pendingPrompt: promptText, status: 'pending' },
       });
       setIsGenerating(false);
       return;
@@ -50,18 +57,18 @@ export function useAiConversation(targetSessionId?: string) {
 
     const aiMsgId = `ai-${Date.now() + 1}`;
     addMessage(convId, { id: aiMsgId, role: 'assistant', content: '', isThinking: true, isStreaming: false, timestamp: Date.now() });
-    await generateResponse(convId, aiMsgId, currentPrompt);
-  }, [prompt, isGenerating, activeConversationId, newConversation, setView, addMessage, getSessionContext, targetSessionId, generateResponse]);
+    await generateResponse(convId, aiMsgId, promptText);
+  }, [activeConversationId, newConversation, setView, addMessage, getSessionContext, targetSessionId, generateResponse, setIsGenerating]);
 
   const handleRetry = useCallback(async (aiMsgId: string, userText: string) => {
-    if (isGenerating || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
+    if (generating.current || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
     setIsGenerating(true);
     updateMessage(activeConversationId, aiMsgId, { content: '', isThinking: true, isStreaming: false, approvalRequest: undefined });
     await generateResponse(activeConversationId, aiMsgId, userText);
-  }, [isGenerating, activeConversationId, updateMessage, generateResponse]);
+  }, [activeConversationId, updateMessage, generateResponse, setIsGenerating]);
 
   const handleServerSelect = useCallback(async (aiMsgId: string, serverId: string, serverName: string) => {
-    if (isGenerating || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
+    if (generating.current || !activeConversationId || useWorkspaceStore.getState().isSwitching) return;
     const activeConv = useAiChatStore.getState().conversations.find(c => c.id === activeConversationId);
     const aiMsg = activeConv?.messages.find(m => m.id === aiMsgId);
     if (!aiMsg?.serverSelectionRequest) return;
@@ -74,7 +81,7 @@ export function useAiConversation(targetSessionId?: string) {
     });
     setIsGenerating(true);
     await generateResponse(activeConversationId, aiMsgId, pendingPrompt, serverId);
-  }, [isGenerating, activeConversationId, updateMessage, generateResponse]);
+  }, [activeConversationId, updateMessage, generateResponse, setIsGenerating]);
 
   return { prompt, setPrompt, isGenerating, handleSubmit, handleRetry, handleServerSelect, handlePaperPlane };
 }

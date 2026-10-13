@@ -121,4 +121,19 @@ describe('plugin saved-password edits', () => {
     expect(input().placeholder).toBe(''); await act(async () => finishOld(['token']));
     expect(input().placeholder).toBe(''); expect(button('Clear saved value')).toBeUndefined();
   });
+
+  it.each([false, true])('discards typed password drafts on close, including pending clears (pending=%s)', async pending => {
+    await open(); await type('draft before clear');
+    if (pending) { await click('Clear saved value'); await type('replacement draft'); }
+    await click('Configure plugin'); expect(input()).toBeNull(); expect(storageSet).not.toHaveBeenCalled();
+    let finish!: (value: string[]) => void;
+    savedPasswords.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await click('Configure plugin');
+    expect(input().value).toBe(''); expect(input().disabled).toBe(true);
+    expect(container.innerHTML).not.toContain('draft before clear'); expect(container.innerHTML).not.toContain('replacement draft');
+    expect(button('Undo')).toBeUndefined();
+    await act(async () => finish(['token']));
+    await click('Clear saved value'); await click('Undo'); expect(input().value).toBe('');
+    await click('Save & reload plugin'); expect(storageSet).not.toHaveBeenCalled();
+  });
 });

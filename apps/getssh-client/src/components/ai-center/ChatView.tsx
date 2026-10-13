@@ -1,4 +1,4 @@
-import React, { memo, useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { memo, useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Bot, User, RefreshCcw } from 'lucide-react';
@@ -125,7 +125,7 @@ export const ChatMessageView = memo(function ChatMessageView({ msg, conversation
   && previous.conversationId === next.conversationId && previous.retryText === next.retryText && previous.reduceMotion === next.reduceMotion
   && previous.onPaperPlane === next.onPaperPlane && previous.onRetry === next.onRetry && previous.onServerSelect === next.onServerSelect);
 
-export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onServerSelect }) => {
+export const ChatView = memo(function ChatView({ onPaperPlane, onRetry, onServerSelect }: ChatViewProps) {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const reduceMotion = useReducedMotion();
@@ -139,7 +139,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
   const olderRequest = useRef<object | null>(null);
-  const anchor = useRef<{ id: string; height: number; top: number } | null>(null);
+  const anchor = useRef<{ conversationId: string; messageId: string; firstMessageId: string; offset: number } | null>(null);
   const lastMessage = messages[messages.length - 1];
   const latestUserId = messages.findLast(message => message.role === 'user')?.id;
   const previousTail = useRef({ id: lastMessage?.id, userId: latestUserId });
@@ -148,15 +148,19 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
     olderRequest.current = null;
     anchor.current = null;
     followLatest.current = true;
-    setOlderLoading(false);
-    setOlderError('');
+    if (olderLoading) setOlderLoading(false);
+    if (olderError) setOlderError('');
   }, [activeConversationId]);
   useLayoutEffect(() => {
     const saved = anchor.current;
     const scroll = scrollRef.current;
-    if (!olderLoading && saved && scroll && saved.id === activeConversationId) {
-      scroll.scrollTop = saved.top + scroll.scrollHeight - saved.height;
+    // Restore in the prepend commit, even while the load promise is still settling.
+    // Changes to the streamed tail do not move the visible message's geometry.
+    if (saved && scroll && saved.conversationId === activeConversationId
+      && (messages[0]?.id !== saved.firstMessageId || !olderLoading)) {
+      const message = Array.from(scroll.querySelectorAll<HTMLElement>('[data-message-id]')).find(element => element.dataset.messageId === saved.messageId);
       anchor.current = null;
+      if (message) scroll.scrollTop += message.getBoundingClientRect().top - scroll.getBoundingClientRect().top - saved.offset;
     }
   }, [messages, olderLoading, activeConversationId]);
   useEffect(() => {
@@ -164,18 +168,29 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
     // latest user identify that send, while prepending history leaves the tail unchanged.
     if (latestUserId && latestUserId !== previousTail.current.userId && lastMessage?.id !== previousTail.current.id) {
       followLatest.current = true;
+      anchor.current = null;
     }
     previousTail.current = { id: lastMessage?.id, userId: latestUserId };
-    if (followLatest.current && !olderRequest.current && !anchor.current) scrollEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
+    if (followLatest.current && !anchor.current) scrollEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
     // Prepending history leaves the last id/content unchanged and must not jump to the bottom.
-  }, [activeConversationId, lastMessage?.id, lastMessage?.content, latestUserId, reduceMotion]);
+  }, [activeConversationId, lastMessage?.id, lastMessage?.content, latestUserId, reduceMotion, olderLoading]);
 
+  const rememberVisibleMessage = () => {
+    const scroll = scrollRef.current;
+    if (scroll && activeConversationId && messages[0]) {
+      const viewport = scroll.getBoundingClientRect();
+      const visible = Array.from(scroll.querySelectorAll<HTMLElement>('[data-message-id]')).find(element => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+      });
+      if (visible) anchor.current = { conversationId: activeConversationId, messageId: visible.dataset.messageId!, firstMessageId: messages[0].id, offset: visible.getBoundingClientRect().top - viewport.top };
+    }
+  };
   const loadEarlier = async () => {
     if (!activeConversationId || !olderMessages || olderRequest.current) return;
     const token = {};
     olderRequest.current = token;
-    const scroll = scrollRef.current;
-    if (scroll) anchor.current = { id: activeConversationId, height: scroll.scrollHeight, top: scroll.scrollTop };
+    rememberVisibleMessage();
     followLatest.current = false;
     setOlderLoading(true);
     setOlderError('');
@@ -199,6 +214,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
   return <div ref={scrollRef} data-testid="ai-chat-scroll" onScroll={() => {
     const scroll = scrollRef.current;
     if (scroll) followLatest.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
+    if (olderRequest.current && anchor.current) rememberVisibleMessage();
   }} className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
     {!!olderMessages && <div className="flex flex-col items-center gap-2">
       <button type="button" disabled={olderLoading} onClick={() => void loadEarlier()} className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-2 hover:bg-surf focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50">{olderLoading ? (zh ? '正在加载…' : 'Loading…') : (zh ? '加载更早的消息' : 'Load earlier messages')}</button>
@@ -211,4 +227,4 @@ export const ChatView: React.FC<ChatViewProps> = ({ onPaperPlane, onRetry, onSer
     })}
     <div ref={scrollEndRef} className="h-4" />
   </div>;
-};
+});

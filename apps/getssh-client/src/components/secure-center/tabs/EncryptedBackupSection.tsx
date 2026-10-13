@@ -20,9 +20,8 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
   const generation = useRef(0);
   const phase = useAppLockStore(state => state.state?.phase);
   const workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  const locked = phase === 'locked';
-  const currentPhase = useRef(phase);
-  currentPhase.current = phase;
+  const vaultLocked = useWorkspaceStore(state => state.isVaultLocked);
+  const locked = phase === 'locked' || vaultLocked;
   const confirmation = useRef<HTMLDivElement>(null);
   const importTrigger = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState('');
@@ -44,7 +43,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     generation.current += 1;
     setStep(null); setFailed([]); setWorkspacePassword(''); setPassword(''); setRepeat('');
     setFile(null); setInfo(null); setImportPassword(''); setError(''); setNotice('');
-  }, [locked, workspaceId]);
+  }, [phase, vaultLocked, workspaceId]);
   useEffect(() => {
     if (!file || !info) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -84,7 +83,8 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
   const run = async (action: (isCurrent: () => boolean) => Promise<void>) => {
     if (running.current || report || locked) return;
     const epoch = generation.current;
-    const isCurrent = () => mounted.current && generation.current === epoch && currentPhase.current !== 'locked';
+    const isCurrent = () => mounted.current && generation.current === epoch && useAppLockStore.getState().state?.phase !== 'locked'
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId && !useWorkspaceStore.getState().isVaultLocked;
     running.current = true;
     setBusy(true);
     setError('');
@@ -142,11 +142,15 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     if ([...password.normalize('NFC')].length < 12) { setError(copy('备份密码至少 12 个字符', 'The backup password needs at least 12 characters')); return; }
     if (password !== repeat) { setError(copy('两次输入的密码不一致', 'The passwords do not match')); return; }
     return run(async isCurrent => {
-      const result = await backup().export({ workspaceIds: selected, password });
-      if (!isCurrent()) return;
-      if (!result.ok) { handleFailure(result); return; }
-      clearExport();
-      setNotice(copy(`备份已保存至：${result.report.path}`, `Backup saved to: ${result.report.path}`));
+      try {
+        const result = await backup().export({ workspaceIds: selected, password });
+        if (!isCurrent()) return;
+        if (!result.ok) { handleFailure(result); return; }
+        clearExport();
+        setNotice(copy(`备份已保存至：${result.report.path}`, `Backup saved to: ${result.report.path}`));
+      } finally {
+        if (isCurrent()) { setPassword(''); setRepeat(''); }
+      }
     });
   };
   const chooseImport = () => run(async isCurrent => {
@@ -180,7 +184,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
     running.current = true; setBusy(true); setError('');
     try {
       const result: StoreResult = await backup().relaunch();
-      if (mounted.current && !result.ok && result.error !== 'unavailable') handleFailure(result);
+      if (mounted.current && !result.ok) handleFailure(result);
     } catch { if (mounted.current) setError(copy('无法重启，请关闭并重新打开 GETSSH', 'Cannot restart. Close and reopen GETSSH')); }
     finally { running.current = false; if (mounted.current) setBusy(false); }
   };

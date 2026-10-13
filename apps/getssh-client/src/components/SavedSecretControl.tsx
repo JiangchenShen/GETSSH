@@ -12,6 +12,10 @@ interface SavedSecretControlProps {
   profileId: string;
   field: SecretField;
   onClear: () => void;
+  pendingClear?: boolean;
+  pendingReplacement?: boolean;
+  onUndoClear?: () => void;
+  disabled?: boolean;
 }
 
 // The native store shares reveal grants. Keep old cleanup ahead of later authentication.
@@ -23,7 +27,7 @@ const queueReveal = (action: () => Promise<void>) => {
 };
 
 /** The stored secret stays in the main process's system dialog, including its Copy action. */
-export function SavedSecretControl({ workspaceId, profileId, field, onClear }: SavedSecretControlProps) {
+export function SavedSecretControl({ workspaceId, profileId, field, onClear, pendingClear = false, pendingReplacement = false, onUndoClear, disabled = false }: SavedSecretControlProps) {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(store => store.isMac);
@@ -109,7 +113,7 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear }: S
   };
 
   const reveal = async (route: RevealRoute) => {
-    if (busy) return;
+    if (busy || disabled) return;
     const request = capture();
     if (!valid(request)) return;
     if (route.method === 'password' && (!canUsePassword || !route.password)) return;
@@ -157,22 +161,25 @@ export function SavedSecretControl({ workspaceId, profileId, field, onClear }: S
 
   return <div className="mt-2 space-y-2">
     <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={busy || permission === null} className={settingButtonClass} onClick={() => {
+      <button type="button" disabled={disabled || busy || permission === null} className={settingButtonClass} onClick={() => {
         const request = capture();
         if (!valid(request)) return;
         setPanel(true); setError(''); setPassword('');
         if (canUsePresence) void reveal({ method: 'presence' }); else setUsePassword(canUsePassword);
       }}>{field === 'password' ? (zh ? '查看密码' : 'View password') : (zh ? '查看口令' : 'View passphrase')}</button>
-      {canUsePassword && <button type="button" disabled={busy} className={settingButtonClass} onClick={() => { if (!valid(capture())) return; setPanel(true); setUsePassword(true); setError(''); }}>{zh ? '输入密码验证' : 'Verify with a password'}</button>}
-      <button type="button" disabled={busy} className={settingButtonClass} onClick={onClear}>{field === 'password' ? (zh ? '清除已保存的密码' : 'Clear saved password') : (zh ? '清除已保存的口令' : 'Clear saved passphrase')}</button>
+      {canUsePassword && <button type="button" disabled={disabled || busy} className={settingButtonClass} onClick={() => { if (!valid(capture())) return; setPanel(true); setUsePassword(true); setError(''); }}>{zh ? '输入密码验证' : 'Verify with a password'}</button>}
+      {pendingClear ? <>
+        <span role="status" className="self-center text-xs text-ink-3">{pendingReplacement ? (zh ? '保存后替换已保存的值' : 'Will replace on save') : (zh ? '保存后清除' : 'Will clear on save')}</span>
+        <button type="button" disabled={disabled || busy || !onUndoClear} className={settingButtonClass} onClick={onUndoClear}>{zh ? '撤销' : 'Undo'}</button>
+      </> : <button type="button" disabled={disabled || busy} className={settingButtonClass} onClick={onClear}>{field === 'password' ? (zh ? '清除已保存的密码' : 'Clear saved password') : (zh ? '清除已保存的口令' : 'Clear saved passphrase')}</button>}
     </div>
     {panel && <div className="space-y-2 border-l-2 border-line pl-3">
       <p className="text-xs leading-relaxed text-ink-3">{zh ? '密码只在系统对话框中显示和复制，不会填入连接表单。' : 'The secret is shown and copied only in the system dialog; it is not filled into this form.'}</p>
       {canUsePassword && usePassword && <>
         <label className="block text-xs text-ink-2">{permission === 'master' ? (zh ? '主密码' : 'Master password') : (zh ? '工作区密码' : 'Workspace password')}
-          <input type="password" autoComplete="current-password" value={password} disabled={busy} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); void reveal({ method: 'password', password }); } }} className={`mt-1 ${settingFieldClass}`} />
+          <input type="password" autoComplete="current-password" value={password} disabled={disabled || busy} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); void reveal({ method: 'password', password }); } }} className={`mt-1 ${settingFieldClass}`} />
         </label>
-        <div className="flex flex-wrap gap-2"><button type="button" disabled={busy || !password} className={settingButtonClass} onClick={() => void reveal({ method: 'password', password })}>{zh ? '验证并查看' : 'Verify & view'}</button><button type="button" disabled={busy} className={settingButtonClass} onClick={() => { setPanel(false); setUsePassword(false); setPassword(''); setError(''); }}>{zh ? '取消' : 'Cancel'}</button></div>
+        <div className="flex flex-wrap gap-2"><button type="button" disabled={disabled || busy || !password} className={settingButtonClass} onClick={() => void reveal({ method: 'password', password })}>{zh ? '验证并查看' : 'Verify & view'}</button><button type="button" disabled={disabled || busy} className={settingButtonClass} onClick={() => { setPanel(false); setUsePassword(false); setPassword(''); setError(''); }}>{zh ? '取消' : 'Cancel'}</button></div>
       </>}
       {!canUsePassword && !busy && <p className="text-xs text-ink-3">{permission === null ? (zh ? '正在确认密码验证方式…' : 'Checking password verification options…')
         : permission === 'unknown' ? (zh ? '无法确认身份验证方式，请重新打开连接表单后重试。' : 'Could not confirm verification methods. Reopen the connection form and try again.')

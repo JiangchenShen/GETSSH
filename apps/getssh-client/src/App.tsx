@@ -42,6 +42,7 @@ import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay
 import { AppLockScreen } from './components/app-overlays/AppLockScreen';
 import { ForceMasterPasswordChange } from './components/app-overlays/ForceMasterPasswordChange';
 import { LegacyV2Import } from './components/app-overlays/LegacyV2Import';
+import { BackupRestartNotice } from './components/app-overlays/BackupRestartNotice';
 import { useAppLockSync } from './hooks/useAppLockSync';
 import { useAppLockStore } from './store/appLockStore';
 
@@ -292,6 +293,7 @@ function AppMain() {
               canSplit={splitDirection !== null}
             />
 
+            <BackupRestartNotice />
             <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
               
               {/* Active Terminal Panes (+ the SFTP panel docked below the active tab) */}

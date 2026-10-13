@@ -114,7 +114,11 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    if (!open || !schema?.length) return;
+    if (!open || !schema?.length) {
+      draftsBeforeClear.current = {};
+      setFormData({}); setClearedPasswords([]);
+      return;
+    }
     let active = true;
     setConfigLoading(true); setError(''); setClearedPasswords([]); draftsBeforeClear.current = {};
     const plain = schema.filter(field => field.type !== 'password');
@@ -132,7 +136,7 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
       })
       .catch(reason => { if (active) setError(String(reason)); })
       .finally(() => { if (active) setConfigLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; draftsBeforeClear.current = {}; };
   }, [open, pluginId, schema]);
   if (!schema?.length) return null;
   const zh = i18n.language.startsWith('zh');

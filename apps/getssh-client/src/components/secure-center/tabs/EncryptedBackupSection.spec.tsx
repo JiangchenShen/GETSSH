@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportTab } from './ExportTab';
 import { useAppLockStore } from '../../../store/appLockStore';
 import { useBackupRestartStore } from '../../../store/backupStore';
+import { useWorkspaceStore } from '../../../store/workspaceStore';
 import { storeFailureMessage } from '../../../utils/storeFeedback';
 
 const translations: Record<string, string> = {
@@ -18,7 +19,6 @@ const translations: Record<string, string> = {
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
   i18n: { language: 'en-US' }, t: (key: string) => translations[key] ?? key,
 }) }));
-vi.mock('../../../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => unknown) => select({ activeWorkspaceId: 'main' }) }));
 
 let root: Root;
 let container: HTMLDivElement;
@@ -36,6 +36,7 @@ const manifest = { formatVersion: 1, createdAt: 1728000000000, appVersion: '3.0.
 beforeEach(() => {
   vi.clearAllMocks();
   useAppLockStore.setState({ state: null }); useBackupRestartStore.setState({ report: null });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'main', isVaultLocked: false, isSwitching: false });
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   backup = {
     candidates: vi.fn().mockResolvedValue({ ok: true, candidates }),
@@ -97,9 +98,13 @@ describe('Encrypted backup interface', () => {
   });
 
   it.each([
-    { ok: false, error: 'cancelled' },
     { ok: true, unlocked: ['main'], failed: [{ id: 'private', code: 'cancelled' }] },
+    { ok: true, unlocked: ['main'], failed: [{ id: 'private', code: 'cancelled' }, { id: 'password-only', code: 'needs_password' }] },
   ])('keeps system verification cancellation quiet (%j)', async outcome => {
+    backup.candidates.mockResolvedValue({ ok: true, candidates: [
+      candidates[0], { ...candidates[1], unlockWith: ['presence', 'password'] },
+      { id: 'password-only', name: 'Password hosts', is_main: false, state: 'locked', profileCount: 0, unlockWith: ['password'] },
+    ].filter(candidate => candidate.id !== 'password-only' || outcome.failed.length > 1) });
     backup.unlockForExport.mockResolvedValue(outcome);
     await render(); await click('Choose workspaces'); await click('Verify and continue');
     expect(container.querySelector('[role=alert]')).toBeNull();
@@ -197,8 +202,98 @@ describe('Encrypted backup interface', () => {
     backup.export.mockResolvedValueOnce({ ok: false, error: 'cancelled' }).mockResolvedValueOnce({ ok: false, error: 'must_change_master_password' });
     await render(); await passwordStep(); await fill('Backup password', 'long-backup-password'); await fill('Repeat the backup password', 'long-backup-password'); await click('Save backup');
     expect(container.querySelector('[role=alert]')).toBeNull();
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type=password]')].map(input => input.value)).toEqual(['', '']);
+    await fill('Backup password', 'long-backup-password'); await fill('Repeat the backup password', 'long-backup-password');
     await click('Save backup');
     expect(container.querySelector('[role=alert]')?.textContent).toBe('Change the master password before exporting a backup');
+  });
+
+  it.each(['io', 'unavailable', 'rejected'])('clears both backup passwords after export fails (%s)', async code => {
+    if (code === 'rejected') backup.export.mockRejectedValue(new Error('SECRET backend exception'));
+    else backup.export.mockResolvedValue({ ok: false, error: code });
+    await render(); await passwordStep();
+    await fill('Backup password', 'transient-backup-password'); await fill('Repeat the backup password', 'transient-backup-password');
+    await click('Save backup');
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type=password]')].map(input => input.value)).toEqual(['', '']);
+    expect(container.querySelector('[role=alert]')?.textContent).toBe(code === 'rejected'
+      ? 'The operation could not be completed. Try again' : storeFailureMessage(code, false));
+    expect(container.textContent).not.toContain('SECRET');
+    await click('Save backup');
+    expect(backup.export).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role=alert]')?.textContent).toContain('12 characters');
+  });
+
+  it.each(['workspace lock', 'workspace change', 'app lock'])('clears passwords and discards a late export failure after %s', async scope => {
+    let finish!: (value: unknown) => void;
+    backup.export.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    useAppLockStore.setState({ state: {
+      phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false,
+      recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false,
+    } });
+    await render(); await passwordStep();
+    await fill('Backup password', 'transient-backup-password'); await fill('Repeat the backup password', 'transient-backup-password');
+    await click('Save backup');
+    await act(async () => {
+      if (scope === 'workspace lock') useWorkspaceStore.setState({ isVaultLocked: true });
+      else if (scope === 'workspace change') useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
+      else useAppLockStore.setState({ state: { ...useAppLockStore.getState().state!, phase: 'locked' } });
+    });
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    if (scope !== 'workspace change') expect(button('Choose workspaces').disabled).toBe(true);
+    await act(async () => {
+      useWorkspaceStore.setState({ activeWorkspaceId: 'main', isVaultLocked: false });
+      useAppLockStore.setState({ state: { ...useAppLockStore.getState().state!, phase: 'ready' } });
+    });
+    await act(async () => finish({ ok: false, error: 'io' }));
+    expect(container.querySelector('[role=alert]')).toBeNull();
+    expect(container.querySelector('[role=status]')).toBeNull();
+    await passwordStep();
+    expect([...container.querySelectorAll<HTMLInputElement>('input[type=password]')].map(input => input.value)).toEqual(['', '']);
+  });
+
+  it('clears workspace and import passwords when an unprotected app locks its current workspace', async () => {
+    await render(); await click('Choose workspaces'); await click('Verify and continue');
+    await fill('Workspace password', 'transient-workspace-password');
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    expect(unlock).not.toHaveBeenCalled();
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+    await click('Choose backup file'); await fill('Backup password', 'transient-import-password');
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    expect(button('Choose backup file').disabled).toBe(true);
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+    await click('Choose backup file');
+    expect((container.querySelector('input[type=password]') as HTMLInputElement).value).toBe('');
+    expect(backup.inspect).not.toHaveBeenCalled();
+  });
+
+  it('discards late backup inspection after the current workspace locks without an app password', async () => {
+    let finish!: (value: unknown) => void;
+    backup.inspect.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await render(); await click('Choose backup file'); await fill('Backup password', 'transient-import-password'); await click('Review backup');
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: true }));
+    await act(async () => useWorkspaceStore.setState({ isVaultLocked: false }));
+    await act(async () => finish({ ok: true, info: manifest }));
+    expect(container.querySelector('[role=alertdialog]')).toBeNull();
+    expect(container.querySelector('input[type=password]')).toBeNull();
+    expect(backup.import).not.toHaveBeenCalled();
+  });
+
+  it.each(['workspace lock', 'workspace change', 'unmount'])('retains a successful import restart report after %s', async scope => {
+    let finish!: (value: unknown) => void;
+    backup.import.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await render(); await reviewImport(); await click('Replace all data and import');
+    await act(async () => {
+      if (scope === 'workspace lock') useWorkspaceStore.setState({ isVaultLocked: true });
+      else if (scope === 'workspace change') useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
+      else root.render(null);
+    });
+    const report = { workspaceIds: ['main'], backupPath: '/tmp/previous-data' };
+    await act(async () => finish({ ok: true, report }));
+    expect(useBackupRestartStore.getState().report).toEqual(report);
+    expect(container.querySelector('[role=alertdialog]')).toBeNull();
+    expect(container.querySelector('input[type=password]')).toBeNull();
   });
 
   it('retries the backup password, shows its manifest, and cancels without importing', async () => {
@@ -223,9 +318,18 @@ describe('Encrypted backup interface', () => {
     expect(container.textContent).toContain('Restart required'); expect(container.textContent).toContain('/tmp/previous-data');
     for (const label of ['Choose workspaces', 'Choose backup file', 'Export JSON', 'Import JSON']) expect(button(label).disabled).toBe(true);
     expect(container.querySelector('[role=alert]')).toBeNull();
-    // The store is deliberately unavailable after import; only relaunch is still useful.
-    backup.relaunch.mockResolvedValue({ ok: false, error: 'unavailable' });
     await click('Restart GETSSH'); expect(backup.relaunch).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role=alert]')).toBeNull();
+  });
+
+  it.each(['unauthorized', 'invalid_argument'])('reports an actual relaunch failure (%s) and allows retry', async error => {
+    await render(); await reviewImport(); await click('Replace all data and import');
+    backup.relaunch.mockResolvedValueOnce({ ok: false, error }).mockResolvedValueOnce({ ok: true });
+    await click('Restart GETSSH');
+    expect(container.querySelector('[role=alert]')?.textContent).toBe(storeFailureMessage(error, false));
+    expect(container.textContent).toContain('/tmp/previous-data');
+    expect(button('Restart GETSSH').disabled).toBe(false);
+    await click('Restart GETSSH'); expect(backup.relaunch).toHaveBeenCalledTimes(2);
     expect(container.querySelector('[role=alert]')).toBeNull();
   });
 

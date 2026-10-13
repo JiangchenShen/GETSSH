@@ -19,7 +19,7 @@ export function LegacyV2Import() {
   const workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
   const vaultLocked = useWorkspaceStore(state => state.isVaultLocked);
-  const [prompt, setPrompt] = useState<'password' | 'error' | null>(null);
+  const [prompt, setPrompt] = useState<'password' | 'error' | 'defaultPort' | null>(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,6 +29,7 @@ export function LegacyV2Import() {
   const appGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
   const inFlight = useRef(false);
+  const afterDefaultPort = useRef<{ prompt: 'password' | 'error' | null; error: string }>({ prompt: null, error: '' });
   const dialog = useRef<HTMLDivElement>(null);
 
   const describe = (code: string, retryAfterMs?: number) => {
@@ -64,6 +65,13 @@ export function LegacyV2Import() {
       if (next.activeWorkspaceId === previous.activeWorkspaceId && next.isSwitching === previous.isSwitching && next.isVaultLocked === previous.isVaultLocked) return;
       workspaceGeneration.current++;
       setPassword('');
+      // Check again after unlocking/switching. An import may have completed while its reply
+      // was being discarded, so the earlier password prompt can no longer be trusted.
+      checkedReady.current = false;
+      setPrompt(null);
+      setError('');
+      setPendingDefaultPort(false);
+      afterDefaultPort.current = { prompt: null, error: '' };
     });
     return () => {
       mounted.current = false;
@@ -91,28 +99,40 @@ export function LegacyV2Import() {
   };
 
   useEffect(() => {
-    if (phase !== 'ready' || mustChangePassword || !configLoaded || checkedReady.current || !window.electronAPI?.store?.legacyV2) return;
+    if (phase !== 'ready' || mustChangePassword || !configLoaded || isSwitching || vaultLocked || inFlight.current || checkedReady.current || !window.electronAPI?.store?.legacyV2) return;
     checkedReady.current = true;
-    const generation = appGeneration.current;
+    const scope = requestScope();
     void (async () => {
       try {
         const result = await window.electronAPI.store.legacyV2.status();
-        if (!isCurrentApp(generation)) return;
+        if (!isCurrentWorkspace(scope)) return;
         if (!result.ok) {
           const message = describe(result.error, result.retryAfterMs);
           if (message) { setError(message); setPrompt('error'); }
           return;
         }
         if (result.imported && result.imported.portDefaulted > 0) setPendingDefaultPort(true);
-        if (result.needsPassword) setPrompt('password');
-        else if (result.kind === 'unreadable') { setError(describe('unreadable')); setPrompt('error'); }
+        // Dismissal applies to this file only. The backend removes it when the fingerprint
+        // changes; it never suppresses the missing-port migration of an earlier import.
+        const nextPrompt = result.imported?.dismissed ? null : result.needsPassword ? 'password' : result.kind === 'unreadable' ? 'error' : null;
+        const nextError = nextPrompt === 'error' ? describe('unreadable') : '';
+        afterDefaultPort.current = { prompt: nextPrompt, error: nextError };
+        if (result.imported && result.imported.portDefaulted > 0) return;
+        setPrompt(nextPrompt);
+        setError(nextError);
       } catch {
-        if (isCurrentApp(generation)) { setError(describe('unavailable')); setPrompt('error'); }
+        if (isCurrentWorkspace(scope)) { setError(describe('unavailable')); setPrompt('error'); }
       }
     })();
-    // One status check per ready lifecycle; language and configuration changes do not repeat it.
+    // One status check per ready/unlocked workspace; language and configuration changes do not repeat it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, mustChangePassword, configLoaded]);
+  }, [phase, mustChangePassword, configLoaded, workspaceId, isSwitching, vaultLocked, busy]);
+
+  const portFailure = (code?: string) => {
+    if (code === 'cancelled' || code === 'unauthorized') return '';
+    if (code === 'locked') return zh ? '服务器已导入，但默认端口未能设置。请解锁主工作区后重试。' : 'Servers were imported, but the default port could not be set. Unlock the main workspace and retry.';
+    return zh ? '服务器已导入，但默认端口未能设置。请重试；先跳过会保留当前端口。' : 'Servers were imported, but the default port could not be set. Retry, or skip to keep the current ports.';
+  };
 
   useEffect(() => {
     if (!pendingDefaultPort || phase !== 'ready' || mustChangePassword || isSwitching || vaultLocked || inFlight.current) return;
@@ -125,13 +145,17 @@ export function LegacyV2Import() {
         // Calling with 22 also marks the missing-port migration as handled.
         const result = await window.electronAPI.store.legacyV2.applyDefaultPort({ port: defaultPort });
         if (!isCurrentWorkspace(scope)) return;
-        if (result.ok && result.status !== 'failed') adoptProfiles(scope, result);
+        if (result.ok && result.status !== 'failed') {
+          adoptProfiles(scope, result);
+          setPrompt(afterDefaultPort.current.prompt);
+          setError(afterDefaultPort.current.error);
+        }
         else {
-          const message = describe(result.ok ? 'failed' : result.error, result.ok ? undefined : result.retryAfterMs);
-          if (message) { setError(message); setPrompt(current => current ?? 'error'); }
+          const message = portFailure(result.error);
+          if (message) { setError(message); setPrompt('defaultPort'); }
         }
       } catch {
-        if (isCurrentWorkspace(scope)) { setError(describe('failed')); setPrompt(current => current ?? 'error'); }
+        if (isCurrentWorkspace(scope)) { setError(portFailure()); setPrompt('defaultPort'); }
       } finally {
         inFlight.current = false;
         if (mounted.current) setBusy(false);
@@ -145,6 +169,29 @@ export function LegacyV2Import() {
     setPassword('');
     setError('');
     setPrompt(null);
+    afterDefaultPort.current = { prompt: null, error: '' };
+  };
+
+  const dismiss = async () => {
+    const scope = requestScope();
+    if (inFlight.current || !isCurrentWorkspace(scope)) return;
+    inFlight.current = true;
+    setBusy(true);
+    setPassword('');
+    setError('');
+    try {
+      const result = await window.electronAPI.store.legacyV2.dismiss();
+      if (!isCurrentWorkspace(scope)) return;
+      if (result.ok && result.status !== 'failed') setPrompt(null);
+      else if (result.error !== 'cancelled' && result.error !== 'unauthorized') {
+        setError(zh ? '未能保存“不再提示”的选择，请重试或先跳过。' : 'Your choice could not be saved. Retry, or skip for now.');
+      }
+    } catch {
+      if (isCurrentWorkspace(scope)) setError(zh ? '未能保存“不再提示”的选择，请重试或先跳过。' : 'Your choice could not be saved. Retry, or skip for now.');
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    }
   };
 
   const importServers = async (event: FormEvent) => {
@@ -178,7 +225,7 @@ export function LegacyV2Import() {
   };
 
   useEffect(() => {
-    if (!prompt || phase !== 'ready' || mustChangePassword) return;
+    if (!prompt || phase !== 'ready' || mustChangePassword || isSwitching || vaultLocked) return;
     const previousFocus = document.activeElement;
     const controls = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? []);
     const focusFirst = () => (controls()[0] ?? dialog.current)?.focus();
@@ -205,9 +252,9 @@ export function LegacyV2Import() {
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, phase, mustChangePassword]);
+  }, [prompt, phase, mustChangePassword, isSwitching, vaultLocked]);
 
-  if (phase !== 'ready' || mustChangePassword || !prompt) return null;
+  if (phase !== 'ready' || mustChangePassword || isSwitching || vaultLocked || !prompt) return null;
   return (
     <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/50 p-4">
       <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="legacy-v2-title" aria-describedby="legacy-v2-description"
@@ -216,7 +263,9 @@ export function LegacyV2Import() {
           <h2 id="legacy-v2-title" className="text-lg font-semibold">{zh ? '导入 GETSSH 2.0 服务器' : 'Import GETSSH 2.0 servers'}</h2>
           <p id="legacy-v2-description" className="text-sm text-ink-2">{prompt === 'password'
             ? (zh ? '输入 GETSSH 2.0 使用的主密码。服务器会加入主工作区，原来的文件会保留。' : 'Enter the master password used by GETSSH 2.0. Servers will be added to the main workspace, and the original file will be kept.')
-            : (zh ? '可以先跳过，在检查 GETSSH 2.0 的原文件或备份后重新打开应用。' : 'You can skip this, check the original GETSSH 2.0 file or a backup, and reopen the app.')}</p>
+            : prompt === 'defaultPort'
+              ? (zh ? '补上默认端口不会重新导入服务器，也不会更改已手动设置的端口。' : 'Applying the default port will not import servers again or change ports already set manually.')
+              : (zh ? '可以先跳过，在检查 GETSSH 2.0 的原文件或备份后重新打开应用。' : 'You can skip this, check the original GETSSH 2.0 file or a backup, and reopen the app.')}</p>
         </div>
         {error && <p role="alert" className="text-sm text-down">{error}</p>}
         {prompt === 'password' ? <form className="space-y-4" onSubmit={event => void importServers(event)}>
@@ -225,13 +274,19 @@ export function LegacyV2Import() {
             <input type="password" autoComplete="off" value={password} disabled={busy || isSwitching || vaultLocked}
               onChange={event => setPassword(event.target.value)} className="w-full rounded-md border border-line bg-panel px-3 py-2 text-ink outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" />
           </label>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className={buttonClass} disabled={busy} onClick={skip}>{zh ? '先跳过' : 'Skip for now'}</button>
+            <button type="button" className={buttonClass} disabled={busy} onClick={() => void dismiss()}>{zh ? '不再提示' : "Don't ask again"}</button>
             <button type="submit" className="flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm text-bg hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" disabled={busy || !password || isSwitching || vaultLocked}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />}{zh ? '导入服务器' : 'Import servers'}
             </button>
           </div>
-        </form> : <div className="flex justify-end"><button type="button" className={buttonClass} disabled={busy} onClick={skip}>{zh ? '先跳过' : 'Skip for now'}</button></div>}
+        </form> : <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" className={buttonClass} disabled={busy} onClick={skip}>{zh ? '先跳过' : 'Skip for now'}</button>
+          {prompt === 'defaultPort'
+            ? <button type="button" className={buttonClass} disabled={busy} onClick={() => { setError(''); setPendingDefaultPort(true); }}>{zh ? '重试' : 'Retry'}</button>
+            : <button type="button" className={buttonClass} disabled={busy} onClick={() => void dismiss()}>{zh ? '不再提示' : "Don't ask again"}</button>}
+        </div>}
       </div>
     </div>
   );

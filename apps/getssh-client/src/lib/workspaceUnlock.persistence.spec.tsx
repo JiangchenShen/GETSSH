@@ -76,6 +76,30 @@ describe('workspace loading and complete-list saves', () => {
     expect(element.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
   });
 
+  it('keeps an in-flight form edit when loading moves the same draft to a new index', async () => {
+    let finish!: (profiles: SessionProfile[]) => void;
+    vi.mocked(window.electronAPI.unlockProfiles).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const loading = loadActiveWorkspace();
+    await addDraft(); await render();
+    const username = element.querySelector<HTMLInputElement>('input[autocomplete="username"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(username, 'pending-user');
+      username.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(window.electronAPI.saveProfiles).not.toHaveBeenCalled();
+    await act(async () => finish(original)); expect(await loading).toBe(true);
+    expect(useSessionStore.getState().selectedSessionIndex).toBe(2);
+    expect(element.querySelector<HTMLInputElement>('input[autocomplete="username"]')!.value).toBe('pending-user');
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(useSessionStore.getState().sessions[2].username).toBe('pending-user');
+    expect(useSessionStore.getState().sessions.slice(0, 2)).toEqual(original);
+    expect(window.electronAPI.saveProfiles).toHaveBeenCalledWith({ workspaceId: 'default', payload: original });
+    await act(async () => element.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    const saved = vi.mocked(window.electronAPI.saveProfiles).mock.calls.at(-1)![0].payload;
+    expect(saved.map(profile => profile.id)).toEqual(['saved-one', 'saved-two', 'draft']);
+    expect(saved[2].username).toBe('pending-user');
+  });
+
   it('merges a quick connection without including it in the saved list', async () => {
     let finish!: (profiles: SessionProfile[]) => void;
     vi.mocked(window.electronAPI.unlockProfiles).mockImplementation(() => new Promise(resolve => { finish = resolve; }));

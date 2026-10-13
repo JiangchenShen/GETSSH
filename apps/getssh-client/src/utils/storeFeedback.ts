@@ -1,5 +1,10 @@
+import { useBackupRestartStore } from '../store/backupStore';
+
 /** User-facing store errors. Never surface backend exception text or raw error codes. */
 export function storeFailureMessage(code: string, zh: boolean, retryAfterMs?: number): string {
+  if (code === 'unavailable' && useBackupRestartStore.getState().report) {
+    return zh ? '备份已导入，请先重启应用以继续使用存储。' : 'Backup imported. Restart the app to use storage again.';
+  }
   if (code === 'rate_limited') {
     if (retryAfterMs === undefined) return zh ? '尝试次数过多，请稍后再试' : 'Too many attempts. Try again later';
     const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
