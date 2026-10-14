@@ -46,12 +46,36 @@ describe('startup protection metadata', () => {
     expect(useSessionStore.getState().profilesWorkspaceId).toBeNull();
     expect(window.electronAPI.saveProfiles).not.toHaveBeenCalled();
   });
-  it('still verifies presence after a whole-list replacement during the check', async () => {
+  it('still verifies presence after an unhydrated replacement during the check', async () => {
     let finish!: (value: Awaited<ReturnType<Window['electronAPI']['checkProfiles']>>) => void;
     vi.mocked(window.electronAPI.checkProfiles).mockReturnValue(new Promise(resolve => { finish = resolve; }));
     await render();
-    useSessionStore.getState().replaceSessions(saved, 'default');
+    await act(async () => useSessionStore.getState().replaceSessions([draft], null));
     await act(async () => finish({ status: 'encrypted', hasPassword: true, biometricEnabled: true }));
+    expect(window.electronAPI.promptBiometricUnlock).toHaveBeenCalledOnce();
+    expect(window.electronAPI.unlockProfiles).toHaveBeenCalledWith('');
+    expect(useSessionStore.getState().sessions).toEqual([...saved, draft]);
+    expect(useWorkspaceStore.getState().isVaultLocked).toBe(false);
+  });
+  it.each([false, true])('keeps a newer complete list unlocked when an older encrypted check finishes (presence: %s)', async biometricEnabled => {
+    let finish!: (value: Awaited<ReturnType<Window['electronAPI']['checkProfiles']>>) => void;
+    vi.mocked(window.electronAPI.checkProfiles).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    await render();
+    await act(async () => {
+      useSessionStore.getState().replaceSessions(saved, 'default');
+      useWorkspaceStore.setState({ isVaultLocked: true });
+    });
+    await act(async () => finish({ status: 'encrypted', hasPassword: true, biometricEnabled }));
+    expect(useSessionStore.getState().sessions).toEqual(saved);
+    expect(useSessionStore.getState().profilesWorkspaceId).toBe('default');
+    expect(useWorkspaceStore.getState().isVaultLocked).toBe(false);
+    expect(window.electronAPI.promptBiometricUnlock).not.toHaveBeenCalled();
+    expect(window.electronAPI.unlockProfiles).not.toHaveBeenCalled();
+  });
+  it('still unlocks an encrypted workspace when the list has not been replaced during the check', async () => {
+    useSessionStore.getState().replaceSessions(saved, 'default');
+    vi.mocked(window.electronAPI.checkProfiles).mockResolvedValue({ status: 'encrypted', hasPassword: true, biometricEnabled: true });
+    await render();
     expect(window.electronAPI.promptBiometricUnlock).toHaveBeenCalledOnce();
     expect(window.electronAPI.unlockProfiles).toHaveBeenCalledWith('');
     expect(useSessionStore.getState().sessions).toEqual(saved);
@@ -60,7 +84,7 @@ describe('startup protection metadata', () => {
   it('preserves a newer complete list when an older plain check finishes', async () => {
     let finish!: (value: Awaited<ReturnType<Window['electronAPI']['checkProfiles']>>) => void;
     vi.mocked(window.electronAPI.checkProfiles).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-    await render(); useSessionStore.getState().replaceSessions(saved, 'default');
+    await render(); await act(async () => useSessionStore.getState().replaceSessions(saved, 'default'));
     await act(async () => finish({ status: 'plain', hasPassword: false, biometricEnabled: false }));
     expect(useSessionStore.getState().sessions).toEqual(saved);
     expect(window.electronAPI.unlockProfiles).not.toHaveBeenCalled();

@@ -21,11 +21,12 @@ export const useCryptoBoot = () => {
       // that the saved list is empty; useAppLockSync loads that list after unlocking.
       if (res.status === 'none') return;
       setWorkspaceUnprotected(!res.hasPassword);
+      const sessions = useSessionStore.getState();
+      if (sessions.sessionsRevision !== revision && sessions.profilesWorkspaceId === workspaceId) {
+        useWorkspaceStore.setState({ isVaultLocked: false });
+        return;
+      }
       if (res.status === 'plain') {
-        if (useSessionStore.getState().sessionsRevision !== revision && useSessionStore.getState().profilesWorkspaceId === workspaceId) {
-          useWorkspaceStore.setState({ isVaultLocked: false });
-          return;
-        }
         if (!(await loadActiveWorkspace())) useWorkspaceStore.setState({ isVaultLocked: true, isUnlockModalOpen: false });
         return;
       }
