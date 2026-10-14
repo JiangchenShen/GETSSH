@@ -59,7 +59,7 @@
    - 插件 `package.json` 修复在 AppContainer 下是否生效；
    - napi 3 在 Windows 上的运行；
    - windows 0.62 下的 TPM、DPAPI、Windows Hello。
-2. **`@xterm/addon-canvas` 0.7 只支持 xterm 5**，项目用的是 xterm 6。没开防眩光时，终端用的就是它，需要实际看一下画面（ChatGPT 负责渲染进程，交给他）。
+2. **`@xterm/addon-canvas` 0.7 只支持 xterm 5**，项目用的是 xterm 6。已处理（10-14）：终端默认用 xterm 自带的 DOM 渲染，开启"终端防瞎眼"时用 WebGL，WebGL 不可用时退回 DOM；`addon-canvas` 已从依赖里删掉。
 3. **渲染进程用的库放在了 `dependencies` 里**，例如 react-syntax-highlighter、prismjs。它们已经被 Vite 打包过一次，安装包里又带了一份 `node_modules`。可以移到 `devDependencies`，安装包能小一截。
 4. 第二节的"发布基础设施"还没做：许可证合规、`build/` 纳入 git、dependabot、在 CI 里加 audit。
 5. Electron 45 定于 10-20 发布，届时要把 `safeStorage` 改成异步调用。

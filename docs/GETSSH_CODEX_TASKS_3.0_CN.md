@@ -461,3 +461,21 @@ R1–R18 都处理了，大多数撤掉修复后测试会失败；整套测试 7
 - 已做：主进程在工作区切换期间拒绝整份保存（`workspaceHandler.ts` 的 `isWorkspaceSwitching`，`cryptoHandler.ts` 的 `save-profiles`），端到端测试覆盖了这种情况。这道保护在现在的 `v3-next` 上也有用：R19 那段代码在 `v3-next` 里本来就有。
 - 等 R19–R23 修完：复查一次，删掉 4 个旧的数据库导出导入通道和 `@xterm/addon-canvas`，再合并进 `v3-next`。
 - 之后可以考虑：整份保存带上"列表版本"，主进程发现版本对不上就拒绝。这样不管界面哪里出错，都不会因为整份保存删掉服务器。要改主进程和界面两边，3.0 之后再定。
+
+## 10-14 复查（`feat/ui-store`，`c7efb37`；官网 `codex/ui-store-copy`，`246e61e`）
+
+R19–R29 都处理了。
+
+- **测试**：编译好原生模块后，整套测试 78 个文件、899 个测试全部通过。在 Codex 的工作目录里会有 14 个失败（`OceanSentinel.test.ts`、`LlmGateway.metrics.test.ts`），原因是那里没有编译 `rust-core/ocean-sentinel`（报 "Cannot find native binding"），和这次改动无关。以后交付时请注明这类失败，或者先编译再跑。
+- **撤掉修复**：R19–R28 每撤一条，对应的测试都会失败。R19 里的 `isSwitching` 和 R23 工作区订阅里的那道检查是双重保护，单独撤掉不报错，因为另一道还在。
+- **合并**：`f65fe5d` 和自动合并的结果一致，改动都在 `src/**` 里。
+- **Claude 10-14**：删掉了 4 个旧的数据库导出导入通道和 `@xterm/addon-canvas`，跑完整套检查后合并进 `v3-next`。
+
+### 还剩的小问题（不挡合并）
+
+| 编号 | 位置 | 问题 | 要做 |
+|---|---|---|---|
+| R30 | `useCryptoBoot.ts` 的 `encrypted` 分支 | 开机检查期间，如果这个工作区的列表已经加载好了（`sessionsRevision` 变了，且 `profilesWorkspaceId === workspaceId`），现在还是会把界面锁上，开了 Touch ID 的还会再弹一次。原来的代码遇到这种情况直接当作已解锁。实际很难碰到 | `encrypted` 分支里先做和 `plain` 分支一样的判断：列表已经加载就设 `isVaultLocked: false` 后返回，否则照常锁上并按设置弹 Touch ID。补一个 spec |
+| R31 | 官网 `en.json:24`、`en.json:33`、`zh.json:33`；官网仓库 `README.md`、`README_CN.md` | ① copy-lint 还报 3 处机器腔：peace of mind、not just … but …、不仅……更……；② 两个 README 还是按 2.0 写的，例如插件沙箱写成 "vm.Script + iframe"（3.0 的后端插件跑在受系统限制的独立进程里）、Electron 42 | ① 改成直接陈述；② 3.0 发布前把 README 按 3.0 的实际情况更新，可以只留官网仓库本身的说明，产品介绍链到官网 |
+
+官网分支合进 `main` 会直接上线，要等负责人同意。
