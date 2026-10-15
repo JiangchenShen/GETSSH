@@ -237,7 +237,7 @@ export function listAppSecretNames(prefix?: string): string[];
 export interface SshKey {
   id: string;
   name: string;
-  /** 'ed25519', 'rsa-<modulus bits>' (e.g. 'rsa-3072'), 'ecdsa-p256' / 'ecdsa-p384' / 'ecdsa-p521', or 'dsa'. */
+  /** 'ed25519', 'rsa-<modulus bits>' (e.g. 'rsa-3072'), or 'ecdsa-p256' / 'ecdsa-p384' / 'ecdsa-p521'. */
   algorithm: string;
   /** 'SHA256:' and the unpadded base64 SHA-256 of the public key blob, as ssh-keygen -l prints it. */
   fingerprint: string;
@@ -252,13 +252,20 @@ export interface SshKey {
  * leave the store only through connectSecrets). `data` (at most 64 KiB) is the key as ssh2 reads
  * it and `publicKey` its SSH public key blob: the main process reads, checks and converts key
  * files (electron/main/services/sshKeyFiles.ts) and generates new keys. The store takes the
- * algorithm, fingerprint and public line from the blob: ssh-ed25519, ssh-rsa,
- * ecdsa-sha2-nistp256/384/521 and ssh-dss; anything else is invalid_argument. `name`: 1 to 128
+ * algorithm, fingerprint and public line from the blob: ssh-ed25519, ssh-rsa and
+ * ecdsa-sha2-nistp256/384/521; anything else is invalid_argument (ssh-dss too: Electron cannot sign with DSA). `name`: 1 to 128
  * characters, not blank, no control characters.
  */
 export function importSshKey(workspaceId: string, input: { name: string; data: Buffer; passphrase?: string; publicKey: Buffer }): SshKey;
 /** Oldest first. */
 export function listSshKeys(workspaceId: string): SshKey[];
+/**
+ * Argon2 (version 0x13) on the thread pool, for PuTTY .ppk v3 key files: Electron's node:crypto
+ * (BoringSSL) has no Argon2. invalid_argument outside the caps: 8 * parallelism to 262144 KiB of
+ * memory, memory times passes at most 2097152, parallelism 1 to 16, 1 to 1024 bytes out, a salt
+ * of 8 bytes or more. Works before start(): it touches no data.
+ */
+export function deriveArgon2(algorithm: 'argon2id' | 'argon2i' | 'argon2d', password: Buffer, salt: Buffer, memoryKib: number, passes: number, parallelism: number, length: number): Promise<Buffer>;
 /** not_found for an unknown id. Profiles that used the key keep their row with keyId null. */
 export function deleteSshKey(workspaceId: string, id: string): void;
 

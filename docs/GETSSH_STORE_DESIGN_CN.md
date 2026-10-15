@@ -413,10 +413,13 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 - **阶段 B：私钥存进 GETSSH（10-15）**：
   - 分工：存储模块、主进程、preload 由 Claude 做；界面由 Codex 做，任务和接口写在 `GETSSH_CODEX_TASKS_3.0_CN.md` 的"阶段 B"一节。
   - 读文件和转换格式在主进程（`services/sshKeyFiles.ts`），因为依赖树里没有能读这些格式的 Rust crate：
-    - ssh2 自己能读的（OpenSSH、PEM PKCS#1 / SEC1、`.ppk` 第 2 版的 RSA 和 DSA），原样保存，口令随私钥一起加密保存。口令对不对，由 ssh2 用连接时同样的办法检查。
-    - PKCS#8 和其他 `.ppk`（第 3 版，以及第 2 版的 Ed25519 / ECDSA），用 node:crypto 转成 ssh2 能读的格式，不再需要口令。转换后反推出的公钥，必须和文件里写的一致。
+    - ssh2 自己能读的（OpenSSH、PEM PKCS#1 / SEC1），原样保存，口令随私钥一起加密保存。口令对不对，由 ssh2 用连接时同样的办法检查。
+    - PKCS#8 和所有 `.ppk`（第 2、3 版），用 node:crypto 转成 ssh2 能读的格式，不再需要口令。转换后反推出的公钥，必须和文件里写的一致。
+    - 只收 Ed25519、RSA 和三条 NIST 曲线的 ECDSA：Electron 的加密库（BoringSSL）不能用 DSA 签名，DSA 私钥导进来也登录不了。
+    - 文件必须正好是一段私钥（ssh2 也这样要求），这样检查过的就是实际解密的。PKCS#8 只收 Electron 解得开的加密方式（PBES2 加 PBKDF2-HMAC-SHA1 或 SHA256、AES-CBC 或 3DES，以及 PKCS#12 的 SHA-1 3DES），免得口令对了却报"口令不对"。
+    - Electron 的 node:crypto 没有 Argon2，`.ppk` 第 3 版的 Argon2 由存储模块计算（`deriveArgon2`，RustCrypto 的 argon2，和钥匙模块用的同一个），在线程池里跑。和 Node（OpenSSL）的结果逐项对照一致。
     - 口令派生的计算量在派生之前就检查：bcrypt 最多 256 轮（ssh2 在主线程上用 JavaScript 算），PBKDF2 最多一百万次，scrypt 不超过 32 MiB，Argon2 最多 256 MiB、内存乘轮数不超过 8 倍。恶意文件因此卡不住应用。
-    - `.ppk` 按 PuTTY 手册附录 C 实现，并用 PuTTY 自己写的 24 个文件核对过：第 2、3 版，加密和不加密，Argon2 三种变体，Ed25519、RSA、三条 ECDSA 曲线。这些文件不是我们的，没有提交。不支持的只有 Ed448（ssh2 不支持）和第 3 版 DSA。
+    - `.ppk` 按 PuTTY 手册附录 C 实现；Ed25519 的私钥字段按 PuTTY 源码，是 32 个原始字节，不是 mpint。注释按文件里的原始字节计算 MAC，所以 Windows 上 PuTTYgen 用 GBK 等编码写的注释也能通过。用 PuTTY 自己写的文件核对过：第 2、3 版，加密和不加密，Argon2id 和 Argon2d，Ed25519、RSA、三条 ECDSA 曲线，在 Node 和真实的 Electron 里都通过。这些文件不是我们的，没有提交。Ed448 和 DSA 报"不支持"。
     - 生成 ed25519 私钥也在主进程（node:crypto），之后直接交给存储模块。
   - 存储模块（`src/ssh_keys.rs`）：
     - `importSshKey` 接收私钥、口令和 SSH 公钥 blob。算法、指纹和公钥那一行都从公钥 blob 算出来，只接受 ed25519、rsa、三条 NIST 曲线的 ECDSA 和 dss。
@@ -429,7 +432,8 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
     - `importProfileFile` 把服务器正在用的私钥文件导入，同一工作区里用这个文件的服务器一起改；
     - 原文件只会移到废纸篓，而且要同时满足：所有工作区都打开着；没有服务器还在用这个文件（按设备号和 inode 比较，链接和大小写不同的路径也认得出）；2.0 的服务器列表不在；主进程自己的对话框里用户点了确认。
     - 删除私钥和 `importProfileFile` 都返回已保存的完整服务器列表，界面要采用它，不要再整份保存一次。
-  - 10-15 审查（三个角度：秘密、格式、数据完整性）后改的：计算量上限；判断同一文件改为比较文件本身；移进废纸篓前复查所有工作区和 2.0 列表，并由主进程弹窗确认；私钥的口令优先；切换到库里私钥的服务器清掉旧口令；读出的密码和私钥清零；选好的文件到时主动清掉；返回结果带 `workspaceId`；`store:profiles:save` 不传 `keyId` 时保留；指向已删除私钥的 `keyId` 在主进程保存时当作没有，不让整份保存失败。
+  - 10-15 第二轮审查后改的：Electron 没有 Argon2（改由存储模块计算）；PuTTY 的 Ed25519 私钥字段读法（原来约一半的私钥会被拒）；PKCS#8 只认正好一段，检查和解密用同一份 DER；不支持的加密方式报"不支持"；去掉 DSA；口令输对但类型不支持时报"不支持"；非 UTF-8 注释；中途锁定时报 `locked`，不返回空列表；移进废纸篓前用存储模块自己的工作区列表。端到端测试加了一个用 Argon2 加密的第 3 版 `.ppk`，在 Electron 里导入并登录。
+  - 10-15 第一轮审查（三个角度：秘密、格式、数据完整性）后改的：计算量上限；判断同一文件改为比较文件本身；移进废纸篓前复查所有工作区和 2.0 列表，并由主进程弹窗确认；私钥的口令优先；切换到库里私钥的服务器清掉旧口令；读出的密码和私钥清零；选好的文件到时主动清掉；返回结果带 `workspaceId`；`store:profiles:save` 不传 `keyId` 时保留；指向已删除私钥的 `keyId` 在主进程保存时当作没有，不让整份保存失败。
   - 测试：
     - Rust 5 个、假实现 3 个、主进程处理函数 8 个、格式模块 9 个；
     - 和假实现逐项对照，新增 28 步（共 285 步，零差异）；

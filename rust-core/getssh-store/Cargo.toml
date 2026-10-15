@@ -19,6 +19,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11.0"
 base64 = "0.23"
+# Argon2 for PuTTY .ppk v3 key files: Electron's node:crypto (BoringSSL) has none. Same as getssh-keystore's.
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
 # Profile ids of the JSON import of early builds (md5 of "host:username"); same digest 0.11 as sha2.
 md-5 = "0.11.0"
 

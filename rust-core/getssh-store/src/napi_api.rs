@@ -625,6 +625,35 @@ pub fn delete_ssh_key(workspace_id: String, id: String) -> napi::Result<()> {
     sync(|s| s.delete_ssh_key(&workspace_id, &id))
 }
 
+pub struct Argon2Job {
+    algorithm: String,
+    password: Zeroizing<Vec<u8>>,
+    salt: Vec<u8>,
+    memory_kib: u32,
+    passes: u32,
+    parallelism: u32,
+    length: u32,
+}
+
+impl Task for Argon2Job {
+    type Output = Zeroizing<Vec<u8>>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        crate::ssh_keys::derive_argon2(&self.algorithm, &self.password, &self.salt, self.memory_kib, self.passes, self.parallelism, self.length).map_err(js_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Buffer> {
+        Ok(Buffer::from(output.to_vec()))
+    }
+}
+
+/// Argon2 on the thread pool, for PuTTY .ppk v3 key files (Electron's node:crypto has none).
+#[napi(ts_return_type = "Promise<Buffer>")]
+pub fn derive_argon2(algorithm: String, password: Buffer, salt: Buffer, memory_kib: u32, passes: u32, parallelism: u32, length: u32) -> AsyncTask<Argon2Job> {
+    AsyncTask::new(Argon2Job { algorithm, password: Zeroizing::new(password.to_vec()), salt: salt.to_vec(), memory_kib, passes, parallelism, length })
+}
+
 // ─────────────────────────── secrets (main process only) ───────────────────────────
 
 #[napi(object)]

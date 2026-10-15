@@ -17,7 +17,7 @@ import type { ProfileInput } from '../../../../../rust-core/getssh-store/store';
 import { appLock } from '../security/appLock';
 import { DatabaseManager } from '../services/DatabaseManager';
 import { getStore, toStoreError } from '../services/getsshStore';
-import { generateEd25519, KeyFileProblem, keyFileNeedsPassphrase, readPrivateKey } from '../services/sshKeyFiles';
+import { type Argon2, generateEd25519, KeyFileProblem, keyFileNeedsPassphrase, readPrivateKey } from '../services/sshKeyFiles';
 import { dialogFolder } from '../utils/userFolder';
 import { isValidWorkspaceId } from '../utils/workspaceId';
 import { getMainWindow, isMainWebContents } from '../windowRegistry';
@@ -286,8 +286,15 @@ const TRASH_TEXT = {
 async function trashKeyFile(file: string, identity: { dev: bigint; ino: bigint } | null, language: 'en-US' | 'zh-CN'): Promise<{ trashed: boolean; kept?: KeptReason }> {
   const userData = app.getPath('userData');
   if (['profiles.json', 'profiles.enc'].some(name => fs.existsSync(path.join(userData, name)))) return { trashed: false, kept: 'used_elsewhere' };
-  const workspaces = DatabaseManager.getWorkspaces();
-  if (workspaces.some(workspace => !DatabaseManager.isWorkspaceOpen(workspace.id))) return { trashed: false, kept: 'workspaces_locked' };
+  // The store's own list, not DatabaseManager's: that one is empty while the app is locked, and an
+  // empty list would look like a file nobody uses.
+  let workspaces: Array<{ id: string; state: string }>;
+  try {
+    workspaces = getStore().listWorkspaces();
+  } catch {
+    return { trashed: false, kept: 'workspaces_locked' };
+  }
+  if (workspaces.some(workspace => workspace.state !== 'open')) return { trashed: false, kept: 'workspaces_locked' };
   for (const workspace of workspaces) {
     for (const entry of getStore().listProfiles(workspace.id)) {
       // A server on a stored key does not read its old privateKeyPath any more.
@@ -323,8 +330,11 @@ async function readKeyFile(file: string): Promise<{ data: Buffer } | Failure> {
 }
 
 /** Reads the key file (services/sshKeyFiles.ts) and stores it; the caller wipes `data`. */
+/** Argon2 for .ppk v3 files comes from the store: Electron's node:crypto (BoringSSL) has none. */
+const KEY_FILE_OPTIONS = { argon2: ((...args) => getStore().deriveArgon2(...args)) as Argon2 };
+
 async function storeKey(workspaceId: string, name: string, data: Buffer, passphrase: string | undefined) {
-  const key = await readPrivateKey(data, passphrase);
+  const key = await readPrivateKey(data, passphrase, KEY_FILE_OPTIONS);
   try {
     return getStore().importSshKey(workspaceId, { name, data: key.data, passphrase: key.passphrase ?? undefined, publicKey: key.publicKey });
   } finally {
@@ -569,17 +579,21 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
       secrets = getStore().connectSecrets(id, target);
       const key = await storeKey(id, path.basename(file).slice(0, 128), read.data, keyPassphrase ?? secrets.passphrase?.toString('utf8'));
       const identity = await fileIdentity(file);
-      const current = DatabaseManager.getProfiles(id);
+      // A lock while the key was read or the files compared: DatabaseManager would read an empty
+      // list and skip the save without a word, so ask the store, which says 'locked'.
+      const current = getStore().listProfiles(id);
       const switching = await Promise.all(current.map(entry => (
         entry.id === target || (!!entry.privateKeyPath && !entry.keyId && isSameFile(keyPath(entry.privateKeyPath), file, identity))
       )));
       // Nothing awaits between this read and the save, so no other save can come in between.
+      getStore().listProfiles(id);
       const latest = DatabaseManager.getProfiles(id);
       const list = latest.map(entry => (switching[current.findIndex(c => c.id === entry.id)]
         ? { ...entry, authType: 'key', keyId: key.id, privateKeyPath: null, passphrase: null }
         : { ...entry }));
       DatabaseManager.saveProfiles(id, list);
       const profiles = DatabaseManager.getProfiles(id);
+      if (!profiles.some(entry => entry.keyId === key.id)) return { ok: false, error: 'locked' };
       const outcome = trashOriginal ? await trashKeyFile(file, identity, words) : { trashed: false };
       return { ok: true, workspaceId: id, key, profiles, ...outcome };
     } catch (error) {

@@ -66,6 +66,12 @@ if (mode !== '--child') {
   };
 
   await step('appState before configure', () => s.appState(), v => v.phase);
+  // Argon2 for PuTTY .ppk v3: the native module's own must give node:crypto's (OpenSSL) result.
+  await step('deriveArgon2 before configure', () => s.deriveArgon2('argon2id', Buffer.from('pass'), Buffer.from('saltsalt'), 8192, 2, 1, 80), v => v.toString('hex'));
+  await step('deriveArgon2 argon2i', () => s.deriveArgon2('argon2i', Buffer.from('pass'), Buffer.from('saltsalt'), 64, 3, 2, 32), v => v.toString('hex'));
+  await step('deriveArgon2 argon2d', () => s.deriveArgon2('argon2d', Buffer.from(''), Buffer.from('0123456789abcdef'), 16, 1, 1, 16), v => v.toString('hex'));
+  await step('deriveArgon2 over budget', () => s.deriveArgon2('argon2id', Buffer.from('p'), Buffer.from('saltsalt'), 256 * 1024, 9, 1, 80));
+  await step('deriveArgon2 unknown', () => s.deriveArgon2('scrypt', Buffer.from('p'), Buffer.from('saltsalt'), 8192, 1, 1, 80));
   await step('needsLegacyMigration before configure', () => s.needsLegacyMigration());
   s.configure(dir, '3.0.0');
   await step('needsLegacyMigration', () => s.needsLegacyMigration(), v => v);
@@ -105,6 +111,7 @@ if (mode !== '--child') {
   await step('importSshKey', () => s.importSshKey('w1', keyInput({ name: 'laptop' })), v => [v.algorithm, v.fingerprint, v.publicKey, v.hasPassphrase, typeof v.id, typeof v.created_at, Object.keys(v).sort()]);
   await step('importSshKey rsa with passphrase', () => s.importSshKey('w1', keyInput({ name: 'rsa', data: Buffer.from('KEY2'), passphrase: 'pp', publicKey: rsaBlob })), v => [v.algorithm, v.hasPassphrase, v.publicKey.split(' ')[0]]);
   await step('importSshKey ecdsa', () => s.importSshKey('w1', keyInput({ name: 'ec', publicKey: ecBlob })), v => v.algorithm);
+  await step('importSshKey dsa', () => s.importSshKey('w1', keyInput({ publicKey: Buffer.concat([wire('ssh-dss'), wire(Buffer.from([1])), wire(Buffer.from([2])), wire(Buffer.from([3])), wire(Buffer.from([4]))]) })));
   await step('importSshKey junk public key', () => s.importSshKey('w1', keyInput({ publicKey: Buffer.from('junk') })));
   await step('importSshKey trailing bytes', () => s.importSshKey('w1', keyInput({ publicKey: Buffer.concat([edBlob, Buffer.from([0])]) })));
   await step('importSshKey unknown type', () => s.importSshKey('w1', keyInput({ publicKey: Buffer.concat([wire('ssh-ed448'), wire(Buffer.alloc(57))]) })));

@@ -6,23 +6,28 @@ import { utils as sshUtils } from 'ssh2';
  * SSH private key files for the store (stage B): what can be imported, in the form ssh2 (the
  * library that connects) reads. MAIN PROCESS ONLY.
  *
- * - ssh2 reads OpenSSH keys, PEM PKCS#1 / SEC1, and PuTTY .ppk version 2 RSA and DSA keys. Those
- *   are kept as they are, with their passphrase; ssh2 checks the passphrase here exactly as it
- *   will at connect.
- * - PKCS#8 PEM (plain or encrypted), and the other .ppk keys (version 3, PuTTY's default since
- *   0.75, and version 2 ECDSA / Ed25519 keys), are converted with node:crypto into a format ssh2
- *   reads, unencrypted: the store seals them, as it seals the passphrase of the others.
- * - Every converted key is checked against the public key its file states: a key whose public
- *   half differs is refused, never stored.
+ * - ssh2 reads OpenSSH keys and PEM PKCS#1 / SEC1 keys. Those are kept as they are, with their
+ *   passphrase; ssh2 checks the passphrase here exactly as it will at connect.
+ * - PKCS#8 PEM (plain or encrypted) and PuTTY .ppk files (version 2 and 3) are converted with
+ *   node:crypto into a format ssh2 reads, unencrypted: the store seals them, as it seals the
+ *   passphrase of the others. Every converted key is checked against the public key its file
+ *   states: a key whose public half differs is refused, never stored.
+ * - Only Ed25519, RSA and NIST P-256 / P-384 / P-521 ECDSA keys: Electron's crypto (BoringSSL)
+ *   cannot sign with DSA, so a DSA key could never log in.
  * - A passphrase is turned into a key at the cost the file names (bcrypt rounds, PBKDF2
- *   iterations, scrypt or Argon2 settings), and ssh2 and node:crypto do the first two on the main
- *   thread. A hostile file could block the app for hours, so every cost is checked against a cap
- *   before any derivation: far above what ssh-keygen, OpenSSL and PuTTY write, a few seconds at
- *   most.
+ *   iterations, Argon2 settings), and ssh2 and node:crypto do the first two on the main thread. A
+ *   hostile file could block the app for hours, so every cost is checked against a cap before
+ *   any derivation: far above what ssh-keygen, OpenSSL and PuTTY write, a few seconds at most.
+ *   What is checked is what is decrypted: a file must be exactly one key, as ssh2 requires.
+ * - Only what Electron's crypto can decrypt is taken (PKCS#8: PBES2 with PBKDF2-HMAC-SHA1 or
+ *   -SHA256 and AES-CBC or 3DES, or PKCS#12 SHA-1 3DES), so a right passphrase is never reported
+ *   wrong. Argon2, which BoringSSL lacks, comes from the store (getssh-store deriveArgon2).
  *
- * The .ppk format is PuTTY's (manual, appendix C): every private field is an mpint; version 3
- * derives the AES-256-CBC key, IV and HMAC-SHA-256 key with Argon2, version 2 with SHA-1 and an
- * HMAC-SHA-1, both over the algorithm, encryption, comment, public blob and padded private blob.
+ * The .ppk format is PuTTY's (manual, appendix C, and its source for Ed25519): the RSA and ECDSA
+ * private fields are mpints, the Ed25519 one the 32 private bytes; version 3 derives the
+ * AES-256-CBC key, IV and HMAC-SHA-256 key with Argon2, version 2 with SHA-1 and an HMAC-SHA-1,
+ * both over the algorithm, encryption, comment (its bytes as written), public blob and padded
+ * private blob.
  */
 
 export type KeyFileError = 'needs_password' | 'wrong_password' | 'unsupported_key';
@@ -48,6 +53,26 @@ const problem = (code: KeyFileError, message: string): never => {
   throw new KeyFileProblem(code, message);
 };
 
+/** Argon2 as getssh-store's deriveArgon2 offers it. */
+export type Argon2 = (algorithm: 'argon2id' | 'argon2i' | 'argon2d', password: Buffer, salt: Buffer, memoryKib: number, passes: number, parallelism: number, length: number) => Promise<Buffer>;
+
+const nodeArgon2 = promisify(crypto.argon2);
+/** node:crypto's, for tests on plain Node. Electron's node:crypto has none: the app passes the store's. */
+const defaultArgon2: Argon2 = (algorithm, password, salt, memory, passes, parallelism, length) =>
+  nodeArgon2(algorithm, { message: password, nonce: salt, memory, passes, parallelism, tagLength: length });
+
+export interface KeyFileOptions {
+  argon2?: Argon2;
+}
+
+const KEY_TYPES = new Set(['ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521']);
+
+/** The base64 body of a file that is exactly one PEM block with `label`, decoded; null otherwise. */
+function singlePem(source: string, label: string): Buffer | null {
+  const match = new RegExp(`^-----BEGIN ${label}-----\\r?\\n([A-Za-z0-9+/=\\r\\n]+)-----END ${label}-----$`).exec(source.trim());
+  return match ? Buffer.from(match[1].replace(/\s+/g, ''), 'base64') : null;
+}
+
 // --- SSH wire format ---
 
 function sshString(value: Buffer | string): Buffer {
@@ -60,9 +85,6 @@ function sshString(value: Buffer | string): Buffer {
 class Reader {
   private at = 0;
   constructor(private readonly bytes: Buffer) {}
-  rewind(): void {
-    this.at = 0;
-  }
   string(): Buffer {
     if (this.at + 4 > this.bytes.length) problem('unsupported_key', 'the key data ends early');
     const length = this.bytes.readUInt32BE(this.at);
@@ -156,10 +178,13 @@ function parseWithSsh2(data: Buffer, passphrase?: string): { publicKey: Buffer; 
   if (keys.length !== 1) return new Error('the file holds more than one key');
   const [key] = keys;
   if (!key.isPrivateKey()) problem('unsupported_key', 'this is a public key; choose the private key file');
+  if (!KEY_TYPES.has(key.type)) problem('unsupported_key', `${key.type} keys cannot be used: GETSSH takes Ed25519, RSA and ECDSA keys`);
   return { publicKey: Buffer.from(key.getPublicSSH()), comment: key.comment || '' };
 }
 
 const NO_PASSPHRASE = /no passphrase given/i;
+/** ssh2's words for a passphrase that does not open the key; any other failure is not about it. */
+const BAD_PASSPHRASE = /bad passphrase/i;
 
 // ssh-keygen writes 16 bcrypt rounds (-a sets more; guides suggest 100). ssh2's bcrypt runs in
 // JavaScript on the main thread at about 8 ms a round, so 256 rounds is about 2 seconds.
@@ -167,7 +192,8 @@ const MAX_BCRYPT_ROUNDS = 256;
 
 /** The bcrypt rounds of an encrypted "openssh-key-v1" key, or null for another kind of file. */
 function openSshBcryptRounds(source: string): number | null {
-  const body = /-----BEGIN OPENSSH PRIVATE KEY-----([\s\S]*?)-----END OPENSSH PRIVATE KEY-----/.exec(source)?.[1];
+  // The block ssh2 reads: the whole file, trimmed (keyParser.js anchors its pattern the same way).
+  const body = /^-----BEGIN OPENSSH PRIVATE KEY-----(?:\r\n|\n)([\s\S]+)(?:\r\n|\n)-----END OPENSSH PRIVATE KEY-----$/.exec(source.trim())?.[1];
   if (!body) return null;
   const raw = Buffer.from(body.replace(/\s+/g, ''), 'base64');
   const magic = Buffer.from('openssh-key-v1\0', 'latin1');
@@ -187,9 +213,6 @@ function openSshBcryptRounds(source: string): number | null {
 // OpenSSL writes 2048 PBKDF2 iterations (ssh-keygen -m PKCS8 the same); a million SHA-256
 // iterations take about half a second.
 const MAX_PBKDF2_ITERATIONS = 1_000_000;
-// node:crypto refuses scrypt above 32 MiB of memory (128 * N * r) anyway.
-const MAX_SCRYPT_MEMORY = 32 * 1024 * 1024;
-const MAX_SCRYPT_PARALLELISM = 4;
 
 /** One DER element: its tag and the bytes of its content. */
 function derElement(bytes: Buffer, at: number): { tag: number; content: Buffer; next: number } {
@@ -225,62 +248,60 @@ const derInteger = (content: Buffer) => (content.length > 6 ? Infinity : content
 
 const OID_PBES2 = '2a864886f70d01050d';
 const OID_PBKDF2 = '2a864886f70d01050c';
-const OID_SCRYPT = '2b06010401da47040b';
-// PBES1 (1.2.840.113549.1.5.x) and PKCS#12 (1.2.840.113549.1.12.1.x) schemes: salt and iterations.
-const OID_PBES1 = /^2a864886f70d0105(01|03|04|06|0a|0b)$|^2a864886f70d010c01/;
+// hmacWithSHA1 (the default when absent) and hmacWithSHA256: what BoringSSL takes.
+const PBKDF2_PRFS = new Set(['2a864886f70d0207', '2a864886f70d0209']);
+// AES-128/192/256-CBC and DES-EDE3-CBC.
+const PBES2_CIPHERS = new Set(['608648016503040102', '608648016503040116', '60864801650304012a', '2a864886f70d0307']);
+// pbeWithSHAAnd3-KeyTripleDES-CBC (PKCS#12): salt and iterations.
+const OID_PKCS12_3DES = '2a864886f70d010c0103';
 
 /**
- * Refuses an encrypted PKCS#8 key whose key derivation costs more than the caps, before
- * node:crypto runs it on the main thread with the passphrase.
+ * Refuses an encrypted PKCS#8 key (its DER) that Electron cannot decrypt, or whose key derivation
+ * costs more than the caps, before node:crypto runs it on the main thread with the passphrase.
  */
-function checkPkcs8Cost(source: string): void {
+function checkPkcs8(der: Buffer): void {
   try {
-    checkPkcs8Parameters(source);
+    const [algorithm] = derSequence(derElement(der, 0).content);
+    const [oid, params] = derSequence(algorithm.content);
+    const scheme = derOid(oid.content);
+    if (scheme === OID_PBES2) {
+      const [kdf, cipher] = derSequence(params.content);
+      const [kdfOid, kdfParams] = derSequence(kdf.content);
+      if (derOid(kdfOid.content) !== OID_PBKDF2) problem('unsupported_key', 'the key uses a key derivation GETSSH cannot decrypt (only PBKDF2)');
+      const fields = derSequence(kdfParams.content);
+      const prf = fields.find(field => field.tag === 0x30);
+      if (prf && !PBKDF2_PRFS.has(derOid(derSequence(prf.content)[0].content))) problem('unsupported_key', 'the key uses a PBKDF2 hash GETSSH cannot decrypt');
+      if (!PBES2_CIPHERS.has(derOid(derSequence(cipher.content)[0].content))) problem('unsupported_key', 'the key uses a cipher GETSSH cannot decrypt');
+      if (!(derInteger(fields[1].content) <= MAX_PBKDF2_ITERATIONS)) problem('unsupported_key', 'the key asks for more PBKDF2 iterations than GETSSH accepts');
+      return;
+    }
+    if (scheme === OID_PKCS12_3DES) {
+      if (!(derInteger(derSequence(params.content)[1].content) <= MAX_PBKDF2_ITERATIONS)) problem('unsupported_key', 'the key asks for more iterations than GETSSH accepts');
+      return;
+    }
+    problem('unsupported_key', 'the key uses an encryption GETSSH cannot decrypt');
   } catch (error) {
     if (error instanceof KeyFileProblem) throw error;
     problem('unsupported_key', 'the PKCS#8 key is damaged');
   }
 }
 
-function checkPkcs8Parameters(source: string): void {
-  const body = /-----BEGIN ENCRYPTED PRIVATE KEY-----([\s\S]*?)-----END ENCRYPTED PRIVATE KEY-----/.exec(source)?.[1];
-  if (!body) problem('unsupported_key', 'the PKCS#8 key is damaged');
-  const der = Buffer.from(body!.replace(/\s+/g, ''), 'base64');
-  const [algorithm] = derSequence(derElement(der, 0).content);
-  const [oid, params] = derSequence(algorithm.content);
-  const scheme = derOid(oid.content);
-  if (scheme === OID_PBES2) {
-    const [kdf] = derSequence(params.content);
-    const [kdfOid, kdfParams] = derSequence(kdf.content);
-    const fields = derSequence(kdfParams.content);
-    if (derOid(kdfOid.content) === OID_PBKDF2) {
-      if (!(derInteger(fields[1].content) <= MAX_PBKDF2_ITERATIONS)) problem('unsupported_key', 'the key asks for more PBKDF2 iterations than GETSSH accepts');
-      return;
-    }
-    if (derOid(kdfOid.content) === OID_SCRYPT) {
-      const [n, r, p] = [derInteger(fields[1].content), derInteger(fields[2].content), derInteger(fields[3].content)];
-      if (!(128 * n * r <= MAX_SCRYPT_MEMORY && p <= MAX_SCRYPT_PARALLELISM)) problem('unsupported_key', 'the key asks for more scrypt work than GETSSH accepts');
-      return;
-    }
-    problem('unsupported_key', 'the key uses a key derivation GETSSH does not know');
-  }
-  if (OID_PBES1.test(scheme)) {
-    const fields = derSequence(params.content);
-    if (!(derInteger(fields[1].content) <= MAX_PBKDF2_ITERATIONS)) problem('unsupported_key', 'the key asks for more iterations than GETSSH accepts');
-    return;
-  }
-  problem('unsupported_key', 'the key uses an encryption GETSSH does not know');
-}
-
+/** A file that is one PKCS#8 block: the DER checked here is the DER node:crypto decrypts. */
 function readPkcs8(source: string, passphrase: string | null): PrivateKeyForStore {
-  const encrypted = source.includes('-----BEGIN ENCRYPTED PRIVATE KEY-----');
-  if (encrypted && !passphrase) problem('needs_password', 'this key is protected by a passphrase');
-  if (encrypted) checkPkcs8Cost(source);
+  const encryptedDer = singlePem(source, 'ENCRYPTED PRIVATE KEY');
+  const plainDer = encryptedDer ? null : singlePem(source, 'PRIVATE KEY');
+  if (!encryptedDer && !plainDer) problem('unsupported_key', 'the file must hold exactly one PKCS#8 key');
+  if (encryptedDer && !passphrase) problem('needs_password', 'this key is protected by a passphrase');
+  if (encryptedDer) checkPkcs8(encryptedDer);
   let key: crypto.KeyObject;
   try {
-    key = crypto.createPrivateKey(encrypted ? { key: source, format: 'pem', passphrase: passphrase! } : { key: source, format: 'pem' });
+    key = encryptedDer
+      ? crypto.createPrivateKey({ key: encryptedDer, format: 'der', type: 'pkcs8', passphrase: passphrase! })
+      : crypto.createPrivateKey({ key: plainDer!, format: 'der', type: 'pkcs8' });
   } catch {
-    return problem(encrypted ? 'wrong_password' : 'unsupported_key', encrypted ? 'wrong passphrase for this key' : 'the PKCS#8 key is damaged');
+    return problem(encryptedDer ? 'wrong_password' : 'unsupported_key', encryptedDer ? 'wrong passphrase for this key' : 'the PKCS#8 key is damaged');
+  } finally {
+    plainDer?.fill(0);
   }
   const data = forSsh2(key, '');
   const parsed = parseWithSsh2(data);
@@ -294,7 +315,6 @@ function readPkcs8(source: string, passphrase: string | null): PrivateKeyForStor
 // --- PuTTY .ppk ---
 
 const ARGON2 = { Argon2id: 'argon2id', Argon2i: 'argon2i', Argon2d: 'argon2d' } as const;
-const argon2 = promisify(crypto.argon2);
 // PuTTY writes 8 MiB, a pass count tuned to about 100 ms, and parallelism 1. The caps allow 256
 // MiB and 8 passes over all of it (memory times passes), about 3 seconds; Argon2 runs on libuv's
 // thread pool, not the main thread.
@@ -307,6 +327,7 @@ interface PpkFile {
   version: 2 | 3;
   algorithm: string;
   encryption: 'none' | 'aes256-cbc';
+  /** As written, one char per byte (the file is read as latin1): the MAC covers these bytes. */
   comment: string;
   publicBlob: Buffer;
   privateBlob: Buffer;
@@ -353,7 +374,7 @@ function parsePpk(source: string): PpkFile {
   };
 }
 
-async function ppkKeys(file: PpkFile, passphrase: string): Promise<{ cipherKey: Buffer; iv: Buffer; macKey: Buffer }> {
+async function ppkKeys(file: PpkFile, passphrase: string, argon2: Argon2): Promise<{ cipherKey: Buffer; iv: Buffer; macKey: Buffer }> {
   const secret = Buffer.from(passphrase, 'utf8');
   try {
     if (file.version === 2) {
@@ -376,7 +397,12 @@ async function ppkKeys(file: PpkFile, passphrase: string): Promise<{ cipherKey: 
       || !Number.isInteger(parallelism) || parallelism < 1 || parallelism > MAX_ARGON2_PARALLELISM) {
       problem('unsupported_key', 'the PuTTY key has key derivation settings GETSSH does not accept');
     }
-    const derived = await argon2(flavour, { message: secret, nonce: Buffer.from(salt, 'hex'), memory, passes, parallelism, tagLength: 80 });
+    let derived: Buffer;
+    try {
+      derived = await argon2(flavour, secret, Buffer.from(salt, 'hex'), memory, passes, parallelism, 80);
+    } catch {
+      return problem('unsupported_key', 'Argon2 for this PuTTY key could not run');
+    }
     return { cipherKey: derived.subarray(0, 32), iv: derived.subarray(32, 48), macKey: derived.subarray(48, 80) };
   } finally {
     secret.fill(0);
@@ -391,17 +417,13 @@ function ppkPrivateKey(algorithm: string, publicBlob: Buffer, privateBlob: Buffe
   if (algorithm === 'ssh-ed25519') {
     const point = pub.string();
     if (point.length !== 32) problem('unsupported_key', 'the PuTTY key is damaged');
-    // PuTTY keeps the 32-byte private key as an integer; the byte order that yields the stated
-    // public key is the right one.
-    for (const reversed of [true, false]) {
-      const seed = fixed(priv.mpint(), 32);
-      priv.rewind();
-      if (reversed) seed.reverse();
-      const key = ed25519FromSeed(seed);
-      seed.fill(0);
-      if (Buffer.from(crypto.createPublicKey(key).export({ format: 'jwk' }).x!, 'base64url').equals(point)) return key;
-    }
-    return problem('unsupported_key', 'the PuTTY key does not match its public key');
+    // PuTTY writes the 32 private bytes as they are (put_mp_le_fixedlen of the little-endian
+    // seed), not as an mpint.
+    const seed = priv.string();
+    if (seed.length !== 32) problem('unsupported_key', 'the PuTTY key is damaged');
+    const key = ed25519FromSeed(seed);
+    if (!Buffer.from(crypto.createPublicKey(key).export({ format: 'jwk' }).x!, 'base64url').equals(point)) problem('unsupported_key', 'the PuTTY key does not match its public key');
+    return key;
   }
   if (algorithm === 'ssh-rsa') {
     const e = pub.mpint();
@@ -431,66 +453,71 @@ function ppkPrivateKey(algorithm: string, publicBlob: Buffer, privateBlob: Buffe
   return problem('unsupported_key', `PuTTY ${algorithm} keys cannot be imported`);
 }
 
-async function readPpk(source: string, passphrase: string | null): Promise<PrivateKeyForStore> {
-  const file = parsePpk(source);
-  const encrypted = file.encryption !== 'none';
-  if (encrypted && !passphrase) problem('needs_password', 'this key is protected by a passphrase');
-  // What ssh2 reads itself (version 2 RSA and DSA) stays as it is, with its passphrase.
-  if (file.version === 2 && (file.algorithm === 'ssh-rsa' || file.algorithm === 'ssh-dss')) {
-    file.privateBlob.fill(0);
-    const data = Buffer.from(source, 'utf8');
-    const parsed = parseWithSsh2(data, encrypted ? passphrase! : undefined);
-    if (parsed instanceof Error) {
-      data.fill(0);
-      return problem(encrypted ? 'wrong_password' : 'unsupported_key', parsed.message);
-    }
-    return { data, passphrase: encrypted ? passphrase : null, publicKey: parsed.publicKey, comment: parsed.comment || file.comment };
-  }
-  const { cipherKey, iv, macKey } = await ppkKeys(file, encrypted ? passphrase! : '');
-  let plain = file.privateBlob;
+async function readPpk(file: Buffer, passphrase: string | null, argon2: Argon2): Promise<PrivateKeyForStore> {
+  // latin1 keeps every byte, so the MAC is computed over the comment exactly as written.
+  const ppk = parsePpk(file.toString('latin1'));
+  const encrypted = ppk.encryption !== 'none';
+  const comment = Buffer.from(ppk.comment, 'latin1').toString('utf8');
+  let plain = ppk.privateBlob;
+  let keys: { cipherKey: Buffer; macKey: Buffer } | null = null;
   try {
+    if (encrypted && !passphrase) problem('needs_password', 'this key is protected by a passphrase');
+    const derived = await ppkKeys(ppk, encrypted ? passphrase! : '', argon2);
+    keys = derived;
     if (encrypted) {
       if (plain.length === 0 || plain.length % 16 !== 0) problem('unsupported_key', 'the PuTTY key is damaged');
-      const decipher = crypto.createDecipheriv('aes-256-cbc', cipherKey, iv).setAutoPadding(false);
+      const decipher = crypto.createDecipheriv('aes-256-cbc', derived.cipherKey, derived.iv).setAutoPadding(false);
       plain = Buffer.concat([decipher.update(plain), decipher.final()]);
     }
-    const macData = Buffer.concat([sshString(file.algorithm), sshString(file.encryption), sshString(file.comment), sshString(file.publicBlob), sshString(plain)]);
-    const expected = crypto.createHmac(file.version === 3 ? 'sha256' : 'sha1', macKey).update(macData).digest();
-    if (expected.length !== file.mac.length || !crypto.timingSafeEqual(expected, file.mac)) {
+    const macData = Buffer.concat([sshString(ppk.algorithm), sshString(ppk.encryption), sshString(Buffer.from(ppk.comment, 'latin1')), sshString(ppk.publicBlob), sshString(plain)]);
+    const expected = crypto.createHmac(ppk.version === 3 ? 'sha256' : 'sha1', derived.macKey).update(macData).digest();
+    if (expected.length !== ppk.mac.length || !crypto.timingSafeEqual(expected, ppk.mac)) {
       problem(encrypted ? 'wrong_password' : 'unsupported_key', encrypted ? 'wrong passphrase for this key' : 'the PuTTY key is damaged');
     }
-    const data = forSsh2(ppkPrivateKey(file.algorithm, file.publicBlob, plain), file.comment);
+    const data = forSsh2(ppkPrivateKey(ppk.algorithm, ppk.publicBlob, plain), comment);
     const parsed = parseWithSsh2(data);
-    if (parsed instanceof Error || !parsed.publicKey.equals(file.publicBlob)) {
+    if (parsed instanceof Error || !parsed.publicKey.equals(ppk.publicBlob)) {
       data.fill(0);
       return problem('unsupported_key', 'the converted PuTTY key does not match its public key');
     }
-    return { data, passphrase: null, publicKey: parsed.publicKey, comment: file.comment };
+    return { data, passphrase: null, publicKey: parsed.publicKey, comment };
   } finally {
-    if (plain !== file.privateBlob) plain.fill(0);
-    file.privateBlob.fill(0);
-    cipherKey.fill(0);
-    macKey.fill(0);
+    if (plain !== ppk.privateBlob) plain.fill(0);
+    ppk.privateBlob.fill(0);
+    keys?.cipherKey.fill(0);
+    keys?.macKey.fill(0);
   }
 }
 
 // --- entry points ---
 
-const PPK = /^PuTTY-User-Key-File-\d+:/;
-const PKCS8 = /-----BEGIN (ENCRYPTED )?PRIVATE KEY-----/;
+type FileKind = 'ppk' | 'pkcs8' | 'ssh2';
+
+/** By its first line, as each reader expects the whole file to be one key. */
+function kindOf(file: Buffer): FileKind {
+  const head = file.toString('latin1', 0, Math.min(file.length, 256)).trimStart();
+  if (head.startsWith('PuTTY-User-Key-File-')) return 'ppk';
+  if (head.startsWith('-----BEGIN ENCRYPTED PRIVATE KEY-----') || head.startsWith('-----BEGIN PRIVATE KEY-----')) return 'pkcs8';
+  return 'ssh2';
+}
 
 /**
  * Whether the file needs a passphrase, without one: the first look after the file dialog.
  * Throws unsupported_key for anything that cannot be imported.
  */
 export function keyFileNeedsPassphrase(file: Buffer): boolean {
-  const source = file.toString('utf8');
-  if (PPK.test(source)) {
-    const ppk = parsePpk(source);
+  const kind = kindOf(file);
+  if (kind === 'ppk') {
+    const ppk = parsePpk(file.toString('latin1'));
     ppk.privateBlob.fill(0);
     return ppk.encryption !== 'none';
   }
-  if (PKCS8.test(source)) return source.includes('-----BEGIN ENCRYPTED PRIVATE KEY-----');
+  if (kind === 'pkcs8') {
+    const source = file.toString('latin1');
+    if (singlePem(source, 'ENCRYPTED PRIVATE KEY')) return true;
+    if (singlePem(source, 'PRIVATE KEY')?.fill(0)) return false;
+    return problem('unsupported_key', 'the file must hold exactly one PKCS#8 key');
+  }
   const parsed = parseWithSsh2(file);
   if (!(parsed instanceof Error)) return false;
   if (NO_PASSPHRASE.test(parsed.message)) return true;
@@ -498,19 +525,19 @@ export function keyFileNeedsPassphrase(file: Buffer): boolean {
 }
 
 /** The key in the form ssh2 reads, with what the store keeps beside it. */
-export async function readPrivateKey(file: Buffer, passphrase?: string | null): Promise<PrivateKeyForStore> {
+export async function readPrivateKey(file: Buffer, passphrase?: string | null, options: KeyFileOptions = {}): Promise<PrivateKeyForStore> {
   const given = passphrase ? passphrase : null;
-  const source = file.toString('utf8');
-  if (PPK.test(source)) return readPpk(source, given);
-  if (PKCS8.test(source)) return readPkcs8(source, given);
+  const kind = kindOf(file);
+  if (kind === 'ppk') return readPpk(file, given, options.argon2 ?? defaultArgon2);
+  if (kind === 'pkcs8') return readPkcs8(file.toString('latin1'), given);
   const plain = parseWithSsh2(file);
   if (!(plain instanceof Error)) return { data: Buffer.from(file), passphrase: null, publicKey: plain.publicKey, comment: plain.comment };
   if (!NO_PASSPHRASE.test(plain.message)) return problem('unsupported_key', plain.message);
   if (!given) return problem('needs_password', 'this key is protected by a passphrase');
-  const rounds = openSshBcryptRounds(source);
+  const rounds = openSshBcryptRounds(file.toString('latin1'));
   if (rounds !== null && rounds > MAX_BCRYPT_ROUNDS) problem('unsupported_key', `the key asks for ${rounds} bcrypt rounds; GETSSH accepts up to ${MAX_BCRYPT_ROUNDS}`);
   const opened = parseWithSsh2(file, given);
-  if (opened instanceof Error) return problem('wrong_password', 'wrong passphrase for this key');
+  if (opened instanceof Error) return problem(BAD_PASSPHRASE.test(opened.message) ? 'wrong_password' : 'unsupported_key', opened.message);
   return { data: Buffer.from(file), passphrase: given, publicKey: opened.publicKey, comment: opened.comment };
 }
 

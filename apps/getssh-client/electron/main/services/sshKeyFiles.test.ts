@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { utils as sshUtils } from 'ssh2';
 import { describe, expect, it } from 'vitest';
-import { generateEd25519, keyFileNeedsPassphrase, KeyFileProblem, readPrivateKey } from './sshKeyFiles';
+import { generateEd25519, keyFileNeedsPassphrase, type KeyFileOptions, KeyFileProblem, readPrivateKey } from './sshKeyFiles';
 
 // Key files as the tools that write them do: OpenSSH files from ssh2's generator, PEM files from
 // node:crypto, and .ppk files built here by the layout of PuTTY's manual (appendix C). The .ppk
@@ -47,8 +47,8 @@ const lines = (blob: Buffer) => blob.toString('base64').match(/.{1,64}/g)!;
 function ppkBlobs(key: crypto.KeyObject): { algorithm: string; publicBlob: Buffer; privateBlob: Buffer } {
   const jwk = key.export({ format: 'jwk' });
   if (jwk.kty === 'OKP') {
-    // PuTTY keeps the 32 private bytes as a little-endian integer.
-    return { algorithm: 'ssh-ed25519', publicBlob: Buffer.concat([sshString('ssh-ed25519'), sshString(b64(jwk.x!))]), privateBlob: mpint(Buffer.from(b64(jwk.d!)).reverse()) };
+    // PuTTY writes the 32 private bytes as they are (put_mp_le_fixedlen of the little-endian seed).
+    return { algorithm: 'ssh-ed25519', publicBlob: Buffer.concat([sshString('ssh-ed25519'), sshString(b64(jwk.x!))]), privateBlob: sshString(b64(jwk.d!)) };
   }
   if (jwk.kty === 'RSA') {
     return {
@@ -62,9 +62,10 @@ function ppkBlobs(key: crypto.KeyObject): { algorithm: string; publicBlob: Buffe
   return { algorithm: `ecdsa-sha2-${curve}`, publicBlob: Buffer.concat([sshString(`ecdsa-sha2-${curve}`), sshString(curve), sshString(point)]), privateBlob: mpint(b64(jwk.d!)) };
 }
 
-function ppk(version: 2 | 3, key: crypto.KeyObject, options: { passphrase?: string; comment?: string; argon2?: Record<string, string>; privateBlob?: Buffer } = {}): Buffer {
+function ppk(version: 2 | 3, key: crypto.KeyObject, options: { passphrase?: string; comment?: string | Buffer; argon2?: Record<string, string>; privateBlob?: Buffer } = {}): Buffer {
   const blobs = ppkBlobs(key);
-  const comment = options.comment ?? 'ppk-test';
+  // The comment's bytes as PuTTYgen writes them (on Windows in the ANSI code page, so not always UTF-8).
+  const comment = Buffer.isBuffer(options.comment) ? options.comment : Buffer.from(options.comment ?? 'ppk-test', 'utf8');
   const encryption = options.passphrase ? 'aes256-cbc' : 'none';
   let plain = options.privateBlob ?? blobs.privateBlob;
   if (options.passphrase) plain = Buffer.concat([plain, crypto.randomBytes((16 - (plain.length % 16)) % 16)]);
@@ -93,16 +94,25 @@ function ppk(version: 2 | 3, key: crypto.KeyObject, options: { passphrase?: stri
     .update(Buffer.concat([sshString(blobs.algorithm), sshString(encryption), sshString(comment), sshString(blobs.publicBlob), sshString(plain)])).digest('hex');
   const stored = options.passphrase ? Buffer.concat([crypto.createCipheriv('aes-256-cbc', cipherKey, iv).setAutoPadding(false).update(plain)]) : plain;
   const text = [
-    `PuTTY-User-Key-File-${version}: ${blobs.algorithm}`, `Encryption: ${encryption}`, `Comment: ${comment}`,
+    `PuTTY-User-Key-File-${version}: ${blobs.algorithm}`, `Encryption: ${encryption}`, `Comment: ${comment.toString('latin1')}`,
     `Public-Lines: ${lines(blobs.publicBlob).length}`, ...lines(blobs.publicBlob),
     ...(version === 3 && options.passphrase ? Object.entries(argon2).map(([name, value]) => `${name}: ${value}`) : []),
     `Private-Lines: ${lines(stored).length}`, ...lines(stored), `Private-MAC: ${mac}`, '',
   ];
-  return Buffer.from(text.join('\r\n'));
+  return Buffer.from(text.join('\r\n'), 'latin1');
+}
+
+/** An Ed25519 key whose first private byte has (or lacks) the top bit, the case an mpint reader gets wrong. */
+function ed25519With(topBit: boolean): crypto.KeyObject {
+  for (;;) {
+    const key = crypto.generateKeyPairSync('ed25519').privateKey;
+    if (((b64(key.export({ format: 'jwk' }).d!)[0] & 0x80) !== 0) === topBit) return key;
+  }
 }
 
 const KEYS = {
-  ed25519: () => crypto.generateKeyPairSync('ed25519').privateKey,
+  ed25519: () => ed25519With(true),
+  'ed25519 (top bit clear)': () => ed25519With(false),
   rsa: () => crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey,
   'ecdsa-p256': () => crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey,
   'ecdsa-p521': () => crypto.generateKeyPairSync('ec', { namedCurve: 'P-521' }).privateKey,
@@ -176,10 +186,9 @@ describe('key files converted for ssh2', () => {
           expect(converted.publicKey.equals(expected), label).toBe(true);
           expect(publicOf(converted.data, converted.passphrase ?? undefined).equals(expected), `${label}: ssh2 reads it`).toBe(true);
           expect(converted.comment, label).toBe('from PuTTY');
-          // ssh2 reads version 2 RSA files itself: those stay as they are, with their passphrase.
-          const native = version === 2 && name === 'rsa';
-          expect(converted.data.equals(file), label).toBe(native);
-          expect(converted.passphrase, label).toBe(native && passphrase ? passphrase : null);
+          // Converted, version 2 RSA too: ssh2 would read its comment as UTF-8 and fail the MAC.
+          expect(converted.data.equals(file), label).toBe(false);
+          expect(converted.passphrase, label).toBeNull();
         }
       }
     }
@@ -257,6 +266,60 @@ describe('key derivation costs', () => {
     expect(await code(readPrivateKey(hostile, 'any passphrase'))).toBe('unsupported_key');
     expect(Date.now() - started).toBeLessThan(1000);
     expect((await readPrivateKey(Buffer.from(pair.private), PASS)).passphrase).toBe(PASS);
+  });
+});
+
+describe('the file is one key, in a form Electron can use', () => {
+  it('computes the .ppk MAC over the comment as written, not as UTF-8', async () => {
+    const key = KEYS.rsa();
+    const gbk = Buffer.from([0xb7, 0xfe, 0xce, 0xf1, 0xc6, 0xf7]); // 服务器 in GBK, not valid UTF-8
+    for (const version of [2, 3] as const) {
+      const converted = await readPrivateKey(ppk(version, key, { passphrase: PASS, comment: gbk }), PASS);
+      expect(converted.publicKey.equals(ppkBlobs(key).publicBlob), `v${version}`).toBe(true);
+    }
+  });
+
+  it('refuses a PKCS#8 file with a second block or other text, so the block checked is the one decrypted', async () => {
+    const key = KEYS.ed25519();
+    const cheap = encryptedPkcs8(key, PASS, 2048).toString();
+    const costly = encryptedPkcs8(key, PASS, 5_000_000).toString();
+    for (const file of [`x${cheap}${costly}`, `${cheap}${costly}`, `note\n${cheap}`, `${cheap}trailing`]) {
+      const started = Date.now();
+      expect(await code(readPrivateKey(Buffer.from(file), PASS))).toBe('unsupported_key');
+      expect(Date.now() - started).toBeLessThan(1000);
+    }
+    expect((await readPrivateKey(Buffer.from(`\n\n${cheap}\n`), PASS)).passphrase).toBeNull();
+  });
+
+  it('refuses PKCS#8 encryptions Electron cannot decrypt instead of calling the passphrase wrong', async () => {
+    const key = KEYS.ed25519();
+    // pbeWithMD5AndDES-CBC (what macOS's LibreSSL writes by default) and scrypt: not in BoringSSL.
+    const plain = key.export({ type: 'pkcs8', format: 'der' });
+    const pem = (body: Buffer) => Buffer.from(`-----BEGIN ENCRYPTED PRIVATE KEY-----\n${body.toString('base64')}\n-----END ENCRYPTED PRIVATE KEY-----\n`);
+    const md5des = der(0x30, der(0x30, oid('2a864886f70d010503'), der(0x30, der(0x04, crypto.randomBytes(8)), derInt(2048))), der(0x04, plain));
+    const scrypt = der(0x30, der(0x30, oid('2a864886f70d01050d'), der(0x30,
+      der(0x30, oid('2b06010401da47040b'), der(0x30, der(0x04, crypto.randomBytes(16)), derInt(16384), derInt(8), derInt(1))),
+      der(0x30, oid('60864801650304012a'), der(0x04, crypto.randomBytes(16))))), der(0x04, plain));
+    for (const file of [pem(md5des), pem(scrypt)]) expect(await code(readPrivateKey(file, PASS))).toBe('unsupported_key');
+  });
+
+  it('refuses DSA keys, which Electron cannot sign with', async () => {
+    const dsa = crypto.generateKeyPairSync('dsa', { modulusLength: 2048, divisorLength: 256 }).privateKey;
+    const pemDsa = Buffer.from(dsa.export({ type: 'pkcs8', format: 'pem' }) as string);
+    expect(await code(readPrivateKey(pemDsa))).toBe('unsupported_key');
+  });
+
+  it('uses the Argon2 it is given for .ppk version 3 (the store\'s in the app)', async () => {
+    const key = KEYS.ed25519();
+    const calls: string[] = [];
+    const argon2 = async (...args: Parameters<NonNullable<KeyFileOptions['argon2']>>) => {
+      calls.push(args[0]);
+      return crypto.argon2Sync(args[0], { message: args[1], nonce: args[2], memory: args[3], passes: args[4], parallelism: args[5], tagLength: args[6] });
+    };
+    expect((await readPrivateKey(ppk(3, key, { passphrase: PASS }), PASS, { argon2 })).publicKey.equals(ppkBlobs(key).publicBlob)).toBe(true);
+    expect(calls).toEqual(['argon2id']);
+    const broken = async () => { throw new Error('Argon2 algorithm not supported'); };
+    expect(await code(readPrivateKey(ppk(3, key, { passphrase: PASS }), PASS, { argon2: broken }))).toBe('unsupported_key');
   });
 });
 

@@ -520,6 +520,8 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
   - OpenSSH（可以带口令）；
   - PEM：PKCS#1、SEC1、PKCS#8（都可以加密）；
   - PuTTY `.ppk` 第 2 版和第 3 版。
+  - 只收 Ed25519、RSA、ECDSA 私钥。DSA 返回 `unsupported_key`，因为 Electron 不能用它签名；可以提示用户换一个 Ed25519 私钥。
+  - 文件里只能有一段私钥。
   - 别的格式返回 `unsupported_key`，提示用户先转成 OpenSSH 格式。
   - 口令保护的计算量超过上限的私钥也返回 `unsupported_key`：bcrypt 超过 256 轮、PBKDF2 超过一百万次、Argon2 超出预算。ssh-keygen、OpenSSL、PuTTY 默认写的都远低于上限。遇到这种情况，可以提示用户用 `ssh-keygen -p` 重新设置口令。
 - `trashOriginal` 为真时，原文件**移到废纸篓**，不是直接删除。

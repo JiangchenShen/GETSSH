@@ -806,9 +806,10 @@ test('importSshKey seals the key and takes name, algorithm and fingerprint from 
     assert.equal(ec.algorithm, algorithm);
     assert.ok(ec.publicKey.startsWith(`${type} `));
   }
+  // Electron's crypto cannot sign with DSA: such a key could never log in.
   const dsa = Buffer.concat([sshString('ssh-dss'), ...[1, 2, 3, 4].map(n => sshString(Buffer.from([n])))]);
-  assert.equal(store.importSshKey('a', { name: 'dsa', data: Buffer.from('k'), publicKey: dsa }).algorithm, 'dsa');
-  assert.deepEqual(store.listSshKeys('a').map(k => k.name), ['laptop', 'rsa', 'P-256', 'P-384', 'P-521', 'dsa']);
+  throwsWith(() => store.importSshKey('a', { name: 'dsa', data: Buffer.from('k'), publicKey: dsa }), 'invalid_argument');
+  assert.deepEqual(store.listSshKeys('a').map(k => k.name), ['laptop', 'rsa', 'P-256', 'P-384', 'P-521']);
   assert.deepEqual(store.listSshKeys('b'), []);
 
   const junk = [
@@ -825,6 +826,16 @@ test('importSshKey seals the key and takes name, algorithm and fingerprint from 
   throwsWith(() => store.importSshKey('a', { ...input, publicKey: undefined }), 'invalid_argument');
   throwsWith(() => store.importSshKey('a', { ...input, name: '  ' }), 'invalid_argument');
   throwsWith(() => store.importSshKey('ghost', input), 'not_found');
+});
+
+test('deriveArgon2 is node:crypto Argon2 with the native caps, and needs no started store', async () => {
+  fake.reset();
+  const out = await store.deriveArgon2('argon2id', Buffer.from('pass'), Buffer.from('saltsalt'), 8192, 2, 1, 80);
+  assert.ok(out.equals(crypto.argon2Sync('argon2id', { message: Buffer.from('pass'), nonce: Buffer.from('saltsalt'), memory: 8192, passes: 2, parallelism: 1, tagLength: 80 })));
+  for (const args of [['scrypt', 8192, 2, 1], ['argon2id', 256 * 1024 + 1, 1, 1], ['argon2id', 256 * 1024, 9, 1], ['argon2id', 8192, 1, 17]]) {
+    await rejectsWith(() => store.deriveArgon2(args[0], Buffer.from('p'), Buffer.from('saltsalt'), args[1], args[2], args[3], 80), 'invalid_argument');
+  }
+  await rejectsWith(() => store.deriveArgon2('argon2id', Buffer.from('p'), Buffer.from('short'), 8192, 1, 1, 80), 'invalid_argument');
 });
 
 test('connectSecrets gives a stored key its own passphrase over a stale one on the profile', async () => {

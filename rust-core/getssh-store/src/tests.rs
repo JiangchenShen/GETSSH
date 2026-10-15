@@ -1206,7 +1206,6 @@ fn ssh_keys_are_sealed_and_described_by_their_public_key() {
     let point = [4u8; 97];
     assert_eq!(named(&blob(&[b"ecdsa-sha2-nistp384", b"nistp384", &point])).unwrap(), "ecdsa-p384");
     assert_eq!(named(&blob(&[b"ecdsa-sha2-nistp521", b"nistp521", &point])).unwrap(), "ecdsa-p521");
-    assert_eq!(named(&blob(&[b"ssh-dss", &[1], &[2], &[3], &[4]])).unwrap(), "dsa");
     for junk in [
         b"hello".to_vec(),
         [ed.clone(), vec![0]].concat(),
@@ -1214,6 +1213,7 @@ fn ssh_keys_are_sealed_and_described_by_their_public_key() {
         blob(&[b"ecdsa-sha2-nistp256", b"nistp384", &point]),
         blob(&[b"sk-ssh-ed25519@openssh.com", &[1; 32]]),
         blob(&[b"ssh-rsa", &[1, 0, 1]]),
+        blob(&[b"ssh-dss", &[1], &[2], &[3], &[4]]),
     ] {
         assert_eq!(named(&junk).err().unwrap().code, Code::InvalidArgument, "{junk:?}");
     }
@@ -1227,7 +1227,7 @@ fn ssh_keys_are_sealed_and_described_by_their_public_key() {
     assert_eq!(store.import_ssh_key("ghost", "k", b"k", None, &ed).err().unwrap().code, Code::NotFound);
 
     let names: Vec<String> = store.list_ssh_keys("default").unwrap().into_iter().map(|k| k.name).collect();
-    assert_eq!(names.len(), 6);
+    assert_eq!(names.len(), 5);
     assert_eq!(names[0], "laptop", "oldest first");
     drop(store);
     let store = env.started();
@@ -1303,6 +1303,27 @@ fn the_keys_of_a_locked_workspace_are_out_of_reach() {
     assert_eq!(store.delete_ssh_key("secret", &key.id).err().unwrap().code, Code::Locked);
     store.unlock_workspace("secret", pw("eight-chars")).unwrap();
     assert_eq!(store.list_ssh_keys("secret").unwrap(), vec![key]);
+}
+
+#[test]
+fn argon2_for_putty_files_is_deterministic_and_capped() {
+    use crate::ssh_keys::derive_argon2;
+    let a = derive_argon2("argon2id", b"pass", b"saltsalt", 8192, 2, 1, 80).unwrap();
+    assert_eq!(a.len(), 80);
+    assert_eq!(a, derive_argon2("argon2id", b"pass", b"saltsalt", 8192, 2, 1, 80).unwrap());
+    assert_ne!(a, derive_argon2("argon2i", b"pass", b"saltsalt", 8192, 2, 1, 80).unwrap());
+    assert_ne!(a, derive_argon2("argon2d", b"pass", b"saltsalt", 8192, 2, 1, 80).unwrap());
+    for (algorithm, salt, memory, passes, parallelism, length) in [
+        ("scrypt", &b"saltsalt"[..], 8192, 1, 1, 80),
+        ("argon2id", &b"short"[..], 8192, 1, 1, 80),
+        ("argon2id", &b"saltsalt"[..], 256 * 1024 + 1, 1, 1, 80),
+        ("argon2id", &b"saltsalt"[..], 256 * 1024, 9, 1, 80),
+        ("argon2id", &b"saltsalt"[..], 8192, 0, 1, 80),
+        ("argon2id", &b"saltsalt"[..], 8192, 1, 17, 80),
+        ("argon2id", &b"saltsalt"[..], 8192, 1, 1, 0),
+    ] {
+        assert_eq!(derive_argon2(algorithm, b"pass", salt, memory, passes, parallelism, length).err().unwrap().code, Code::InvalidArgument);
+    }
 }
 
 // ───────────────────────────── S4: app-wide secrets ─────────────────────────────

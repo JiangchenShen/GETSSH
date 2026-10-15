@@ -67,8 +67,8 @@ fn bit_length(bytes: &[u8]) -> usize {
 }
 
 /// The key type and the algorithm name of an SSH public key blob: ssh-ed25519, ssh-rsa (named by
-/// its modulus size), the NIST ECDSA curves and ssh-dss. Anything else, a missing field or
-/// trailing bytes is refused.
+/// its modulus size) and the NIST ECDSA curves. Anything else is refused, ssh-dss included
+/// (Electron's crypto cannot sign with DSA), as are a missing field and trailing bytes.
 pub fn describe_public_key(blob: &[u8]) -> StoreResult<(String, String)> {
     let refuse = || StoreError::invalid("publicKey is not an SSH public key this store accepts");
     let mut wire = Wire { bytes: blob };
@@ -91,12 +91,6 @@ pub fn describe_public_key(blob: &[u8]) -> StoreResult<(String, String)> {
             }
             format!("ecdsa-p{}", &curve["nist".len() + 1..])
         }
-        "ssh-dss" => {
-            for _ in 0..4 {
-                wire.string().ok_or_else(refuse)?;
-            }
-            "dsa".to_string()
-        }
         _ => return Err(refuse()),
     };
     if !wire.bytes.is_empty() {
@@ -108,6 +102,40 @@ pub fn describe_public_key(blob: &[u8]) -> StoreResult<(String, String)> {
 /// "SHA256:" and the unpadded base64 SHA-256 of the blob, as ssh-keygen -l prints it.
 pub fn fingerprint(blob: &[u8]) -> String {
     format!("SHA256:{}", STANDARD.encode(Sha256::digest(blob)).trim_end_matches('='))
+}
+
+/// The caps sshKeyFiles.ts applies, checked again here: PuTTY writes 8 MiB and about 100 ms.
+const MAX_ARGON2_MEMORY_KIB: u32 = 256 * 1024;
+const MAX_ARGON2_WORK_KIB: u64 = MAX_ARGON2_MEMORY_KIB as u64 * 8;
+const MAX_ARGON2_PARALLELISM: u32 = 16;
+const MAX_ARGON2_OUTPUT: u32 = 1024;
+
+/// Argon2 (version 0x13, no secret or associated data) for PuTTY .ppk v3 key files, which
+/// derive their AES key, IV and MAC key with it. The main process cannot: Electron's
+/// node:crypto is BoringSSL, which has no Argon2.
+pub fn derive_argon2(algorithm: &str, password: &[u8], salt: &[u8], memory_kib: u32, passes: u32, parallelism: u32, length: u32) -> StoreResult<Zeroizing<Vec<u8>>> {
+    let algorithm = match algorithm {
+        "argon2id" => argon2::Algorithm::Argon2id,
+        "argon2i" => argon2::Algorithm::Argon2i,
+        "argon2d" => argon2::Algorithm::Argon2d,
+        _ => return Err(StoreError::invalid("algorithm must be argon2id, argon2i or argon2d")),
+    };
+    if !(1..=MAX_ARGON2_PARALLELISM).contains(&parallelism)
+        || memory_kib < 8 * parallelism
+        || memory_kib > MAX_ARGON2_MEMORY_KIB
+        || passes < 1
+        || memory_kib as u64 * passes as u64 > MAX_ARGON2_WORK_KIB
+        || !(1..=MAX_ARGON2_OUTPUT).contains(&length)
+        || salt.len() < 8
+    {
+        return Err(StoreError::invalid("Argon2 settings outside what GETSSH accepts"));
+    }
+    let params = argon2::Params::new(memory_kib, passes, parallelism, Some(length as usize)).map_err(|e| StoreError::invalid(format!("Argon2 settings: {e}")))?;
+    let mut out = Zeroizing::new(vec![0u8; length as usize]);
+    argon2::Argon2::new(algorithm, argon2::Version::V0x13, params)
+        .hash_password_into(password, salt, &mut out)
+        .map_err(|e| StoreError::invalid(format!("Argon2: {e}")))?;
+    Ok(out)
 }
 
 fn check_name(name: &str) -> StoreResult<()> {

@@ -572,6 +572,7 @@ dependencies = [
 name = "getssh-store"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "base64",
  "cc",
  "getssh-keystore",

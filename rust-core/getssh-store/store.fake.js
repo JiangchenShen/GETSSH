@@ -70,7 +70,7 @@
  *
  * DECISIONS WHERE store.d.ts IS SILENT (the real module should match them or the d.ts should say otherwise)
  *   - Before start() every call except configure(), needsLegacyMigration(), start(), appState(),
- *     isRecoveryCodeWellFormed() and isEncryptedAiMemoryAvailable() fails with not_configured;
+ *     isRecoveryCodeWellFormed(), isEncryptedAiMemoryAvailable() and deriveArgon2() fails with not_configured;
  *     appState() reports 'locked'.
  *   - While the app is locked (master password set), every main.db function (workspace list,
  *     settings, app secrets, AI memory, export, import) fails with locked;
@@ -1215,8 +1215,8 @@ const ECDSA_CURVES = { 'ecdsa-sha2-nistp256': ['nistp256', 'ecdsa-p256'], 'ecdsa
 
 /**
  * The type and algorithm of an SSH public key blob (wire format), as the real module reads it:
- * ssh-ed25519, ssh-rsa (named by the modulus size), the three NIST ECDSA curves and ssh-dss; any
- * other type, a missing field or trailing bytes is invalid_argument.
+ * ssh-ed25519, ssh-rsa (named by the modulus size) and the three NIST ECDSA curves; any other
+ * type (ssh-dss included), a missing field or trailing bytes is invalid_argument.
  */
 function describePublicBlob(blob) {
   let described;
@@ -1232,9 +1232,6 @@ function describePublicBlob(blob) {
     } else if (ECDSA_CURVES[type]) {
       if (reader.string().toString('latin1') !== ECDSA_CURVES[type][0] || reader.string().length === 0) throw new RangeError('curve');
       described = { type, algorithm: ECDSA_CURVES[type][1] };
-    } else if (type === 'ssh-dss') {
-      for (let i = 0; i < 4; i++) reader.string();
-      described = { type, algorithm: 'dsa' };
     } else {
       throw new RangeError('key type');
     }
@@ -1267,6 +1264,20 @@ function importSshKey(workspaceId, input) {
   };
   ws.sshKeys.push(key);
   return sshKeyRow(key);
+}
+
+const ARGON2_ALGORITHMS = new Set(['argon2id', 'argon2i', 'argon2d']);
+
+/** node:crypto's Argon2 with the native module's caps (the native module has its own Argon2). */
+async function deriveArgon2(algorithm, password, salt, memoryKib, passes, parallelism, length) {
+  await pause();
+  const int = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  if (!ARGON2_ALGORITHMS.has(algorithm) || !(password instanceof Uint8Array) || !(salt instanceof Uint8Array) || salt.length < 8
+    || !int(parallelism, 1, 16) || !int(memoryKib, 8 * parallelism, 256 * 1024) || !int(passes, 1, 2 ** 32 - 1)
+    || memoryKib * passes > 256 * 1024 * 8 || !int(length, 1, 1024)) {
+    fail('invalid_argument', 'Argon2 settings outside what GETSSH accepts');
+  }
+  return crypto.argon2Sync(algorithm, { message: Buffer.from(password), nonce: Buffer.from(salt), memory: memoryKib, passes, parallelism, tagLength: length });
 }
 
 function listSshKeys(workspaceId) {
@@ -2148,6 +2159,7 @@ module.exports = {
   getAppSecret,
   listAppSecretNames,
   importSshKey,
+  deriveArgon2,
   listSshKeys,
   deleteSshKey,
   getGlobalSetting,

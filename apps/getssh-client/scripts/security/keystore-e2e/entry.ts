@@ -571,18 +571,48 @@ async function run(): Promise<string> {
       assert.ok(generated.ok, JSON.stringify(generated));
       allowed.push(blobOf(generated.key.publicKey));
 
+      // 3. An encrypted PuTTY .ppk version 3, PuTTY's default: Argon2 comes from the store, since
+      // Electron's node:crypto has none. The Ed25519 private bytes start with the top bit set.
+      let seedKey: crypto.KeyObject;
+      do seedKey = crypto.generateKeyPairSync('ed25519').privateKey; while (!(Buffer.from(seedKey.export({ format: 'jwk' }).d!, 'base64url')[0] & 0x80));
+      const jwk = seedKey.export({ format: 'jwk' });
+      const str = (value: Buffer | string) => { const bytes = Buffer.from(value); const n = Buffer.alloc(4); n.writeUInt32BE(bytes.length); return Buffer.concat([n, bytes]); };
+      const ppkPublic = Buffer.concat([str('ssh-ed25519'), str(Buffer.from(jwk.x!, 'base64url'))]);
+      const ppkPrivate = Buffer.concat([str(Buffer.from(jwk.d!, 'base64url')), crypto.randomBytes(12)]);
+      const salt = crypto.randomBytes(16);
+      const derived = await getStore().deriveArgon2('argon2id', Buffer.from('ppk-passphrase'), salt, 8192, 2, 1, 80);
+      const mac = crypto.createHmac('sha256', derived.subarray(48, 80))
+        .update(Buffer.concat([str('ssh-ed25519'), str('aes256-cbc'), str('from PuTTY'), str(ppkPublic), str(ppkPrivate)])).digest('hex');
+      const encryptedPrivate = crypto.createCipheriv('aes-256-cbc', derived.subarray(0, 32), derived.subarray(32, 48)).setAutoPadding(false).update(ppkPrivate);
+      const b64lines = (blob: Buffer) => blob.toString('base64').match(/.{1,64}/g)!;
+      const ppkFile = path.join(userKeys, 'putty.ppk');
+      fs.writeFileSync(ppkFile, [
+        'PuTTY-User-Key-File-3: ssh-ed25519', 'Encryption: aes256-cbc', 'Comment: from PuTTY', `Public-Lines: ${b64lines(ppkPublic).length}`, ...b64lines(ppkPublic),
+        'Key-Derivation: Argon2id', 'Argon2-Memory: 8192', 'Argon2-Passes: 2', 'Argon2-Parallelism: 1', `Argon2-Salt: ${salt.toString('hex')}`,
+        `Private-Lines: ${b64lines(encryptedPrivate).length}`, ...b64lines(encryptedPrivate), `Private-MAC: ${mac}`, '',
+      ].join('\r\n'));
+      (dialog as unknown as Record<string, unknown>).showOpenDialog = async () => ({ canceled: false, filePaths: [ppkFile] });
+      const ppkChosen = await call('store:ssh-keys:choose-file', {});
+      assert.deepEqual([ppkChosen.ok, ppkChosen.encrypted], [true, true], JSON.stringify(ppkChosen));
+      assert.equal((await call('store:ssh-keys:import', { workspaceId: 'default', fileId: ppkChosen.fileId, passphrase: 'not it' })).error, 'wrong_password');
+      const fromPutty = await call('store:ssh-keys:import', { workspaceId: 'default', fileId: ppkChosen.fileId, passphrase: 'ppk-passphrase' });
+      assert.ok(fromPutty.ok && fromPutty.key.algorithm === 'ed25519' && !fromPutty.key.hasPassphrase, JSON.stringify(fromPutty));
+      assert.ok(blobOf(fromPutty.key.publicKey).equals(ppkPublic), 'the converted key has the file\'s public key');
+      allowed.push(ppkPublic);
+
       DM.saveProfiles('default', [
         { id: 'by-import', host: '127.0.0.1', port, username: 'import-user', authType: 'key', keyId: imported.key.id },
         { id: 'by-generate', host: '127.0.0.1', port, username: 'generate-user', authType: 'key', keyId: generated.key.id },
         { id: 'by-file', host: '127.0.0.1', port, username: 'file-user', authType: 'key', privateKeyPath: '~/keys/id_e2e', passphrase: 'file-passphrase' },
+        { id: 'by-ppk', host: '127.0.0.1', port, username: 'ppk-user', authType: 'key', keyId: fromPutty.key.id },
       ]);
       const sessions: string[] = [];
-      for (const id of ['by-import', 'by-generate', 'by-file']) {
+      for (const id of ['by-import', 'by-generate', 'by-file', 'by-ppk']) {
         const result = await connect(id);
         assert.ok(result.success, `${id}: ${JSON.stringify(result)}`);
         sessions.push(result.sessionId);
       }
-      assert.deepEqual(logins.map(login => login.split(':')[0]), ['import-user', 'generate-user', 'file-user']);
+      assert.deepEqual(logins.map(login => login.split(':')[0]), ['import-user', 'generate-user', 'file-user', 'ppk-user']);
 
       // 3. A server's key file into the store (the file kept: the e2e never touches the Trash).
       const moved = await call('store:ssh-keys:import-profile-file', { workspaceId: 'default', profileId: 'by-file', trashOriginal: false });
@@ -593,7 +623,7 @@ async function run(): Promise<string> {
       const fromStore = await connect('by-file');
       assert.ok(fromStore.success, JSON.stringify(fromStore));
       sessions.push(fromStore.sessionId);
-      assert.equal(logins.length, 4, 'logged in with the stored copy, the file is gone');
+      assert.equal(logins.length, 5, 'logged in with the stored copy, the file is gone');
 
       // 4. Deleting a key leaves its server without one; the list says so.
       const deleted = await call('store:ssh-keys:delete', { workspaceId: 'default', id: generated.key.id });
@@ -602,9 +632,9 @@ async function run(): Promise<string> {
       // A window that still holds the deleted key's id saves its whole list: the save goes through.
       assert.equal(await call('save-profiles', { payload: DM.getProfiles('default').map(p => (p.id === 'by-generate' ? { ...p, keyId: generated.key.id } : p)), workspaceId: 'default' }), true);
       assert.equal(DM.getProfiles('default').find(p => p.id === 'by-generate')?.keyId, null);
-      assert.equal(DM.getProfiles('default').length, 3);
+      assert.equal(DM.getProfiles('default').length, 4);
       const listed = await call('store:ssh-keys:list', { workspaceId: 'default' });
-      assert.deepEqual(listed.keys.map((k: { name: string }) => k.name).sort(), ['id_e2e', 'id_e2e'], JSON.stringify(listed));
+      assert.deepEqual(listed.keys.map((k: { name: string }) => k.name).sort(), ['id_e2e', 'id_e2e', 'putty.ppk'], JSON.stringify(listed));
       assert.ok(!JSON.stringify([imported, generated, moved, deleted, listed]).includes('PRIVATE KEY'), 'no private key reaches the window');
 
       for (const id of sessions) ssh.get('ssh-disconnect')!(event, id);
