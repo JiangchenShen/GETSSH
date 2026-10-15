@@ -22,6 +22,7 @@ import { bootstrapAppWorkspace, setupWorkspaceHandlers } from '../../../electron
 import { DatabaseManager as DM } from '../../../electron/main/services/DatabaseManager';
 import { setMainWindow } from '../../../electron/main/windowRegistry';
 import { getStore } from '../../../electron/main/services/getsshStore';
+import { getRustCorePath } from '../../../electron/main/utils/rustCorePath';
 import { appLock } from '../../../electron/main/security/appLock';
 import { writeSecretFile } from '../../../electron/main/security/secretStore';
 import { safeStorage } from 'electron';
@@ -577,6 +578,11 @@ async function run(): Promise<string> {
       ];
       writeV2Profiles(userData, master, rows);
       fs.writeFileSync(marker('v2-snapshot.json'), JSON.stringify(v2Files(userData)));
+      // A plugin's storage as 2.0's SqliteStorageEngine kept it: userData/plugin_data/<name>.db.
+      const kv = require(getRustCorePath('getssh-kv'));
+      fs.mkdirSync(path.join(userData, 'plugin_data'));
+      kv.initDb(path.join(userData, 'plugin_data', 'notes.db'));
+      kv.setVal(path.join(userData, 'plugin_data', 'notes.db'), 'text', JSON.stringify('kept from 2.0'));
       return 'GETSSH 2.0 files written';
     }
 
@@ -597,7 +603,12 @@ async function run(): Promise<string> {
       const after = new Map(v2Files(app.getPath('userData')));
       assert.equal(before.size, 2);
       for (const [file, content] of before) assert.equal(after.get(file), content, `${file} left as it was`);
-      return 'GETSSH 2.0 servers imported';
+      // The plugin's 2.0 storage is in the main workspace before any plugin runs.
+      const kv = require(getRustCorePath('getssh-kv'));
+      const notes = path.join(os.homedir(), '.getssh', 'workspaces', 'default', 'plugins', 'notes.db');
+      assert.equal(JSON.parse(kv.getVal(notes, 'text')), 'kept from 2.0');
+      assert.ok(fs.existsSync(path.join(app.getPath('userData'), 'plugin_data', 'notes.db')), '2.0 keeps its plugin data');
+      return 'GETSSH 2.0 servers and plugin data imported';
     }
 
     case 'v2-again': {

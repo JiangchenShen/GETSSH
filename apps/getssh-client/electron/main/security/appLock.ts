@@ -4,6 +4,7 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import type { AppState, LegacySecrets, StartReport, UnlockRoute } from '../../../../../rust-core/getssh-store/store';
 import { configureStore, getStore, storeBaseDir, storeMode, toStoreError } from '../services/getsshStore';
 import { runAutomaticV2Import } from '../services/legacyV2Profiles';
+import { importV2PluginData } from '../services/legacyV2PluginData';
 import { isValidWorkspaceId } from '../utils/workspaceId';
 import { decryptSecret } from './secretStore';
 
@@ -229,10 +230,11 @@ class AppLock {
   }
 
   /**
-   * The servers saved by GETSSH 2.0 (profiles.enc / profiles.json in Electron's userData) are
-   * imported into the MAIN workspace once, before any window loads the profile list: a window
-   * that held the list from before would replace it on its next save. Every caller waits for the
-   * same import, so 'ready' is never announced while it is still saving. Never throws.
+   * The servers saved by GETSSH 2.0 (profiles.enc / profiles.json in Electron's userData) and its
+   * plugins' storage are imported into the MAIN workspace once, before any window loads the
+   * profile list (a window that held the list from before would replace it on its next save) and
+   * before any plugin runs. Every caller waits for the same import, so 'ready' is never announced
+   * while it is still saving. Never throws.
    */
   private importV2Profiles(): Promise<void> {
     if (storeMode() !== 'native') return Promise.resolve();
@@ -243,6 +245,9 @@ class AppLock {
       } catch (error) {
         console.warn('[AppLock] Importing the servers of GETSSH 2.0 failed:', error);
       }
+      // Before 'ready', so before any plugin is loaded and creates a file of its own.
+      const plugins = importV2PluginData(app.getPath('userData'), app.getPath('home'));
+      if (plugins.status !== 'nothing' && plugins.status !== 'already') console.log('[AppLock] GETSSH 2.0 plugin data:', plugins);
     })();
     return this.v2Import;
   }
