@@ -97,12 +97,21 @@ function packedNodeModules() {
 
 // --- Rust crates ---
 
+/** The Rust target this machine builds for: packages are built on the OS and CPU they ship to. */
+function hostTarget() {
+  const host = /^host: (\S+)$/m.exec(execFileSync('rustc', ['-vV'], { encoding: 'utf8' }))?.[1];
+  if (!host) fail('rustc -vV did not name the host target');
+  return host;
+}
+
 function rustCrates() {
   let raw;
   try {
-    raw = execFileSync('cargo', ['metadata', '--format-version', '1', '--locked', '--offline'], { cwd: REPO_DIR, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8' });
+    // Only the crates of this target: the others are not in the package (and their sources may
+    // not have been downloaded, which cargo needs to read their manifests).
+    raw = execFileSync('cargo', ['metadata', '--format-version', '1', '--locked', '--filter-platform', hostTarget()], { cwd: REPO_DIR, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
-    fail(`cargo metadata failed: ${error.message}`);
+    fail(`cargo metadata failed: ${error.stderr || error.message}`);
   }
   const metadata = JSON.parse(raw);
   const members = new Set(metadata.workspace_members);
