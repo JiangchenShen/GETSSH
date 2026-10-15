@@ -1,0 +1,64 @@
+name: Dependency Audit
+
+# Known vulnerabilities in the npm and Rust dependencies: on every push and pull request, and
+# weekly, since a new advisory can arrive without any change here. A separate workflow from the
+# sandbox matrix, so an advisory in a build tool shows up without blocking that one.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - v3-next
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm:
+    name: npm advisories (high and critical)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11.2.2
+
+      # Reads pnpm-lock.yaml; installs nothing. Every dependency counts, not only the packed ones:
+      # the window's libraries are devDependencies that Vite bundles into the app.
+      - name: pnpm audit
+        run: pnpm audit --audit-level high
+
+  rust:
+    name: RustSec advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Cargo.lock against the RustSec advisory database. Unmaintained-crate notices are printed
+      # but do not fail the job; vulnerabilities do.
+      - name: cargo audit
+        run: cargo audit
