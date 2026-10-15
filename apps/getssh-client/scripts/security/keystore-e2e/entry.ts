@@ -509,6 +509,105 @@ async function run(): Promise<string> {
       return 'connecting by profile id ok';
     }
 
+    case 'ssh-keys': {
+      // Stage B on the real store: a key file imported through the window's channels (two steps,
+      // the passphrase after the file), a generated key, and a server's key file moved into the
+      // store; each one logs in to an SSH server on 127.0.0.1 that accepts only public keys.
+      await appLock.start();
+      const userKeys = path.join(os.homedir(), 'keys');
+      fs.mkdirSync(userKeys);
+      const pair = sshUtils.generateKeyPairSync('ed25519', { passphrase: 'file-passphrase', cipher: 'aes256-ctr', rounds: 4, comment: 'e2e' });
+      const keyFile = path.join(userKeys, 'id_e2e');
+      fs.writeFileSync(keyFile, pair.private, { mode: 0o600 });
+      const call = mainWindowChannels({ open: keyFile });
+      const win = BrowserWindow.getAllWindows()[0];
+      type Handler = (event: unknown, ...args: unknown[]) => any;
+      const ssh = new Map<string, Handler>();
+      registerSshHandlers({ handle: (channel: string, run: Handler) => ssh.set(channel, run), on: (channel: string, run: Handler) => ssh.set(channel, run) } as unknown as Electron.IpcMain, app, () => win);
+      const event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+
+      const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const hostKey = privateKey.export({ type: 'pkcs1', format: 'pem' }) as string;
+      const allowed: Buffer[] = [];
+      const logins: string[] = [];
+      const server = new SshServer({ hostKeys: [hostKey] }, connection => {
+        connection.on('authentication', context => {
+          if (context.method !== 'publickey') return context.reject(['publickey']);
+          const offered = Buffer.from(context.key.data);
+          if (!allowed.some(key => key.equals(offered))) return context.reject(['publickey']);
+          if (!context.signature) return context.accept();
+          const parsed = sshUtils.parseKey(Buffer.concat([Buffer.from(`${context.key.algo} `), Buffer.from(offered.toString('base64'))]));
+          if (parsed instanceof Error || Array.isArray(parsed) || parsed.verify(context.blob!, context.signature, context.hashAlgo) !== true) return context.reject();
+          logins.push(`${context.username}:${offered.toString('base64').slice(-8)}`);
+          context.accept();
+        });
+        connection.on('session', accept => {
+          const session = accept();
+          session.on('pty', acceptPty => acceptPty?.());
+          session.on('shell', acceptShell => acceptShell().write('ready\n'));
+        });
+        connection.on('error', () => {});
+      });
+      const port = await new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)));
+      const parsedHost = sshUtils.parseKey(hostKey);
+      if (parsedHost instanceof Error || Array.isArray(parsedHost)) throw new Error('could not read the test host key');
+      const hostFingerprint = 'SHA256:' + crypto.createHash('sha256').update(parsedHost.getPublicSSH()).digest('base64').replace(/=*$/, '');
+      fs.writeFileSync(path.join(app.getPath('userData'), 'known_hosts.json'), JSON.stringify({ [`127.0.0.1:${port}`]: { host: '127.0.0.1', port, fingerprint: hostFingerprint, trustedAt: 1 } }));
+      const connect = (profileId: string) => ssh.get('ssh-connect')!(event, { protocol: 'ssh', keepaliveInterval: 0, profileId, workspaceId: 'default', host: '127.0.0.1', port, username: 'x' });
+      const blobOf = (publicKey: string) => Buffer.from(publicKey.split(' ')[1], 'base64');
+
+      // 1. The file, then its passphrase; the file stays where it is.
+      const chosen = await call('store:ssh-keys:choose-file', {});
+      assert.deepEqual([chosen.ok, chosen.encrypted, chosen.fileName], [true, true, 'id_e2e'], JSON.stringify(chosen));
+      assert.equal((await call('store:ssh-keys:import', { workspaceId: 'default', fileId: chosen.fileId })).error, 'needs_password');
+      const imported = await call('store:ssh-keys:import', { workspaceId: 'default', fileId: chosen.fileId, passphrase: 'file-passphrase' });
+      assert.ok(imported.ok && imported.key.hasPassphrase && imported.key.algorithm === 'ed25519', JSON.stringify(imported));
+      assert.equal(imported.key.publicKey.split(' ')[1], pair.public.split(' ')[1]);
+      assert.ok(fs.existsSync(keyFile));
+      allowed.push(blobOf(imported.key.publicKey));
+
+      // 2. A key made by GETSSH.
+      const generated = await call('store:ssh-keys:generate', { workspaceId: 'default', name: 'made here' });
+      assert.ok(generated.ok, JSON.stringify(generated));
+      allowed.push(blobOf(generated.key.publicKey));
+
+      DM.saveProfiles('default', [
+        { id: 'by-import', host: '127.0.0.1', port, username: 'import-user', authType: 'key', keyId: imported.key.id },
+        { id: 'by-generate', host: '127.0.0.1', port, username: 'generate-user', authType: 'key', keyId: generated.key.id },
+        { id: 'by-file', host: '127.0.0.1', port, username: 'file-user', authType: 'key', privateKeyPath: '~/keys/id_e2e', passphrase: 'file-passphrase' },
+      ]);
+      const sessions: string[] = [];
+      for (const id of ['by-import', 'by-generate', 'by-file']) {
+        const result = await connect(id);
+        assert.ok(result.success, `${id}: ${JSON.stringify(result)}`);
+        sessions.push(result.sessionId);
+      }
+      assert.deepEqual(logins.map(login => login.split(':')[0]), ['import-user', 'generate-user', 'file-user']);
+
+      // 3. A server's key file into the store (the file kept: the e2e never touches the Trash).
+      const moved = await call('store:ssh-keys:import-profile-file', { workspaceId: 'default', profileId: 'by-file', trashOriginal: false });
+      assert.ok(moved.ok && moved.trashed === false && !moved.kept, JSON.stringify(moved));
+      const byFile = moved.profiles.find((p: { id: string }) => p.id === 'by-file');
+      assert.deepEqual([byFile.keyId, byFile.privateKeyPath, byFile.authType], [moved.key.id, null, 'key']);
+      fs.renameSync(keyFile, `${keyFile}.moved-away`);
+      const fromStore = await connect('by-file');
+      assert.ok(fromStore.success, JSON.stringify(fromStore));
+      sessions.push(fromStore.sessionId);
+      assert.equal(logins.length, 4, 'logged in with the stored copy, the file is gone');
+
+      // 4. Deleting a key leaves its server without one; the list says so.
+      const deleted = await call('store:ssh-keys:delete', { workspaceId: 'default', id: generated.key.id });
+      assert.equal(deleted.profiles.find((p: { id: string }) => p.id === 'by-generate').keyId, null);
+      const listed = await call('store:ssh-keys:list', { workspaceId: 'default' });
+      assert.deepEqual(listed.keys.map((k: { name: string }) => k.name).sort(), ['id_e2e', 'id_e2e'], JSON.stringify(listed));
+      assert.ok(!JSON.stringify([imported, generated, moved, deleted, listed]).includes('PRIVATE KEY'), 'no private key reaches the window');
+
+      for (const id of sessions) ssh.get('ssh-disconnect')!(event, id);
+      server.close();
+      win.destroy();
+      return 'SSH keys imported, generated and moved into the store, and used to log in';
+    }
+
     case 'asset-folders': {
       // Folder operations never reach a locked workspace: its key is simply not in memory.
       await appLock.start();
@@ -714,7 +813,10 @@ async function run(): Promise<string> {
       assert.equal(await call('save-profiles', { payload: [{ id: 'web', host: 'web.example', username: 'root', password: 'pw-web' }], workspaceId: 'default' }), true);
       assert.equal((await call('workspace:create', 'team', { name: 'Team' })).success, true);
       assert.deepEqual(await call('workspace:set-password', { workspaceId: 'team', password: 'team-password' }), { ok: true });
-      DM.saveProfiles('team', [{ id: 'db', host: 'db.example', username: 'dba', password: 'pw-db' }]);
+      // A stored SSH key with its passphrase travels in the backup like the passwords.
+      const teamKeyBlob = Buffer.concat([Buffer.from([0, 0, 0, 11]), Buffer.from('ssh-ed25519'), Buffer.from([0, 0, 0, 32]), crypto.randomBytes(32)]);
+      const teamKey = getStore().importSshKey('team', { name: 'team-key', data: Buffer.from('TEAM KEY BYTES'), passphrase: 'team-key-pass', publicKey: teamKeyBlob });
+      DM.saveProfiles('team', [{ id: 'db', host: 'db.example', username: 'dba', password: 'pw-db', authType: 'key', keyId: teamKey.id }]);
       DM.lockWorkspace('team');
 
       const candidates = await call('store:backup:candidates', {});
@@ -733,7 +835,9 @@ async function run(): Promise<string> {
       assert.equal(exported.report.path, marker('backup.getssh-backup'));
       assert.deepEqual([...exported.report.workspaceIds].sort(), ['default', 'team']);
       assert.ok(fs.statSync(exported.report.path).size > 0);
-      assert.ok(!fs.readFileSync(exported.report.path).includes(Buffer.from('pw-web')), 'the backup file is encrypted');
+      for (const secret of ['pw-web', 'TEAM KEY BYTES', 'team-key-pass']) {
+        assert.ok(!fs.readFileSync(exported.report.path).includes(Buffer.from(secret)), `the backup file is encrypted (${secret})`);
+      }
       // Changed after the export, so the import has something to undo.
       DM.saveProfiles('default', [{ id: 'later', host: 'later.example', username: 'root' }]);
       return 'encrypted backup exported through the window channels';
@@ -768,6 +872,9 @@ async function run(): Promise<string> {
       assert.equal(DM.isWorkspaceOpen('team'), false, 'a workspace with its own password stays locked');
       assert.equal(await DM.unlockWorkspaceWithPassword('team', 'team-password'), true);
       assert.deepEqual(hosts('team'), ['db.example:pw-db']);
+      assert.deepEqual(getStore().listSshKeys('team').map(key => [key.name, key.hasPassphrase]), [['team-key', true]]);
+      const teamSecrets = getStore().connectSecrets('team', 'db');
+      assert.deepEqual([teamSecrets.privateKey?.toString(), teamSecrets.passphrase?.toString()], ['TEAM KEY BYTES', 'team-key-pass'], 'the stored key and its passphrase are back');
       assert.ok(fs.existsSync(fs.readFileSync(marker('backup-old-data.txt'), 'utf8')), 'the old data folder is still there after the relaunch');
       return 'backup restored after the relaunch';
     }

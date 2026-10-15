@@ -571,6 +571,60 @@ pub fn copy_profiles(from_workspace_id: String, to_workspace_id: String, ids: Ve
     sync(|s| s.copy_profiles(&from_workspace_id, &to_workspace_id, &ids, include_runbooks))
 }
 
+// ───────────────────────────────── SSH keys (stage B) ─────────────────────────────────
+
+#[napi(object)]
+pub struct SshKey {
+    pub id: String,
+    pub name: String,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub public_key: String,
+    pub has_passphrase: bool,
+    #[napi(js_name = "created_at")]
+    pub created_at: f64,
+}
+
+impl From<crate::ssh_keys::SshKey> for SshKey {
+    fn from(k: crate::ssh_keys::SshKey) -> Self {
+        SshKey {
+            id: k.id,
+            name: k.name,
+            algorithm: k.algorithm,
+            fingerprint: k.fingerprint,
+            public_key: k.public_key,
+            has_passphrase: k.has_passphrase,
+            created_at: k.created_at as f64,
+        }
+    }
+}
+
+#[napi(object)]
+pub struct SshKeyInput {
+    pub name: String,
+    pub data: Buffer,
+    pub passphrase: Option<String>,
+    /// Optional here only so that a missing blob is invalid_argument, as in store.fake.js.
+    pub public_key: Option<Buffer>,
+}
+
+#[napi]
+pub fn import_ssh_key(workspace_id: String, input: SshKeyInput) -> napi::Result<SshKey> {
+    let passphrase = input.passphrase.map(Zeroizing::new);
+    let public_key = input.public_key.ok_or_else(|| js_error(StoreError::invalid("publicKey must be a Buffer")))?;
+    sync(|s| Ok(s.import_ssh_key(&workspace_id, &input.name, &input.data, passphrase.as_deref().map(|p| p.as_str()), &public_key)?.into()))
+}
+
+#[napi]
+pub fn list_ssh_keys(workspace_id: String) -> napi::Result<Vec<SshKey>> {
+    sync(|s| Ok(s.list_ssh_keys(&workspace_id)?.into_iter().map(Into::into).collect()))
+}
+
+#[napi]
+pub fn delete_ssh_key(workspace_id: String, id: String) -> napi::Result<()> {
+    sync(|s| s.delete_ssh_key(&workspace_id, &id))
+}
+
 // ─────────────────────────── secrets (main process only) ───────────────────────────
 
 #[napi(object)]

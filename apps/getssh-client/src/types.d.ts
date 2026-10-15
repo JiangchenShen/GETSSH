@@ -203,12 +203,32 @@ declare global {
           show: (request: { workspaceId: string; profileId: string; field: import('./types/store').SecretField; language?: import('./types/store').RevealLanguage }) => Promise<import('./types/store').StoreResult>;
           close: (request: { workspaceId: string }) => Promise<import('./types/store').StoreResult>;
         };
+        /** Private keys kept in the store; the key and its passphrase never reach the window. */
         sshKeys: {
+          /** Oldest first. */
           list: (request: { workspaceId: string }) => Promise<import('./types/store').StoreResult<{ keys: import('./types/store').SshKey[] }>>;
-          /** Opens a file dialog in the main process; `name` defaults to the file name. */
-          importFile: (request: { workspaceId: string; name?: string; passphrase?: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
+          /**
+           * Opens a file dialog in the main process (starting in ~/.ssh) and checks the file. The
+           * `fileId` is good for 10 minutes; `encrypted` says whether `import` needs a passphrase.
+           */
+          chooseFile: () => Promise<import('./types/store').StoreResult<{ fileId: string; fileName: string; encrypted: boolean }>>;
+          /** `name` defaults to the file name. After needs_password / wrong_password the fileId still works. */
+          import: (request: { workspaceId: string; fileId: string; name?: string; passphrase?: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
+          /** A new Ed25519 key; `key.publicKey` is the line for the server's authorized_keys. */
           generate: (request: { workspaceId: string; name: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
-          delete: (request: { workspaceId: string; id: string }) => Promise<import('./types/store').StoreResult>;
+          /** Servers that used the key get keyId null. The list is saved: take `profiles`, do not save it again. */
+          delete: (request: { workspaceId: string; id: string }) => Promise<import('./types/store').StoreResult<{ profiles: import('./store/sessionStore').SessionProfile[] }>>;
+          /**
+           * Imports the key file a saved server uses (privateKeyPath); every server of the workspace
+           * using that file switches to the stored key. With trashOriginal the file goes to the
+           * Trash unless `kept` says why not. The list is saved: take `profiles`, do not save it again.
+           */
+          importProfileFile: (request: { workspaceId: string; profileId: string; passphrase?: string; trashOriginal: boolean }) => Promise<import('./types/store').StoreResult<{
+            key: import('./types/store').SshKey;
+            profiles: import('./store/sessionStore').SessionProfile[];
+            trashed: boolean;
+            kept?: 'used_elsewhere' | 'workspaces_locked' | 'trash_failed';
+          }>>;
         };
         backup: {
           candidates: () => Promise<import('./types/store').StoreResult<{ candidates: import('./types/store').ExportCandidate[] }>>;

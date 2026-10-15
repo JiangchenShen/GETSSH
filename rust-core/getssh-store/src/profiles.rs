@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 
 use crate::error::{Code, StoreError, StoreResult};
 use crate::sqlite::{Connection, Row, SqlResult, Value};
+use crate::ssh_keys;
 use crate::store::{workspace_scope, Store};
 
 const PROTOCOLS: &[&str] = &["ssh", "local", "telnet", "auto"];
@@ -110,9 +111,10 @@ const COLUMN_COUNT: usize = 21;
 const KEY_ID: usize = 17;
 const PASSWORD: usize = 19;
 const PASSPHRASE: usize = 20;
-const KEY_COLUMNS: &str = "id, name, algorithm, fingerprint, public_key, private_key, has_passphrase, created_at";
-const KEY_COLUMN_COUNT: usize = 8;
+const KEY_COLUMNS: &str = "id, name, algorithm, fingerprint, public_key, private_key, has_passphrase, created_at, passphrase";
+const KEY_COLUMN_COUNT: usize = 9;
 const KEY_PRIVATE: usize = 5;
+const KEY_PASSPHRASE: usize = 8;
 
 fn read_profile(row: &Row<'_, '_>) -> SqlResult<Profile> {
     let flag = |i: usize, default: bool| -> SqlResult<bool> { Ok(row.optional_integer(i)?.map(|v| v != 0).unwrap_or(default)) };
@@ -242,6 +244,11 @@ impl<D: Device> Store<D> {
         let scope = workspace_scope(workspace_id)?;
         let ks = self.keystore();
         self.with_workspace(workspace_id, |conn| {
+            // A keyId must name a key of this workspace (store.fake.js refuses the same way).
+            let keys: HashSet<String> = conn.query_map("SELECT id FROM ssh_keys", &[], |r| Ok(r.text(0)?.unwrap_or_default()))?.into_iter().collect();
+            if let Some(input) = inputs.iter().find(|p| p.key_id.as_ref().is_some_and(|id| !id.is_empty() && !keys.contains(id))) {
+                return Err(StoreError::invalid(format!("profile \"{}\": keyId is not an SSH key of this workspace", input.id)));
+            }
             let existing: HashMap<String, (Option<String>, Option<String>)> = conn
                 .query_map("SELECT id, password, passphrase FROM profiles WHERE workspace_id = ?", &[workspace_id.into()], |r| {
                     Ok((r.text(0)?.unwrap_or_default(), (r.text(1)?, r.text(2)?)))
@@ -288,7 +295,7 @@ impl<D: Device> Store<D> {
                             p.initial_directory.clone().into(),
                             p.post_connect_script.clone().into(),
                             p.theme_override.clone().into(),
-                            p.key_id.clone().into(),
+                            p.key_id.clone().filter(|id| !id.is_empty()).into(),
                             p.private_key_path.clone().into(),
                             password.clone(),
                             passphrase.clone(),
@@ -389,7 +396,8 @@ impl<D: Device> Store<D> {
         let mut copied_keys = Vec::with_capacity(keys.len());
         for mut key in keys {
             let id = text_at(&key, 0);
-            key[KEY_PRIVATE] = reseal(&key[KEY_PRIVATE], &format!("ssh_key|{id}|private"))?;
+            key[KEY_PRIVATE] = reseal(&key[KEY_PRIVATE], &ssh_keys::private_context(&id))?;
+            key[KEY_PASSPHRASE] = reseal(&key[KEY_PASSPHRASE], &ssh_keys::passphrase_context(&id))?;
             copied_keys.push(key);
         }
 
@@ -398,7 +406,7 @@ impl<D: Device> Store<D> {
             let update_profile = COLUMNS.split(", ").skip(1).map(|c| format!("{c} = excluded.{c}")).collect::<Vec<_>>().join(", ");
             conn.transaction(|c| {
                 for key in copied_keys.iter().filter(|key| !existing_keys.contains(&text_at(key, 0))) {
-                    c.execute(&format!("INSERT INTO ssh_keys ({KEY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"), key)?;
+                    c.execute(&format!("INSERT INTO ssh_keys ({KEY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"), key)?;
                 }
                 for row in &copied {
                     c.execute(
@@ -456,10 +464,18 @@ impl<D: Device> Store<D> {
             .into_iter()
             .find(|p| p.id == profile_id)
             .ok_or_else(|| StoreError::not_found(format!("profile {profile_id}")))?;
-        let private_key = match (&profile.key_id, &profile.private_key_path) {
-            (Some(key_id), _) => Some(self.ssh_private_key(workspace_id, key_id)?),
-            (None, Some(path)) if !path.is_empty() => Some(read_key_file(path)?),
-            _ => None,
+        let (private_key, passphrase) = match (&profile.key_id, &profile.private_key_path) {
+            // The profile's own passphrase wins; otherwise the one stored with the key.
+            (Some(key_id), _) if !key_id.is_empty() => {
+                let key = self.ssh_private_key(workspace_id, key_id)?;
+                let passphrase = match passphrase {
+                    Some(own) => Some(own),
+                    None => self.ssh_key_passphrase(workspace_id, key_id)?,
+                };
+                (Some(key), passphrase)
+            }
+            (None, Some(path)) if !path.is_empty() => (Some(read_key_file(path)?), passphrase),
+            _ => (None, passphrase),
         };
         Ok(ConnectSecrets { password, passphrase, private_key })
     }
@@ -487,7 +503,7 @@ impl<D: Device> Store<D> {
         self.keystore().close_reveal();
     }
 
-    /// The private key bytes of a stored SSH key (phase B fills ssh_keys).
+    /// The private key bytes of a stored SSH key.
     fn ssh_private_key(&self, workspace_id: &str, key_id: &str) -> StoreResult<Zeroizing<Vec<u8>>> {
         let scope = workspace_scope(workspace_id)?;
         let sealed = self.with_workspace(workspace_id, |conn| {
@@ -495,7 +511,7 @@ impl<D: Device> Store<D> {
                 .flatten()
                 .ok_or_else(|| StoreError::not_found(format!("ssh key {key_id}")))
         })?;
-        Ok(self.keystore().open_field(&scope, &format!("ssh_key|{key_id}|private"), &sealed)?)
+        Ok(self.keystore().open_field(&scope, &ssh_keys::private_context(key_id), &sealed)?)
     }
 }
 

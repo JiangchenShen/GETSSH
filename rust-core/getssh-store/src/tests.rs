@@ -1043,7 +1043,7 @@ fn copied_profiles_are_sealed_again_for_the_target_workspace() {
     let env = Env::new();
     let store = env.started();
     store.create_workspace(Some("w2"), "W2", None, None).unwrap();
-    // A stored SSH key, sealed the way phase B will store them.
+    // A stored SSH key, sealed the way import_ssh_key stores them.
     let sealed_key = store.keystore().seal_field("ws:default", "ssh_key|k1|private", b"PRIVATE KEY BYTES").unwrap();
     store
         .with_workspace("default", |c| {
@@ -1123,7 +1123,7 @@ fn ai_memory_stays_with_its_workspace() {
     assert!(store.get_ai_memory_vectors("default", 10.0, None).is_ok());
 }
 
-/// Seals an SSH key into a workspace the way phase B will store them.
+/// Seals an SSH key into a workspace the way import_ssh_key does, under a fixed id.
 fn store_key(store: &Store<FakeDevice>, workspace: &str, id: &str, private: &[u8]) {
     let sealed = store.keystore().seal_field(&format!("ws:{workspace}"), &format!("ssh_key|{id}|private"), private).unwrap();
     store
@@ -1162,6 +1162,141 @@ fn copying_keeps_the_targets_own_key_and_seals_passphrases_too() {
     assert_ne!(source, target, "the passphrase is sealed again");
     let runbooks = store.get_runbooks("w2").unwrap();
     assert_eq!(runbooks.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["target"], "no runbooks without include_runbooks");
+}
+
+// ───────────────────────────── stage B: SSH keys ─────────────────────────────
+
+fn wire(bytes: &[u8]) -> Vec<u8> {
+    let mut out = (bytes.len() as u32).to_be_bytes().to_vec();
+    out.extend_from_slice(bytes);
+    out
+}
+
+fn blob(parts: &[&[u8]]) -> Vec<u8> {
+    parts.iter().flat_map(|part| wire(part)).collect()
+}
+
+fn ed25519_blob(fill: u8) -> Vec<u8> {
+    blob(&[b"ssh-ed25519", &[fill; 32]])
+}
+
+#[test]
+fn ssh_keys_are_sealed_and_described_by_their_public_key() {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let env = Env::new();
+    let store = env.started();
+    let ed = ed25519_blob(7);
+    let key = store.import_ssh_key("default", "laptop", b"PRIVATE KEY DATA", None, &ed).unwrap();
+    assert_eq!((key.algorithm.as_str(), key.has_passphrase), ("ed25519", false));
+    assert_eq!(key.public_key, format!("ssh-ed25519 {} laptop", STANDARD.encode(&ed)));
+    assert_eq!(key.fingerprint, format!("SHA256:{}", STANDARD_NO_PAD.encode(Sha256::digest(&ed))));
+    let (private, passphrase) = store
+        .with_workspace("default", |c| Ok(c.query_row("SELECT private_key, passphrase FROM ssh_keys", &[], |r| Ok((r.text(0)?, r.text(1)?)))?))
+        .unwrap();
+    let private = private.unwrap();
+    assert!(private.starts_with("gk1:") && !private.contains("PRIVATE"), "the key is a sealed field");
+    assert_eq!(passphrase, None);
+
+    let mut modulus = vec![0u8, 0xc0];
+    modulus.extend(std::iter::repeat_n(0u8, 383));
+    let named = |public: &[u8]| store.import_ssh_key("default", "k", b"k", None, public).map(|k| k.algorithm);
+    assert_eq!(named(&blob(&[b"ssh-rsa", &[1, 0, 1], &modulus])).unwrap(), "rsa-3072");
+    let point = [4u8; 97];
+    assert_eq!(named(&blob(&[b"ecdsa-sha2-nistp384", b"nistp384", &point])).unwrap(), "ecdsa-p384");
+    assert_eq!(named(&blob(&[b"ecdsa-sha2-nistp521", b"nistp521", &point])).unwrap(), "ecdsa-p521");
+    assert_eq!(named(&blob(&[b"ssh-dss", &[1], &[2], &[3], &[4]])).unwrap(), "dsa");
+    for junk in [
+        b"hello".to_vec(),
+        [ed.clone(), vec![0]].concat(),
+        blob(&[b"ssh-ed25519", &[1; 31]]),
+        blob(&[b"ecdsa-sha2-nistp256", b"nistp384", &point]),
+        blob(&[b"sk-ssh-ed25519@openssh.com", &[1; 32]]),
+        blob(&[b"ssh-rsa", &[1, 0, 1]]),
+    ] {
+        assert_eq!(named(&junk).err().unwrap().code, Code::InvalidArgument, "{junk:?}");
+    }
+    let refused = |name: &str, data: &[u8]| store.import_ssh_key("default", name, data, None, &ed).err().unwrap().code;
+    assert_eq!(refused("k", b""), Code::InvalidArgument);
+    assert_eq!(refused("k", &vec![1u8; 64 * 1024 + 1]), Code::InvalidArgument);
+    assert_eq!(refused("  ", b"k"), Code::InvalidArgument);
+    assert_eq!(refused("tab\tname", b"k"), Code::InvalidArgument);
+    assert_eq!(refused(&"x".repeat(129), b"k"), Code::InvalidArgument);
+    assert!(store.import_ssh_key("default", &"x".repeat(128), b"k", None, &ed).is_ok());
+    assert_eq!(store.import_ssh_key("ghost", "k", b"k", None, &ed).err().unwrap().code, Code::NotFound);
+
+    let names: Vec<String> = store.list_ssh_keys("default").unwrap().into_iter().map(|k| k.name).collect();
+    assert_eq!(names.len(), 6);
+    assert_eq!(names[0], "laptop", "oldest first");
+    drop(store);
+    let store = env.started();
+    assert_eq!(store.list_ssh_keys("default").unwrap()[0], key, "kept across a restart");
+}
+
+#[test]
+fn deleting_a_key_leaves_its_profiles_without_one_and_an_unknown_key_id_is_refused() {
+    let env = Env::new();
+    let store = env.started();
+    let key = store.import_ssh_key("default", "deploy", b"KEY", None, &ed25519_blob(1)).unwrap();
+    let keyed = |id: &str, key_id: &str| ProfileInput { key_id: Some(key_id.into()), auth_type: Some("key".into()), ..profile(id, SecretUpdate::Keep) };
+    store.save_profiles("default", &[keyed("a", &key.id), profile("b", SecretUpdate::Keep)]).unwrap();
+    assert_eq!(store.save_profiles("default", &[keyed("c", "ghost")]).err().unwrap().code, Code::InvalidArgument);
+    assert_eq!(store.list_profiles("default").unwrap().len(), 2, "a refused save changes nothing");
+    // An empty keyId means none.
+    store.save_profiles("default", &[keyed("a", &key.id), keyed("e", "")]).unwrap();
+    assert_eq!(store.list_profiles("default").unwrap()[1].key_id, None);
+    store.delete_ssh_key("default", &key.id).unwrap();
+    assert!(store.list_ssh_keys("default").unwrap().is_empty());
+    assert_eq!(store.list_profiles("default").unwrap()[0].key_id, None);
+    assert_eq!(store.delete_ssh_key("default", &key.id).err().unwrap().code, Code::NotFound);
+    assert_eq!(store.save_profiles("default", &[keyed("a", &key.id)]).err().unwrap().code, Code::InvalidArgument);
+}
+
+#[test]
+fn a_stored_key_brings_its_passphrase_unless_the_profile_has_one() {
+    let env = Env::new();
+    let store = env.started();
+    let key = store.import_ssh_key("default", "enc", b"ENCRYPTED KEY", Some("key-pass"), &ed25519_blob(2)).unwrap();
+    assert!(key.has_passphrase);
+    let sealed = store.with_workspace("default", |c| Ok(c.query_row("SELECT passphrase FROM ssh_keys", &[], |r| r.text(0))?)).unwrap().unwrap();
+    assert!(sealed.starts_with("gk1:") && !sealed.contains("key-pass"));
+    let keyed = |id: &str, passphrase: SecretUpdate| ProfileInput { key_id: Some(key.id.clone()), auth_type: Some("key".into()), passphrase, ..profile(id, SecretUpdate::Keep) };
+    store.save_profiles("default", &[keyed("own", SecretUpdate::Keep), keyed("override", set("profile-pass"))]).unwrap();
+    let own = store.connect_secrets("default", "own").unwrap();
+    assert_eq!(own.private_key.unwrap().as_slice(), b"ENCRYPTED KEY");
+    assert_eq!(own.passphrase.unwrap().as_slice(), b"key-pass");
+    assert_eq!(store.connect_secrets("default", "override").unwrap().passphrase.unwrap().as_slice(), b"profile-pass");
+}
+
+#[test]
+fn a_copied_profile_brings_its_key_and_the_keys_passphrase_sealed_again() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("w2"), "W2", None, None).unwrap();
+    let key = store.import_ssh_key("default", "enc", b"KEY BYTES", Some("key-pass"), &ed25519_blob(3)).unwrap();
+    store.save_profiles("default", &[ProfileInput { key_id: Some(key.id.clone()), auth_type: Some("key".into()), ..profile("a", SecretUpdate::Keep) }]).unwrap();
+    store.copy_profiles("default", "w2", &ids(&["a"]), false).unwrap();
+    let copied = store.connect_secrets("w2", "a").unwrap();
+    assert_eq!(copied.private_key.unwrap().as_slice(), b"KEY BYTES");
+    assert_eq!(copied.passphrase.unwrap().as_slice(), b"key-pass");
+    assert_eq!(store.list_ssh_keys("w2").unwrap(), vec![key]);
+    let sealed = |ws: &str| store.with_workspace(ws, |c| Ok(c.query_row("SELECT passphrase FROM ssh_keys", &[], |r| r.text(0))?)).unwrap();
+    assert_ne!(sealed("default"), sealed("w2"), "sealed again for the target");
+}
+
+#[test]
+fn the_keys_of_a_locked_workspace_are_out_of_reach() {
+    let env = Env::new();
+    let store = env.started();
+    store.create_workspace(Some("secret"), "Secret", None, Some("eight-chars")).unwrap();
+    let key = store.import_ssh_key("secret", "k", b"KEY", None, &ed25519_blob(4)).unwrap();
+    store.lock_workspace("secret").unwrap();
+    assert_eq!(store.list_ssh_keys("secret").err().unwrap().code, Code::Locked);
+    assert_eq!(store.import_ssh_key("secret", "k", b"KEY", None, &ed25519_blob(5)).err().unwrap().code, Code::Locked);
+    assert_eq!(store.delete_ssh_key("secret", &key.id).err().unwrap().code, Code::Locked);
+    store.unlock_workspace("secret", pw("eight-chars")).unwrap();
+    assert_eq!(store.list_ssh_keys("secret").unwrap(), vec![key]);
 }
 
 // ───────────────────────────── S4: app-wide secrets ─────────────────────────────

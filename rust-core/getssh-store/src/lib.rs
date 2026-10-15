@@ -21,6 +21,7 @@ pub mod records;
 pub mod rekey;
 pub mod schema;
 pub mod sqlite;
+pub mod ssh_keys;
 pub mod store;
 
 #[cfg(test)]

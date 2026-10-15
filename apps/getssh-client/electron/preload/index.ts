@@ -280,9 +280,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     sshKeys: {
       list: (request: { workspaceId: string }) => ipcRenderer.invoke('store:ssh-keys:list', request),
-      importFile: (request: { workspaceId: string; name?: string; passphrase?: string }) => ipcRenderer.invoke('store:ssh-keys:import', request),
+      chooseFile: () => ipcRenderer.invoke('store:ssh-keys:choose-file', {}),
+      import: (request: { workspaceId: string; fileId: string; name?: string; passphrase?: string }) => ipcRenderer.invoke('store:ssh-keys:import', request),
       generate: (request: { workspaceId: string; name: string }) => ipcRenderer.invoke('store:ssh-keys:generate', request),
       delete: (request: { workspaceId: string; id: string }) => ipcRenderer.invoke('store:ssh-keys:delete', request),
+      importProfileFile: (request: { workspaceId: string; profileId: string; passphrase?: string; trashOriginal: boolean }) =>
+        ipcRenderer.invoke('store:ssh-keys:import-profile-file', request),
     },
     backup: {
       candidates: () => ipcRenderer.invoke('store:backup:candidates', {}),

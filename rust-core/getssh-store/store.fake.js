@@ -63,9 +63,6 @@
  *     disk and migrates that data.
  *   - Bundles use scrypt + AES-256-GCM (no Argon2id, no 64 KiB chunks); the layout is
  *     "GETSSHBK" | u16 version | u32 n | header JSON | u32 n | key area | payload.
- *   - SSH keys: only the public half is parsed (OpenSSH and PuTTY public blobs; PEM through
- *     node:crypto). Passphrases of encrypted OpenSSH and PPK keys are NOT checked; PEM ones are.
- *     generateSshKey writes a real unencrypted OpenSSH ed25519 key.
  *   - Reveal windows are per workspace, exactly as store.d.ts describes them. The real module keys
  *     them by the password that protects the workspace (under a master password one window covers
  *     every workspace) and closeReveal() closes all of them.
@@ -163,7 +160,6 @@ const BUNDLE_KDF = { name: 'scrypt', N: 1 << 14, r: 8, p: 1 };
 const FAKE_APP_VERSION = '3.0.0-fake';
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const CROCKFORD_VALUES = new Map([...CROCKFORD].map((symbol, value) => [symbol, value]));
-const OPENSSH_MAGIC = Buffer.from('openssh-key-v1\0', 'latin1');
 const EC_CURVES = { 'P-256': 'nistp256', 'P-384': 'nistp384', 'P-521': 'nistp521' };
 
 // ─────────────────────────────────────── errors ───────────────────────────────────────
@@ -1183,14 +1179,6 @@ function sshString(value) {
   return Buffer.concat([length, body]);
 }
 
-function sshMpint(bytes) {
-  let start = 0;
-  while (start < bytes.length - 1 && bytes[start] === 0) start += 1;
-  let value = bytes.subarray(start);
-  if (value[0] & 0x80) value = Buffer.concat([Buffer.from([0]), value]);
-  return sshString(value);
-}
-
 function uint32(value) {
   const out = Buffer.alloc(4);
   out.writeUInt32BE(value);
@@ -1212,7 +1200,7 @@ function sshReader(buffer) {
     offset += length;
     return value;
   };
-  return { u32, string };
+  return { u32, string, done: () => offset === buffer.length };
 }
 
 function bitLength(bytes) {
@@ -1222,158 +1210,60 @@ function bitLength(bytes) {
   return (bytes.length - start - 1) * 8 + (32 - Math.clz32(bytes[start]));
 }
 
+const ECDSA_CURVES = { 'ecdsa-sha2-nistp256': ['nistp256', 'ecdsa-p256'], 'ecdsa-sha2-nistp384': ['nistp384', 'ecdsa-p384'], 'ecdsa-sha2-nistp521': ['nistp521', 'ecdsa-p521'] };
+
+/**
+ * The type and algorithm of an SSH public key blob (wire format), as the real module reads it:
+ * ssh-ed25519, ssh-rsa (named by the modulus size), the three NIST ECDSA curves and ssh-dss; any
+ * other type, a missing field or trailing bytes is invalid_argument.
+ */
 function describePublicBlob(blob) {
-  let type;
-  let algorithm;
+  let described;
   try {
     const reader = sshReader(blob);
-    type = reader.string().toString('latin1');
+    const type = reader.string().toString('latin1');
     if (type === 'ssh-ed25519') {
       if (reader.string().length !== 32) throw new RangeError('ed25519 key length');
-      algorithm = 'ed25519';
+      described = { type, algorithm: 'ed25519' };
     } else if (type === 'ssh-rsa') {
       reader.string();
-      algorithm = `rsa-${bitLength(reader.string())}`;
-    } else if (type.startsWith('ecdsa-sha2-nistp')) {
-      algorithm = `ecdsa-p${type.slice('ecdsa-sha2-nistp'.length)}`;
+      described = { type, algorithm: `rsa-${bitLength(reader.string())}` };
+    } else if (ECDSA_CURVES[type]) {
+      if (reader.string().toString('latin1') !== ECDSA_CURVES[type][0] || reader.string().length === 0) throw new RangeError('curve');
+      described = { type, algorithm: ECDSA_CURVES[type][1] };
     } else if (type === 'ssh-dss') {
-      algorithm = 'dsa';
-    } else if (/^[a-z0-9@.-]+$/i.test(type)) {
-      algorithm = type;
+      for (let i = 0; i < 4; i++) reader.string();
+      described = { type, algorithm: 'dsa' };
     } else {
       throw new RangeError('key type');
     }
+    if (!reader.done()) throw new RangeError('trailing bytes');
   } catch {
-    fail('invalid_argument', 'the public key inside this file is damaged');
+    fail('invalid_argument', 'publicKey is not an SSH public key this store accepts');
   }
-  return { type, algorithm };
-}
-
-function publicBlobFromKeyObject(publicKey) {
-  const jwk = publicKey.export({ format: 'jwk' });
-  const raw = value => Buffer.from(value, 'base64url');
-  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') return Buffer.concat([sshString('ssh-ed25519'), sshString(raw(jwk.x))]);
-  if (jwk.kty === 'RSA') return Buffer.concat([sshString('ssh-rsa'), sshMpint(raw(jwk.e)), sshMpint(raw(jwk.n))]);
-  if (jwk.kty === 'EC' && EC_CURVES[jwk.crv]) {
-    const curve = EC_CURVES[jwk.crv];
-    const point = Buffer.concat([Buffer.from([4]), raw(jwk.x), raw(jwk.y)]);
-    return Buffer.concat([sshString(`ecdsa-sha2-${curve}`), sshString(curve), sshString(point)]);
-  }
-  return fail('invalid_argument', `unsupported key type ${jwk.kty}${jwk.crv ? ` ${jwk.crv}` : ''}`);
-}
-
-function parseOpenSshKey(source, passphrase) {
-  const match = /-----BEGIN OPENSSH PRIVATE KEY-----([\s\S]*?)-----END OPENSSH PRIVATE KEY-----/.exec(source);
-  if (!match) fail('invalid_argument', 'the OpenSSH private key has no END line');
-  const raw = Buffer.from(match[1].replace(/\s+/g, ''), 'base64');
-  let cipher;
-  let blob;
-  try {
-    if (!raw.subarray(0, OPENSSH_MAGIC.length).equals(OPENSSH_MAGIC)) throw new RangeError('magic');
-    const reader = sshReader(raw.subarray(OPENSSH_MAGIC.length));
-    cipher = reader.string().toString('latin1');
-    reader.string(); // kdf name
-    reader.string(); // kdf options
-    if (reader.u32() !== 1) throw new RangeError('key count');
-    blob = Buffer.from(reader.string());
-  } catch {
-    fail('invalid_argument', 'the OpenSSH private key is damaged');
-  }
-  const encrypted = cipher !== 'none';
-  if (encrypted && !passphrase) fail('needs_password', 'this key is protected by a passphrase');
-  return { blob, encrypted };
-}
-
-function parsePuttyKey(source, passphrase) {
-  const lines = source.split(/\r?\n/).map(line => line.trim());
-  const encryption = lines.find(line => line.startsWith('Encryption:'))?.slice('Encryption:'.length).trim();
-  const countAt = lines.findIndex(line => /^Public-Lines: \d+$/.test(line));
-  if (!encryption || countAt < 0) fail('invalid_argument', 'the PuTTY key is damaged');
-  const count = Number(lines[countAt].slice('Public-Lines:'.length));
-  const blob = Buffer.from(lines.slice(countAt + 1, countAt + 1 + count).join(''), 'base64');
-  if (blob.length === 0) fail('invalid_argument', 'the PuTTY key is damaged');
-  const encrypted = encryption !== 'none';
-  if (encrypted && !passphrase) fail('needs_password', 'this key is protected by a passphrase');
-  return { blob, encrypted };
-}
-
-function parsePemKey(source, passphrase) {
-  const encrypted = /ENCRYPTED/.test(source);
-  if (encrypted && !passphrase) fail('needs_password', 'this key is protected by a passphrase');
-  let privateKey;
-  try {
-    privateKey = crypto.createPrivateKey(encrypted ? { key: source, format: 'pem', passphrase } : { key: source, format: 'pem' });
-  } catch {
-    fail(encrypted ? 'wrong_password' : 'invalid_argument', encrypted ? 'wrong passphrase for this key' : 'the PEM private key is damaged');
-  }
-  return { blob: publicBlobFromKeyObject(crypto.createPublicKey(privateKey)), encrypted };
-}
-
-function parsePrivateKey(data, passphrase) {
-  const source = data.toString('utf8');
-  if (source.includes('-----BEGIN OPENSSH PRIVATE KEY-----')) return parseOpenSshKey(source, passphrase);
-  if (/^PuTTY-User-Key-File-[23]:/m.test(source)) return parsePuttyKey(source, passphrase);
-  if (/-----BEGIN (?:RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/.test(source)) return parsePemKey(source, passphrase);
-  return fail('invalid_argument', 'not an OpenSSH, PEM or PuTTY private key');
-}
-
-function sshKeyRecord(name, blob, encrypted, privateKey, passphrase) {
-  const { type, algorithm } = describePublicBlob(blob);
-  return {
-    id: crypto.randomUUID(),
-    name,
-    algorithm,
-    fingerprint: `SHA256:${crypto.createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')}`,
-    publicKey: `${type} ${blob.toString('base64')} ${name}`,
-    hasPassphrase: encrypted,
-    created_at: now(),
-    privateKey: Buffer.from(privateKey),
-    passphrase: encrypted ? passphrase : null,
-  };
-}
-
-/** A real, unencrypted OpenSSH ("openssh-key-v1") ed25519 private key. */
-function generateEd25519(comment) {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
-  const pub = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url');
-  const seedBytes = Buffer.from(privateKey.export({ format: 'jwk' }).d, 'base64url');
-  const blob = Buffer.concat([sshString('ssh-ed25519'), sshString(pub)]);
-  const check = crypto.randomBytes(4);
-  const secretPart = Buffer.concat([
-    check, check, sshString('ssh-ed25519'), sshString(pub), sshString(Buffer.concat([seedBytes, pub])), sshString(comment),
-  ]);
-  const padding = [];
-  for (let i = 1; (secretPart.length + padding.length) % 8 !== 0; i += 1) padding.push(i);
-  const body = Buffer.concat([
-    OPENSSH_MAGIC, sshString('none'), sshString('none'), sshString(Buffer.alloc(0)), uint32(1),
-    sshString(blob), sshString(Buffer.concat([secretPart, Buffer.from(padding)])),
-  ]);
-  seedBytes.fill(0);
-  const lines = body.toString('base64').match(/.{1,70}/g).join('\n');
-  return { blob, pem: Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${lines}\n-----END OPENSSH PRIVATE KEY-----\n`, 'utf8') };
+  return described;
 }
 
 function importSshKey(workspaceId, input) {
   const ws = requireOpenWorkspace(workspaceId);
   if (!isPlainObject(input)) fail('invalid_argument', 'input must be an object');
   const name = displayName(input.name, 'name');
-  if (!(input.data instanceof Uint8Array) || input.data.length === 0) fail('invalid_argument', 'data must be a non-empty Buffer');
-  const passphrase = input.passphrase === undefined || input.passphrase === null || input.passphrase === ''
-    ? null : text(input.passphrase, 'passphrase');
-  const data = Buffer.from(input.data);
-  const { blob, encrypted } = parsePrivateKey(data, passphrase);
-  const key = sshKeyRecord(name, blob, encrypted, data, passphrase);
-  ws.sshKeys.push(key);
-  return sshKeyRow(key);
-}
-
-function generateSshKey(workspaceId, input) {
-  const ws = requireOpenWorkspace(workspaceId);
-  if (!isPlainObject(input)) fail('invalid_argument', 'input must be an object');
-  const name = displayName(input.name, 'name');
-  if (input.algorithm !== 'ed25519') fail('invalid_argument', "algorithm must be 'ed25519'");
-  const { blob, pem } = generateEd25519(name);
-  const key = sshKeyRecord(name, blob, false, pem, null);
+  if (!(input.data instanceof Uint8Array) || input.data.length === 0 || input.data.length > 64 * 1024) fail('invalid_argument', 'data must be a Buffer of 1 to 65536 bytes');
+  if (!(input.publicKey instanceof Uint8Array)) fail('invalid_argument', 'publicKey must be a Buffer');
+  const passphrase = input.passphrase === undefined || input.passphrase === null ? null : text(input.passphrase, 'passphrase');
+  const blob = Buffer.from(input.publicKey);
+  const { type, algorithm } = describePublicBlob(blob);
+  const key = {
+    id: crypto.randomUUID(),
+    name,
+    algorithm,
+    fingerprint: `SHA256:${crypto.createHash('sha256').update(blob).digest('base64').replace(/=+$/, '')}`,
+    publicKey: `${type} ${blob.toString('base64')} ${name}`,
+    hasPassphrase: passphrase !== null,
+    created_at: now(),
+    privateKey: Buffer.from(input.data),
+    passphrase,
+  };
   ws.sshKeys.push(key);
   return sshKeyRow(key);
 }
@@ -2257,7 +2147,6 @@ module.exports = {
   getAppSecret,
   listAppSecretNames,
   importSshKey,
-  generateSshKey,
   listSshKeys,
   deleteSshKey,
   getGlobalSetting,

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { IpcMain } from 'electron';
+import { utils as sshUtils } from 'ssh2';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Runs the store IPC channels against rust-core/getssh-store/store.fake.js, with a temporary HOME.
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => {
       },
     },
     dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn() },
+    shell: { trashItem: vi.fn(async () => undefined) },
     app: {
       isPackaged: false,
       getAppPath: () => process.cwd(),
@@ -39,7 +41,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('electron', () => ({ app: mocks.app, clipboard: mocks.clipboard, dialog: mocks.dialog }));
+vi.mock('electron', () => ({ app: mocks.app, clipboard: mocks.clipboard, dialog: mocks.dialog, shell: mocks.shell }));
 vi.mock('../security/appLock', () => ({
   appLock: {
     isReady: () => mocks.ready.value,
@@ -144,7 +146,7 @@ describe('access', () => {
       const requests: Array<[string, unknown]> = [
         ['store:profiles:list', { workspaceId: 'main' }],
         ['store:reveal:show', { workspaceId: 'main', profileId: 'web', field: 'password' }],
-        ['store:ssh-keys:import', { workspaceId: 'main' }],
+        ['store:ssh-keys:choose-file', {}],
         ['store:backup:candidates', {}],
         ['store:backup:export', { workspaceIds: ['main'], password: EXPORT_PASSWORD }],
         ['store:backup:choose-import-file', {}],
@@ -346,47 +348,161 @@ describe('reveal', () => {
 });
 
 describe('ssh keys', () => {
-  it('generates a key and returns only its public half', async () => {
+  /** What the store keeps for a key (the fake only): the private key ssh2 gets, and its passphrase. */
+  const storedKey = (id: string, workspace = 'main') => fake.__fake.secretsFor(workspace).sshKeys[id] as { privateKey: string; passphrase: string | null };
+  const publicBase64 = (privateKey: string, passphrase?: string) => {
+    const parsed = sshUtils.parseKey(Buffer.from(privateKey), passphrase);
+    if (parsed instanceof Error) throw parsed;
+    return (Array.isArray(parsed) ? parsed[0] : parsed).getPublicSSH().toString('base64');
+  };
+  /** An RSA key file as `ssh-keygen -m PEM` writes it, encrypted with `passphrase`. */
+  const rsaPem = (passphrase: string) => crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
+    .export({ type: 'pkcs1', format: 'pem', cipher: 'aes-256-cbc', passphrase }) as string;
+  const pick = (file: string) => mocks.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [file] });
+
+  it('generates an Ed25519 key in the main process; only its public half comes back', async () => {
     await boot();
     const result = await call('store:ssh-keys:generate', { workspaceId: 'main', name: 'laptop' });
-    expect(result.ok).toBe(true);
-    expect(result.key.publicKey).toMatch(/^ssh-ed25519 /);
+    expect(result).toMatchObject({ ok: true, key: { name: 'laptop', algorithm: 'ed25519', hasPassphrase: false } });
+    expect(result.key.publicKey).toMatch(/^ssh-ed25519 \S+ laptop$/);
     expectNoSecrets(result);
+    // What ssh2 will read at connect has the public key the window shows.
+    expect(publicBase64(storedKey(result.key.id).privateKey)).toBe(result.key.publicKey.split(' ')[1]);
     const listed = await call('store:ssh-keys:list', { workspaceId: 'main' });
-    expect(listed.ok).toBe(true);
     expect(listed.keys.map((key: { id: string }) => key.id)).toEqual([result.key.id]);
     expectNoSecrets(listed);
+    expect(await call('store:ssh-keys:generate', { workspaceId: 'main', name: 'x'.repeat(129) })).toEqual({ ok: false, error: 'invalid_argument' });
   });
 
-  it('deletes a key and clears it from the profiles that used it', async () => {
+  it('imports in two steps: the passphrase is asked after the file is chosen, and the file is not picked again', async () => {
+    await boot();
+    const file = path.join(home, 'id_rsa_test');
+    fs.writeFileSync(file, rsaPem('key-passphrase'));
+    pick(file);
+    const chosen = await call('store:ssh-keys:choose-file', {});
+    expect(chosen).toMatchObject({ ok: true, fileName: 'id_rsa_test', encrypted: true });
+    const request = { workspaceId: 'main', fileId: chosen.fileId };
+    expect(await call('store:ssh-keys:import', request)).toEqual({ ok: false, error: 'needs_password' });
+    expect(await call('store:ssh-keys:import', { ...request, passphrase: 'wrong' })).toEqual({ ok: false, error: 'wrong_password' });
+    const imported = await call('store:ssh-keys:import', { ...request, name: '', passphrase: 'key-passphrase' });
+    expect(imported).toMatchObject({ ok: true, key: { name: 'id_rsa_test', algorithm: 'rsa-2048', hasPassphrase: true } });
+    expectNoSecrets(imported);
+    expect(storedKey(imported.key.id).passphrase).toBe('key-passphrase');
+    expect(publicBase64(storedKey(imported.key.id).privateKey, 'key-passphrase')).toBe(imported.key.publicKey.split(' ')[1]);
+    expect(mocks.dialog.showOpenDialog).toHaveBeenCalledTimes(1);
+    expect(await call('store:ssh-keys:import', request), 'a used fileId is gone').toEqual({ ok: false, error: 'not_found' });
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it('converts a PKCS#8 key, which ssh2 cannot read, and stores it without a passphrase', async () => {
+    await boot();
+    const file = path.join(home, 'id_pkcs8');
+    fs.writeFileSync(file, crypto.generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: 'p8-pass' }));
+    pick(file);
+    const chosen = await call('store:ssh-keys:choose-file', {});
+    expect(chosen.encrypted).toBe(true);
+    const imported = await call('store:ssh-keys:import', { workspaceId: 'main', fileId: chosen.fileId, name: 'converted', passphrase: 'p8-pass' });
+    expect(imported).toMatchObject({ ok: true, key: { name: 'converted', algorithm: 'ed25519', hasPassphrase: false } });
+    const stored = storedKey(imported.key.id);
+    expect(stored.passphrase).toBeNull();
+    expect(stored.privateKey).toMatch(/^-----BEGIN OPENSSH PRIVATE KEY-----/);
+    expect(publicBase64(stored.privateKey)).toBe(imported.key.publicKey.split(' ')[1]);
+  });
+
+  it('refuses at choose-file what cannot be imported, and forgets the file on lock or after 10 minutes', async () => {
+    await boot();
+    mocks.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    expect(await call('store:ssh-keys:choose-file', {})).toEqual({ ok: false, error: 'cancelled' });
+    const large = path.join(home, 'large_key');
+    fs.writeFileSync(large, Buffer.alloc(65 * 1024, 'a'));
+    pick(large);
+    expect(await call('store:ssh-keys:choose-file', {})).toEqual({ ok: false, error: 'file_too_large' });
+    for (const [name, content] of [['notes.txt', 'hello'], ['id_test.pub', `ssh-ed25519 ${Buffer.alloc(51).toString('base64')} x`]]) {
+      const file = path.join(home, name);
+      fs.writeFileSync(file, content);
+      pick(file);
+      expect(await call('store:ssh-keys:choose-file', {}), name).toEqual({ ok: false, error: 'unsupported_key' });
+    }
+
+    const file = path.join(home, 'id_rsa_lock');
+    fs.writeFileSync(file, rsaPem('pp'));
+    pick(file);
+    const chosen = await call('store:ssh-keys:choose-file', {});
+    for (const listener of mocks.lockListeners) listener();
+    expect(await call('store:ssh-keys:import', { workspaceId: 'main', fileId: chosen.fileId, passphrase: 'pp' })).toEqual({ ok: false, error: 'not_found' });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    pick(file);
+    const later = await call('store:ssh-keys:choose-file', {});
+    vi.setSystemTime(Date.now() + 10 * 60_000 + 1);
+    expect(await call('store:ssh-keys:import', { workspaceId: 'main', fileId: later.fileId, passphrase: 'pp' })).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('deletes a key and returns the saved list, where the servers that used it have no key', async () => {
     await boot();
     const { key } = await call('store:ssh-keys:generate', { workspaceId: 'main', name: 'laptop' });
     await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ authType: 'key', keyId: key.id })] });
-    expect(await call('store:ssh-keys:delete', { workspaceId: 'main', id: key.id })).toEqual({ ok: true });
+    const deleted = await call('store:ssh-keys:delete', { workspaceId: 'main', id: key.id });
+    expect(deleted.ok).toBe(true);
+    expect(deleted.profiles.map((entry: { id: string; keyId: string | null }) => [entry.id, entry.keyId])).toEqual([['web', null]]);
+    expectNoSecrets(deleted);
     expect((await call('store:ssh-keys:list', { workspaceId: 'main' })).keys).toEqual([]);
-    expect((await call('store:profiles:list', { workspaceId: 'main' })).profiles[0].keyId).toBeNull();
+    expect(await call('store:ssh-keys:delete', { workspaceId: 'main', id: key.id })).toMatchObject({ ok: false, error: 'not_found' });
   });
 
-  it('imports the key file the user picks, and refuses oversized files', async () => {
-    await boot();
-    const { privateKey } = crypto.generateKeyPairSync('ed25519');
-    const file = path.join(home, 'id_test');
-    fs.writeFileSync(file, privateKey.export({ type: 'pkcs8', format: 'pem' }));
-    mocks.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [file] });
-    // Empty form fields mean "use the file name" and "no passphrase".
-    const imported = await call('store:ssh-keys:import', { workspaceId: 'main', name: '', passphrase: '' });
-    expect(imported).toMatchObject({ ok: true, key: { name: 'id_test' } });
-    expect(imported.key.fingerprint).toMatch(/^SHA256:/);
-    expectNoSecrets(imported);
-    expect(fs.existsSync(file)).toBe(true);
+  it('moves the key file a server uses into the store; to the Trash only when no other workspace can use it', async () => {
+    const file = path.join(home, 'id_server');
+    const secondFile = path.join(home, 'id_other');
+    // The file is opened with the passphrase saved with the server.
+    fs.writeFileSync(file, rsaPem(PROFILE_PASSPHRASE));
+    fs.writeFileSync(secondFile, rsaPem('x'));
+    await boot({
+      workspaces: [{ id: 'main', name: 'Main', is_main: true }, { id: 'team', name: 'Team' }, { id: 'locked', name: 'Locked', password: WORKSPACE_PASSWORD }],
+      profiles: {
+        main: [
+          profile({ authType: 'key', privateKeyPath: '~/id_server', passphrase: PROFILE_PASSPHRASE }),
+          profile({ id: 'same-file', authType: 'key', privateKeyPath: file }),
+          profile({ id: 'other-file', authType: 'key', privateKeyPath: secondFile }),
+        ],
+        team: [profile({ id: 'team-web', authType: 'key', privateKeyPath: file })],
+      },
+    });
+    const request = { workspaceId: 'main', profileId: 'web', trashOriginal: true };
+    const result = await call('store:ssh-keys:import-profile-file', request);
+    expect(result).toMatchObject({ ok: true, key: { name: 'id_server', hasPassphrase: true }, trashed: false, kept: 'workspaces_locked' });
+    expectNoSecrets(result);
+    const byId = Object.fromEntries(result.profiles.map((entry: { id: string }) => [entry.id, entry]));
+    expect(byId.web).toMatchObject({ authType: 'key', keyId: result.key.id, privateKeyPath: null });
+    expect(byId['same-file']).toMatchObject({ keyId: result.key.id, privateKeyPath: null });
+    expect(byId['other-file']).toMatchObject({ keyId: null, privateKeyPath: secondFile });
+    expect(storedKey(result.key.id).passphrase).toBe(PROFILE_PASSPHRASE);
+    expect(mocks.shell.trashItem).not.toHaveBeenCalled();
+    expect(await call('store:ssh-keys:import-profile-file', request), 'web uses the stored key now').toEqual({ ok: false, error: 'invalid_argument' });
 
-    mocks.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
-    expect(await call('store:ssh-keys:import', { workspaceId: 'main' })).toEqual({ ok: false, error: 'cancelled' });
+    await fake.unlockWorkspace('locked', { password: WORKSPACE_PASSWORD });
+    const busy = await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'other-file', passphrase: 'x', trashOriginal: true });
+    expect(busy).toMatchObject({ ok: true, trashed: true });
+    expect(mocks.shell.trashItem).toHaveBeenCalledWith(secondFile);
+    const team = await call('store:ssh-keys:import-profile-file', { workspaceId: 'team', profileId: 'team-web', passphrase: PROFILE_PASSPHRASE, trashOriginal: true });
+    expect(team).toMatchObject({ ok: true, trashed: true });
+    expect(mocks.shell.trashItem).toHaveBeenLastCalledWith(file);
 
-    const large = path.join(home, 'large_key');
-    fs.writeFileSync(large, Buffer.alloc(65 * 1024, 'a'));
-    mocks.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [large] });
-    expect(await call('store:ssh-keys:import', { workspaceId: 'main' })).toEqual({ ok: false, error: 'file_too_large' });
+    fs.writeFileSync(path.join(home, 'id_used'), rsaPem('y'));
+    await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-2', authType: 'key', privateKeyPath: path.join(home, 'id_used') })] });
+    await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ id: 'main-2', authType: 'key', privateKeyPath: path.join(home, 'id_used') })] });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'main-2', trashOriginal: true })).toEqual({ ok: false, error: 'needs_password' });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'main-2', passphrase: 'y', trashOriginal: true }))
+      .toMatchObject({ ok: true, trashed: false, kept: 'used_elsewhere' });
+    mocks.shell.trashItem.mockRejectedValueOnce(new Error('no Trash'));
+    fs.writeFileSync(path.join(home, 'id_stuck'), rsaPem('z'));
+    await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-3', authType: 'key', privateKeyPath: path.join(home, 'id_stuck') })] });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'team', profileId: 'team-3', passphrase: 'z', trashOriginal: true }))
+      .toMatchObject({ ok: true, trashed: false, kept: 'trash_failed' });
+
+    await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ id: 'gone', authType: 'key', privateKeyPath: path.join(home, 'missing') })] });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone', trashOriginal: false })).toEqual({ ok: false, error: 'io' });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'ghost', trashOriginal: false })).toEqual({ ok: false, error: 'not_found' });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone' })).toEqual({ ok: false, error: 'invalid_argument' });
   });
 });
 

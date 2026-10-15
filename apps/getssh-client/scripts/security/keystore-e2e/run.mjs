@@ -67,6 +67,7 @@ const allSequences = [
   ['asset-folders'],
   ['ipc'],
   ['connect'],
+  ['ssh-keys'],
   ['v2-setup', 'v2-import', 'v2-default-port', 'v2-again', 'v2-again-check'],
   ['v2-password-setup', 'v2-password-import'],
   ['v2-password-setup', 'v2-dismiss', 'v2-dismissed-check'],

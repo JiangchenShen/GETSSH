@@ -157,5 +157,7 @@ pub fn migrate_workspace(conn: &Connection) -> SqlResult<()> {
     ] {
         add_column(conn, "profiles", column, definition)?;
     }
+    // Stage B: the passphrase a stored key still needs at connect, sealed like the key.
+    add_column(conn, "ssh_keys", "passphrase", "TEXT")?;
     Ok(())
 }

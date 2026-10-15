@@ -59,6 +59,19 @@ function expectCode(code) {
 const throwsWith = (fn, code, message) => assert.throws(fn, expectCode(code), message);
 const rejectsWith = (fn, code, message) => assert.rejects(fn, expectCode(code), message);
 
+/** An importSshKey input: a fresh Ed25519 public blob, and a stand-in for the private key bytes. */
+function sshKeyInput(name, extra = {}) {
+  const x = Buffer.from(crypto.generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' }).x, 'base64url');
+  return { name, data: Buffer.from(`PRIVATE KEY ${name}`), publicKey: Buffer.concat([sshString('ssh-ed25519'), sshString(x)]), ...extra };
+}
+
+function sshMpint(bytes) {
+  let start = 0;
+  while (start < bytes.length - 1 && bytes[start] === 0) start++;
+  const value = bytes.subarray(start);
+  return sshString(value[0] & 0x80 ? Buffer.concat([Buffer.from([0]), value]) : value);
+}
+
 function profile(id, extra = {}) {
   return {
     id, host: `${id}.example`, username: 'root', port: 22, protocol: 'ssh', authType: 'password',
@@ -272,7 +285,7 @@ test('saveProfiles: undefined keeps a secret, null clears it, a string replaces 
 
 test('connectSecrets returns Buffers from the profile, its stored SSH key or its key file', async () => {
   await boot();
-  const key = store.generateSshKey('default', { name: 'deploy', algorithm: 'ed25519' });
+  const key = store.importSshKey('default', sshKeyInput('deploy'));
   const keyFile = path.join(root, `id_test_${homes}`);
   fs.writeFileSync(keyFile, 'FILE-KEY-MATERIAL', { mode: 0o600 });
   store.saveProfiles('default', [
@@ -288,7 +301,7 @@ test('connectSecrets returns Buffers from the profile, its stored SSH key or its
   assert.deepEqual(Object.keys(pw), ['password']);
   const stored = store.connectSecrets('default', 'stored');
   assert.ok(Buffer.isBuffer(stored.privateKey) && Buffer.isBuffer(stored.passphrase));
-  assert.match(stored.privateKey.toString(), /^-----BEGIN OPENSSH PRIVATE KEY-----\n/);
+  assert.equal(stored.privateKey.toString(), 'PRIVATE KEY deploy');
   assert.equal(stored.passphrase.toString(), 'pp-2');
   assert.equal(store.connectSecrets('default', 'file').privateKey.toString(), 'FILE-KEY-MATERIAL');
   throwsWith(() => store.connectSecrets('default', 'missing-file'), 'io');
@@ -711,8 +724,7 @@ test('every workspace data function refuses a locked workspace', async () => {
     copyProfiles: () => store.copyProfiles('main', 'vault', []),
     connectSecrets: () => store.connectSecrets('vault', 'p1'),
     revealSecret: () => store.revealSecret('vault', 'p1', 'password'),
-    importSshKey: () => store.importSshKey('vault', { name: 'k', data: Buffer.from('x') }),
-    generateSshKey: () => store.generateSshKey('vault', { name: 'k', algorithm: 'ed25519' }),
+    importSshKey: () => store.importSshKey('vault', sshKeyInput('k')),
     listSshKeys: () => store.listSshKeys('vault'),
     deleteSshKey: () => store.deleteSshKey('vault', 'k'),
     getAssetFolders: () => store.getAssetFolders('vault'),
@@ -753,13 +765,14 @@ test('workspaceStats counts profiles and runbooks and reports the size in MB', a
 
 test('copyProfiles copies secrets, the SSH keys they use and, when asked, runbooks', async () => {
   await boot({ workspaces: [{ id: 'a' }, { id: 'b' }, { id: 'vault', password: WS_PW }] });
-  const key = store.generateSshKey('a', { name: 'deploy', algorithm: 'ed25519' });
+  const key = store.importSshKey('a', sshKeyInput('deploy', { passphrase: 'key-pp' }));
   store.saveProfiles('a', [profile('p1', { password: 'pw-1', keyId: key.id, authType: 'key' }), profile('p2')]);
   store.saveRunbooks('a', [{ id: 'r1', title: 'Uptime', script: 'uptime', riskLevel: 'LOW', created_at: 5 }]);
   store.copyProfiles('a', 'b', ['p1'], { includeRunbooks: true });
   assert.deepEqual(store.listProfiles('b').map(p => [p.id, p.keyId, p.hasPassword]), [['p1', key.id, true]]);
   assert.equal(fake.secretsFor('b').profiles.p1.password, 'pw-1');
   assert.deepEqual(store.listSshKeys('b').map(k => k.fingerprint), [key.fingerprint]);
+  assert.equal(store.connectSecrets('b', 'p1').passphrase.toString(), 'key-pp', 'the key keeps its passphrase in the copy');
   assert.deepEqual(store.getRunbooks('b').map(rb => [rb.id, rb.workspace_id]), [['r1', 'b']]);
   store.copyProfiles('a', 'b', ['p2']);
   assert.deepEqual(store.listProfiles('b').map(p => p.id), ['p1', 'p2']);
@@ -770,79 +783,73 @@ test('copyProfiles copies secrets, the SSH keys they use and, when asked, runboo
 
 // ──────────────────────────────── SSH keys ────────────────────────────────
 
-test('generateSshKey makes a real OpenSSH ed25519 key that importSshKey reads back', async () => {
+test('importSshKey seals the key and takes name, algorithm and fingerprint from the public key', async () => {
   await boot({ workspaces: [{ id: 'a' }, { id: 'b' }] });
-  const key = store.generateSshKey('a', { name: 'laptop', algorithm: 'ed25519' });
+  const input = sshKeyInput('laptop');
+  const key = store.importSshKey('a', input);
   assert.deepEqual(Object.keys(key).sort(), ['algorithm', 'created_at', 'fingerprint', 'hasPassphrase', 'id', 'name', 'publicKey']);
   assert.equal(key.algorithm, 'ed25519');
   assert.equal(key.hasPassphrase, false);
-  assert.match(key.publicKey, /^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[A-Za-z0-9+/=]+ laptop$/);
-  assert.match(key.fingerprint, /^SHA256:[A-Za-z0-9+/]{43}$/);
+  assert.equal(key.publicKey, `ssh-ed25519 ${input.publicKey.toString('base64')} laptop`);
+  assert.equal(key.fingerprint, `SHA256:${crypto.createHash('sha256').update(input.publicKey).digest('base64').replace(/=+$/, '')}`);
   assert.equal(key.fingerprint, fingerprintOf(key.publicKey));
-  store.saveProfiles('a', [profile('p1', { authType: 'key', keyId: key.id })]);
-  const pem = store.connectSecrets('a', 'p1').privateKey;
-  assert.match(pem.toString(), /^-----BEGIN OPENSSH PRIVATE KEY-----\n[\s\S]+\n-----END OPENSSH PRIVATE KEY-----\n$/);
-  const imported = store.importSshKey('b', { name: 'copy', data: pem });
-  assert.equal(imported.fingerprint, key.fingerprint);
-  assert.equal(imported.algorithm, 'ed25519');
-  assert.equal(imported.publicKey.split(' ')[1], key.publicKey.split(' ')[1]);
   assert.ok(!JSON.stringify(store.listSshKeys('a')).includes('PRIVATE'));
-  throwsWith(() => store.generateSshKey('a', { name: 'rsa', algorithm: 'rsa' }), 'invalid_argument');
-  throwsWith(() => store.importSshKey('a', { name: 'junk', data: Buffer.from('hello') }), 'invalid_argument');
-  throwsWith(() => store.importSshKey('a', { name: 'junk', data: 'not a buffer' }), 'invalid_argument');
-  store.deleteSshKey('a', key.id);
-  assert.deepEqual(store.listSshKeys('a'), []);
-  assert.equal(store.listProfiles('a')[0].keyId, null, 'profiles that used it lose the reference');
-  throwsWith(() => store.deleteSshKey('a', key.id), 'not_found');
+
+  const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 3072 }).publicKey.export({ format: 'jwk' });
+  const rsaBlob = Buffer.concat([sshString('ssh-rsa'), sshMpint(Buffer.from(rsa.e, 'base64url')), sshMpint(Buffer.from(rsa.n, 'base64url'))]);
+  assert.equal(store.importSshKey('a', { name: 'rsa', data: Buffer.from('k'), publicKey: rsaBlob }).algorithm, 'rsa-3072');
+  for (const [curve, type, name, algorithm] of [['P-256', 'ecdsa-sha2-nistp256', 'nistp256', 'ecdsa-p256'], ['P-384', 'ecdsa-sha2-nistp384', 'nistp384', 'ecdsa-p384'], ['P-521', 'ecdsa-sha2-nistp521', 'nistp521', 'ecdsa-p521']]) {
+    const point = crypto.createECDH(curve === 'P-256' ? 'prime256v1' : curve === 'P-384' ? 'secp384r1' : 'secp521r1');
+    point.generateKeys();
+    const blob = Buffer.concat([sshString(type), sshString(name), sshString(point.getPublicKey())]);
+    const ec = store.importSshKey('a', { name: curve, data: Buffer.from('k'), publicKey: blob });
+    assert.equal(ec.algorithm, algorithm);
+    assert.ok(ec.publicKey.startsWith(`${type} `));
+  }
+  const dsa = Buffer.concat([sshString('ssh-dss'), ...[1, 2, 3, 4].map(n => sshString(Buffer.from([n])))]);
+  assert.equal(store.importSshKey('a', { name: 'dsa', data: Buffer.from('k'), publicKey: dsa }).algorithm, 'dsa');
+  assert.deepEqual(store.listSshKeys('a').map(k => k.name), ['laptop', 'rsa', 'P-256', 'P-384', 'P-521', 'dsa']);
+  assert.deepEqual(store.listSshKeys('b'), []);
+
+  const junk = [
+    Buffer.from('hello'),
+    Buffer.concat([input.publicKey, Buffer.from([0])]),
+    Buffer.concat([sshString('ssh-ed25519'), sshString(Buffer.alloc(31))]),
+    Buffer.concat([sshString('ecdsa-sha2-nistp256'), sshString('nistp384'), sshString(Buffer.alloc(65, 4))]),
+    Buffer.concat([sshString('sk-ssh-ed25519@openssh.com'), sshString(Buffer.alloc(32))]),
+  ];
+  for (const publicKey of junk) throwsWith(() => store.importSshKey('a', { name: 'junk', data: Buffer.from('k'), publicKey }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('a', { ...input, data: 'not a buffer' }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('a', { ...input, data: Buffer.alloc(0) }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('a', { ...input, data: Buffer.alloc(64 * 1024 + 1) }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('a', { ...input, publicKey: undefined }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('a', { ...input, name: '  ' }), 'invalid_argument');
+  throwsWith(() => store.importSshKey('ghost', input), 'not_found');
 });
 
-test('importSshKey reads PEM keys (passphrase checked) and the public half of OpenSSH and PuTTY keys', async () => {
+test('connectSecrets gives a stored key its own passphrase unless the profile has one', async () => {
   await boot();
-  const rsa = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: 'key-pass' },
-  });
-  const data = Buffer.from(rsa.privateKey);
-  throwsWith(() => store.importSshKey('default', { name: 'rsa', data }), 'needs_password');
-  throwsWith(() => store.importSshKey('default', { name: 'rsa', data, passphrase: 'wrong' }), 'wrong_password');
-  const rsaKey = store.importSshKey('default', { name: 'rsa', data, passphrase: 'key-pass' });
-  assert.equal(rsaKey.algorithm, 'rsa-2048');
-  assert.equal(rsaKey.hasPassphrase, true);
-  assert.match(rsaKey.publicKey, /^ssh-rsa AAAAB3NzaC1yc2E/);
-  store.saveProfiles('default', [profile('p1', { authType: 'key', keyId: rsaKey.id })]);
-  assert.equal(store.connectSecrets('default', 'p1').passphrase.toString(), 'key-pass', 'the key passphrase is used at connect');
+  const key = store.importSshKey('default', sshKeyInput('enc', { passphrase: 'key-pass' }));
+  assert.equal(key.hasPassphrase, true);
+  store.saveProfiles('default', [
+    profile('own', { authType: 'key', keyId: key.id }),
+    profile('override', { authType: 'key', keyId: key.id, passphrase: 'profile-pass' }),
+  ]);
+  assert.equal(store.connectSecrets('default', 'own').passphrase.toString(), 'key-pass');
+  assert.equal(store.connectSecrets('default', 'override').passphrase.toString(), 'profile-pass');
+  assert.equal(store.connectSecrets('default', 'own').privateKey.toString(), 'PRIVATE KEY enc');
+});
 
-  const ec = crypto.generateKeyPairSync('ec', {
-    namedCurve: 'P-256',
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'sec1', format: 'pem' },
-  });
-  const ecKey = store.importSshKey('default', { name: 'ec', data: Buffer.from(ec.privateKey) });
-  assert.equal(ecKey.algorithm, 'ecdsa-p256');
-  assert.match(ecKey.publicKey, /^ecdsa-sha2-nistp256 /);
-
-  const generated = store.generateSshKey('default', { name: 'g', algorithm: 'ed25519' });
-  const blob = Buffer.from(generated.publicKey.split(' ')[1], 'base64');
-  const encryptedOpenSsh = Buffer.concat([
-    Buffer.from('openssh-key-v1\0', 'latin1'), sshString('aes256-ctr'), sshString('bcrypt'), sshString(crypto.randomBytes(24)),
-    Buffer.from([0, 0, 0, 1]), sshString(blob), sshString(crypto.randomBytes(64)),
-  ]).toString('base64');
-  const openSshPem = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${encryptedOpenSsh}\n-----END OPENSSH PRIVATE KEY-----\n`);
-  throwsWith(() => store.importSshKey('default', { name: 'enc', data: openSshPem }), 'needs_password');
-  const encrypted = store.importSshKey('default', { name: 'enc', data: openSshPem, passphrase: 'anything' });
-  assert.equal(encrypted.hasPassphrase, true);
-  assert.equal(encrypted.fingerprint, generated.fingerprint);
-
-  const ppkLines = blob.toString('base64').match(/.{1,64}/g);
-  const ppk = Buffer.from([
-    'PuTTY-User-Key-File-3: ssh-ed25519', 'Encryption: none', 'Comment: test',
-    `Public-Lines: ${ppkLines.length}`, ...ppkLines, 'Private-Lines: 1', 'AAAA', 'Private-MAC: 00', '',
-  ].join('\r\n'));
-  const putty = store.importSshKey('default', { name: 'putty', data: ppk });
-  assert.equal(putty.fingerprint, generated.fingerprint);
-  assert.equal(putty.hasPassphrase, false);
-  assert.deepEqual(store.listSshKeys('default').map(k => k.name), ['rsa', 'ec', 'g', 'enc', 'putty']);
+test('deleteSshKey leaves the profiles that used it without a key; an unknown keyId is refused', async () => {
+  await boot();
+  const key = store.importSshKey('default', sshKeyInput('deploy'));
+  store.saveProfiles('default', [profile('p1', { authType: 'key', keyId: key.id })]);
+  throwsWith(() => store.saveProfiles('default', [profile('p2', { authType: 'key', keyId: 'ghost' })]), 'invalid_argument');
+  store.deleteSshKey('default', key.id);
+  assert.deepEqual(store.listSshKeys('default'), []);
+  assert.equal(store.listProfiles('default')[0].keyId, null, 'profiles that used it lose the reference');
+  throwsWith(() => store.deleteSshKey('default', key.id), 'not_found');
+  throwsWith(() => store.saveProfiles('default', [profile('p1', { authType: 'key', keyId: key.id })]), 'invalid_argument');
 });
 
 // ──────────────────────────────── other tables ────────────────────────────────
@@ -1098,7 +1105,7 @@ test('importBundle replaces everything and keeps secrets, workspace passwords an
     globalSettings: { theme: 'dark' },
   });
   await store.unlockApp({ password: MASTER });
-  const key = store.generateSshKey('proj', { name: 'deploy', algorithm: 'ed25519' });
+  const key = store.importSshKey('proj', sshKeyInput('deploy', { passphrase: 'key-pp' }));
   store.createAiSession('proj', 's1', 'Chat', 1);
   store.saveAiMessage('proj', { id: 'm1', session_id: 's1', role: 'user', content: 'hello', raw_content: null, timestamp: 2 });
   for (const ws of ['main', 'proj']) {
@@ -1163,16 +1170,16 @@ test('an imported workspace keeps its own password', async () => {
 test('snapshot() never contains a secret; secretsFor() is the only way to see them', async () => {
   await bootExportFixture();
   await store.unlockWorkspace('alpha', { password: WS_PW });
-  store.generateSshKey('alpha', { name: 'k', algorithm: 'ed25519' });
+  store.importSshKey('alpha', sshKeyInput('k', { passphrase: 'key-pp-SECRET' }));
   await store.openReveal('alpha', { presence: 'Show' });
   const text = JSON.stringify(fake.snapshot());
-  for (const marker of ['pw-SECRET-1', 'pp-SECRET-2', 'sk-SECRET-3', WS_PW, 'PRIVATE KEY']) {
+  for (const marker of ['pw-SECRET-1', 'pp-SECRET-2', 'sk-SECRET-3', WS_PW, 'PRIVATE KEY', 'key-pp-SECRET']) {
     assert.ok(!text.includes(marker), marker);
   }
   const secrets = fake.secretsFor('alpha');
   assert.equal(secrets.workspacePassword, WS_PW);
   assert.deepEqual(secrets.profiles.a1, { password: 'pw-SECRET-1', passphrase: 'pp-SECRET-2' });
-  assert.match(Object.values(secrets.sshKeys)[0].privateKey, /OPENSSH PRIVATE KEY/);
+  assert.deepEqual(Object.values(secrets.sshKeys)[0], { privateKey: 'PRIVATE KEY k', passphrase: 'key-pp-SECRET' });
   throwsWith(() => fake.secretsFor('ghost'), 'not_found');
 });
 

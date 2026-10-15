@@ -26,11 +26,12 @@ import type { StoreErrorCode } from '../../../../rust-core/getssh-store/store';
 /**
  * `error` is a StoreErrorCode, or one of: 'unauthorized' (not the main window, or the app is
  * locked), 'cancelled' (the user closed a file dialog or a Touch ID / Windows Hello prompt),
- * 'file_too_large' (an SSH key file over 64 KiB). `retryAfterMs` comes with 'rate_limited'.
+ * 'file_too_large' (an SSH key file over 64 KiB), 'unsupported_key' (not a private key GETSSH can
+ * import). `retryAfterMs` comes with 'rate_limited'.
  */
 export type StoreResult<T extends object = {}> =
   | ({ ok: true } & T)
-  | { ok: false; error: StoreErrorCode | 'unauthorized' | 'file_too_large'; retryAfterMs?: number };
+  | { ok: false; error: StoreErrorCode | 'unauthorized' | 'file_too_large' | 'unsupported_key'; retryAfterMs?: number };
 
 export type SecretField = 'password' | 'passphrase';
 

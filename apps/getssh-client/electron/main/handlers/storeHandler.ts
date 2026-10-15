@@ -6,6 +6,7 @@ import {
   app,
   clipboard,
   dialog,
+  shell,
   type IpcMain,
   type IpcMainInvokeEvent,
   type MessageBoxOptions,
@@ -14,7 +15,9 @@ import {
 } from 'electron';
 import type { ProfileInput } from '../../../../../rust-core/getssh-store/store';
 import { appLock } from '../security/appLock';
+import { DatabaseManager } from '../services/DatabaseManager';
 import { getStore, toStoreError } from '../services/getsshStore';
+import { generateEd25519, KeyFileProblem, keyFileNeedsPassphrase, readPrivateKey } from '../services/sshKeyFiles';
 import { dialogFolder } from '../utils/userFolder';
 import { isValidWorkspaceId } from '../utils/workspaceId';
 import { getMainWindow, isMainWebContents } from '../windowRegistry';
@@ -226,8 +229,53 @@ function importPath(fileId: unknown): string | null {
   return pendingImport && fileId === pendingImport.fileId ? pendingImport.path : null;
 }
 
+// The SSH key file picked in store:ssh-keys:choose-file, until store:ssh-keys:import takes it.
+const KEY_FILE_TTL_MS = 10 * 60_000;
+let pendingKeyFile: { fileId: string; name: string; data: Buffer; expires: number } | null = null;
+
+function forgetKeyFile(): void {
+  pendingKeyFile?.data.fill(0);
+  pendingKeyFile = null;
+}
+
+/** A profile's privateKeyPath as a file, ~ meaning the home folder (as sshHandler reads it). */
+function keyPath(value: string): string {
+  return path.resolve(value.replace(/^~(?=$|[\\/])/, os.homedir()));
+}
+
+async function readKeyFile(file: string): Promise<{ data: Buffer } | Failure> {
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(file);
+  } catch {
+    return { ok: false, error: 'io' };
+  }
+  if (!stat.isFile()) return INVALID;
+  if (stat.size > MAX_SSH_KEY_BYTES) return { ok: false, error: 'file_too_large' };
+  try {
+    return { data: await fs.promises.readFile(file) };
+  } catch {
+    return { ok: false, error: 'io' };
+  }
+}
+
+/** Reads the key file (services/sshKeyFiles.ts) and stores it; the caller wipes `data`. */
+async function storeKey(workspaceId: string, name: string, data: Buffer, passphrase: string | undefined) {
+  const key = await readPrivateKey(data, passphrase);
+  try {
+    return getStore().importSshKey(workspaceId, { name, data: key.data, passphrase: key.passphrase ?? undefined, publicKey: key.publicKey });
+  } finally {
+    key.data.fill(0);
+  }
+}
+
+function keyFileFailure(error: unknown): Failure {
+  return error instanceof KeyFileProblem ? { ok: false, error: error.code } : failure(error);
+}
+
 /** Tests only. */
 export function resetStoreHandlersForTest(): void {
+  forgetKeyFile();
   pendingImport = null;
   importFinished = false;
   openRevealDialogs.clear();
@@ -237,6 +285,8 @@ export function resetStoreHandlersForTest(): void {
 
 export function registerStoreHandlers(ipcMain: IpcMain) {
   appLock.onLock(closeRevealsOnLock);
+  // A key file read before the lock is not kept past it.
+  appLock.onLock(forgetKeyFile);
 
   /** Every channel here: main window only, unlocked app only, one object argument, errors as codes. */
   const handle = (channel: string, run: (request: Request) => Result | Promise<Result>) => {
@@ -345,45 +395,129 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
     return { ok: true, keys: getStore().listSshKeys(id) };
   });
 
-  /** The user picks the file in a system dialog; the file itself is left alone. */
-  handle('store:ssh-keys:import', async ({ workspaceId: ws, name, passphrase }) => {
-    const id = workspaceId(ws);
-    // Empty inputs mean "not given": the file name, and no passphrase.
-    const keyName = name === undefined || name === null || name === '' ? undefined : text(name, 200);
-    const keyPassphrase = passphrase === undefined || passphrase === null || passphrase === '' ? undefined : password(passphrase);
-    if (!id || keyName === null || keyPassphrase === null) return INVALID;
-    const store = getStore();
+  /**
+   * The user picks the file in a system dialog; it is read and checked here, then kept for
+   * store:ssh-keys:import, so a passphrase asked afterwards does not mean picking it again.
+   * The file itself is left alone.
+   */
+  handle('store:ssh-keys:choose-file', async () => {
+    getStore();
     const picked = await openDialog({
       properties: ['openFile', 'showHiddenFiles'],
       defaultPath: path.join(os.homedir(), '.ssh'),
     });
     const file = picked.canceled ? undefined : picked.filePaths[0];
     if (!file) return CANCELLED;
-    const stat = await fs.promises.stat(file);
-    if (!stat.isFile()) return INVALID;
-    if (stat.size > MAX_SSH_KEY_BYTES) return { ok: false, error: 'file_too_large' };
-    const data = await fs.promises.readFile(file);
+    const read = await readKeyFile(file);
+    if ('error' in read) return read;
     try {
-      const key = store.importSshKey(id, { name: keyName ?? path.basename(file), data, passphrase: keyPassphrase });
-      return { ok: true, key };
-    } finally {
-      data.fill(0);
+      const encrypted = keyFileNeedsPassphrase(read.data);
+      forgetKeyFile();
+      pendingKeyFile = { fileId: crypto.randomUUID(), name: path.basename(file).slice(0, 128), data: read.data, expires: Date.now() + KEY_FILE_TTL_MS };
+      return { ok: true, fileId: pendingKeyFile.fileId, fileName: pendingKeyFile.name, encrypted };
+    } catch (error) {
+      read.data.fill(0);
+      return keyFileFailure(error);
     }
   });
 
-  handle('store:ssh-keys:generate', ({ workspaceId: ws, name }) => {
+  /** A wrong or missing passphrase keeps the file for another try; anything else forgets it. */
+  handle('store:ssh-keys:import', async ({ workspaceId: ws, fileId, name, passphrase }) => {
     const id = workspaceId(ws);
-    const keyName = text(name, 200);
-    if (!id || !keyName) return INVALID;
-    return { ok: true, key: getStore().generateSshKey(id, { name: keyName, algorithm: 'ed25519' }) };
+    // Empty inputs mean "not given": the file name, and no passphrase.
+    const keyName = name === undefined || name === null || name === '' ? undefined : text(name, 128);
+    const keyPassphrase = passphrase === undefined || passphrase === null || passphrase === '' ? undefined : password(passphrase);
+    if (!id || keyName === null || keyPassphrase === null || typeof fileId !== 'string') return INVALID;
+    const pending = pendingKeyFile;
+    if (!pending || pending.fileId !== fileId || pending.expires < Date.now()) {
+      if (pending && pending.expires < Date.now()) forgetKeyFile();
+      return { ok: false, error: 'not_found' };
+    }
+    try {
+      const key = await storeKey(id, keyName ?? pending.name, pending.data, keyPassphrase);
+      if (pendingKeyFile === pending) forgetKeyFile();
+      return { ok: true, key };
+    } catch (error) {
+      if (!(error instanceof KeyFileProblem && error.code !== 'unsupported_key') && pendingKeyFile === pending) forgetKeyFile();
+      return keyFileFailure(error);
+    }
   });
 
+  /** A new Ed25519 key, made here; the private half goes from here to the store and nowhere else. */
+  handle('store:ssh-keys:generate', ({ workspaceId: ws, name }) => {
+    const id = workspaceId(ws);
+    const keyName = text(name, 128);
+    if (!id || !keyName) return INVALID;
+    const made = generateEd25519(keyName);
+    try {
+      return { ok: true, key: getStore().importSshKey(id, { name: keyName, data: made.data, publicKey: made.publicKey }) };
+    } finally {
+      made.data.fill(0);
+    }
+  });
+
+  /**
+   * The servers that used the key lose it (keyId null). The store saved the list; the window
+   * takes `profiles` instead of its own copy, or its next whole-list save would bring the
+   * keyId back.
+   */
   handle('store:ssh-keys:delete', ({ workspaceId: ws, id: keyId }) => {
     const id = workspaceId(ws);
     const key = recordId(keyId);
     if (!id || !key) return INVALID;
     getStore().deleteSshKey(id, key);
-    return { ok: true };
+    return { ok: true, profiles: DatabaseManager.getProfiles(id) };
+  });
+
+  /**
+   * The key file a saved server points at (privateKeyPath) goes into the store, and every server
+   * of the workspace that uses the same file switches to it. With trashOriginal the file goes to
+   * the Trash, but only when no other workspace can still be using it. Returns the saved list
+   * for the window to take, like store:ssh-keys:delete.
+   */
+  handle('store:ssh-keys:import-profile-file', async ({ workspaceId: ws, profileId, passphrase, trashOriginal }) => {
+    const id = workspaceId(ws);
+    const target = recordId(profileId);
+    const keyPassphrase = passphrase === undefined || passphrase === null || passphrase === '' ? undefined : password(passphrase);
+    if (!id || !target || keyPassphrase === null || typeof trashOriginal !== 'boolean') return INVALID;
+    const profile = DatabaseManager.getProfiles(id).find(entry => entry.id === target);
+    if (!profile) return { ok: false, error: 'not_found' };
+    if (!profile.privateKeyPath || profile.keyId) return INVALID;
+    const file = keyPath(profile.privateKeyPath);
+    const read = await readKeyFile(file);
+    if ('error' in read) return read;
+    let saved: Buffer | undefined;
+    try {
+      // The passphrase saved with the server opens the file, unless one is typed now.
+      saved = getStore().connectSecrets(id, target).passphrase ?? undefined;
+      const key = await storeKey(id, path.basename(file).slice(0, 128), read.data, keyPassphrase ?? saved?.toString('utf8'));
+      const list = DatabaseManager.getProfiles(id).map(entry => (
+        entry.privateKeyPath && !entry.keyId && keyPath(entry.privateKeyPath) === file
+          ? { ...entry, authType: 'key', keyId: key.id, privateKeyPath: null }
+          : { ...entry }
+      ));
+      DatabaseManager.saveProfiles(id, list);
+      const outcome: { trashed: boolean; kept?: 'used_elsewhere' | 'workspaces_locked' | 'trash_failed' } = { trashed: false };
+      if (trashOriginal) {
+        const others = DatabaseManager.getWorkspaces().filter(workspace => workspace.id !== id);
+        if (others.some(workspace => !DatabaseManager.isWorkspaceOpen(workspace.id))) outcome.kept = 'workspaces_locked';
+        else if (others.some(workspace => DatabaseManager.getProfiles(workspace.id).some(entry => !!entry.privateKeyPath && keyPath(entry.privateKeyPath) === file))) outcome.kept = 'used_elsewhere';
+        else {
+          try {
+            await shell.trashItem(file);
+            outcome.trashed = true;
+          } catch {
+            outcome.kept = 'trash_failed';
+          }
+        }
+      }
+      return { ok: true, key, profiles: DatabaseManager.getProfiles(id), ...outcome };
+    } catch (error) {
+      return keyFileFailure(error);
+    } finally {
+      read.data.fill(0);
+      saved?.fill(0);
+    }
   });
 
   // ── encrypted export ──

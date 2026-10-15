@@ -60,9 +60,6 @@ export function storeBaseDir(): string {
   return path.join(os.homedir(), '.getssh');
 }
 
-/** Phase B functions the native module does not have yet: they answer `unavailable`. */
-const NOT_YET = ['importSshKey', 'generateSshKey', 'listSshKeys', 'deleteSshKey'] as const;
-
 let loaded: GetsshStore | null = null;
 
 function load(): GetsshStore {
@@ -70,14 +67,7 @@ function load(): GetsshStore {
     console.warn('[Store] Running on the in-memory fake (GETSSH_FAKE_STORE=1); nothing is saved.');
     return require(path.join(getRustCorePath('getssh-store'), 'store.fake.js')) as GetsshStore;
   }
-  const native = require(getRustCorePath('getssh-store')) as Record<string, unknown>;
-  const store: Record<string, unknown> = { ...native };
-  for (const name of NOT_YET) {
-    if (typeof store[name] !== 'function') {
-      store[name] = () => { throw new Error('[store:unavailable] not in this version of GETSSH'); };
-    }
-  }
-  return store as unknown as GetsshStore;
+  return require(getRustCorePath('getssh-store')) as GetsshStore;
 }
 
 /** Loads the store and points it at ~/.getssh. Call once, after the legacy migration. */

@@ -209,6 +209,7 @@ export function copyProfiles(fromWorkspaceId: string, toWorkspaceId: string, ids
 
 export interface ConnectSecrets {
   password?: Buffer;
+  /** The profile's own passphrase, else the one stored with its key (keyId). */
   passphrase?: Buffer;
   /** From keyId, or read from privateKeyPath for profiles that still point at a file. */
   privateKey?: Buffer;
@@ -228,21 +229,34 @@ export function setAppSecret(name: string, value: string | null): void;
 export function getAppSecret(name: string): Buffer | null;
 export function listAppSecretNames(prefix?: string): string[];
 
-// ───────────────────────────────── SSH keys (phase B) ─────────────────────────────────
+// ───────────────────────────────── SSH keys (stage B) ─────────────────────────────────
 
 export interface SshKey {
   id: string;
   name: string;
-  algorithm: string;              // 'ed25519' | 'rsa-4096' | 'ecdsa-p256' …
-  fingerprint: string;            // SHA256:…
-  publicKey: string;              // OpenSSH one-line format
+  /** 'ed25519', 'rsa-<modulus bits>' (e.g. 'rsa-3072'), 'ecdsa-p256' / 'ecdsa-p384' / 'ecdsa-p521', or 'dsa'. */
+  algorithm: string;
+  /** 'SHA256:' and the unpadded base64 SHA-256 of the public key blob, as ssh-keygen -l prints it. */
+  fingerprint: string;
+  /** The OpenSSH one-line public key with the name as comment: what goes into authorized_keys. */
+  publicKey: string;
+  /** The key is stored with the passphrase it still needs at connect. */
   hasPassphrase: boolean;
   created_at: number;
 }
-/** Accepts OpenSSH, PEM (PKCS#1 / PKCS#8) and PuTTY PPK. The original file is not touched. */
-export function importSshKey(workspaceId: string, input: { name: string; data: Buffer; passphrase?: string }): SshKey;
-export function generateSshKey(workspaceId: string, input: { name: string; algorithm: 'ed25519' }): SshKey;
+/**
+ * Stores an SSH private key in the workspace, sealed, with the passphrase it still needs (both
+ * leave the store only through connectSecrets). `data` (at most 64 KiB) is the key as ssh2 reads
+ * it and `publicKey` its SSH public key blob: the main process reads, checks and converts key
+ * files (electron/main/services/sshKeyFiles.ts) and generates new keys. The store takes the
+ * algorithm, fingerprint and public line from the blob: ssh-ed25519, ssh-rsa,
+ * ecdsa-sha2-nistp256/384/521 and ssh-dss; anything else is invalid_argument. `name`: 1 to 128
+ * characters, not blank, no control characters.
+ */
+export function importSshKey(workspaceId: string, input: { name: string; data: Buffer; passphrase?: string; publicKey: Buffer }): SshKey;
+/** Oldest first. */
 export function listSshKeys(workspaceId: string): SshKey[];
+/** not_found for an unknown id. Profiles that used the key keep their row with keyId null. */
 export function deleteSshKey(workspaceId: string, id: string): void;
 
 // ───────────────── other tables: one function per current DatabaseManager method ─────────────────
