@@ -19,6 +19,9 @@ export default defineConfig({
   base: './',
   build: {
     chunkSizeWarningLimit: 2000,
+    // dist/.vite/license.md: the licenses of the bundled dependencies, for THIRD_PARTY_NOTICES.txt
+    // (scripts/third-party-notices.cjs). Not packaged itself.
+    license: true,
   },
   optimizeDeps: {
     include: [
@@ -52,6 +55,7 @@ export default defineConfig({
         vite: {
           build: {
             minify: true,
+            license: true,
             rollupOptions: {
               external: ['ssh2', 'node-pty', /rust-core/],
             },
@@ -68,6 +72,7 @@ export default defineConfig({
         vite: {
           build: {
             minify: true,
+            license: true,
             outDir: 'dist-electron/preload',
           },
         },

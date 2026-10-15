@@ -107,4 +107,14 @@ if (platform === 'win32') {
 } else {
   diskFile(path.join(resources, 'watchdog'));
 }
+// Third-party notices (scripts/third-party-notices.cjs), and Electron's and Chromium's
+// licenses: beside app.asar on macOS (added by mac.extraResources), next to GETSSH.exe on Windows.
+const notices = path.join(resources, 'THIRD_PARTY_NOTICES.txt');
+diskFile(notices);
+const noticesText = fs.readFileSync(notices, 'utf8');
+for (const name of ['react ', 'ssh2 ', 'node-pty ', 'aes-gcm ', 'napi ', 'SIL OPEN FONT LICENSE']) {
+  assert(noticesText.includes(name), `THIRD_PARTY_NOTICES.txt does not mention ${name.trim()}`);
+}
+const electronLicenses = platform === 'win32' ? path.dirname(resources) : resources;
+for (const name of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) diskFile(path.join(electronLicenses, name));
 console.log(`Package checks passed: ${archive} (${platform}/${arch}; ${entries.length} entries)`);
