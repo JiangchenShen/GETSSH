@@ -489,3 +489,104 @@ R19–R29 都处理了。
 | 编号 | 位置 | 问题 | 要做 |
 |---|---|---|---|
 | R32 | 官网 `zh.json:24`（`aiAnnouncement`） | 英文这句改成了"3.0 预览版已包含 AI 排障"，中文还是旧的"下一代原生 AI 引擎即将接入"，两种语言说法相反。中文里"AI 运行在独立沙箱中，通过受控中间件安全通信"也不准确：AI 请求经客户端的网关发给模型服务，发出前做脱敏；放进系统沙箱的是 MCP 服务器和后端插件 | 中文按英文的意思重写，只写实际有的：3.0 预览版可以用 AI 排障，代理模式下操作终端和执行命令要经过确认 |
+
+## 阶段 B：私钥存进 GETSSH，恢复码和 Touch ID 的提醒（10-15）
+
+负责人 10-15 决定阶段 B 进 3.0。分工：
+- **Claude**：存储模块（Rust 和假实现）、主进程、preload、类型定义；
+- **Codex**：下面 B1–B5 的界面和文案，只改 `src/**`。
+
+Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天），之后再写 Rust 正式模块，接口保持不变。所以界面可以先在 `GETSSH_FAKE_STORE=1` 的开发模式里做，测试照常 mock `window.electronAPI`。接口有缺的或者不顺手的，写在本节最后，不要改 `electron/**`。
+
+### 接口（Claude 提供）
+
+都在 `window.electronAPI.store.sshKeys` 下，返回 `StoreResult`：
+
+| 方法 | 做什么 | 返回 | 要处理的错误 |
+|---|---|---|---|
+| `list({ workspaceId })` | 这个工作区里保存的私钥，按创建时间排序 | `{ keys: SshKey[] }` | `locked` |
+| `chooseFile()` | 主进程弹出文件对话框（从 `~/.ssh` 开始），读取并检查格式 | `{ fileId, fileName, encrypted }`；`fileId` 只在 10 分钟内、只在主窗口有效 | `cancelled`（安静处理）、`file_too_large`、`unsupported_key` |
+| `import({ workspaceId, fileId, name?, passphrase? })` | 导入选好的文件；`name` 不填时用文件名 | `{ key: SshKey }` | `needs_password`、`wrong_password`（`fileId` 还能用，让用户重输口令）、`not_found`（`fileId` 过期，请重新选择）、`locked` |
+| `generate({ workspaceId, name })` | 生成新的 ed25519 私钥 | `{ key: SshKey }` | `locked` |
+| `delete({ workspaceId, id })` | 删除私钥；用到它的服务器 `keyId` 变成 `null` | `{ profiles }`：主进程已保存的完整列表 | `not_found`、`locked` |
+| `importProfileFile({ workspaceId, profileId, passphrase?, trashOriginal })` | 把一台服务器正在用的私钥文件（`privateKeyPath`）导入；这个工作区里所有用同一个文件的服务器都改用导入的私钥 | `{ key, profiles, trashed, kept? }` | `needs_password`、`wrong_password`、`unsupported_key`、`io`（文件不在了）、`not_found` |
+
+- `SshKey`：`{ id, name, algorithm, fingerprint, publicKey, hasPassphrase, created_at }`。
+  - `algorithm` 是 `ed25519`、`rsa-3072`、`ecdsa-p256` 这类写法；
+  - `fingerprint` 是 `SHA256:...`；
+  - `publicKey` 就是要放进服务器 `~/.ssh/authorized_keys` 的那一行。
+- 私钥本身和口令永远不会传到界面。
+- 支持的格式：
+  - OpenSSH（可以带口令）；
+  - PEM：PKCS#1、SEC1、PKCS#8（都可以加密）；
+  - PuTTY `.ppk` 第 2 版和第 3 版。
+  - 别的格式返回 `unsupported_key`，提示用户先转成 OpenSSH 格式。
+- `trashOriginal` 为真时，原文件**移到废纸篓**，不是直接删除。下面几种情况会保留原文件，原因放在 `kept` 里：
+  - `used_elsewhere`：别的工作区也在用它；
+  - `workspaces_locked`：有工作区锁着，没法确认有没有在用；
+  - `trash_failed`：移不动。
+- **返回 `profiles` 的两个方法（`delete`、`importProfileFile`）**：
+  - 主进程已经把整份列表存好了。界面要像 R22 的 `adoptProfiles` 那样采用它：保留草稿和快速连接，选中项留在同一台服务器上，**不要再保存一次**。
+  - 否则界面手里的旧列表下次整份保存时，会把刚改的 `keyId` 写回去。
+- 服务器配置：
+  - 用保存的私钥时，设 `authType: 'key'`、`keyId: <id>`、`privateKeyPath: null`；
+  - 连接时主进程从库里取私钥和它的口令，界面什么都不用传。
+
+### B1 私钥管理（新）
+
+- **位置**：设置 → SSH（`SSHTab.tsx`）里加一节"私钥"。私钥按工作区存，标题写明"当前工作区"。
+- **列表**：每个私钥显示名称、算法、指纹（等宽字体，太长可以截断，悬停显示全文）、创建时间，以及有几台服务器在用（从当前工作区服务器的 `keyId` 统计）。
+- **导入**：
+  - 先 `chooseFile()`；`encrypted` 为真时显示口令输入框，再 `import()`；
+  - `wrong_password` 时保留对话框，提示"口令不对"；`not_found` 时提示重新选择文件；`unsupported_key` 时说明支持哪些格式。
+- **生成**：
+  - 输入名称后调用 `generate()`；
+  - 成功后显示公钥那一行和"复制"按钮，并说明"把这一行加到服务器的 `~/.ssh/authorized_keys` 里"。
+- **每个私钥都能复制公钥**。
+- **删除**：
+  - 确认框里列出正在用它的服务器名称，说明删除后这些服务器要重新选择私钥；
+  - 删除后采用返回的 `profiles`。
+- **状态保护**：工作区锁定、切换工作区、应用锁定时清空状态、作废进行中的请求，和 `SavedSecretControl` 的 generation 做法一样；工作区锁着时按钮不可用。
+- **验收**：spec 覆盖导入（含 `needs_password` 后补口令成功）、生成后复制公钥、删除后采用列表、切换工作区时丢弃迟到的结果。
+
+### B2 连接表单用保存的私钥（改）
+
+- 认证方式选"私钥"时，可以从"已保存的私钥"里选，也可以选"使用文件"（原来的路径输入）。
+  - 选已保存的：`keyId` 设为它，`privateKeyPath` 清空；口令框隐藏，因为口令跟着私钥一起存了。
+  - 选文件：`keyId` 设为 `null`。
+- 已保存的服务器如果还在用私钥文件：
+  - 显示一行说明："这个私钥还是磁盘上的文件，加密备份里不包含它。"另加一个按钮"导入到 GETSSH"；
+  - 点了以后弹确认框，里面有一个默认不勾的选项："导入后把原文件移到废纸篓"，并说明同一工作区里用这个文件的服务器会一起改用导入的私钥；
+  - 调 `importProfileFile`。`needs_password` 时请用户输入口令再试；完成后采用 `profiles`，并告诉用户原文件移走了没有、没移走的原因。
+  - 草稿和快速连接不显示这个按钮（它们还没有 `profileId`）。
+- **验收**：spec 覆盖选择保存的私钥后保存的 `keyId`、`privateKeyPath` 和 `authType`；导入文件私钥后采用列表，正在编辑的草稿还在。
+
+### B3 恢复码提醒（改）
+
+- 设主密码时已经会生成恢复码（`SafeStorageTab.tsx:119-120`）。要补的是：设了主密码（`appProtected`）但没有恢复码（`recoveryConfigured` 为 false）时，在设置 → 安全的"待处理事项"里加一行，例如："还没有恢复码。忘了主密码时，只有恢复码能打开数据。"再给一个跳到生成恢复码的按钮。
+- 顺便检查：设主密码后，生成恢复码那一步失败了、或者用户没看就关掉了，最终状态是否正确，提醒会不会出现。
+- **验收**：spec 覆盖 `appProtected && !recoveryConfigured` 时出现提醒；有恢复码后提醒消失。
+
+### B4 迁移后重新开启 Touch ID 的提示（新，做最简单的）
+
+- `appState().migration?.presenceToReenable` 不为空时，解锁后显示一条提示，列出这些工作区的名称，再给一个按钮，逐个调用 `security.setPresence({ workspaceId, enabled: true })`。用户关掉提示后，这次运行内不再显示。
+- 这个名单只在迁移 3.0 开发版旧数据的那一次启动时出现。2.0 用户升级不会遇到，所以不用做持久化。
+- **验收**：一个 spec，有名单时出现提示、点按钮会调用 `setPresence`。
+
+### B5 文案和更新日志
+
+- 应用里：设置页的私钥说明、连接表单的提示，都按 `docs/GETSSH_COPY_STYLE_CN.md` 写，跑 `scripts/copy-lint.js`。
+- 官网的 3.0 更新日志加一条：私钥可以导入 GETSSH，导入后随加密备份带走；还在用磁盘文件的私钥不在备份里。官网照旧先别合进 `main`。
+
+### 顺序和交付
+
+- 先做 B1、B2（今天就能用假实现开发），再做 B3、B4、B5。
+- 交付前合并 `v3-next`，跑整套 `pnpm exec vitest run` 并附上原始输出。原生模块没编译导致的失败请注明。
+- Claude 的正式模块合进 `v3-next` 以后，再在真实存储上点一遍 B1、B2。
+
+### Claude 这边
+
+- 主进程接口、preload、类型和假实现：10-15。
+- Rust 正式模块：导入、列出、删除，口令随私钥加密保存；连接时取用；跨工作区复制和备份都带上私钥。同时跟假实现逐项对照，补上端到端测试。
+- 主进程里的格式处理：`.ppk` 第 2、3 版和 PKCS#8 转成 ssh2 能用的格式；生成 ed25519 私钥。
+- 之后复查 B1–B5。
