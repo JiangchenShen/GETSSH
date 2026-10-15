@@ -253,7 +253,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | 来源 | 位置和格式 | 处理 |
 |---|---|---|
 | 3.0 开发版（从未发布） | `~/.getssh` 下的 `app_key.enc` / `app_key.txt`、用口令加密的 `main.db`、`getssh.db`、`workspaces/<id>/vault.key`、`workspaces/<id>/*.json` | S6 起由 Rust 迁移（`start(legacy)`，见下）。代码和注释里以前叫它"2.x"，是错的 |
-| 2.0 正式版 | Electron 的 userData（macOS 是 `~/Library/Application Support/getssh`）下的 `profiles.enc`（getssh-vault 加密）、`profiles.json`（明文）、`profiles.key`（主密码，safeStorage） | 第一次启动时自动导入到主工作区，原文件不动（`services/legacyV2Profiles.ts`） |
+| 2.0 正式版 | Electron 的 userData（macOS 是 `~/Library/Application Support/getssh`）下的 `profiles.enc`（getssh-vault 加密）、`profiles.json`（明文）、`profiles.key`（主密码，safeStorage） | 第一次启动时自动导入到主工作区，原文件不动（`services/legacyV2Profiles.ts`）。插件数据 `plugin_data/<插件名>.db` 同时复制到主工作区的插件目录，只做一次（`services/legacyV2PluginData.ts`，10-15）。2.0 留下的其他东西见 `GETSSH_UPGRADE_REHEARSAL_CN.md` |
 
 - **开发版数据的迁移（S6）**：`app_key.enc` 和 `vault.key` 是 safeStorage 加密的，只有 Electron 能解开。主进程先用 `needsLegacyMigration()` 判断，需要时把解开的钥匙传给 `start(legacy)`，其余步骤都在 Rust 里做：备份、拆分 `getssh.db`、导入 JSON、换钥匙、失败时还原。备份目录名和 TS 版一样，TS 版迁移到一半的数据可以由 Rust 接着做完。
 - **2.0 的导入**：macOS 上 2.0 一直用 Chromium 的 mock keychain，`profiles.key` 用一把公开的固定钥匙加密，不访问钥匙串就能解开；Windows 上是 DPAPI，也不弹窗。所以多数用户不用输入任何密码。`profiles.key` 不在时，要用户输入一次 2.0 的主密码（界面待做）。按 (协议, 主机, 端口, 用户名) 跳过已有的配置，只导入一次。

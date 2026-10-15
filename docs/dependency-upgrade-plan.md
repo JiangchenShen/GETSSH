@@ -60,8 +60,12 @@
    - napi 3 在 Windows 上的运行；
    - windows 0.62 下的 TPM、DPAPI、Windows Hello。
 2. **`@xterm/addon-canvas` 0.7 只支持 xterm 5**，项目用的是 xterm 6。已处理（10-14）：终端默认用 xterm 自带的 DOM 渲染，开启"终端防瞎眼"时用 WebGL，WebGL 不可用时退回 DOM；`addon-canvas` 已从依赖里删掉。
-3. **渲染进程用的库放在了 `dependencies` 里**，例如 react-syntax-highlighter、prismjs。它们已经被 Vite 打包过一次，安装包里又带了一份 `node_modules`。可以移到 `devDependencies`，安装包能小一截。
-4. 第二节的"发布基础设施"还没做：许可证合规、`build/` 纳入 git、dependabot、在 CI 里加 audit。
+3. **渲染进程用的库放在了 `dependencies` 里**，例如 react-syntax-highlighter、prismjs。已处理：`dependencies` 只剩 `electron-updater`、`node-pty`、`ssh2`，`app.asar` 里的 node_modules 一共 5.5 MB（10-15 核对；整个应用 277 MB，其中 239 MB 是 Electron 本身）。
+4. 第二节的"发布基础设施"（10-15）：
+   - 许可证：已做。每个安装包带 `THIRD_PARTY_NOTICES.txt`（`scripts/third-party-notices.cjs` 在打包前生成），mac 安装包补上了 Electron 的 `LICENSE.electron.txt` 和 `LICENSES.chromium.html`，说明见 `docs/legal/THIRD_PARTY_LICENSES.md`。
+   - `build/` 纳入 git：之前已经做了。
+   - CI 审计：已做，`.github/workflows/dependency-audit.yml`（npm 高危以上、RustSec）。构建工具里的两个高危用 override 修掉了；剩下两个中危也只在构建工具里，一个没有修复版，一个要跨大版本，暂不处理。
+   - dependabot：没做。它会自己在 GitHub 上开分支和 PR，要负责人决定。
 5. Electron 45 定于 10-20 发布，届时要把 `safeStorage` 改成异步调用。
 
 ## 一、先说结论
