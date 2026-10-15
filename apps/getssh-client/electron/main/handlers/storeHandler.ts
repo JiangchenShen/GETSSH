@@ -15,6 +15,7 @@ import {
 import type { ProfileInput } from '../../../../../rust-core/getssh-store/store';
 import { appLock } from '../security/appLock';
 import { getStore, toStoreError } from '../services/getsshStore';
+import { dialogFolder } from '../utils/userFolder';
 import { isValidWorkspaceId } from '../utils/workspaceId';
 import { getMainWindow, isMainWebContents } from '../windowRegistry';
 
@@ -406,7 +407,7 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
     const store = getStore();
     if (store.appState().masterPasswordMustChange) return { ok: false, error: 'must_change_master_password' };
     const picked = await saveDialog({
-      defaultPath: path.join(app.getPath('documents'), `GETSSH-${dateStamp()}.${BACKUP_EXTENSION}`),
+      defaultPath: path.join(dialogFolder('documents'), `GETSSH-${dateStamp()}.${BACKUP_EXTENSION}`),
       filters: [{ name: 'GETSSH backup', extensions: [BACKUP_EXTENSION] }],
     });
     if (picked.canceled || !picked.filePath) return CANCELLED;

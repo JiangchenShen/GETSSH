@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
       isPackaged: false,
       getAppPath: () => process.cwd(),
       getVersion: () => '3.0.0-test',
-      getPath: vi.fn(() => os.tmpdir()),
+      getPath: vi.fn((_name: string) => os.tmpdir()),
       relaunch: vi.fn(),
       exit: vi.fn(),
     },
@@ -427,6 +427,23 @@ describe('backup', () => {
     expect(await call('store:backup:relaunch')).toEqual({ ok: true });
     expect(mocks.app.relaunch).toHaveBeenCalledOnce();
     expect(mocks.app.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('offers the home folder when Windows cannot give the Documents folder', async () => {
+    await boot();
+    // app.getPath('documents') throws when the known folder is missing, e.g. redirected to a share.
+    mocks.app.getPath.mockImplementation((name: string) => {
+      if (name === 'documents') throw new Error("Failed to get 'documents' path");
+      return name === 'home' ? home : os.tmpdir();
+    });
+    try {
+      mocks.dialog.showSaveDialog.mockResolvedValueOnce({ canceled: true });
+      expect(await call('store:backup:export', { workspaceIds: ['main'], password: EXPORT_PASSWORD })).toMatchObject({ ok: false, error: 'cancelled' });
+      const options = mocks.dialog.showSaveDialog.mock.calls.at(-1)!.at(-1);
+      expect(path.dirname(options.defaultPath)).toBe(home);
+    } finally {
+      mocks.app.getPath.mockImplementation(() => os.tmpdir());
+    }
   });
 
   it('reports workspaces that need their own password before an export', async () => {

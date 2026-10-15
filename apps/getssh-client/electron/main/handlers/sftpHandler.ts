@@ -8,6 +8,7 @@ import { connectionManager } from '../services/ConnectionManager';
 import { listDirectoryBounded } from '../services/sftpListing';
 import { windowForSender } from '../windowRegistry';
 import { getRustCorePath } from '../utils/rustCorePath';
+import { dialogFolder, userFolder } from '../utils/userFolder';
 
 interface ISftpDownloader {
   append(chunk: Buffer): void;
@@ -381,11 +382,11 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       // the OS Downloads or Desktop folders, mitigating potential directory traversal.
       // Compared after resolving links: a link inside Downloads must not lead the write elsewhere.
       const path = require('node:path');
-      const realOrNull = (p: string) => fs.promises.realpath(p).catch(() => null);
+      const realOrNull = (p: string | null) => (p ? fs.promises.realpath(p).catch(() => null) : Promise.resolve(null));
       const [resolvedDir, downloadsPath, desktopPath] = await Promise.all([
         realOrNull(path.resolve(providedLocalDir)),
-        realOrNull(app.getPath('downloads')),
-        realOrNull(app.getPath('desktop')),
+        realOrNull(userFolder('downloads')),
+        realOrNull(userFolder('desktop')),
       ]);
       const isInside = (base: string | null) => {
         if (!base || !resolvedDir) return false;
@@ -401,7 +402,7 @@ export function registerSftpHandlers(ipcMain: Electron.IpcMain) {
       targetFilePath = join(resolvedDir!, fileName);
     } else {
       const saveOptions: Electron.SaveDialogOptions = {
-        defaultPath: require('electron').app.getPath('downloads') + '/' + fileName,
+        defaultPath: join(dialogFolder('downloads'), fileName),
         properties: ['createDirectory', 'showOverwriteConfirmation']
       };
       const saveParent = parent();
