@@ -216,18 +216,23 @@ declare global {
           import: (request: { workspaceId: string; fileId: string; name?: string; passphrase?: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
           /** A new Ed25519 key; `key.publicKey` is the line for the server's authorized_keys. */
           generate: (request: { workspaceId: string; name: string }) => Promise<import('./types/store').StoreResult<{ key: import('./types/store').SshKey }>>;
-          /** Servers that used the key get keyId null. The list is saved: take `profiles`, do not save it again. */
-          delete: (request: { workspaceId: string; id: string }) => Promise<import('./types/store').StoreResult<{ profiles: import('./store/sessionStore').SessionProfile[] }>>;
+          /**
+           * Servers that used the key get keyId null. The list is saved: take `profiles` (of
+           * `workspaceId`; drop a reply for a workspace that is no longer the active one), do not save it again.
+           */
+          delete: (request: { workspaceId: string; id: string }) => Promise<import('./types/store').StoreResult<{ workspaceId: string; profiles: import('./store/sessionStore').SessionProfile[] }>>;
           /**
            * Imports the key file a saved server uses (privateKeyPath); every server of the workspace
-           * using that file switches to the stored key. With trashOriginal the file goes to the
-           * Trash unless `kept` says why not. The list is saved: take `profiles`, do not save it again.
+           * using that file switches to the stored key. With trashOriginal the main process asks in
+           * its own dialog (in `language`) before moving the file to the Trash; `kept` says why it
+           * stayed. The list is saved: take `profiles` as with `delete`, do not save it again.
            */
-          importProfileFile: (request: { workspaceId: string; profileId: string; passphrase?: string; trashOriginal: boolean }) => Promise<import('./types/store').StoreResult<{
+          importProfileFile: (request: { workspaceId: string; profileId: string; passphrase?: string; trashOriginal: boolean; language?: 'zh-CN' | 'en-US' }) => Promise<import('./types/store').StoreResult<{
+            workspaceId: string;
             key: import('./types/store').SshKey;
             profiles: import('./store/sessionStore').SessionProfile[];
             trashed: boolean;
-            kept?: 'used_elsewhere' | 'workspaces_locked' | 'trash_failed';
+            kept?: 'used_elsewhere' | 'workspaces_locked' | 'trash_failed' | 'declined';
           }>>;
         };
         backup: {

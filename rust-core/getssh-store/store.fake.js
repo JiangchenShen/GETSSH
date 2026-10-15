@@ -1091,7 +1091,8 @@ function connectSecrets(workspaceId, profileId) {
     const key = ws.sshKeys.find(entry => entry.id === profile.keyId);
     if (!key) fail('not_found', `SSH key "${profile.keyId}" does not exist`);
     secrets.privateKey = Buffer.from(key.privateKey);
-    if (passphrase === null && key.passphrase !== null) passphrase = key.passphrase;
+    // The key's own passphrase (checked at import) wins over a stale one on the profile.
+    if (key.passphrase !== null) passphrase = key.passphrase;
   } else if (profile.privateKeyPath) {
     const keyPath = profile.privateKeyPath.replace(/^~/, os.homedir());
     try {

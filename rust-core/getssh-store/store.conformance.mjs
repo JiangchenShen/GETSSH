@@ -122,6 +122,8 @@ if (mode !== '--child') {
   await step('saveProfiles empty keyId', () => s.saveProfiles('w1', [{ id: 'k1', host: 'h', username: 'u', authType: 'key', keyId: s.listSshKeys('w1')[1].id }, { id: 'k3', host: 'h', username: 'u', keyId: '' }]), v => v.map(p => [p.id, typeof p.keyId]));
   await step('connectSecrets stored key', () => s.connectSecrets('w1', 'k1'), v => [v.privateKey.toString(), v.passphrase.toString(), Object.keys(v).sort()]);
   await step('connectSecrets empty keyId', () => s.connectSecrets('w1', 'k3'));
+  await step('saveProfiles stale passphrase', () => s.saveProfiles('w1', [{ id: 'k1', host: 'h', username: 'u', authType: 'key', keyId: s.listSshKeys('w1')[1].id, passphrase: 'stale' }]), v => v.length);
+  await step('stored passphrase wins', () => s.connectSecrets('w1', 'k1'), v => v.passphrase.toString());
   await step('deleteSshKey', () => s.deleteSshKey('w1', s.listSshKeys('w1')[1].id));
   await step('keyId cleared', () => s.listProfiles('w1'), v => v.map(p => [p.id, p.keyId]));
   await step('deleteSshKey missing', () => s.deleteSshKey('w1', 'ghost'));

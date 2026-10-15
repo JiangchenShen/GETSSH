@@ -191,9 +191,72 @@ describe('key files converted for ssh2', () => {
     expect(await code(readPrivateKey(ppk(3, key, { privateBlob: other })))).toBe('unsupported_key');
     const damaged = Buffer.from(ppk(3, key).toString().replace(/Private-MAC: (.)/, (_, c) => `Private-MAC: ${c === '0' ? '1' : '0'}`));
     expect(await code(readPrivateKey(damaged))).toBe('unsupported_key');
-    for (const argon2 of [{ 'Argon2-Memory': String(4 * 1024 * 1024) }, { 'Argon2-Passes': '100000' }, { 'Argon2-Parallelism': '64' }, { 'Key-Derivation': 'scrypt' }] as Record<string, string>[]) {
+    for (const argon2 of [
+      { 'Argon2-Memory': String(4 * 1024 * 1024) }, { 'Argon2-Passes': '100000' }, { 'Argon2-Parallelism': '64' }, { 'Key-Derivation': 'scrypt' },
+      // Each within its own cap, but 256 MiB times 9 passes is over the work budget.
+      { 'Argon2-Memory': String(256 * 1024), 'Argon2-Passes': '9' },
+    ] as Record<string, string>[]) {
       expect(await code(readPrivateKey(ppk(3, key, { passphrase: PASS, argon2 }), PASS)), JSON.stringify(argon2)).toBe('unsupported_key');
     }
+  });
+});
+
+/** DER, for building encrypted PKCS#8 files with the iteration count a test needs. */
+const der = (tag: number, ...parts: Buffer[]) => {
+  const body = Buffer.concat(parts);
+  const length = body.length < 128 ? Buffer.from([body.length]) : body.length < 256 ? Buffer.from([0x81, body.length]) : Buffer.from([0x82, body.length >> 8, body.length & 0xff]);
+  return Buffer.concat([Buffer.from([tag]), length, body]);
+};
+const derInt = (value: number) => {
+  let hex = value.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  const bytes = Buffer.from(hex, 'hex');
+  return der(0x02, bytes[0] & 0x80 ? Buffer.concat([Buffer.from([0]), bytes]) : bytes);
+};
+const oid = (hex: string) => der(0x06, Buffer.from(hex, 'hex'));
+
+/** PBES2 (PBKDF2-HMAC-SHA256, AES-256-CBC) as OpenSSL writes it, with `iterations`. */
+function encryptedPkcs8(key: crypto.KeyObject, passphrase: string, iterations: number): Buffer {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(16);
+  const plain = key.export({ type: 'pkcs8', format: 'der' });
+  const derived = iterations <= 100_000 ? crypto.pbkdf2Sync(passphrase, salt, iterations, 32, 'sha256') : Buffer.alloc(32);
+  const cipher = crypto.createCipheriv('aes-256-cbc', derived, iv);
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const algorithm = der(0x30, oid('2a864886f70d01050d'), der(0x30,
+    der(0x30, oid('2a864886f70d01050c'), der(0x30, der(0x04, salt), derInt(iterations), der(0x30, oid('2a864886f70d0209'), Buffer.from([5, 0])))),
+    der(0x30, oid('60864801650304012a'), der(0x04, iv))));
+  const body = der(0x30, algorithm, der(0x04, encrypted));
+  return Buffer.from(`-----BEGIN ENCRYPTED PRIVATE KEY-----\n${body.toString('base64').match(/.{1,64}/g)!.join('\n')}\n-----END ENCRYPTED PRIVATE KEY-----\n`);
+}
+
+describe('key derivation costs', () => {
+  it('reads PBKDF2 settings as node:crypto does, and refuses iteration counts above the cap before deriving', async () => {
+    const key = KEYS.ed25519();
+    const fine = encryptedPkcs8(key, PASS, 4096);
+    expect((await readPrivateKey(fine, PASS)).publicKey.equals(ppkBlobs(key).publicBlob)).toBe(true);
+    expect(await code(readPrivateKey(fine, 'wrong'))).toBe('wrong_password');
+    const started = Date.now();
+    expect(await code(readPrivateKey(encryptedPkcs8(key, PASS, 5_000_000), PASS))).toBe('unsupported_key');
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(await code(readPrivateKey(Buffer.from('-----BEGIN ENCRYPTED PRIVATE KEY-----\nMAA=\n-----END ENCRYPTED PRIVATE KEY-----\n'), PASS))).toBe('unsupported_key');
+  });
+
+  it('refuses an OpenSSH key with more bcrypt rounds than the cap, before ssh2 runs them', async () => {
+    const pair = sshUtils.generateKeyPairSync('ed25519', { passphrase: PASS, cipher: 'aes256-ctr', rounds: 4 });
+    const body = /-----BEGIN OPENSSH PRIVATE KEY-----\n([\s\S]+?)\n-----END/.exec(pair.private)![1].replace(/\n/g, '');
+    const raw = Buffer.from(body, 'base64');
+    // magic, cipher, kdfname, kdfoptions = string salt + uint32 rounds
+    let at = 15;
+    for (let i = 0; i < 2; i++) at += 4 + raw.readUInt32BE(at);
+    const saltLength = raw.readUInt32BE(at + 4);
+    raw.writeUInt32BE(0xffffffff, at + 8 + saltLength);
+    const hostile = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${raw.toString('base64').match(/.{1,70}/g)!.join('\n')}\n-----END OPENSSH PRIVATE KEY-----\n`);
+    expect(keyFileNeedsPassphrase(hostile)).toBe(true);
+    const started = Date.now();
+    expect(await code(readPrivateKey(hostile, 'any passphrase'))).toBe('unsupported_key');
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect((await readPrivateKey(Buffer.from(pair.private), PASS)).passphrase).toBe(PASS);
   });
 });
 

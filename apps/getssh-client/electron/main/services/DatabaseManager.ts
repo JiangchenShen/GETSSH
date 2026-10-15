@@ -214,8 +214,14 @@ export class DatabaseManager {
   public static saveProfiles(workspaceId: string, rows: ProfileRowInput[]): void {
     const store = getStore();
     writeIfOpen(() => {
-      // The renderer does not know about stored SSH keys yet: a row without keyId keeps its key.
+      // A row without keyId keeps its key. A keyId whose key is gone (deleted while the window
+      // held an older list) means none: getssh-store refuses it, which would fail the whole save.
       const keyIds = new Map(store.listProfiles(workspaceId).map(profile => [profile.id, profile.keyId]));
+      const keys = new Set(store.listSshKeys(workspaceId).map(key => key.id));
+      const keyIdOf = (row: ProfileRowInput) => {
+        const keyId = row.keyId === undefined ? keyIds.get(String(row.id)) ?? null : text(row.keyId);
+        return keyId && keys.has(keyId) ? keyId : null;
+      };
       const inputs: ProfileInput[] = rows.map(row => ({
         id: String(row.id),
         host: typeof row.host === 'string' ? row.host : '',
@@ -233,7 +239,7 @@ export class DatabaseManager {
         initialDirectory: text(row.initialDirectory),
         postConnectScript: text(row.postConnectScript),
         themeOverride: text(row.themeOverride),
-        keyId: row.keyId === undefined ? keyIds.get(String(row.id)) ?? null : text(row.keyId),
+        keyId: keyIdOf(row),
         privateKeyPath: text(row.privateKeyPath),
         password: secret(row.password),
         passphrase: secret(row.passphrase),

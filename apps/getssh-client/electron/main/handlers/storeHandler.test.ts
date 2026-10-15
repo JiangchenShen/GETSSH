@@ -450,59 +450,113 @@ describe('ssh keys', () => {
     expect(await call('store:ssh-keys:delete', { workspaceId: 'main', id: key.id })).toMatchObject({ ok: false, error: 'not_found' });
   });
 
-  it('moves the key file a server uses into the store; to the Trash only when no other workspace can use it', async () => {
-    const file = path.join(home, 'id_server');
-    const secondFile = path.join(home, 'id_other');
-    // The file is opened with the passphrase saved with the server.
+  it('moves the key file a server uses into the store for every server of the workspace on that file, links and case included', async () => {
+    const dir = path.join(home, 'link-test');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'id_server');
     fs.writeFileSync(file, rsaPem(PROFILE_PASSPHRASE));
-    fs.writeFileSync(secondFile, rsaPem('x'));
+    const link = path.join(home, 'id_link');
+    if (!fs.existsSync(link)) fs.symlinkSync(file, link);
+    const other = path.join(dir, 'id_other');
+    fs.writeFileSync(other, rsaPem('x'));
     await boot({
-      workspaces: [{ id: 'main', name: 'Main', is_main: true }, { id: 'team', name: 'Team' }, { id: 'locked', name: 'Locked', password: WORKSPACE_PASSWORD }],
       profiles: {
         main: [
-          profile({ authType: 'key', privateKeyPath: '~/id_server', passphrase: PROFILE_PASSPHRASE }),
-          profile({ id: 'same-file', authType: 'key', privateKeyPath: file }),
-          profile({ id: 'other-file', authType: 'key', privateKeyPath: secondFile }),
+          // The passphrase saved with the server opens the file.
+          profile({ authType: 'key', privateKeyPath: '~/link-test/id_server', passphrase: PROFILE_PASSPHRASE }),
+          profile({ id: 'by-link', authType: 'key', privateKeyPath: link, passphrase: 'stale passphrase' }),
+          profile({ id: 'other-file', authType: 'key', privateKeyPath: other }),
         ],
-        team: [profile({ id: 'team-web', authType: 'key', privateKeyPath: file })],
       },
     });
-    const request = { workspaceId: 'main', profileId: 'web', trashOriginal: true };
-    const result = await call('store:ssh-keys:import-profile-file', request);
-    expect(result).toMatchObject({ ok: true, key: { name: 'id_server', hasPassphrase: true }, trashed: false, kept: 'workspaces_locked' });
+    const result = await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'web', trashOriginal: false });
+    expect(result).toMatchObject({ ok: true, workspaceId: 'main', key: { name: 'id_server', hasPassphrase: true }, trashed: false });
     expectNoSecrets(result);
     const byId = Object.fromEntries(result.profiles.map((entry: { id: string }) => [entry.id, entry]));
-    expect(byId.web).toMatchObject({ authType: 'key', keyId: result.key.id, privateKeyPath: null });
-    expect(byId['same-file']).toMatchObject({ keyId: result.key.id, privateKeyPath: null });
-    expect(byId['other-file']).toMatchObject({ keyId: null, privateKeyPath: secondFile });
+    expect(byId.web).toMatchObject({ authType: 'key', keyId: result.key.id, privateKeyPath: null, hasPassphrase: false });
+    expect(byId['by-link']).toMatchObject({ keyId: result.key.id, privateKeyPath: null, hasPassphrase: false });
+    expect(byId['other-file']).toMatchObject({ keyId: null, privateKeyPath: other });
     expect(storedKey(result.key.id).passphrase).toBe(PROFILE_PASSPHRASE);
     expect(mocks.shell.trashItem).not.toHaveBeenCalled();
-    expect(await call('store:ssh-keys:import-profile-file', request), 'web uses the stored key now').toEqual({ ok: false, error: 'invalid_argument' });
+    expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'web', trashOriginal: false }), 'web uses the stored key now').toEqual({ ok: false, error: 'invalid_argument' });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'other-file', trashOriginal: false })).toEqual({ ok: false, error: 'needs_password' });
+    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'other-file', passphrase: 'wrong', trashOriginal: false })).toEqual({ ok: false, error: 'wrong_password' });
+  });
 
-    await fake.unlockWorkspace('locked', { password: WORKSPACE_PASSWORD });
-    const busy = await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'other-file', passphrase: 'x', trashOriginal: true });
-    expect(busy).toMatchObject({ ok: true, trashed: true });
-    expect(mocks.shell.trashItem).toHaveBeenCalledWith(secondFile);
-    const team = await call('store:ssh-keys:import-profile-file', { workspaceId: 'team', profileId: 'team-web', passphrase: PROFILE_PASSPHRASE, trashOriginal: true });
-    expect(team).toMatchObject({ ok: true, trashed: true });
-    expect(mocks.shell.trashItem).toHaveBeenLastCalledWith(file);
+  it('asks in the main process before the Trash, and keeps a file anything GETSSH knows may still use', async () => {
+    const userData = fs.mkdtempSync(path.join(home, 'user-data-'));
+    mocks.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userData : os.tmpdir()));
+    const keyFile = (name: string, passphrase: string) => {
+      const file = path.join(home, name);
+      fs.writeFileSync(file, rsaPem(passphrase));
+      return file;
+    };
+    try {
+      const shared = keyFile('id_shared', 'a');
+      const alone = keyFile('id_alone', 'b');
+      await boot({
+        workspaces: [{ id: 'main', name: 'Main', is_main: true }, { id: 'team', name: 'Team' }, { id: 'locked', name: 'Locked', password: WORKSPACE_PASSWORD }],
+        profiles: {
+          main: [profile({ id: 'shared', authType: 'key', privateKeyPath: shared }), profile({ id: 'alone', authType: 'key', privateKeyPath: alone })],
+          // The same file, spelled through ~ in another workspace.
+          team: [profile({ id: 'team-shared', authType: 'key', privateKeyPath: `~/id_shared` })],
+        },
+      });
+      const run = (profileId: string, passphrase: string, workspaceId = 'main') => call('store:ssh-keys:import-profile-file', { workspaceId, profileId, passphrase, trashOriginal: true, language: 'zh-CN' });
+      expect(await run('alone', 'b')).toMatchObject({ ok: true, trashed: false, kept: 'workspaces_locked' });
+      await fake.unlockWorkspace('locked', { password: WORKSPACE_PASSWORD });
+      expect(await run('shared', 'a')).toMatchObject({ ok: true, trashed: false, kept: 'used_elsewhere' });
+      expect(mocks.dialog.showMessageBox).not.toHaveBeenCalled();
 
-    fs.writeFileSync(path.join(home, 'id_used'), rsaPem('y'));
-    await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-2', authType: 'key', privateKeyPath: path.join(home, 'id_used') })] });
-    await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ id: 'main-2', authType: 'key', privateKeyPath: path.join(home, 'id_used') })] });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'main-2', trashOriginal: true })).toEqual({ ok: false, error: 'needs_password' });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'main-2', passphrase: 'y', trashOriginal: true }))
-      .toMatchObject({ ok: true, trashed: false, kept: 'used_elsewhere' });
-    mocks.shell.trashItem.mockRejectedValueOnce(new Error('no Trash'));
-    fs.writeFileSync(path.join(home, 'id_stuck'), rsaPem('z'));
-    await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-3', authType: 'key', privateKeyPath: path.join(home, 'id_stuck') })] });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'team', profileId: 'team-3', passphrase: 'z', trashOriginal: true }))
-      .toMatchObject({ ok: true, trashed: false, kept: 'trash_failed' });
+      const fresh = keyFile('id_fresh', 'c');
+      await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-fresh', authType: 'key', privateKeyPath: fresh })] });
+      answerDialog(1);
+      expect(await run('team-fresh', 'c', 'team')).toMatchObject({ ok: true, trashed: false, kept: 'declined' });
+      const [, asked] = mocks.dialog.showMessageBox.mock.calls.at(-1)!.length === 2 ? mocks.dialog.showMessageBox.mock.calls.at(-1)! : [null, mocks.dialog.showMessageBox.mock.calls.at(-1)![0]];
+      expect(asked.detail).toContain(fresh);
+      expect(asked.message).toMatch(/废纸篓|回收站/);
+      expect(mocks.shell.trashItem).not.toHaveBeenCalled();
 
-    await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ id: 'gone', authType: 'key', privateKeyPath: path.join(home, 'missing') })] });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone', trashOriginal: false })).toEqual({ ok: false, error: 'io' });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'ghost', trashOriginal: false })).toEqual({ ok: false, error: 'not_found' });
-    expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone' })).toEqual({ ok: false, error: 'invalid_argument' });
+      const gone = keyFile('id_gone', 'd');
+      await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-gone', authType: 'key', privateKeyPath: gone })] });
+      answerDialog(0);
+      expect(await run('team-gone', 'd', 'team')).toMatchObject({ ok: true, trashed: true });
+      expect(mocks.shell.trashItem).toHaveBeenCalledWith(gone);
+
+      const stuck = keyFile('id_stuck', 'e');
+      await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-stuck', authType: 'key', privateKeyPath: stuck })] });
+      answerDialog(0);
+      mocks.shell.trashItem.mockRejectedValueOnce(new Error('no Trash'));
+      expect(await run('team-stuck', 'e', 'team')).toMatchObject({ ok: true, trashed: false, kept: 'trash_failed' });
+
+      // GETSSH 2.0's own server list is left in place for 2.x and may name the file.
+      fs.writeFileSync(path.join(userData, 'profiles.json'), '[]');
+      const legacy = keyFile('id_legacy', 'f');
+      await call('store:profiles:save', { workspaceId: 'team', profiles: [profile({ id: 'team-legacy', authType: 'key', privateKeyPath: legacy })] });
+      expect(await run('team-legacy', 'f', 'team')).toMatchObject({ ok: true, trashed: false, kept: 'used_elsewhere' });
+
+      await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ id: 'gone', authType: 'key', privateKeyPath: path.join(home, 'missing') })] });
+      expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone', trashOriginal: false })).toEqual({ ok: false, error: 'io' });
+      expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'ghost', trashOriginal: false })).toEqual({ ok: false, error: 'not_found' });
+      expect(await call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'gone' })).toEqual({ ok: false, error: 'invalid_argument' });
+    } finally {
+      mocks.app.getPath.mockImplementation(() => os.tmpdir());
+    }
+  });
+
+  it('keeps keyId on a save that leaves the field out, and drops one whose key is gone', async () => {
+    await boot();
+    const { key } = await call('store:ssh-keys:generate', { workspaceId: 'main', name: 'laptop' });
+    await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ authType: 'key', keyId: key.id })] });
+    const { keyId: _left, ...withoutKeyId } = profile({ authType: 'key' });
+    const kept = await call('store:profiles:save', { workspaceId: 'main', profiles: [withoutKeyId] });
+    expect(kept.profiles[0].keyId).toBe(key.id);
+    await call('store:ssh-keys:delete', { workspaceId: 'main', id: key.id });
+    // A window that still holds the deleted key's id: the save goes through without it.
+    const stale = await call('store:profiles:save', { workspaceId: 'main', profiles: [profile({ authType: 'key', keyId: key.id })] });
+    expect(stale.ok).toBe(true);
+    expect(stale.profiles[0].keyId).toBeNull();
   });
 });
 

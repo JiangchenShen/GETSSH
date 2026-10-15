@@ -508,8 +508,8 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
 | `chooseFile()` | 主进程弹出文件对话框（从 `~/.ssh` 开始），读取并检查格式 | `{ fileId, fileName, encrypted }`；`fileId` 只在 10 分钟内、只在主窗口有效 | `cancelled`（安静处理）、`file_too_large`、`unsupported_key` |
 | `import({ workspaceId, fileId, name?, passphrase? })` | 导入选好的文件；`name` 不填时用文件名 | `{ key: SshKey }` | `needs_password`、`wrong_password`（`fileId` 还能用，让用户重输口令）、`not_found`（`fileId` 过期，请重新选择）、`locked` |
 | `generate({ workspaceId, name })` | 生成新的 ed25519 私钥 | `{ key: SshKey }` | `locked` |
-| `delete({ workspaceId, id })` | 删除私钥；用到它的服务器 `keyId` 变成 `null` | `{ profiles }`：主进程已保存的完整列表 | `not_found`、`locked` |
-| `importProfileFile({ workspaceId, profileId, passphrase?, trashOriginal })` | 把一台服务器正在用的私钥文件（`privateKeyPath`）导入；这个工作区里所有用同一个文件的服务器都改用导入的私钥 | `{ key, profiles, trashed, kept? }` | `needs_password`、`wrong_password`、`unsupported_key`、`io`（文件不在了）、`not_found` |
+| `delete({ workspaceId, id })` | 删除私钥；用到它的服务器 `keyId` 变成 `null` | `{ workspaceId, profiles }`：主进程已保存的完整列表 | `not_found`、`locked` |
+| `importProfileFile({ workspaceId, profileId, passphrase?, trashOriginal, language? })` | 把一台服务器正在用的私钥文件（`privateKeyPath`）导入；这个工作区里所有用同一个文件的服务器都改用导入的私钥 | `{ workspaceId, key, profiles, trashed, kept? }` | `needs_password`、`wrong_password`、`unsupported_key`、`io`（文件不在了）、`not_found` |
 
 - `SshKey`：`{ id, name, algorithm, fingerprint, publicKey, hasPassphrase, created_at }`。
   - `algorithm` 是 `ed25519`、`rsa-3072`、`ecdsa-p256` 这类写法；
@@ -521,13 +521,18 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
   - PEM：PKCS#1、SEC1、PKCS#8（都可以加密）；
   - PuTTY `.ppk` 第 2 版和第 3 版。
   - 别的格式返回 `unsupported_key`，提示用户先转成 OpenSSH 格式。
-- `trashOriginal` 为真时，原文件**移到废纸篓**，不是直接删除。下面几种情况会保留原文件，原因放在 `kept` 里：
-  - `used_elsewhere`：别的工作区也在用它；
-  - `workspaces_locked`：有工作区锁着，没法确认有没有在用；
-  - `trash_failed`：移不动。
+  - 口令保护的计算量超过上限的私钥也返回 `unsupported_key`：bcrypt 超过 256 轮、PBKDF2 超过一百万次、Argon2 超出预算。ssh-keygen、OpenSSL、PuTTY 默认写的都远低于上限。遇到这种情况，可以提示用户用 `ssh-keygen -p` 重新设置口令。
+- `trashOriginal` 为真时，原文件**移到废纸篓**，不是直接删除。
+  - 主进程会先用自己的对话框问一次，对话框里写出文件路径，语言按 `language`（`zh-CN` / `en-US`，默认英文）。界面里那个勾选项就是用户的意思，界面不用再加一层确认。
+  - 下面几种情况会保留原文件，原因放在 `kept` 里：
+    - `used_elsewhere`：GETSSH 里还有服务器在用它（按文件本身比较，链接、大小写不同的路径也算），或者 2.0 的服务器列表还在；
+    - `workspaces_locked`：有工作区锁着，没法确认有没有在用；
+    - `declined`：用户在主进程的对话框里选了保留；
+    - `trash_failed`：移不动。
 - **返回 `profiles` 的两个方法（`delete`、`importProfileFile`）**：
   - 主进程已经把整份列表存好了。界面要像 R22 的 `adoptProfiles` 那样采用它：保留草稿和快速连接，选中项留在同一台服务器上，**不要再保存一次**。
-  - 否则界面手里的旧列表下次整份保存时，会把刚改的 `keyId` 写回去。
+  - 返回的 `workspaceId` 不是当前工作区时（等待期间切换了工作区或锁定了），丢掉这个结果。
+  - 界面手里还留着已删除私钥的 `keyId` 时，主进程保存时会把它当作没有，不会让整份保存失败；但界面照样应该采用返回的列表。
 - 服务器配置：
   - 用保存的私钥时，设 `authType: 'key'`、`keyId: <id>`、`privateKeyPath: null`；
   - 连接时主进程从库里取私钥和它的口令，界面什么都不用传。
@@ -552,7 +557,7 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
 ### B2 连接表单用保存的私钥（改）
 
 - 认证方式选"私钥"时，可以从"已保存的私钥"里选，也可以选"使用文件"（原来的路径输入）。
-  - 选已保存的：`keyId` 设为它，`privateKeyPath` 清空；口令框隐藏，因为口令跟着私钥一起存了。
+  - 选已保存的：`keyId` 设为它，`privateKeyPath` 清空，同时传 `passphrase: null`，清掉原来文件的口令；口令框隐藏，因为口令跟着私钥一起存了（连接时私钥自己的口令优先）。
   - 选文件：`keyId` 设为 `null`。
 - 已保存的服务器如果还在用私钥文件：
   - 显示一行说明："这个私钥还是磁盘上的文件，加密备份里不包含它。"另加一个按钮"导入到 GETSSH"；

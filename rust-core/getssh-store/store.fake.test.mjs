@@ -827,16 +827,19 @@ test('importSshKey seals the key and takes name, algorithm and fingerprint from 
   throwsWith(() => store.importSshKey('ghost', input), 'not_found');
 });
 
-test('connectSecrets gives a stored key its own passphrase unless the profile has one', async () => {
+test('connectSecrets gives a stored key its own passphrase over a stale one on the profile', async () => {
   await boot();
   const key = store.importSshKey('default', sshKeyInput('enc', { passphrase: 'key-pass' }));
   assert.equal(key.hasPassphrase, true);
+  const plain = store.importSshKey('default', sshKeyInput('plain'));
   store.saveProfiles('default', [
     profile('own', { authType: 'key', keyId: key.id }),
-    profile('override', { authType: 'key', keyId: key.id, passphrase: 'profile-pass' }),
+    profile('stale', { authType: 'key', keyId: key.id, passphrase: 'old-file-pass' }),
+    profile('plain', { authType: 'key', keyId: plain.id, passphrase: 'profile-pass' }),
   ]);
   assert.equal(store.connectSecrets('default', 'own').passphrase.toString(), 'key-pass');
-  assert.equal(store.connectSecrets('default', 'override').passphrase.toString(), 'profile-pass');
+  assert.equal(store.connectSecrets('default', 'stale').passphrase.toString(), 'key-pass', "the key's checked passphrase wins");
+  assert.equal(store.connectSecrets('default', 'plain').passphrase.toString(), 'profile-pass', 'a key without one leaves the profile its own');
   assert.equal(store.connectSecrets('default', 'own').privateKey.toString(), 'PRIVATE KEY enc');
 });
 

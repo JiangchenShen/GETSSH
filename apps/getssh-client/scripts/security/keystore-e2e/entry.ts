@@ -586,7 +586,7 @@ async function run(): Promise<string> {
 
       // 3. A server's key file into the store (the file kept: the e2e never touches the Trash).
       const moved = await call('store:ssh-keys:import-profile-file', { workspaceId: 'default', profileId: 'by-file', trashOriginal: false });
-      assert.ok(moved.ok && moved.trashed === false && !moved.kept, JSON.stringify(moved));
+      assert.ok(moved.ok && moved.workspaceId === 'default' && moved.trashed === false && !moved.kept, JSON.stringify(moved));
       const byFile = moved.profiles.find((p: { id: string }) => p.id === 'by-file');
       assert.deepEqual([byFile.keyId, byFile.privateKeyPath, byFile.authType], [moved.key.id, null, 'key']);
       fs.renameSync(keyFile, `${keyFile}.moved-away`);
@@ -597,7 +597,12 @@ async function run(): Promise<string> {
 
       // 4. Deleting a key leaves its server without one; the list says so.
       const deleted = await call('store:ssh-keys:delete', { workspaceId: 'default', id: generated.key.id });
+      assert.equal(deleted.workspaceId, 'default');
       assert.equal(deleted.profiles.find((p: { id: string }) => p.id === 'by-generate').keyId, null);
+      // A window that still holds the deleted key's id saves its whole list: the save goes through.
+      assert.equal(await call('save-profiles', { payload: DM.getProfiles('default').map(p => (p.id === 'by-generate' ? { ...p, keyId: generated.key.id } : p)), workspaceId: 'default' }), true);
+      assert.equal(DM.getProfiles('default').find(p => p.id === 'by-generate')?.keyId, null);
+      assert.equal(DM.getProfiles('default').length, 3);
       const listed = await call('store:ssh-keys:list', { workspaceId: 'default' });
       assert.deepEqual(listed.keys.map((k: { name: string }) => k.name).sort(), ['id_e2e', 'id_e2e'], JSON.stringify(listed));
       assert.ok(!JSON.stringify([imported, generated, moved, deleted, listed]).includes('PRIVATE KEY'), 'no private key reaches the window');

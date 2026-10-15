@@ -1254,7 +1254,7 @@ fn deleting_a_key_leaves_its_profiles_without_one_and_an_unknown_key_id_is_refus
 }
 
 #[test]
-fn a_stored_key_brings_its_passphrase_unless_the_profile_has_one() {
+fn a_stored_key_brings_its_passphrase_over_a_stale_one_on_the_profile() {
     let env = Env::new();
     let store = env.started();
     let key = store.import_ssh_key("default", "enc", b"ENCRYPTED KEY", Some("key-pass"), &ed25519_blob(2)).unwrap();
@@ -1262,11 +1262,17 @@ fn a_stored_key_brings_its_passphrase_unless_the_profile_has_one() {
     let sealed = store.with_workspace("default", |c| Ok(c.query_row("SELECT passphrase FROM ssh_keys", &[], |r| r.text(0))?)).unwrap().unwrap();
     assert!(sealed.starts_with("gk1:") && !sealed.contains("key-pass"));
     let keyed = |id: &str, passphrase: SecretUpdate| ProfileInput { key_id: Some(key.id.clone()), auth_type: Some("key".into()), passphrase, ..profile(id, SecretUpdate::Keep) };
-    store.save_profiles("default", &[keyed("own", SecretUpdate::Keep), keyed("override", set("profile-pass"))]).unwrap();
+    store.save_profiles("default", &[keyed("own", SecretUpdate::Keep), keyed("stale", set("old-file-pass"))]).unwrap();
     let own = store.connect_secrets("default", "own").unwrap();
     assert_eq!(own.private_key.unwrap().as_slice(), b"ENCRYPTED KEY");
     assert_eq!(own.passphrase.unwrap().as_slice(), b"key-pass");
-    assert_eq!(store.connect_secrets("default", "override").unwrap().passphrase.unwrap().as_slice(), b"profile-pass");
+    assert_eq!(store.connect_secrets("default", "stale").unwrap().passphrase.unwrap().as_slice(), b"key-pass", "the key's checked passphrase wins");
+    // A key stored without a passphrase leaves the profile's.
+    let plain = store.import_ssh_key("default", "plain", b"PLAIN KEY", None, &ed25519_blob(6)).unwrap();
+    store
+        .save_profiles("default", &[ProfileInput { key_id: Some(plain.id.clone()), auth_type: Some("key".into()), passphrase: set("profile-pass"), ..profile("p", SecretUpdate::Keep) }])
+        .unwrap();
+    assert_eq!(store.connect_secrets("default", "p").unwrap().passphrase.unwrap().as_slice(), b"profile-pass");
 }
 
 #[test]

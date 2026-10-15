@@ -465,12 +465,14 @@ impl<D: Device> Store<D> {
             .find(|p| p.id == profile_id)
             .ok_or_else(|| StoreError::not_found(format!("profile {profile_id}")))?;
         let (private_key, passphrase) = match (&profile.key_id, &profile.private_key_path) {
-            // The profile's own passphrase wins; otherwise the one stored with the key.
+            // The passphrase stored with the key, which was checked when the key was imported; the
+            // profile's own only for a key stored without one (a profile may keep a stale one
+            // from the key file it used before).
             (Some(key_id), _) if !key_id.is_empty() => {
                 let key = self.ssh_private_key(workspace_id, key_id)?;
-                let passphrase = match passphrase {
-                    Some(own) => Some(own),
-                    None => self.ssh_key_passphrase(workspace_id, key_id)?,
+                let passphrase = match self.ssh_key_passphrase(workspace_id, key_id)? {
+                    Some(stored) => Some(stored),
+                    None => passphrase,
                 };
                 (Some(key), passphrase)
             }

@@ -231,9 +231,10 @@ function importPath(fileId: unknown): string | null {
 
 // The SSH key file picked in store:ssh-keys:choose-file, until store:ssh-keys:import takes it.
 const KEY_FILE_TTL_MS = 10 * 60_000;
-let pendingKeyFile: { fileId: string; name: string; data: Buffer; expires: number } | null = null;
+let pendingKeyFile: { fileId: string; name: string; data: Buffer; expires: number; timer: ReturnType<typeof setTimeout> } | null = null;
 
 function forgetKeyFile(): void {
+  if (pendingKeyFile) clearTimeout(pendingKeyFile.timer);
   pendingKeyFile?.data.fill(0);
   pendingKeyFile = null;
 }
@@ -241,6 +242,68 @@ function forgetKeyFile(): void {
 /** A profile's privateKeyPath as a file, ~ meaning the home folder (as sshHandler reads it). */
 function keyPath(value: string): string {
   return path.resolve(value.replace(/^~(?=$|[\\/])/, os.homedir()));
+}
+
+/** A file's identity (device and inode), so that links and differently cased paths still match. */
+async function fileIdentity(file: string): Promise<{ dev: bigint; ino: bigint } | null> {
+  try {
+    const stat = await fs.promises.stat(file, { bigint: true });
+    return { dev: stat.dev, ino: stat.ino };
+  } catch {
+    return null;
+  }
+}
+
+async function isSameFile(candidate: string, file: string, identity: { dev: bigint; ino: bigint } | null): Promise<boolean> {
+  if (candidate === file) return true;
+  const other = identity && (await fileIdentity(candidate));
+  return !!other && other.dev === identity!.dev && other.ino === identity!.ino;
+}
+
+type KeptReason = 'used_elsewhere' | 'workspaces_locked' | 'trash_failed' | 'declined';
+
+const TRASH_TEXT = {
+  'en-US': {
+    message: (bin: string) => `Move the key file to the ${bin}?`,
+    detail: 'The key is now stored in GETSSH and travels with encrypted backups, and no other GETSSH server uses this file. Programs outside GETSSH that use it, such as ssh in a terminal or git, will no longer find it.',
+    move: (bin: string) => `Move to ${bin}`,
+    keep: 'Keep the file',
+  },
+  'zh-CN': {
+    message: (bin: string) => `把私钥文件移到${bin}？`,
+    detail: '私钥已经存进 GETSSH，会随加密备份一起保存，GETSSH 里也没有别的服务器在用这个文件。GETSSH 以外用它的程序（例如终端里的 ssh、git）移走后就找不到它了。',
+    move: (bin: string) => `移到${bin}`,
+    keep: '保留文件',
+  },
+} as const;
+
+/**
+ * Moves a key file to the Trash once nothing GETSSH knows of can still need it: every workspace
+ * open and none of their servers on the file, and no GETSSH 2.0 server list left in place
+ * (legacyV2Profiles.ts keeps it for 2.x, and it may name the file). The main process asks the
+ * user itself, naming the file, so a renderer alone cannot move files away.
+ */
+async function trashKeyFile(file: string, identity: { dev: bigint; ino: bigint } | null, language: 'en-US' | 'zh-CN'): Promise<{ trashed: boolean; kept?: KeptReason }> {
+  const userData = app.getPath('userData');
+  if (['profiles.json', 'profiles.enc'].some(name => fs.existsSync(path.join(userData, name)))) return { trashed: false, kept: 'used_elsewhere' };
+  const workspaces = DatabaseManager.getWorkspaces();
+  if (workspaces.some(workspace => !DatabaseManager.isWorkspaceOpen(workspace.id))) return { trashed: false, kept: 'workspaces_locked' };
+  for (const workspace of workspaces) {
+    for (const entry of getStore().listProfiles(workspace.id)) {
+      // A server on a stored key does not read its old privateKeyPath any more.
+      if (entry.privateKeyPath && !entry.keyId && (await isSameFile(keyPath(entry.privateKeyPath), file, identity))) return { trashed: false, kept: 'used_elsewhere' };
+    }
+  }
+  const words = TRASH_TEXT[language];
+  const bin = process.platform === 'win32' ? (language === 'zh-CN' ? '回收站' : 'Recycle Bin') : (language === 'zh-CN' ? '废纸篓' : 'Trash');
+  const answer = await messageBox({ type: 'question', message: words.message(bin), detail: `${file}\n\n${words.detail}`, buttons: [words.move(bin), words.keep], defaultId: 1, cancelId: 1, noLink: true });
+  if (answer.response !== 0) return { trashed: false, kept: 'declined' };
+  try {
+    await shell.trashItem(file);
+    return { trashed: true };
+  } catch {
+    return { trashed: false, kept: 'trash_failed' };
+  }
 }
 
 async function readKeyFile(file: string): Promise<{ data: Buffer } | Failure> {
@@ -316,7 +379,16 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
     const id = workspaceId(ws);
     const inputs = profileInputs(profiles);
     if (!id || !inputs) return INVALID;
-    return { ok: true, profiles: getStore().saveProfiles(id, inputs) };
+    // As DatabaseManager.saveProfiles: a row without keyId keeps its key, and a keyId whose key
+    // is gone means none (getssh-store refuses it, which would fail the whole save).
+    const store = getStore();
+    const stored = new Map(store.listProfiles(id).map(profile => [profile.id, profile.keyId]));
+    const keys = new Set(store.listSshKeys(id).map(key => key.id));
+    (profiles as Request[]).forEach((raw, i) => {
+      const keyId = raw.keyId === undefined ? stored.get(inputs[i].id) ?? null : inputs[i].keyId;
+      inputs[i].keyId = keyId && keys.has(keyId) ? keyId : null;
+    });
+    return { ok: true, profiles: store.saveProfiles(id, inputs) };
   });
 
   handle('store:profiles:delete', ({ workspaceId: ws, ids }) => {
@@ -413,7 +485,10 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
     try {
       const encrypted = keyFileNeedsPassphrase(read.data);
       forgetKeyFile();
-      pendingKeyFile = { fileId: crypto.randomUUID(), name: path.basename(file).slice(0, 128), data: read.data, expires: Date.now() + KEY_FILE_TTL_MS };
+      // Wiped when the time is up even if no import follows.
+      const timer = setTimeout(forgetKeyFile, KEY_FILE_TTL_MS);
+      timer.unref?.();
+      pendingKeyFile = { fileId: crypto.randomUUID(), name: path.basename(file).slice(0, 128), data: read.data, expires: Date.now() + KEY_FILE_TTL_MS, timer };
       return { ok: true, fileId: pendingKeyFile.fileId, fileName: pendingKeyFile.name, encrypted };
     } catch (error) {
       read.data.fill(0);
@@ -466,57 +541,54 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
     const key = recordId(keyId);
     if (!id || !key) return INVALID;
     getStore().deleteSshKey(id, key);
-    return { ok: true, profiles: DatabaseManager.getProfiles(id) };
+    return { ok: true, workspaceId: id, profiles: DatabaseManager.getProfiles(id) };
   });
 
   /**
    * The key file a saved server points at (privateKeyPath) goes into the store, and every server
-   * of the workspace that uses the same file switches to it. With trashOriginal the file goes to
-   * the Trash, but only when no other workspace can still be using it. Returns the saved list
-   * for the window to take, like store:ssh-keys:delete.
+   * of the workspace that uses the same file (compared as files, not spellings) switches to it,
+   * dropping the passphrase it kept for the file. With trashOriginal the file may go to the Trash
+   * (trashKeyFile). Returns the list saved for this workspace, read right after the save, for the
+   * window to take like store:ssh-keys:delete's.
    */
-  handle('store:ssh-keys:import-profile-file', async ({ workspaceId: ws, profileId, passphrase, trashOriginal }) => {
+  handle('store:ssh-keys:import-profile-file', async ({ workspaceId: ws, profileId, passphrase, trashOriginal, language }) => {
     const id = workspaceId(ws);
     const target = recordId(profileId);
     const keyPassphrase = passphrase === undefined || passphrase === null || passphrase === '' ? undefined : password(passphrase);
     if (!id || !target || keyPassphrase === null || typeof trashOriginal !== 'boolean') return INVALID;
+    const words = language === 'zh-CN' ? 'zh-CN' : 'en-US';
     const profile = DatabaseManager.getProfiles(id).find(entry => entry.id === target);
     if (!profile) return { ok: false, error: 'not_found' };
     if (!profile.privateKeyPath || profile.keyId) return INVALID;
     const file = keyPath(profile.privateKeyPath);
     const read = await readKeyFile(file);
     if ('error' in read) return read;
-    let saved: Buffer | undefined;
+    let secrets: ReturnType<ReturnType<typeof getStore>['connectSecrets']> | undefined;
     try {
       // The passphrase saved with the server opens the file, unless one is typed now.
-      saved = getStore().connectSecrets(id, target).passphrase ?? undefined;
-      const key = await storeKey(id, path.basename(file).slice(0, 128), read.data, keyPassphrase ?? saved?.toString('utf8'));
-      const list = DatabaseManager.getProfiles(id).map(entry => (
-        entry.privateKeyPath && !entry.keyId && keyPath(entry.privateKeyPath) === file
-          ? { ...entry, authType: 'key', keyId: key.id, privateKeyPath: null }
-          : { ...entry }
-      ));
+      secrets = getStore().connectSecrets(id, target);
+      const key = await storeKey(id, path.basename(file).slice(0, 128), read.data, keyPassphrase ?? secrets.passphrase?.toString('utf8'));
+      const identity = await fileIdentity(file);
+      const current = DatabaseManager.getProfiles(id);
+      const switching = await Promise.all(current.map(entry => (
+        entry.id === target || (!!entry.privateKeyPath && !entry.keyId && isSameFile(keyPath(entry.privateKeyPath), file, identity))
+      )));
+      // Nothing awaits between this read and the save, so no other save can come in between.
+      const latest = DatabaseManager.getProfiles(id);
+      const list = latest.map(entry => (switching[current.findIndex(c => c.id === entry.id)]
+        ? { ...entry, authType: 'key', keyId: key.id, privateKeyPath: null, passphrase: null }
+        : { ...entry }));
       DatabaseManager.saveProfiles(id, list);
-      const outcome: { trashed: boolean; kept?: 'used_elsewhere' | 'workspaces_locked' | 'trash_failed' } = { trashed: false };
-      if (trashOriginal) {
-        const others = DatabaseManager.getWorkspaces().filter(workspace => workspace.id !== id);
-        if (others.some(workspace => !DatabaseManager.isWorkspaceOpen(workspace.id))) outcome.kept = 'workspaces_locked';
-        else if (others.some(workspace => DatabaseManager.getProfiles(workspace.id).some(entry => !!entry.privateKeyPath && keyPath(entry.privateKeyPath) === file))) outcome.kept = 'used_elsewhere';
-        else {
-          try {
-            await shell.trashItem(file);
-            outcome.trashed = true;
-          } catch {
-            outcome.kept = 'trash_failed';
-          }
-        }
-      }
-      return { ok: true, key, profiles: DatabaseManager.getProfiles(id), ...outcome };
+      const profiles = DatabaseManager.getProfiles(id);
+      const outcome = trashOriginal ? await trashKeyFile(file, identity, words) : { trashed: false };
+      return { ok: true, workspaceId: id, key, profiles, ...outcome };
     } catch (error) {
       return keyFileFailure(error);
     } finally {
       read.data.fill(0);
-      saved?.fill(0);
+      secrets?.password?.fill(0);
+      secrets?.passphrase?.fill(0);
+      secrets?.privateKey?.fill(0);
     }
   });
 

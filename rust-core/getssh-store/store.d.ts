@@ -209,7 +209,10 @@ export function copyProfiles(fromWorkspaceId: string, toWorkspaceId: string, ids
 
 export interface ConnectSecrets {
   password?: Buffer;
-  /** The profile's own passphrase, else the one stored with its key (keyId). */
+  /**
+   * With a stored key (keyId): the passphrase stored with the key, checked when it was imported;
+   * the profile's own only when the key has none. Otherwise the profile's.
+   */
   passphrase?: Buffer;
   /** From keyId, or read from privateKeyPath for profiles that still point at a file. */
   privateKey?: Buffer;
