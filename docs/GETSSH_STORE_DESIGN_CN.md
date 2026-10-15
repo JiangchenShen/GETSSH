@@ -246,7 +246,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
 | S4 | 凭据封装、按 id 连接、查看窗口；AI Key、插件秘密、MCP token 迁进来 | 渲染进程的 IPC 返回值里没有秘密，有专门测试 |
 | S5 | 导出包和导入，以及界面 | e2e 新增阶段：导出，换一个 HOME 导入，数据逐项一致 |
 | S6 | 删掉 `databaseKey` 导出、bsmc 依赖和旧的导入导出代码；整理打包配置 | 安装包里不再有 `better_sqlite3.node`，启动自检通过 |
-| B | 私钥导入和生成、恢复码引导、重新开启迁移来的 Touch ID | 按产能决定是否进 3.0 |
+| B | 私钥导入和生成、恢复码引导、重新开启迁移来的 Touch ID | 10-15 决定进 3.0；存储和主进程 10-15 完成（见第 9 节"阶段 B"），界面在 Codex 那边 |
 
 **两种旧数据，不要混淆**（10-03 查清）：
 
@@ -410,7 +410,29 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - `setPresence(true)` 只对当时已解锁的工作区生效；锁着的、之后才设密码的工作区不会自动开启；关闭对所有工作区生效；
   - 假实现 10-12 起改成和真模块一致，界面照真实行为开发。"一次验证解开全部""新工作区沿用设置""锁着的工作区下次解锁时补开"放到 3.x：需要复用 `LAContext`，要改 Secure Enclave 那层，必须负责人在场时测。
 
-阶段 B 视进度决定是否进入 3.0。
+- **阶段 B：私钥存进 GETSSH（10-15）**：
+  - 分工：存储模块、主进程、preload 由 Claude 做；界面由 Codex 做，任务和接口写在 `GETSSH_CODEX_TASKS_3.0_CN.md` 的"阶段 B"一节。
+  - 读文件和转换格式在主进程（`services/sshKeyFiles.ts`），因为依赖树里没有能读这些格式的 Rust crate：
+    - ssh2 自己能读的（OpenSSH、PEM PKCS#1 / SEC1、`.ppk` 第 2 版的 RSA 和 DSA），原样保存，口令随私钥一起加密保存。口令对不对，由 ssh2 用连接时同样的办法检查。
+    - PKCS#8 和其他 `.ppk`（第 3 版，以及第 2 版的 Ed25519 / ECDSA），用 node:crypto 转成 ssh2 能读的格式，不再需要口令。转换后反推出的公钥，必须和文件里写的一致。
+    - `.ppk` 按 PuTTY 手册附录 C 实现，并用 PuTTY 自己写的 24 个文件核对过：第 2、3 版，加密和不加密，Argon2 三种变体，Ed25519、RSA、三条 ECDSA 曲线。这些文件不是我们的，没有提交。不支持的只有 Ed448（ssh2 不支持）和第 3 版 DSA。
+    - 生成 ed25519 私钥也在主进程（node:crypto），之后直接交给存储模块。
+  - 存储模块（`src/ssh_keys.rs`）：
+    - `importSshKey` 接收私钥、口令和 SSH 公钥 blob。算法、指纹和公钥那一行都从公钥 blob 算出来，只接受 ed25519、rsa、三条 NIST 曲线的 ECDSA 和 dss。
+    - 私钥和口令是两个封装字段（`ssh_key|<id>|private`、`ssh_key|<id>|passphrase`，口令放在新加的 `ssh_keys.passphrase` 列）。
+    - `connectSecrets`：用服务器自己保存的口令，没有时才用私钥的。
+    - 跨工作区复制时私钥和口令都重新封装；整个工作区进加密备份，私钥自然跟着走。
+    - `deleteSshKey` 把用到它的服务器的 `keyId` 清空；`saveProfiles` 拒绝指向不存在私钥的 `keyId`，空字符串当作没有。
+  - 主进程通道：
+    - 选文件和导入分成两步，`fileId` 10 分钟内有效，应用锁定时作废，口令不对时还能再试；
+    - `importProfileFile` 把服务器正在用的私钥文件导入，同一工作区里用这个文件的服务器一起改；
+    - 原文件只会移到废纸篓，而且只在别的工作区都打开着、并且都没用这个文件时才移。
+    - 删除私钥和 `importProfileFile` 都返回已保存的完整服务器列表，界面要采用它，不要再整份保存一次。
+  - 测试：
+    - Rust 5 个、假实现 3 个、主进程处理函数 6 个、格式模块 7 个；
+    - 和假实现逐项对照，新增 26 步（共 283 步，零差异）；
+    - 端到端新阶段 `ssh-keys`：导入带口令的私钥文件、生成私钥、把服务器的私钥文件转进库，每种都真的登录一次只接受公钥的本机 SSH 服务器；备份阶段也带上了私钥和口令。
+    - 关键检查逐个改坏，测试都报错，只有转换后的那道整体公钥核对除外：每种格式在转换中已经各自核对过，它是第二道保险。
 
 ## 10. 已解决的问题（2026-10-01）
 
@@ -444,7 +466,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
    - **10-03 起主进程已接入 store**，开了 `GETSSH_FAKE_STORE=1` 时整个应用（侧栏、应用锁、`workspace.unlock`、`security.*`）都走假实现：
      - 初始数据里可以设 `masterPassword`，启动后在锁屏输入它；设一个短于 12 个字符的，`masterPasswordMustChange` 就是 `true`；
      - 工作区 id 不必用 `default`，`is_main: true` 的那个就是主工作区。
-   - 不开假实现时走真模块，数据在 `~/.getssh`，所以开发时一定要用临时 HOME。导入完成、重启之前，`store` 这组通道返回 `unavailable`；SSH 私钥那 4 个函数真模块还没有，也返回 `unavailable`。界面要能处理这个错误码。
+   - 不开假实现时走真模块，数据在 `~/.getssh`，所以开发时一定要用临时 HOME。导入完成、重启之前，`store` 这组通道返回 `unavailable`。界面要能处理这个错误码。
    - 已有界面要跟着改的地方（10-03）：
      - 设了主密码时，设置页仍然显示工作区的"设置密码"按钮，点了会返回 `master_password_protects_workspaces`，按钮要隐藏；
      - 强制更换主密码的对话框还没有，`masterPasswordMustChange` 现在是真实值；
@@ -461,7 +483,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
      - `needsPassword` 为 `true` 时，提示用户输入 2.0 的主密码，调 `import({ password, defaultPort })`。返回 `wrong_password` 时让用户重输，`imported` 时同样用返回的 `profiles` 替换列表；
      - 不替换列表的话，窗口下一次保存（整个列表一起保存）会把刚导入的服务器删掉。
    - 假实现不会被打包（`extraResources` 只收 `*.node`、`index.js`、`package.json`）。
-   - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。其余 4 个是 SSH 私钥的导入、生成、列出、删除（阶段 B），暂时只有假实现。
+   - 截至 10-03，`store.d.ts` 共 67 个函数，真模块已实现 63 个。剩下的 SSH 私钥函数 10-15 完成（阶段 B）；生成私钥改在主进程做，`store.d.ts` 里不再有 `generateSshKey`。
 4. **需要新的 IPC 或者接口改动**：写下来交给负责人或 Claude，不要自己改 `electron/main/**`、`electron/preload/**`。
 5. **拿到最新进度**：`git merge v3-next`。
 6. **完成一块就在自己的分支上提交**，然后把分支名告诉负责人。
