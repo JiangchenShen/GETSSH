@@ -42,6 +42,7 @@ import { ConnectFormOverlay } from './components/app-overlays/ConnectFormOverlay
 import { AppLockScreen } from './components/app-overlays/AppLockScreen';
 import { ForceMasterPasswordChange } from './components/app-overlays/ForceMasterPasswordChange';
 import { LegacyV2Import } from './components/app-overlays/LegacyV2Import';
+import { MigrationPresenceNotice } from './components/app-overlays/MigrationPresenceNotice';
 import { BackupRestartNotice } from './components/app-overlays/BackupRestartNotice';
 import { useAppLockSync } from './hooks/useAppLockSync';
 import { useAppLockStore } from './store/appLockStore';
@@ -402,6 +403,7 @@ function App() {
       {phase !== 'ready' && <AppLockScreen />}
       {phase === 'ready' && <ForceMasterPasswordChange onActiveChange={setPasswordDialogActive} />}
       {!passwordDialogActive && <LegacyV2Import />}
+      <MigrationPresenceNotice suppressed={passwordDialogActive} />
     </>
   );
 }

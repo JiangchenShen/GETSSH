@@ -7,9 +7,15 @@ import { I18nextProvider, initReactI18next } from 'react-i18next';
 import type { OceanSentinelStatus } from '../types/ipc';
 import enUS from '../locales/en-US.json';
 import zhCN from '../locales/zh-CN.json';
+import { useAppLockStore } from '../store/appLockStore';
 
 vi.mock('../store/cryptoStore', () => ({ useCryptoStore: (select: (state: any) => any) => select({ workspaceUnprotected: false }) }));
-vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => any) => select({ activeWorkspaceId: 'test', workspaces: [{ id: 'test', name: 'Test workspace' }] }) }));
+vi.mock('../store/workspaceStore', async () => {
+  const { create } = await import('zustand');
+  return { useWorkspaceStore: create(() => ({ activeWorkspaceId: 'test', isSwitching: false, isVaultLocked: false,
+    workspaces: [{ id: 'test', name: 'Test workspace', themeColor: '#000' }] })) };
+});
+import { useWorkspaceStore } from '../store/workspaceStore';
 vi.mock('./secure-center/tabs/SafeStorageTab', () => ({ SafeStorageTab: () => null }));
 vi.mock('./secure-center/tabs/KnownHostsTab', () => ({ KnownHostsTab: () => null }));
 
@@ -36,6 +42,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await translations.changeLanguage('en-US');
   pending = [];
+  useAppLockStore.setState({ state: { phase: 'ready', appProtected: true, recoveryConfigured: true, presenceSupported: false, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false } });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'test', isSwitching: false, isVaultLocked: false });
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   query = vi.fn().mockResolvedValue(healthy);
   window.electronAPI = {
@@ -61,6 +69,7 @@ afterEach(async () => {
     await Promise.resolve();
   });
   container.remove();
+  useAppLockStore.setState({ state: null });
   vi.restoreAllMocks();
 });
 

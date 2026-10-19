@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAppLockStore } from '../store/appLockStore';
 
 const mocks = vi.hoisted(() => ({
   appConfig: {} as Record<string, any>,
@@ -29,10 +30,12 @@ vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any)
   sentinelStatus: { status: 'secure', daemonState: 'running', lastPing: 1728000000000 },
 }) }));
 vi.mock('../store/cryptoStore', () => ({ useCryptoStore: (select: (state: any) => any) => select({ workspaceUnprotected: mocks.workspaceUnprotected }) }));
-vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => any) => select({
-  activeWorkspaceId: 'default',
-  workspaces: [{ id: 'default', name: 'Default', isMain: true }],
-}) }));
+vi.mock('../store/workspaceStore', async () => {
+  const { create } = await import('zustand');
+  return { useWorkspaceStore: create(() => ({ activeWorkspaceId: 'default', isSwitching: false, isVaultLocked: false,
+    workspaces: [{ id: 'default', name: 'Default', themeColor: '#000', isMain: true }] })) };
+});
+import { useWorkspaceStore } from '../store/workspaceStore';
 vi.mock('../store/pluginStore', () => ({ usePluginStore: () => ({ installedPlugins: [], setPlugins: mocks.setPlugins }) }));
 vi.mock('./secure-center/tabs/SafeStorageTab', () => ({ SafeStorageTab: () => <div>Password settings</div> }));
 vi.mock('./secure-center/tabs/KnownHostsTab', () => ({ KnownHostsTab: () => <div>Known hosts</div> }));
@@ -53,6 +56,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.appConfig = { pluginSecurityMode: 'safe', privacyMode: false, autoLockTimeout: 0 };
   mocks.workspaceUnprotected = false;
+  useAppLockStore.setState({ state: { phase: 'ready', appProtected: true, recoveryConfigured: true, presenceSupported: false, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false } });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'default', isSwitching: false, isVaultLocked: false });
   mocks.updateConfig.mockImplementation((key, value) => { mocks.appConfig[key] = value; });
   scrollIntoView = vi.fn();
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
@@ -84,6 +89,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  useAppLockStore.setState({ state: null });
   if (originalScroll) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll);
   else delete (HTMLElement.prototype as any).scrollIntoView;
 });

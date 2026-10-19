@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SecurityStatus } from '../types/ipc';
+import { useAppLockStore } from '../store/appLockStore';
 
 const mocks = vi.hoisted(() => ({
   isConfigLoaded: true,
@@ -29,11 +30,13 @@ vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any)
   sentinelStatusError: null,
 }) }));
 vi.mock('../store/cryptoStore', () => ({ useCryptoStore: (select: (state: any) => any) => select({ workspaceUnprotected: mocks.workspaceUnprotected }) }));
-vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => any) => select({
-  activeWorkspaceId: 'current',
-  workspaces: [{ id: 'current', name: 'Current', isMain: false, hasPassword: false }],
-}) }));
-vi.mock('./secure-center/tabs/SafeStorageTab', () => ({ SafeStorageTab: () => <div>Password settings</div> }));
+vi.mock('../store/workspaceStore', async () => {
+  const { create } = await import('zustand');
+  return { useWorkspaceStore: create(() => ({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false,
+    workspaces: [{ id: 'current', name: 'Current', themeColor: '#000', isMain: false, hasPassword: false }] })) };
+});
+import { useWorkspaceStore } from '../store/workspaceStore';
+vi.mock('./secure-center/tabs/SafeStorageTab', () => ({ SafeStorageTab: ({ section, recoveryRequest, onStatusChange }: any) => <div data-section={section} data-recovery-request={recoveryRequest}>Password settings<button type="button" onClick={() => onStatusChange({ ...protectedStatus(), recoveryConfigured: true })}>Confirm recovery setup</button></div> }));
 vi.mock('./secure-center/tabs/KnownHostsTab', () => ({ KnownHostsTab: () => <div>Known hosts detail</div> }));
 
 import { SecurityTab } from './settings/tabs/SecurityTab';
@@ -59,10 +62,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.isConfigLoaded = true;
   mocks.workspaceUnprotected = true;
+  useAppLockStore.setState({ state: { phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false } });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false });
   status = vi.fn().mockResolvedValue(protectedStatus());
   getKnownHosts = vi.fn().mockResolvedValue([]);
   window.electronAPI = { security: { status }, getKnownHosts } as unknown as Window['electronAPI'];
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -70,6 +76,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  useAppLockStore.setState({ state: null });
 });
 
 const render = () => act(async () => root.render(<SecurityTab />));
@@ -83,6 +90,46 @@ const summaryState = (label: string) => {
 const expectNoPasswordWarning = () => expect(container.textContent).not.toContain('This workspace has no password');
 
 describe('security dashboard metadata', () => {
+  it('links missing recovery to its form and removes the reminder after confirmed setup', async () => {
+    await render();
+    expect(container.querySelector('section[aria-label="Needs attention"]')!.textContent).toContain('No recovery code yet');
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Generate recovery code')!.click());
+    expect(container.querySelector('[data-section="app"]')?.getAttribute('data-recovery-request')).toBe('1');
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Confirm recovery setup')!.click());
+    expect(container.textContent).not.toContain('No recovery code yet'); expect(container.textContent).toContain('Recovery code created.');
+  });
+
+  it.each(['no-master', 'configured'])('does not warn about missing recovery when %s', async state => {
+    const metadata = protectedStatus();
+    if (state === 'no-master') metadata.appProtected = false; else metadata.recoveryConfigured = true;
+    status.mockResolvedValue(metadata); await render(); expect(container.textContent).not.toContain('No recovery code yet');
+  });
+
+  it('keeps the app recovery reminder available when only the workspace is locked', async () => {
+    useWorkspaceStore.setState({ isVaultLocked: true }); await render(); expect(container.textContent).toContain('No recovery code yet');
+  });
+
+  it('does not overwrite confirmed recovery with a late overview lookup', async () => {
+    let complete!: (value: SecurityStatus) => void;
+    status.mockResolvedValueOnce(protectedStatus()).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    await render();
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Generate recovery code')!.click());
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Confirm recovery setup')!.click());
+    await act(async () => complete(protectedStatus()));
+    expect(container.textContent).not.toContain('No recovery code yet'); expect(container.textContent).toContain('Recovery code created.');
+  });
+
+  it('rejects an older recovery state after an app lock and unlock cycle', async () => {
+    let complete!: (value: SecurityStatus) => void;
+    status.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; })).mockResolvedValue({ ...protectedStatus(), recoveryConfigured: true });
+    await render();
+    await act(async () => {
+      const state = useAppLockStore.getState().state!;
+      useAppLockStore.setState({ state: { ...state, phase: 'locked' } }); useAppLockStore.setState({ state });
+    });
+    await act(async () => complete(protectedStatus()));
+    expect(container.textContent).not.toContain('No recovery code yet'); expect(container.textContent).toContain('Recovery code created.');
+  });
   it('uses the current scope protection even when it has no own password and the legacy store says unprotected', async () => {
     await render();
     expect(status).toHaveBeenCalledTimes(1);

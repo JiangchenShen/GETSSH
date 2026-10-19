@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
 import { useCryptoStore } from '../../../store/cryptoStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
+import { useAppLockStore } from '../../../store/appLockStore';
+import { useBackupRestartStore } from '../../../store/backupStore';
+import { storeFailureMessage } from '../../../utils/storeFeedback';
 import type { KeystoreResult, SecurityStatus } from '../../../types/ipc';
 import { SettingsRow, SettingsSection, settingButtonClass, settingDangerButtonClass, settingFieldClass } from '../../settings/SettingsControls';
 
@@ -20,6 +23,8 @@ type Form =
 
 export interface SafeStorageTabProps {
   section?: 'app' | 'vault' | 'both';
+  recoveryRequest?: number;
+  onStatusChange?: (status: SecurityStatus | null) => void;
 }
 
 // Must match getssh-keystore: the master password alone protects everything, including copies
@@ -28,12 +33,16 @@ const MIN_MASTER_PASSWORD = 12;
 const MIN_WORKSPACE_PASSWORD = 8;
 const minPasswordFor = (kind: string) => (kind.endsWith('-master') ? MIN_MASTER_PASSWORD : MIN_WORKSPACE_PASSWORD);
 
-export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both' }) => {
+export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both', recoveryRequest = 0, onStatusChange }) => {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(state => state.isMac);
   const addToast = useAppStore(state => state.addToast);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const isSwitching = useWorkspaceStore(state => state.isSwitching);
+  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
+  const phase = useAppLockStore(state => state.state?.phase);
+  const restartRequired = useBackupRestartStore(state => !!state.report);
   const workspace = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeWorkspaceId));
   const [status, setStatus] = useState<SecurityStatus | null>(null);
   const [form, setForm] = useState<Form>({ kind: 'none' });
@@ -41,12 +50,48 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
   const [busy, setBusy] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoverySaved, setRecoverySaved] = useState(false);
+  const alive = useRef(false);
+  const generation = useRef(0);
+  const running = useRef(false);
+  const workspaceId = useRef(activeWorkspaceId);
+  workspaceId.current = activeWorkspaceId;
+  const statusChanged = useRef(onStatusChange);
+  statusChanged.current = onStatusChange;
+  const isCurrent = (requestGeneration: number, requestWorkspace: string) => alive.current && generation.current === requestGeneration
+    && workspaceId.current === requestWorkspace && useWorkspaceStore.getState().activeWorkspaceId === requestWorkspace
+    && !useWorkspaceStore.getState().isSwitching
+    && useAppLockStore.getState().state?.phase === 'ready' && !useBackupRestartStore.getState().report;
 
   const presenceName = isMac ? 'Touch ID' : 'Windows Hello';
-  const refresh = useCallback(async () => {
-    setStatus(await window.electronAPI.security.status());
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh, activeWorkspaceId]);
+  const refresh = useCallback(async (requestGeneration = generation.current, requestWorkspace = workspaceId.current) => {
+    try {
+      const next = await window.electronAPI.security.status();
+      if (!isCurrent(requestGeneration, requestWorkspace)) return;
+      setStatus(next); statusChanged.current?.(next);
+    } catch {
+      if (isCurrent(requestGeneration, requestWorkspace)) setError(zh ? '无法读取保护状态，请重新打开此设置页后重试。' : 'Could not read protection settings. Reopen this page and try again.');
+    }
+  }, [zh]);
+  useEffect(() => {
+    alive.current = true;
+    const invalidate = () => {
+      generation.current += 1; running.current = false;
+      setStatus(null); setForm({ kind: 'none' }); setError(''); setBusy(false); setRecoveryCode(null); setRecoverySaved(false);
+      if (isCurrent(generation.current, workspaceId.current)) void refresh();
+    };
+    invalidate();
+    const stopApp = useAppLockStore.subscribe((next, previous) => { if (next.state?.phase !== previous.state?.phase) invalidate(); });
+    const stopWorkspace = useWorkspaceStore.subscribe((next, previous) => {
+      if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
+    });
+    const stopBackup = useBackupRestartStore.subscribe((next, previous) => { if (next.report !== previous.report) invalidate(); });
+    return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); stopBackup(); };
+  }, [refresh, activeWorkspaceId]);
+  useEffect(() => {
+    if (recoveryRequest && isCurrent(generation.current, activeWorkspaceId)) {
+      setForm({ kind: 'new-recovery', current: '', needsCurrent: true }); setError('');
+    }
+  }, [recoveryRequest]);
 
   const workspaceScope = status?.scopes.find(scope => scope.workspaceId === activeWorkspaceId);
   const appScope = status?.scopes.find(scope => scope.id === 'app');
@@ -63,45 +108,56 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       case 'master_password_protects_workspaces': return zh ? '这个工作区已由主密码保护，无需单独设置或修改密码' : 'The master password already protects this workspace; a separate password is not needed';
       case 'locked': return zh ? '请先解锁这个工作区' : 'Unlock this workspace first';
       case 'invalid_argument': return zh ? '输入无效' : 'Invalid input';
-      default: return zh ? `操作失败（${failure}）` : `Failed (${failure})`;
+      default: return storeFailureMessage(failure, zh, retryAfterMs);
     }
   };
 
   const open = (kind: Form['kind']) => {
+    if (running.current || !isCurrent(generation.current, activeWorkspaceId)) return;
+    if (kind.endsWith('workspace') && useWorkspaceStore.getState().isVaultLocked) return;
     setError('');
     if (kind === 'none') setForm({ kind: 'none' });
-    else if (kind === 'remove-master' || kind === 'remove-workspace' || kind === 'new-recovery') setForm({ kind, current: '', needsCurrent: false });
+    else if (kind === 'remove-master' || kind === 'remove-workspace' || kind === 'new-recovery') setForm({ kind, current: '', needsCurrent: kind === 'new-recovery' && !!status?.appProtected });
     else setForm({ kind, next: '', confirm: '', current: '', needsCurrent: false });
   };
 
   /** Runs an action; on `current_password_required` shows the current-password field and stops. */
-  const run = async <T extends object>(action: (current?: string) => Promise<KeystoreResult<T>>): Promise<(KeystoreResult<T> & { ok: true }) | null> => {
+  const run = async <T extends object>(action: (current?: string) => Promise<KeystoreResult<T>>, requestGeneration = generation.current, requestWorkspace = activeWorkspaceId): Promise<(KeystoreResult<T> & { ok: true }) | null> => {
+    if (running.current || !isCurrent(requestGeneration, requestWorkspace)) return null;
+    running.current = true;
     setBusy(true);
     setError('');
     try {
       const current = form.kind !== 'none' && form.current ? form.current : undefined;
       const result = await action(current);
+      if (!isCurrent(requestGeneration, requestWorkspace)) return null;
       if (result.ok) return result as KeystoreResult<T> & { ok: true };
       if (result.error === 'current_password_required' && form.kind !== 'none') setForm({ ...form, needsCurrent: true } as Form);
       setError(describe(result.error, result.retryAfterMs));
       return null;
+    } catch {
+      if (isCurrent(requestGeneration, requestWorkspace)) setError(zh ? '未能完成操作，请重试。' : 'Could not complete the action. Try again.');
+      return null;
     } finally {
-      setBusy(false);
+      if (isCurrent(requestGeneration, requestWorkspace)) { running.current = false; setBusy(false); }
     }
   };
 
   /** With a master password the store needs it typed (no Touch ID route): `password` is the one just set. */
-  const createRecovery = async (password?: string) => {
-    const result = await run(current => window.electronAPI.security.setupRecovery({ currentPassword: password ?? current }));
-    if (result) {
+  const createRecovery = async (password?: string, requestGeneration = generation.current, requestWorkspace = activeWorkspaceId) => {
+    const result = await run(current => window.electronAPI.security.setupRecovery({ currentPassword: password ?? current }), requestGeneration, requestWorkspace);
+    if (result && isCurrent(requestGeneration, requestWorkspace)) {
       setRecoveryCode(result.code);
       setRecoverySaved(false);
       setForm({ kind: 'none' });
-      await refresh();
+      await refresh(requestGeneration, requestWorkspace);
     }
   };
 
   const submit = async () => {
+    const requestGeneration = generation.current;
+    if (!isCurrent(requestGeneration, activeWorkspaceId) || running.current) return;
+    if (form.kind.endsWith('workspace') && useWorkspaceStore.getState().isVaultLocked) return;
     if (form.kind === 'none') return;
     if ('next' in form) {
       const min = minPasswordFor(form.kind);
@@ -112,12 +168,13 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       case 'set-master':
       case 'change-master': {
         const result = await run(current => window.electronAPI.security.setMasterPassword({ password: form.next, currentPassword: current }));
-        if (!result) return;
+        if (!result || !isCurrent(requestGeneration, activeWorkspaceId)) return;
         setForm({ kind: 'none' });
-        await refresh();
+        await refresh(requestGeneration, activeWorkspaceId);
+        if (!isCurrent(requestGeneration, activeWorkspaceId)) return;
         addToast(zh ? '主密码已更新' : 'Master password updated', 'success');
         // A new master password discards the old recovery code: make a new one right away.
-        if (result.recoveryReset) await createRecovery(form.next);
+        if (result.recoveryReset) await createRecovery(form.next, requestGeneration, activeWorkspaceId);
         return;
       }
       case 'remove-master': {
@@ -126,12 +183,12 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       }
       case 'set-workspace':
       case 'change-workspace': {
-        if (!(await run(current => window.electronAPI.workspace.setPassword({ workspaceId: activeWorkspaceId, password: form.next, currentPassword: current })))) return;
+        if (!(await run(current => window.electronAPI.workspace.setPassword({ workspaceId: activeWorkspaceId, password: form.next, currentPassword: current }))) || !isCurrent(requestGeneration, activeWorkspaceId)) return;
         useCryptoStore.getState().setWorkspaceUnprotected(false);
         break;
       }
       case 'remove-workspace': {
-        if (!(await run(current => window.electronAPI.workspace.removePassword({ workspaceId: activeWorkspaceId, currentPassword: current })))) return;
+        if (!(await run(current => window.electronAPI.workspace.removePassword({ workspaceId: activeWorkspaceId, currentPassword: current }))) || !isCurrent(requestGeneration, activeWorkspaceId)) return;
         useCryptoStore.getState().setWorkspaceUnprotected(!status?.appProtected);
         break;
       }
@@ -139,16 +196,22 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
         await createRecovery();
         return;
     }
+    if (!isCurrent(requestGeneration, activeWorkspaceId)) return;
     setForm({ kind: 'none' });
-    await refresh();
+    await refresh(requestGeneration, activeWorkspaceId);
+    if (!isCurrent(requestGeneration, activeWorkspaceId)) return;
     await useWorkspaceStore.getState().initWorkspaces();
+    if (!isCurrent(requestGeneration, activeWorkspaceId)) return;
     addToast(zh ? '已更新' : 'Updated', 'success');
   };
 
   const togglePresence = async (workspaceId: string | null, enabled: boolean) => {
+    if (workspaceId !== null && useWorkspaceStore.getState().isVaultLocked) return;
+    const requestGeneration = generation.current;
     const result = await run(() => window.electronAPI.security.setPresence({ workspaceId, enabled }));
-    if (result) {
-      await refresh();
+    if (result && isCurrent(requestGeneration, activeWorkspaceId)) {
+      await refresh(requestGeneration, activeWorkspaceId);
+      if (!isCurrent(requestGeneration, activeWorkspaceId)) return;
       await useWorkspaceStore.getState().initWorkspaces();
     }
   };
@@ -180,6 +243,8 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       </form>
     </SettingsRow>
   );
+
+  if (phase !== 'ready' || isSwitching || (section === 'vault' && isVaultLocked) || restartRequired) return <p role="status" className="text-xs text-ink-3">{restartRequired ? storeFailureMessage('unavailable', zh) : (zh ? '请先解锁，再管理保护设置。' : 'Unlock before managing protection settings.')}</p>;
 
   return <div className="space-y-7">
     {recoveryCode && <SettingsSection title={zh ? '你的恢复码' : 'Your recovery code'} description={zh ? '只显示这一次。请抄写下来或保存到密码管理器，放在这台电脑以外的地方。忘记主密码或换电脑时，用它找回数据。' : 'Shown only this once. Write it down or store it in a password manager, somewhere other than this computer. Use it if you forget the master password or move to another computer.'}>
@@ -215,7 +280,8 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       {(form.kind === 'set-master' || form.kind === 'change-master' || form.kind === 'remove-master' || form.kind === 'new-recovery') && formRows}
     </SettingsSection>}
 
-    {(section === 'vault' || section === 'both') && <SettingsSection title={zh ? '工作区密码' : 'Workspace password'} description={zh ? `当前工作区：${workspace?.name || activeWorkspaceId}` : `Current workspace: ${workspace?.name || activeWorkspaceId}`}>
+    {section === 'both' && isVaultLocked && <p role="status" className="text-xs text-ink-3">{zh ? '请先解锁当前工作区，再管理工作区密码。' : 'Unlock the current workspace before managing its password.'}</p>}
+    {(section === 'vault' || section === 'both') && !isVaultLocked && <SettingsSection title={zh ? '工作区密码' : 'Workspace password'} description={zh ? `当前工作区：${workspace?.name || activeWorkspaceId}` : `Current workspace: ${workspace?.name || activeWorkspaceId}`}>
       <SettingsRow label={workspaceScope?.ownPassword ? (zh ? '已设置单独密码' : 'Has its own password') : status?.appProtected ? (zh ? '由主密码保护' : 'Protected by the master password') : (zh ? '没有密码' : 'No password')}
         description={!workspaceScope?.ownPassword && !status?.appProtected
           ? (isMainWorkspace ? (zh ? '主工作区不能单独设置密码；设置主密码后它会受到保护。' : 'The main workspace cannot have its own password; set a master password to protect it.') : (zh ? '任何使用这台电脑的人都能打开这个工作区。' : 'Anyone using this computer can open this workspace.'))

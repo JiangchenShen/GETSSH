@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, Blocks, ChevronRight, Eye, Fingerprint, KeyRound, Layers, RefreshCw, ShieldCheck, ShieldAlert, X } from 'lucide-react';
 import { useAppStore } from '../../../store/appStore';
 import { useCryptoStore } from '../../../store/cryptoStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
+import { useAppLockStore } from '../../../store/appLockStore';
 import { SafeStorageTab } from '../../secure-center/tabs/SafeStorageTab';
 import { KnownHostsTab } from '../../secure-center/tabs/KnownHostsTab';
 import { OceanSentinelRuntime } from './OceanSentinelRuntime';
@@ -26,11 +27,21 @@ export const SecurityTab: React.FC = () => {
   const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const workspaces = useWorkspaceStore(state => state.workspaces);
+  const phase = useAppLockStore(state => state.state?.phase);
+  const isSwitching = useWorkspaceStore(state => state.isSwitching);
+  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const workspace = workspaces.find(item => item.id === activeWorkspaceId);
   const [detail, setDetail] = useState<Detail>(null);
   const [knownHosts, setKnownHosts] = useState<KnownHost[]>([]);
   const [hostsLoaded, setHostsLoaded] = useState(false);
   const [protectionStatus, setProtectionStatus] = useState<SecurityStatus | null>(null);
+  const [protectionEpoch, setProtectionEpoch] = useState(0);
+  const [recoveryRequest, setRecoveryRequest] = useState(0);
+  const protectionGeneration = useRef(0);
+  const updateProtectionStatus = useCallback((status: SecurityStatus | null) => {
+    protectionGeneration.current += 1;
+    setProtectionStatus(status);
+  }, []);
   const [revokingHost, setRevokingHost] = useState<string | null>(null);
   const [pluginBusy, setPluginBusy] = useState(false);
   const [checkingSentinel, setCheckingSentinel] = useState(false);
@@ -66,6 +77,16 @@ export const SecurityTab: React.FC = () => {
     if (!runtimeVisible) detailTrigger.current?.focus();
   };
   useEffect(() => setPluginVerification(null), [activeWorkspaceId]);
+  useEffect(() => {
+    const invalidate = () => { protectionGeneration.current += 1; setProtectionStatus(null); setProtectionEpoch(value => value + 1); };
+    const stopApp = useAppLockStore.subscribe((next, previous) => {
+      if (next.state?.phase !== previous.state?.phase || next.state?.appProtected !== previous.state?.appProtected || next.state?.recoveryConfigured !== previous.state?.recoveryConfigured) invalidate();
+    });
+    const stopWorkspace = useWorkspaceStore.subscribe((next, previous) => {
+      if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
+    });
+    return () => { protectionGeneration.current += 1; stopApp(); stopWorkspace(); };
+  }, []);
 
   useEffect(() => {
     if (runtimeVisible) return;
@@ -76,18 +97,22 @@ export const SecurityTab: React.FC = () => {
   useEffect(() => {
     if (runtimeVisible) return;
     let active = true;
+    const requestGeneration = ++protectionGeneration.current;
     setProtectionStatus(null);
     setHostsLoaded(false);
+    if (phase !== 'ready' || isSwitching) return;
+    const current = () => active && protectionGeneration.current === requestGeneration && useAppLockStore.getState().state?.phase === 'ready'
+      && useWorkspaceStore.getState().activeWorkspaceId === activeWorkspaceId && !useWorkspaceStore.getState().isSwitching;
     void window.electronAPI?.security?.status?.().then(status => {
-      if (active) setProtectionStatus(status);
-    }).catch(() => { if (active) setProtectionStatus(null); });
+      if (current()) setProtectionStatus(status);
+    }).catch(() => { if (current()) setProtectionStatus(null); });
     void window.electronAPI?.getKnownHosts?.().then(hosts => {
       if (active) { setKnownHosts(hosts); setHostsLoaded(true); }
     }).catch(() => {
       if (active && detail === 'hosts') addToast(zh ? '无法读取已知主机' : 'Could not load known hosts', 'error');
     });
     return () => { active = false; };
-  }, [detail, runtimeVisible, activeWorkspaceId, addToast, zh]);
+  }, [detail, runtimeVisible, activeWorkspaceId, addToast, zh, phase, isSwitching, isVaultLocked, protectionEpoch]);
 
   const refreshSentinel = async () => {
     if (checkingSentinel) return;
@@ -114,6 +139,7 @@ export const SecurityTab: React.FC = () => {
     : (zh ? '尚未确认守护进程连接状态。' : 'The supervisor connection status is not yet known.'));
   const workspaceScope = protectionStatus?.scopes.find(scope => scope.workspaceId === activeWorkspaceId);
   const workspaceNeedsPassword = workspaceScope?.protected === false;
+  const recoveryNeeded = !!protectionStatus?.appProtected && !protectionStatus.recoveryConfigured;
   const supervisorHealthy = sentinelStatus?.daemonState === 'running' && sentinelStatus.status === 'secure' && !sentinelStatus.sentinelDisabled && !sentinelStatusError;
   const supervisorWarning = !!sentinelStatusError || (!!sentinelStatus && sentinelStatus.daemonState !== 'starting' && !supervisorHealthy);
   const unconfirmed = zh ? '尚未确认' : 'Not confirmed';
@@ -190,8 +216,12 @@ export const SecurityTab: React.FC = () => {
       {refreshFeedback}
     </section>
 
-    {(workspaceNeedsPassword || (isConfigLoaded && appConfig.pluginSecurityMode === 'developer')) && <section aria-label={zh ? '待处理事项' : 'Needs attention'} className="border-l-2 border-warn bg-warn/5 px-4 py-3">
+    {(recoveryNeeded || workspaceNeedsPassword || (isConfigLoaded && appConfig.pluginSecurityMode === 'developer')) && <section aria-label={zh ? '待处理事项' : 'Needs attention'} className="border-l-2 border-warn bg-warn/5 px-4 py-3">
       <h2 className="text-xs font-semibold text-warn">{zh ? '待处理事项' : 'Needs attention'}</h2>
+      {recoveryNeeded && <div role="status" className="security-attention-row flex items-center justify-between gap-4 py-2">
+        <div className="min-w-0"><strong className="block text-sm font-medium text-ink">{zh ? '还没有恢复码' : 'No recovery code yet'}</strong><p className="mt-1 text-xs leading-relaxed text-ink-2">{zh ? '忘记主密码时，需要恢复码才能找回数据。请生成后保存在这台电脑以外的地方。' : 'A recovery code is needed if you forget the master password. Generate one and keep it somewhere other than this computer.'}</p></div>
+        <button type="button" onClick={event => { setRecoveryRequest(value => value + 1); openDetail('app', event.currentTarget); }} className="shrink-0 text-xs font-medium text-warn underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/40">{zh ? '生成恢复码' : 'Generate recovery code'}</button>
+      </div>}
       {workspaceNeedsPassword && <div role="status" className="security-attention-row flex items-center justify-between gap-4 py-2">
         <div className="min-w-0"><strong className="block text-sm font-medium text-ink">{zh ? '这个工作区没有密码' : 'This workspace has no password'}</strong><p className="mt-1 text-xs leading-relaxed text-ink-2">{zh ? '数据在磁盘上是加密的，但任何使用这台电脑的人都能打开它。' : 'Its data is encrypted on disk, but anyone using this computer can open it.'}</p></div>
         <button type="button" onClick={event => openDetail(workspace?.isMain ? 'app' : 'vault', event.currentTarget)} className="shrink-0 text-xs font-medium text-warn underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/40">{workspace?.isMain ? (zh ? '设置主密码' : 'Set a master password') : (zh ? '设置密码' : 'Set a password')}</button>
@@ -233,7 +263,7 @@ export const SecurityTab: React.FC = () => {
 
     {detail && <section ref={detailSection} tabIndex={-1} className="border-t border-line pt-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={detailName}>
       <div className="mb-5 flex items-center justify-between gap-3"><h2 className="text-base font-semibold">{detailName}</h2><button type="button" onClick={closeDetail} aria-label={zh ? '关闭详情' : 'Close details'} className="rounded-md p-1.5 text-ink-3 hover:bg-surf-2 hover:text-ink"><X className="h-4 w-4" /></button></div>
-      {(detail === 'app' || detail === 'vault') && <SafeStorageTab section={detail} />}
+      {(detail === 'app' || detail === 'vault') && <SafeStorageTab section={detail} recoveryRequest={detail === 'app' ? recoveryRequest : 0} onStatusChange={updateProtectionStatus} />}
       {detail === 'hosts' && <KnownHostsTab knownHosts={knownHosts} revokingHost={revokingHost} setRevokingHost={setRevokingHost} handleRevokeHost={async (host, port) => { try { await window.electronAPI.deleteKnownHost(host, port); setKnownHosts(previous => previous.filter(item => !(item.host === host && item.port === port))); setRevokingHost(null); } catch (error) { addToast(error instanceof Error ? error.message : (zh ? '撤销失败' : 'Could not revoke host'), 'error'); } }} />}
       {detail === 'privacy' && <SettingsSection title={zh ? '隐私' : 'Privacy'}><SettingsRow label={t('security.privacyMode')} description={t('security.privacyModeDesc')}><SettingsToggle checked={appConfig.privacyMode} onChange={checked => updateConfig('privacyMode', checked)} label={t('security.privacyMode')} /></SettingsRow><SettingsRow label={t('security.autoLockTitle')}><select value={appConfig.autoLockTimeout} onChange={event => updateConfig('autoLockTimeout', Number(event.target.value))} className={`${settingFieldClass} sm:w-44`}><option value={0}>{t('security.autoLockOff')}</option>{[5, 15, 30, 60].map(minutes => <option key={minutes} value={minutes}>{minutes === 60 ? `1 ${t('security.hour')}` : `${minutes} ${t('security.minutes')}`}</option>)}</select></SettingsRow></SettingsSection>}
       {detail === 'plugins' && <SettingsSection title={t('settings.pluginSecurityMode')} description={t('settings.pluginSecurityDesc')}>
