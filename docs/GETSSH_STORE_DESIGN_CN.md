@@ -422,9 +422,10 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
     - `.ppk` 按 PuTTY 手册附录 C 实现；Ed25519 的私钥字段按 PuTTY 源码，是 32 个原始字节，不是 mpint。注释按文件里的原始字节计算 MAC，所以 Windows 上 PuTTYgen 用 GBK 等编码写的注释也能通过。用 PuTTY 自己写的文件核对过：第 2、3 版，加密和不加密，Argon2id 和 Argon2d，Ed25519、RSA、三条 ECDSA 曲线，在 Node 和真实的 Electron 里都通过。这些文件不是我们的，没有提交。Ed448 和 DSA 报"不支持"。
     - 生成 ed25519 私钥也在主进程（node:crypto），之后直接交给存储模块。
   - 存储模块（`src/ssh_keys.rs`）：
-    - `importSshKey` 接收私钥、口令和 SSH 公钥 blob。算法、指纹和公钥那一行都从公钥 blob 算出来，只接受 ed25519、rsa、三条 NIST 曲线的 ECDSA 和 dss。
+    - `importSshKey` 接收私钥、口令和 SSH 公钥 blob。算法、指纹和公钥那一行都从公钥 blob 算出来，只接受 ed25519、rsa 和三条 NIST 曲线的 ECDSA。不收 dss：Electron 的加密库不能用 DSA 签名。
     - 私钥和口令是两个封装字段（`ssh_key|<id>|private`、`ssh_key|<id>|passphrase`，口令放在新加的 `ssh_keys.passphrase` 列）。
     - `connectSecrets`：用私钥自己存的口令（导入时验证过）；私钥没存口令时，才用服务器上存的。服务器上可能还留着它以前那个私钥文件的旧口令。
+    - 服务器的 `authType` 是 `password` 时，`connectSecrets` 不带库里的私钥（10-19）。服务器从库里私钥改回密码登录时，`keyId` 可能还留着；ssh2 有私钥就只试私钥，密码永远试不到。
     - 跨工作区复制时私钥和口令都重新封装；整个工作区进加密备份，私钥自然跟着走。
     - `deleteSshKey` 把用到它的服务器的 `keyId` 清空；`saveProfiles` 拒绝指向不存在私钥的 `keyId`，空字符串当作没有。
   - 主进程通道：

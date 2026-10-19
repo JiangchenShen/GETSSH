@@ -576,7 +576,11 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
 
 ### B4 迁移后重新开启 Touch ID 的提示（新，做最简单的）
 
-- `appState().migration?.presenceToReenable` 不为空时，解锁后显示一条提示，列出这些工作区的名称，再给一个按钮，逐个调用 `security.setPresence({ workspaceId, enabled: true })`。用户关掉提示后，这次运行内不再显示。
+- `appState().migration?.presenceToReenable` 不为空时，解锁后显示一条提示，列出这些工作区的名称，再给一个按钮调用 `security.setPresence`。用户关掉提示后，这次运行内不再显示。
+- **10-19 更正**：原来这里写的"逐个调用 `setPresence({ workspaceId })`"是错的。`setPresence` 是一个总开关，主进程不看 `workspaceId`：
+  - 它给所有**已解锁**的范围打开 Touch ID，设了主密码时也包括主密码解锁；
+  - 锁着的工作区原样跳过，不报错，照样返回 `ok`。
+  - 名单里的工作区都有自己的密码，迁移后都是锁着的；切换到别的工作区时又会锁上。所以一次只能开当前这一个。见下面 10-19 复查的 R37。
 - 这个名单只在迁移 3.0 开发版旧数据的那一次启动时出现。2.0 用户升级不会遇到，所以不用做持久化。
 - **验收**：一个 spec，有名单时出现提示、点按钮会调用 `setPresence`。
 
@@ -601,3 +605,42 @@ Claude 先改主进程接口、preload、`src/types` 和假实现（10-15 当天
 - 正式模块和假实现的行为一致（逐项对照零差异），所以在假实现上做好的界面，换到正式模块上不用改。
 - 界面里的 `SessionProfile` 还没有 `keyId` 字段，B2 需要加上：`keyId?: string | null`。选"使用文件"时要明确传 `keyId: null`。不传这个字段时，主进程会保留原来的值。
 - 之后复查 B1–B5。
+
+## 10-19 复查阶段 B（`feat/ui-store`，`1be590e`；官网 `codex/ui-store-copy`，`1cf64ea`）
+
+B1–B5 都做了，界面和接口对得上。
+
+**测试和检查**：
+- 在 Claude 的工作目录里，合上 `v3-next` 的后端一起跑：整套测试 84 个文件、1004 个测试全部通过；
+- 类型检查、构建、完整的 21 项检查（含打包后启动）都通过；
+- 新文案过了 copy-lint，官网报的几处都在旧版本的更新日志里，不是这次加的；
+- 阶段 B 的后端 10-19 在 Windows CI 上也通过了，包括用导入的私钥真的登录。
+
+**审查**：3 个只读审查分头看，再由第 4 个逐条对着代码核实。下面是核实成立的。
+
+R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡合并。每条请补一个 spec，撤掉修复时它要失败。
+
+**另外，spec 里的服务器要和真实数据一样带 `keyId: null`。** 主进程读出来的服务器都有这个字段，没用库里私钥的是 `null`，不会没有。现在的 spec 不带它，所以 R35、R39 都没测出来。
+
+| 编号 | 位置 | 问题 | 要做 |
+|---|---|---|---|
+| R33 | `ConnectForm.tsx:410`（"密码"按钮）、`SshKeysSection.tsx:57` | 已经改用库里私钥的服务器，切回"密码"后 `keyId` 还留着，连接时主进程只试私钥，密码永远试不到。设置页也还把它算成"在用"这个私钥，删除确认里会列出它 | 主进程这一半 Claude 已改（`febb076`）：`authType` 是 `password` 时不带库里的私钥。界面：切到"密码"时同时传 `keyId: null`；统计"几台服务器在用"只算 `authType === 'key'` |
+| R34 | `ConnectForm.tsx:421-424`（`onSelectKey`） | 先在"密码"下点了"清除已保存的密码"，再换成库里的私钥，然后保存：界面显示密码已清除，库里其实还留着，还会随备份导出。原因是 `onSelectKey` 把 `password` 改成了 `undefined`，而 `undefined` 的意思是"保留" | `onSelectKey` 不要动 `password`。spec：先清除密码，再选私钥，保存后发出去的 `password` 是 `''` 或 `null` |
+| R35 | `ConnectionPrivateKey.tsx:110` | 导入服务器的私钥文件时，主进程已经保存好列表（必要时把原文件移进了废纸篓），这时连接表单如果关了、或者列表版本变了，界面就丢掉返回的列表。界面手里还是旧的 `keyId: null` 和文件路径，下一次整份保存会把服务器改回去，指向已经在废纸篓里的文件，登录失败 | 只要 `adoptWorkspaceProfiles` 自己的检查通过（同一个工作区，没在切换，没锁），就采用返回的列表，不管组件还在不在。对话框、提示这些界面状态再看 `alive` 和 generation。spec 的服务器加上 `keyId: null`；"卸载后丢弃"那个 spec 改成"卸载后仍然采用" |
+| R36 | `SafeStorageTab.tsx:79`、`SecurityTab.tsx:142` | 恢复码只显示一次。没勾"我已保存"，就关掉详情、切到别的设置页、或者应用自动锁定，恢复码就没了。库里已经算"有恢复码"，所以 B3 的提醒不会出现，总览还写着"已创建恢复码"。B3 要检查的正是这种情况 | 记一个"这次运行里显示过、还没确认保存"的标记，不含恢复码本身，放在 store 里，只有点"完成"才清掉。标记在的时候，"待处理事项"里显示："新的恢复码还没确认保存过，请重新生成一个"，按钮和现在一样。改掉 `SafeStorageTab.spec.tsx:115-123` 的预期 |
+| R37 | `MigrationPresenceNotice.tsx:60-64` | 按我写错的接口做的（见上面 B4 的更正）。名单里的工作区迁移后都锁着，点"开启"后每次调用都返回 `ok`，界面就把它们都标成已开启、提示消失，其实一个都没开。设了主密码时，还会顺带打开主密码的 Touch ID，提示里没说 | 只调一次 `setPresence({ workspaceId: null, enabled: true })`，再读 `security.status()`，只把 `presence` 已经为真的工作区标成完成。其余的留在列表里，写"切换到这个工作区并解锁后再开启"；当前工作区不在名单里、或者锁着时，按钮不可用。文案里说一句：设了主密码时，主密码解锁也会改用 Touch ID。spec 的 mock 照假实现的规则写：一个总开关，锁着的不变 |
+| R38 | `SecurityTab.tsx:39, 223, 266` | `recoveryRequest` 只加不减。点过一次"生成恢复码"以后，再打开"主密码和恢复码"详情，生成恢复码的表单会自己弹出来；删掉主密码以后，它还会要求输入已经不存在的主密码 | 做成一次性的：`SafeStorageTab` 打开表单后回调一次，`SecurityTab` 把它清零 |
+| R39 | `ConnectForm.tsx:298` | 从库里读出的服务器都带 `keyId: null`，所以每次连接已保存的服务器，都要先等一次整份保存。保存被拒（比如列表版本刚变）时，连接直接不发起，而且没有提示 | 只在私钥选择改过时先保存：`readySession.keyId !== (session.keyId ?? null)`，或者有待清除的密码时。spec：`keyId: null` 的服务器直接连接，不调用 `saveProfiles` |
+| R40 | `ConnectionPrivateKey.tsx:149, 168-169` | "导入到 GETSSH"在两种情况下一直不可用，旁边写着"等待连接更改保存"，可这些更改永远不会自动保存：点过"清除"的口令，以及连接失败后留下的口令 | 判断"有没有未保存的更改"时，不比较 `password`、`passphrase`、`hasPassword`、`hasPassphrase`；待清除的另外处理，提示"先点保存"。最好直接用 `ConnectForm` 自己的状态（还在等防抖、有待清除的项） |
+| R41 | `SshKeysSection.tsx:96-104, 189-195` | 设置页的私钥对话框，提交失败后（口令不对、格式不支持、生成失败）焦点落到页面上：Esc 关不掉，Tab 会跳到对话框后面的设置页 | 照 `ConnectionPrivateKey` 的做法，在 document 上监听 keydown 和 focusin；或者 `finish()` 时把焦点放回口令框或第一个控件，对话框加 `tabIndex={-1}` 兜底 |
+| R42 | `SshKeysSection.tsx:167-173` | 导入时除了口令问题以外的失败（比如 DSA 的 `.ppk`、PKCS#8 DSA、口令计算量超限、`io`），主进程会忘掉这个文件，界面却还留着它：再点"导入"会提示"文件已过期" | 除了 `needs_password`、`wrong_password` 以外的失败，都把 `panel.file` 设成 `null`，显示"重新选择文件"。补一个 spec：`import` 返回 `unsupported_key`（不是 `chooseFile`）之后重试 |
+| R43 | `MigrationPresenceNotice.tsx:79` | 层级 `z-[80]`，盖在主机指纹确认等 `z-50` 的对话框上面，窄窗口里会挡住按钮；在隐私模式的模糊范围之外，窗口失焦时工作区名称照样看得见；出现时读屏软件不会读 | 放到对话框下面一层；隐私模式模糊时隐藏；标题或说明加 `role="status"` |
+| R44 | `SafeStorageTab.tsx:83` | 设置页开着时，在 B4 的提示里开了 Touch ID，设置页那一行还显示"开启" | `appLockStore` 的 `presenceEnabled` 变了也刷新状态 |
+| R45 | `ConnectionPrivateKey.tsx:93, 98, 178`；`SshKeysSection.tsx:215`；`ConnectionPrivateKey.tsx:95` | 文案：① Windows 上应该叫"回收站 / Recycle Bin"，主进程的对话框已经这么写，界面的勾选项和结果还写"废纸篓 / Trash"；② 英文"Used by 1 servers"；③ `used_elsewhere` 写的是"仍被其他连接或 2.0 数据使用"，可主进程只要 2.0 的服务器列表还在就保留原文件，不检查里面有没有用到它 | ① 按平台用词，`useAppStore` 有 `isMac`；② 区分单复数；③ 改成"GETSSH 里还有服务器在用这个文件，或者 GETSSH 2.0 的服务器列表还在，原文件已保留。" |
+
+**官网**：B5 的更新日志写得对。R32（中文 AI 公告）还没改，合进官网 `main` 之前要改。
+
+### Claude 10-19
+
+- `febb076`：R33 的主进程一半。`authType` 是 `password` 时，连接不带库里的私钥；Rust、假实现、逐项对照（293 步，0 处不一致）都覆盖了。
+- `7014d0d`：Rust `zip` 升到 9.0.5，修 RUSTSEC-2026-0367、-0368、-0369。这三个问题都在 `zip` 自带的 `extract()` 里，GETSSH 没用它：插件解压是自己逐项写的，拒收链接，也不应用压缩包里的权限。升级是为了让依赖审计不再报红。
