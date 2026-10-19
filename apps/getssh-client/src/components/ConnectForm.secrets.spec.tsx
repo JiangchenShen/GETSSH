@@ -30,7 +30,7 @@ const onSaveSession = vi.fn();
 const onConnect = vi.fn();
 const onCancel = vi.fn();
 const appConfig = { defaultPort: 22, customThemes: {} } as AppConfig;
-const saved: ConnectFormSession = { id: 'server', host: 'server.example', username: 'user', protocol: 'ssh', authType: 'password', hasPassword: true, hasPassphrase: true };
+const saved: ConnectFormSession = { id: 'server', host: 'server.example', username: 'user', protocol: 'ssh', authType: 'password', keyId: null, hasPassword: true, hasPassphrase: true };
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks(); onUpdateSession.mockReset(); onSaveSession.mockReset().mockResolvedValue(true); onConnect.mockReset(); onCancel.mockReset(); vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   useAppLockStore.setState({ state: { phase: 'ready', appProtected: false, presenceSupported: true, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false } });
@@ -162,7 +162,7 @@ describe('saved credential editing', () => {
     const store = createRequire(import.meta.url)('../../../../rust-core/getssh-store/store.fake.js');
     const home = mkdtempSync(join(tmpdir(), 'getssh-u8-'));
     try {
-      store.__fake.reset(); store.configure(join(home, 'store')); store.__fake.seed({ profiles: { default: [{ id: 'server', host: 'server.example', username: 'user', password: 'stored password', passphrase: 'stored passphrase' }] } }); await store.start();
+      store.__fake.reset(); store.configure(join(home, 'store')); store.__fake.seed({ profiles: { default: [{ id: 'server', host: 'server.example', username: 'user', keyId: null, password: 'stored password', passphrase: 'stored passphrase' }] } }); await store.start();
       window.electronAPI.saveProfiles = vi.fn().mockImplementation(async ({ payload, workspaceId }) => { store.saveProfiles(workspaceId, payload); return true; });
       onUpdateSession.mockImplementation((_index, updated) => { void window.electronAPI.saveProfiles({ workspaceId: 'default', payload: [updated] }); });
       onSaveSession.mockImplementation((_index, updated) => window.electronAPI.saveProfiles({ workspaceId: 'default', payload: [updated] }));
@@ -189,8 +189,8 @@ describe('saved credential editing', () => {
     try {
       store.__fake.reset(); store.configure(join(home, 'store'));
       store.__fake.seed({ profiles: { default: [
-        { id: 'server', host: 'server.example', username: 'user', password: 'stored password', passphrase: 'stored passphrase' },
-        { id: 'other', host: 'other.example', username: 'user' },
+        { id: 'server', host: 'server.example', username: 'user', keyId: null, password: 'stored password', passphrase: 'stored passphrase' },
+        { id: 'other', host: 'other.example', username: 'user', keyId: null },
       ] } }); await store.start();
       window.electronAPI.saveProfiles = vi.fn().mockImplementation(async ({ payload, workspaceId }) => { store.saveProfiles(workspaceId, payload); return true; });
       onUpdateSession.mockImplementation((_index, updated) => { void window.electronAPI.saveProfiles({ workspaceId: 'default', payload: [updated, other] }); });

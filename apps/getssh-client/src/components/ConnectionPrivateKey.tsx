@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { adoptWorkspaceProfiles } from '../lib/adoptWorkspaceProfiles';
 import { useAppLockStore } from '../store/appLockStore';
+import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { SshKey } from '../types/store';
@@ -13,6 +14,7 @@ interface Props {
   session: ConnectFormSession;
   savedSession: ConnectFormSession;
   disabled: boolean;
+  pendingSecretClear: boolean;
   onSelectKey: (id: string) => void;
   onUseFile: () => void;
   children: ReactNode;
@@ -20,9 +22,10 @@ interface Props {
 const buttonClass = 'rounded-md border border-line px-3 py-2 text-xs text-ink hover:bg-surf focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
 
 /** Stored keys expose metadata only. Profile-file import and optional Trash confirmation stay in main. */
-export function ConnectionPrivateKey({ session, savedSession, disabled, onSelectKey, onUseFile, children }: Props) {
+export function ConnectionPrivateKey({ session, savedSession, disabled, pendingSecretClear, onSelectKey, onUseFile, children }: Props) {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
+  const isMac = useAppStore(state => state.isMac);
   const workspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const switching = useWorkspaceStore(state => state.isSwitching);
   const locked = useWorkspaceStore(state => state.isVaultLocked);
@@ -44,6 +47,7 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
   const dialog = useRef<HTMLDivElement>(null);
   const allowed = phase === 'ready' && !mustChangePassword && !locked && !switching;
   const copy = (cn: string, en: string) => zh ? cn : en;
+  const trashName = isMac ? copy('废纸篓', 'Trash') : copy('回收站', 'Recycle Bin');
   const clearDialog = () => { setOpen(false); setPassphrase(''); setNeedsPassphrase(false); setTrashOriginal(false); setError(''); };
 
   useEffect(() => {
@@ -90,12 +94,12 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
     return storeFailureMessage(code, zh, retryAfterMs);
   };
   const importedNotice = (trashed: boolean, kept?: string) => {
-    if (trashed) return copy('私钥已导入，原文件已移到废纸篓。', 'Key imported. The original file was moved to the Trash.');
+    if (trashed) return copy(`私钥已导入，原文件已移到${trashName}。`, `Key imported. The original file was moved to the ${trashName}.`);
     switch (kept) {
-      case 'used_elsewhere': return copy('私钥已导入。原文件仍被其他连接或 2.0 数据使用，已保留。', 'Key imported. The original file was kept because other connections or GETSSH 2.0 data still use it.');
+      case 'used_elsewhere': return copy('GETSSH 里还有服务器在用这个文件，或者 GETSSH 2.0 的服务器列表还在，原文件已保留。', 'A server in GETSSH still uses this file, or the GETSSH 2.0 server list is still present. The original file was kept.');
       case 'workspaces_locked': return copy('私钥已导入。有工作区锁定，无法检查所有引用，原文件已保留。', 'Key imported. Some workspaces are locked, so all references could not be checked. The original file was kept.');
       case 'declined': return copy('私钥已导入，已按选择保留原文件。', 'Key imported. The original file was kept as requested.');
-      case 'trash_failed': return copy('私钥已导入，但原文件未能移到废纸篓。请检查文件权限后自行处理。', 'Key imported, but the original file could not be moved to the Trash. Check its permissions before handling it manually.');
+      case 'trash_failed': return copy(`私钥已导入，但原文件未能移到${trashName}。请检查文件权限后自行处理。`, `Key imported, but the original file could not be moved to the ${trashName}. Check its permissions before handling it manually.`);
       default: return copy('私钥已导入，原文件已保留。', 'Key imported. The original file was kept.');
     }
   };
@@ -152,7 +156,7 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
 
   const usesStored = !!session.keyId;
   const fileSaved = !!savedSession.id && !savedSession.isDraft && !savedSession.isQuickConnect && !!savedSession.privateKeyPath && !savedSession.keyId;
-  const pendingEdits = Object.entries(session).some(([field, value]) => !Object.is(value, savedSession[field as keyof ConnectFormSession]));
+  const pendingEdits = Object.entries(session).some(([field, value]) => !['password', 'passphrase', 'hasPassword', 'hasPassphrase'].includes(field) && !Object.is(value, savedSession[field as keyof ConnectFormSession]));
   return <div className="space-y-3">
     <label className="block space-y-2 text-xs text-ink-2">
       <span>{copy('私钥来源', 'Key source')}</span>
@@ -171,8 +175,8 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
     {!usesStored && children}
     {fileSaved && !usesStored && <div className="space-y-2 border-t border-line-soft pt-3 text-xs text-ink-2">
       <p>{copy('这个私钥还是磁盘上的文件，加密备份里不包含它。', 'This key is still a file on disk and is not included in encrypted backups.')}</p>
-      <button type="button" disabled={disabled || !allowed || pendingEdits} className={buttonClass} onClick={() => { clearDialog(); setNotice(''); setOpen(true); }}>{copy('导入到 GETSSH', 'Import into GETSSH')}</button>
-      {pendingEdits && <p className="text-ink-3">{copy('等待连接更改保存后，再导入私钥。', 'Wait for connection changes to save before importing the key.')}</p>}
+      <button type="button" disabled={disabled || !allowed || pendingEdits || pendingSecretClear} className={buttonClass} onClick={() => { clearDialog(); setNotice(''); setOpen(true); }}>{copy('导入到 GETSSH', 'Import into GETSSH')}</button>
+      {pendingSecretClear ? <p className="text-ink-3">{copy('有待清除的密码或口令，请先点“保存更改”，再导入私钥。', 'A password or passphrase is marked for clearing. Click “Save changes” before importing the key.')}</p> : pendingEdits && <p className="text-ink-3">{copy('等待连接更改保存后，再导入私钥。', 'Wait for connection changes to save before importing the key.')}</p>}
     </div>}
     {notice && <p role="status" className="text-xs text-ink-2">{notice}</p>}
     {open && allowed && createPortal(<div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 p-4">
@@ -181,7 +185,7 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
         <p className="text-sm text-ink-2">{copy('当前工作区中使用同一文件的服务器会一起改用导入的私钥。原文件默认保留。', 'Servers in this workspace using the same file will switch to the imported key. The original file is kept by default.')}</p>
         <form onSubmit={event => { event.preventDefault(); event.stopPropagation(); void importFile(); }} className="space-y-4">
           {needsPassphrase && <label className="block space-y-2 text-sm"><span>{copy('私钥口令', 'Key passphrase')}</span><input autoFocus disabled={busy} type="password" autoComplete="off" value={passphrase} onChange={event => setPassphrase(event.target.value)} className="w-full rounded-md border border-line bg-surf px-3 py-2 focus-visible:outline-2 focus-visible:outline-primary" /></label>}
-          <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={trashOriginal} onChange={event => setTrashOriginal(event.target.checked)} /><span>{copy('导入后把原文件移到废纸篓', 'Move the original file to the Trash after import')}</span></label>
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={trashOriginal} onChange={event => setTrashOriginal(event.target.checked)} /><span>{copy(`导入后把原文件移到${trashName}`, `Move the original file to the ${trashName} after import`)}</span></label>
           {error && <p role="alert" className="text-sm text-down">{error}</p>}
           <div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={clearDialog} className={buttonClass}>{copy('取消', 'Cancel')}</button><button type="submit" disabled={busy || (needsPassphrase && !passphrase)} className={buttonClass}>{busy ? copy('正在导入…', 'Importing…') : copy('导入私钥', 'Import key')}</button></div>
         </form>

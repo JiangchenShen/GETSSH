@@ -291,15 +291,16 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
   const submit = async () => {
     if (!canConnect || !profilesReady || saving) return;
+    const hasPendingUpdate = debounceRef.current !== null;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
     let readySession: ConnectFormSession = { ...localSessionRef.current, isDraft: Boolean(localSessionRef.current.isQuickConnect), protocol: effectiveProtocol };
     lastSubmittedGroupRef.current = readySession.group || '';
-    if (Object.keys(pendingClearsRef.current).length || (!readySession.isQuickConnect && readySession.keyId !== undefined)) {
+    if (Object.keys(pendingClearsRef.current).length || (!readySession.isQuickConnect && readySession.keyId !== (session.keyId ?? null))) {
       const saved = await savePending(readySession);
       if (!saved) return;
       readySession = saved;
-    } else onUpdateSession(identity.current.index, readySession);
+    } else if (hasPendingUpdate) onUpdateSession(identity.current.index, readySession);
     onConnect(readySession);
   };
 
@@ -416,6 +417,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     </div>
                   ) : (
                     <ConnectionPrivateKey key={`${activeWorkspaceId}:${sessionIdentity}`} session={localSession} savedSession={session}
+                      pendingSecretClear={Object.keys(pendingClears).length > 0}
                       disabled={saving || !profilesReady || isSwitching || isVaultLocked}
                       onUseFile={() => handleUpdate({ keyId: null })}
                       onSelectKey={keyId => {
