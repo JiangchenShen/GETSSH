@@ -26,6 +26,7 @@ import { SavedSecretControl } from './SavedSecretControl';
 import type { SecretField } from '../types/store';
 import { settingButtonClass } from './settings/SettingsControls';
 import { useAppLockStore } from '../store/appLockStore';
+import { ConnectionPrivateKey } from './ConnectionPrivateKey';
 
 export type ConnectFormSession = Partial<SessionProfile>;
 
@@ -172,7 +173,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
       if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
     });
     const stopApp = useAppLockStore.subscribe((next, previous) => {
-      if (next.state?.phase !== previous.state?.phase) invalidate();
+      if (next.state?.phase !== previous.state?.phase || next.state?.masterPasswordMustChange !== previous.state?.masterPasswordMustChange) invalidate();
     });
     return () => {
       alive.current = false; generation.current += 1; stop(); stopApp();
@@ -214,6 +215,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const currentRequest = (requestGeneration: number, revision: number, profileId: string | undefined) => alive.current && generation.current === requestGeneration
     && identity.current.workspaceId === activeWorkspaceId && identity.current.profileId === profileId && (profileId !== undefined || identity.current.index === index)
     && useWorkspaceStore.getState().activeWorkspaceId === activeWorkspaceId && !useWorkspaceStore.getState().isSwitching && !useWorkspaceStore.getState().isVaultLocked
+    && useAppLockStore.getState().state?.phase === 'ready' && !useAppLockStore.getState().state?.masterPasswordMustChange
     && useSessionStore.getState().profilesWorkspaceId === activeWorkspaceId && useSessionStore.getState().sessionsRevision === revision;
   const savePending = async (profile: ConnectFormSession): Promise<ConnectFormSession | null> => {
     if (saving || !profilesReady || !onSaveSession) return null;
@@ -293,7 +295,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     debounceRef.current = null;
     let readySession: ConnectFormSession = { ...localSessionRef.current, isDraft: Boolean(localSessionRef.current.isQuickConnect), protocol: effectiveProtocol };
     lastSubmittedGroupRef.current = readySession.group || '';
-    if (Object.keys(pendingClearsRef.current).length) {
+    if (Object.keys(pendingClearsRef.current).length || (!readySession.isQuickConnect && readySession.keyId !== undefined)) {
       const saved = await savePending(readySession);
       if (!saved) return;
       readySession = saved;
@@ -413,12 +415,27 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                       {localSession.hasPassword && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="password" disabled={saving || !profilesReady} pendingClear={!!pendingClears.password} pendingReplacement={!!localSession.password} onClear={() => clearSecret('password')} onUndoClear={() => undoClear('password')} />}
                     </div>
                   ) : (
+                    <ConnectionPrivateKey key={`${activeWorkspaceId}:${sessionIdentity}`} session={localSession} savedSession={session}
+                      disabled={saving || !profilesReady || isSwitching || isVaultLocked}
+                      onUseFile={() => handleUpdate({ keyId: null })}
+                      onSelectKey={keyId => {
+                        const { passphrase: _passphrase, ...pending } = pendingClearsRef.current;
+                        pendingClearsRef.current = pending; setPendingClears(pending);
+                        handleUpdate({ authType: 'key', keyId, privateKeyPath: null, passphrase: null, password: undefined, hasPassphrase: false });
+                      }}>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
-                      <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => { const path = await window.electronAPI.selectFile(); if (path) handleUpdate({ privateKeyPath: path }); }} className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-line bg-surf text-ink-3 transition-colors hover:border-primary/50 hover:text-primary" aria-label={t('common.selectFile')}><FileKey2 className="h-4 w-4" /></button></div></label>
+                      <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ keyId: null, privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => {
+                        const requestGeneration = generation.current;
+                        const revision = useSessionStore.getState().sessionsRevision;
+                        const profileId = identity.current.profileId;
+                        const path = await window.electronAPI.selectFile();
+                        if (path && currentRequest(requestGeneration, revision, profileId)) handleUpdate({ keyId: null, privateKeyPath: path });
+                      }} className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-line bg-surf text-ink-3 transition-colors hover:border-primary/50 hover:text-primary" aria-label={t('common.selectFile')}><FileKey2 className="h-4 w-4" /></button></div></label>
                       <div><label><span className={labelClass}>Passphrase</span><input disabled={saving} value={localSession.passphrase || ''} onChange={(event) => handleUpdate({ passphrase: secretInput(event.target.value, localSession.hasPassphrase && !pendingClears.passphrase) })} className={inputClass} type="password" placeholder={localSession.hasPassphrase && !pendingClears.passphrase ? savedSecretHint : t('connection.optional')} /></label>
                         {localSession.hasPassphrase && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="passphrase" disabled={saving || !profilesReady} pendingClear={!!pendingClears.passphrase} pendingReplacement={!!localSession.passphrase} onClear={() => clearSecret('passphrase')} onUndoClear={() => undoClear('passphrase')} />}
                       </div>
                     </div>
+                    </ConnectionPrivateKey>
                   )}
                 </>}
               </section>

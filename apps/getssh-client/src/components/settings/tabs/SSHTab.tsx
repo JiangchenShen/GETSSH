@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
 import { SettingsRow, SettingsSection, settingButtonClass, settingDangerButtonClass, settingFieldClass } from '../SettingsControls';
+import { SshKeysSection } from './SshKeysSection';
 
 export const SSHTab: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -27,6 +28,8 @@ export const SSHTab: React.FC = () => {
           <div className="flex gap-2"><input type="text" value={appConfig.proxyHost || ''} onChange={event => updateConfig('proxyHost', event.target.value)} className={`${settingFieldClass} min-w-0 flex-1 font-mono`} aria-label={t('ssh.proxyHost')} /><input type="number" min={1} max={65535} value={appConfig.proxyPort || 1080} onChange={event => updateConfig('proxyPort', parseInt(event.target.value, 10) || 1080)} className={`${settingFieldClass} w-20 font-mono`} aria-label={t('ssh.proxyPort')} /></div>
         </SettingsRow>}
       </SettingsSection>
+
+      <SshKeysSection />
 
       <SettingsSection title={zh ? '文件传输' : 'File transfer'}>
         <SettingsRow label={t('settings.sftpDownloadPath')} description={zh ? 'SFTP 下载的默认本地目录。' : 'Default local folder for SFTP downloads.'} stacked>
