@@ -47,6 +47,7 @@ beforeEach(() => {
     saveProfiles, sshConnect, selectFile: vi.fn().mockResolvedValue('/temporary/other-key'),
     assetFolders: { list: vi.fn().mockResolvedValue({ success: true, folders: [] }) },
     store: { sshKeys: { list, importProfileFile: importFile } },
+    security: { status: vi.fn().mockResolvedValue(null) },
   } as unknown as Window['electronAPI'];
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -119,6 +120,24 @@ describe('stored keys in the connection form', () => {
       expect(sshConnect).not.toHaveBeenCalled();
       expect(container.querySelector('[role="alert"]')?.textContent).toContain('Could not save');
     }
+  });
+
+  // R33: a keyId left on a password server made the connection try only the stored key.
+  it('drops the stored key when the server switches back to password login', async () => {
+    useSessionStore.getState().setSessions([{ ...server, keyId: key.id, privateKeyPath: null }]);
+    await act(async () => root.render(<Harness />));
+    await click('connection.password');
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: [expect.objectContaining({ id: 'server', authType: 'password', keyId: null })] });
+  });
+
+  // R34: undefined means "keep", so choosing a key must not turn a pending clear back into a keep.
+  it('keeps a pending "clear saved password" when a stored key is chosen', async () => {
+    useSessionStore.getState().setSessions([{ id: 'server', host: 'server.test', username: 'user', authType: 'password', hasPassword: true, keyId: null }]);
+    await act(async () => root.render(<Harness />));
+    await click('Clear saved password'); await click('connection.privateKey'); await chooseSource(key.id);
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: [expect.objectContaining({ id: 'server', authType: 'key', keyId: key.id, password: '', hasPassword: false })] });
   });
 
   it.each([{ isDraft: true }, { isQuickConnect: true }])('does not offer file migration for an unsaved connection: %o', async flags => {
@@ -205,7 +224,9 @@ describe('importing a saved profile key file', () => {
     expect(saveProfiles).not.toHaveBeenCalled(); expect(useSessionStore.getState().sessions).toEqual([server]);
   });
 
-  it.each(['workspace cycle', 'app lock cycle', 'vault lock cycle', 'unmount', 'other response workspace'])('drops late imported profiles after %s', async transition => {
+  // R35: main has already saved the list. Dropping it would leave keyId null and the old path in
+  // the window, and its next whole-list save would put the server back on the (maybe trashed) file.
+  it.each(['workspace cycle', 'app lock cycle', 'vault lock cycle', 'unmount', 'another save'])('still takes the saved profiles of a late import after %s, without its notice', async transition => {
     const pending = deferred<typeof imported>(); importFile.mockReturnValueOnce(pending.promise);
     await render(); await click('Import into GETSSH'); await submitDialog();
     await act(async () => {
@@ -213,6 +234,19 @@ describe('importing a saved profile key file', () => {
       else if (transition === 'app lock cycle') { useAppLockStore.setState({ state: { ...ready, phase: 'locked' } }); useAppLockStore.setState({ state: ready }); }
       else if (transition === 'vault lock cycle') { useWorkspaceStore.setState({ isVaultLocked: true }); useWorkspaceStore.setState({ isVaultLocked: false }); }
       else if (transition === 'unmount') root.render(null);
+      else useSessionStore.getState().replaceSessions([{ ...server }], 'current');
+    });
+    await act(async () => pending.resolve(imported));
+    expect(useSessionStore.getState().sessions).toEqual([converted]); expect(saveProfiles).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it.each(['other response workspace', 'still locked', 'still switching'])('drops a late import for %s', async transition => {
+    const pending = deferred<typeof imported>(); importFile.mockReturnValueOnce(pending.promise);
+    await render(); await click('Import into GETSSH'); await submitDialog();
+    await act(async () => {
+      if (transition === 'still locked') useAppLockStore.setState({ state: { ...ready, phase: 'locked' } });
+      else if (transition === 'still switching') useWorkspaceStore.setState({ isSwitching: true });
     });
     await act(async () => pending.resolve({ ...imported, ...(transition === 'other response workspace' ? { workspaceId: 'other' } : {}) }));
     expect(useSessionStore.getState().sessions).toEqual([server]); expect(saveProfiles).not.toHaveBeenCalled();

@@ -54,7 +54,7 @@ export function SshKeysSection() {
   };
   const keys = listing && current(listing.scope) ? listing.keys : [];
   const profilesKnown = profilesWorkspaceId === workspaceId;
-  const references = (id: string) => sessions.filter(profile => !profile.isDraft && !profile.isQuickConnect && profile.keyId === id);
+  const references = (id: string) => sessions.filter(profile => !profile.isDraft && !profile.isQuickConnect && profile.authType === 'key' && profile.keyId === id);
 
   const load = async () => {
     const scope = capture();

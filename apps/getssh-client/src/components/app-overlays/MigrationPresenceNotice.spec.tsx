@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppLockState, KeystoreResult } from '../../types/ipc';
+import type { AppLockState, KeystoreResult, SecurityStatus } from '../../types/ipc';
 import { useAppLockStore } from '../../store/appLockStore';
 import { useBackupRestartStore } from '../../store/backupStore';
 
@@ -11,44 +11,92 @@ vi.mock('../../store/appStore', () => ({ useAppStore: (select: (state: any) => a
 vi.mock('../../store/workspaceStore', async () => {
   const { create } = await import('zustand');
   return { useWorkspaceStore: create(() => ({ activeWorkspaceId: 'one', isSwitching: false, isVaultLocked: false,
-    workspaces: [{ id: 'one', name: 'Production', themeColor: '#000' }, { id: 'two', name: 'Lab', themeColor: '#000' }] })) };
+    workspaces: [{ id: 'main', name: 'Main', themeColor: '#000' }, { id: 'one', name: 'Production', themeColor: '#000' }, { id: 'two', name: 'Lab', themeColor: '#000' }] })) };
 });
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { MigrationPresenceNotice } from './MigrationPresenceNotice';
 
 const ready = (): AppLockState => ({ phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false,
   migration: { migratedWorkspaces: ['one', 'two'], deferredWorkspaces: [], presenceToReenable: ['one', 'two'], failedWorkspaces: [] } });
+// The store's rule (store.rs set_presence, store.fake.js): one switch, and only an unlocked scope
+// changes. Only the active workspace is unlocked here, and a locked one stays as it is with ok.
+let presence: Record<string, boolean>;
+const status = (): SecurityStatus => {
+  const { activeWorkspaceId, isVaultLocked } = useWorkspaceStore.getState();
+  return { appProtected: true, recoveryConfigured: false, presenceSupported: true, deviceBackend: null, scopes: [
+    { id: 'app', workspaceId: null, protected: true, ownPassword: true, presence: !!presence.app, unlocked: true, recovery: false, revealRemainingMs: null },
+    ...['one', 'two'].map(id => ({ id: `ws:${id}`, workspaceId: id, protected: true, ownPassword: true, presence: !!presence[id], unlocked: id === activeWorkspaceId && !isVaultLocked, recovery: false, revealRemainingMs: null })),
+  ] };
+};
+const turnOn = (): KeystoreResult => {
+  const { activeWorkspaceId, isVaultLocked } = useWorkspaceStore.getState();
+  presence.app = true;
+  if (!isVaultLocked) presence[activeWorkspaceId] = true;
+  return { ok: true };
+};
 let root: Root;
 let container: HTMLDivElement;
 let setPresence: ReturnType<typeof vi.fn>;
+let statusCall: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  presence = {};
   useAppLockStore.setState({ state: ready() }); useBackupRestartStore.setState({ report: null });
   useWorkspaceStore.setState({ activeWorkspaceId: 'one', isSwitching: false, isVaultLocked: false });
-  setPresence = vi.fn().mockResolvedValue({ ok: true });
-  window.electronAPI = { security: { setPresence } } as unknown as Window['electronAPI'];
+  setPresence = vi.fn(async () => turnOn());
+  statusCall = vi.fn(async () => status());
+  window.electronAPI = { security: { setPresence, status: statusCall } } as unknown as Window['electronAPI'];
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); useAppLockStore.setState({ state: null }); useBackupRestartStore.setState({ report: null }); });
 const render = (suppressed = false) => act(async () => root.render(<MigrationPresenceNotice suppressed={suppressed} />));
-const click = (label: string) => act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === label)!.click());
+const button = (label: string) => Array.from(container.querySelectorAll('button')).find(item => item.textContent === label)!;
+const click = (label: string) => act(async () => button(label).click());
+const switchTo = (workspaceId: string) => act(async () => useWorkspaceStore.setState({ activeWorkspaceId: workspaceId }));
 
 describe('migration system-verification reminder', () => {
-  it('shows workspace names after unlocking and only enables them after the user chooses to', async () => {
+  it('shows workspace names after unlocking and never asks for verification on its own', async () => {
     useAppLockStore.setState({ state: { ...ready(), phase: 'locked' } }); await render(); expect(container.textContent).toBe('');
     await act(async () => useAppLockStore.setState({ state: ready() }));
     expect(container.textContent).toContain('Production'); expect(container.textContent).toContain('Lab'); expect(setPresence).not.toHaveBeenCalled();
-    await click('Enable Touch ID');
-    expect(setPresence.mock.calls).toEqual([[{ workspaceId: 'one', enabled: true }], [{ workspaceId: 'two', enabled: true }]]);
+  });
+
+  // R37: the call is one switch that returns ok for a locked workspace without changing it.
+  it('turns on the active workspace only, and counts as done what security.status reports', async () => {
+    await render(); await click('Enable Touch ID');
+    expect(setPresence).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'one', enabled: true });
+    expect(container.textContent).not.toContain('Production');
+    expect(container.textContent).toContain('Lab'); expect(container.textContent).toContain('Switch to it and unlock it first');
+    expect(button('Enable Touch ID').disabled).toBe(true);
+  });
+
+  it('says so when the call returns ok but the workspace is still off', async () => {
+    setPresence.mockResolvedValueOnce({ ok: true }); await render(); await click('Enable Touch ID');
+    expect(container.textContent).toContain('Production'); expect(container.querySelector('[role="alert"]')!.textContent).toContain('was not turned on');
+    await click('Enable Touch ID'); expect(container.textContent).not.toContain('Production');
+  });
+
+  it('lets each workspace be turned on after switching to it, then goes away', async () => {
+    await render(); await click('Enable Touch ID'); await switchTo('two');
+    expect(button('Enable Touch ID').disabled).toBe(false);
+    await click('Enable Touch ID'); expect(setPresence).toHaveBeenLastCalledWith({ workspaceId: 'two', enabled: true });
     expect(container.querySelector('aside')).toBeNull();
   });
 
-  it('waits for the previous workspace before requesting the next verification', async () => {
-    let complete!: (value: KeystoreResult) => void;
-    setPresence.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
-    await render(); await click('Enable Touch ID'); expect(setPresence).toHaveBeenCalledTimes(1);
-    await act(async () => complete({ ok: true }));
-    expect(setPresence).toHaveBeenCalledTimes(2); expect(setPresence).toHaveBeenLastCalledWith({ workspaceId: 'two', enabled: true });
+  it('cannot turn anything on from a workspace that is not listed', async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'main' }); await render();
+    expect(button('Enable Touch ID').disabled).toBe(true); await click('Enable Touch ID'); expect(setPresence).not.toHaveBeenCalled();
+  });
+
+  it('leaves out a workspace already turned on elsewhere', async () => {
+    presence.two = true; await render();
+    expect(container.textContent).toContain('Production'); expect(container.textContent).not.toContain('Lab');
+  });
+
+  it('says that the master password unlock changes too, only when there is one', async () => {
+    await render(); expect(container.textContent).toContain('Unlocking with the master password will use Touch ID too');
+    await act(async () => useAppLockStore.setState({ state: { ...ready(), appProtected: false } }));
+    expect(container.textContent).not.toContain('master password');
   });
 
   it('keeps dismissal for this app run across workspace changes and an app lock', async () => {
@@ -60,21 +108,18 @@ describe('migration system-verification reminder', () => {
     expect(container.querySelector('aside')).toBeNull(); expect(setPresence).not.toHaveBeenCalled();
   });
 
-  it('treats cancellation quietly, stops the batch, and permits a manual retry', async () => {
+  it('treats cancellation quietly and permits a retry', async () => {
     setPresence.mockResolvedValueOnce({ ok: false, error: 'cancelled' }); await render(); await click('Enable Touch ID');
-    expect(setPresence).toHaveBeenCalledTimes(1); expect(container.querySelector('[role="alert"]')).toBeNull(); expect(container.textContent).toContain('Lab');
-    await click('Enable Touch ID'); expect(setPresence).toHaveBeenCalledTimes(3); expect(container.querySelector('aside')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull(); expect(container.textContent).toContain('Production');
+    await click('Enable Touch ID'); expect(setPresence).toHaveBeenCalledTimes(2); expect(container.textContent).not.toContain('Production');
   });
 
-  it('retries a failed workspace without repeating a successful one', async () => {
+  it('shows a refused call', async () => {
     setPresence.mockResolvedValueOnce({ ok: false, error: 'locked' }); await render(); await click('Enable Touch ID');
-    expect(container.textContent).toContain('Production'); expect(container.textContent).not.toContain('Lab');
-    expect(container.querySelector('[role="alert"]')!.textContent).toContain('Unlock first');
-    await click('Enable Touch ID'); expect(setPresence).toHaveBeenCalledTimes(3); expect(setPresence).toHaveBeenLastCalledWith({ workspaceId: 'one', enabled: true });
-    expect(container.querySelector('aside')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull(); expect(container.textContent).toContain('Production');
   });
 
-  it.each(['lock', 'lock-unlock', 'workspace-return', 'vault-lock-unlock'])('does not continue a stale batch across %s', async transition => {
+  it.each(['lock', 'lock-unlock', 'workspace-return', 'vault-lock-unlock'])('ignores a stale answer across %s', async transition => {
     let complete!: (value: KeystoreResult) => void;
     setPresence.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
     await render(); await click('Enable Touch ID');
@@ -89,11 +134,11 @@ describe('migration system-verification reminder', () => {
       }
     });
     await act(async () => complete({ ok: true }));
-    expect(setPresence).toHaveBeenCalledTimes(1);
+    expect(setPresence).toHaveBeenCalledTimes(1); expect(container.querySelector('[role="alert"]')).toBeNull();
     if (transition !== 'lock') { expect(container.textContent).toContain('Production'); expect(container.textContent).toContain('Lab'); }
   });
 
-  it('stops pending requests after the notice is dismissed', async () => {
+  it('stops a pending request after the notice is dismissed', async () => {
     let complete!: (value: KeystoreResult) => void;
     setPresence.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
     await render(); await click('Enable Touch ID'); await click('Dismiss for this run');

@@ -5,6 +5,7 @@ import { useAppStore } from '../../../store/appStore';
 import { useCryptoStore } from '../../../store/cryptoStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
 import { useAppLockStore } from '../../../store/appLockStore';
+import { useRecoveryReminderStore } from '../../../store/recoveryReminderStore';
 import { SafeStorageTab } from '../../secure-center/tabs/SafeStorageTab';
 import { KnownHostsTab } from '../../secure-center/tabs/KnownHostsTab';
 import { OceanSentinelRuntime } from './OceanSentinelRuntime';
@@ -35,6 +36,7 @@ export const SecurityTab: React.FC = () => {
   const [knownHosts, setKnownHosts] = useState<KnownHost[]>([]);
   const [hostsLoaded, setHostsLoaded] = useState(false);
   const [protectionStatus, setProtectionStatus] = useState<SecurityStatus | null>(null);
+  const recoveryShownNotSaved = useRecoveryReminderStore(state => state.unconfirmed && !state.visible);
   const [protectionEpoch, setProtectionEpoch] = useState(0);
   const [recoveryRequest, setRecoveryRequest] = useState(0);
   const protectionGeneration = useRef(0);
@@ -140,6 +142,7 @@ export const SecurityTab: React.FC = () => {
   const workspaceScope = protectionStatus?.scopes.find(scope => scope.workspaceId === activeWorkspaceId);
   const workspaceNeedsPassword = workspaceScope?.protected === false;
   const recoveryNeeded = !!protectionStatus?.appProtected && !protectionStatus.recoveryConfigured;
+  const recoveryUnconfirmed = recoveryShownNotSaved && !!protectionStatus?.appProtected && protectionStatus.recoveryConfigured;
   const supervisorHealthy = sentinelStatus?.daemonState === 'running' && sentinelStatus.status === 'secure' && !sentinelStatus.sentinelDisabled && !sentinelStatusError;
   const supervisorWarning = !!sentinelStatusError || (!!sentinelStatus && sentinelStatus.daemonState !== 'starting' && !supervisorHealthy);
   const unconfirmed = zh ? '尚未确认' : 'Not confirmed';
@@ -216,11 +219,15 @@ export const SecurityTab: React.FC = () => {
       {refreshFeedback}
     </section>
 
-    {(recoveryNeeded || workspaceNeedsPassword || (isConfigLoaded && appConfig.pluginSecurityMode === 'developer')) && <section aria-label={zh ? '待处理事项' : 'Needs attention'} className="border-l-2 border-warn bg-warn/5 px-4 py-3">
+    {(recoveryNeeded || recoveryUnconfirmed || workspaceNeedsPassword || (isConfigLoaded && appConfig.pluginSecurityMode === 'developer')) && <section aria-label={zh ? '待处理事项' : 'Needs attention'} className="border-l-2 border-warn bg-warn/5 px-4 py-3">
       <h2 className="text-xs font-semibold text-warn">{zh ? '待处理事项' : 'Needs attention'}</h2>
       {recoveryNeeded && <div role="status" className="security-attention-row flex items-center justify-between gap-4 py-2">
         <div className="min-w-0"><strong className="block text-sm font-medium text-ink">{zh ? '还没有恢复码' : 'No recovery code yet'}</strong><p className="mt-1 text-xs leading-relaxed text-ink-2">{zh ? '忘记主密码时，需要恢复码才能找回数据。请生成后保存在这台电脑以外的地方。' : 'A recovery code is needed if you forget the master password. Generate one and keep it somewhere other than this computer.'}</p></div>
         <button type="button" onClick={event => { setRecoveryRequest(value => value + 1); openDetail('app', event.currentTarget); }} className="shrink-0 text-xs font-medium text-warn underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/40">{zh ? '生成恢复码' : 'Generate recovery code'}</button>
+      </div>}
+      {recoveryUnconfirmed && <div role="status" className="security-attention-row flex items-center justify-between gap-4 py-2">
+        <div className="min-w-0"><strong className="block text-sm font-medium text-ink">{zh ? '恢复码还没确认保存' : 'Recovery code not confirmed'}</strong><p className="mt-1 text-xs leading-relaxed text-ink-2">{zh ? '恢复码只显示一次，上次生成的没有确认保存过。请重新生成一个，旧的会立即失效。' : 'A recovery code is shown only once, and the last one was not confirmed as saved. Generate a new one; the old one stops working right away.'}</p></div>
+        <button type="button" onClick={event => { setRecoveryRequest(value => value + 1); openDetail('app', event.currentTarget); }} className="shrink-0 text-xs font-medium text-warn underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/40">{zh ? '重新生成恢复码' : 'Generate a new code'}</button>
       </div>}
       {workspaceNeedsPassword && <div role="status" className="security-attention-row flex items-center justify-between gap-4 py-2">
         <div className="min-w-0"><strong className="block text-sm font-medium text-ink">{zh ? '这个工作区没有密码' : 'This workspace has no password'}</strong><p className="mt-1 text-xs leading-relaxed text-ink-2">{zh ? '数据在磁盘上是加密的，但任何使用这台电脑的人都能打开它。' : 'Its data is encrypted on disk, but anyone using this computer can open it.'}</p></div>

@@ -407,7 +407,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   <div className="flex items-center gap-3 rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-[11px] text-ink-2"><Check className="h-4 w-4 text-ok" />{t('connection.localAuthHint')}</div>
                 ) : <>
                   {!isTelnet && <div className="mb-3 flex w-full max-w-sm rounded-xl border border-line bg-surf p-1">
-                    <button type="button" onClick={() => handleUpdate({ authType: 'password' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${!localSession.authType || localSession.authType === 'password' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.password')}</button>
+                    <button type="button" onClick={() => handleUpdate({ authType: 'password', ...(localSession.keyId ? { keyId: null } : {}) })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${!localSession.authType || localSession.authType === 'password' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.password')}</button>
                     <button type="button" onClick={() => handleUpdate({ authType: 'key' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${localSession.authType === 'key' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
@@ -421,7 +421,8 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                       onSelectKey={keyId => {
                         const { passphrase: _passphrase, ...pending } = pendingClearsRef.current;
                         pendingClearsRef.current = pending; setPendingClears(pending);
-                        handleUpdate({ authType: 'key', keyId, privateKeyPath: null, passphrase: null, password: undefined, hasPassphrase: false });
+                        // A pending "clear saved password" stays '' (clear); undefined would keep the stored one.
+                        handleUpdate({ authType: 'key', keyId, privateKeyPath: null, passphrase: null, password: pendingClearsRef.current.password ? '' : undefined, hasPassphrase: false });
                       }}>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ keyId: null, privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => {

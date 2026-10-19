@@ -75,8 +75,9 @@ const input = (label: string, value: string) => act(async () => {
 const submit = () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 
 describe('current workspace private keys', () => {
-  it('shows actual metadata and counts saved servers, excluding drafts and quick connections', async () => {
-    useSessionStore.setState({ sessions: [saved('one'), saved('two'), { ...saved('draft'), isDraft: true }, { ...saved('quick'), isQuickConnect: true }] });
+  it('shows actual metadata and counts saved servers, excluding drafts, quick connections and password logins', async () => {
+    // A password server can keep a stale keyId (R33); it does not use the key.
+    useSessionStore.setState({ sessions: [saved('one'), saved('two'), { ...saved('draft'), isDraft: true }, { ...saved('quick'), isQuickConnect: true }, { ...saved('pw'), authType: 'password' }] });
     await render();
     expect(api.list).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current' });
     expect(container.textContent).toContain('Private keys · Current workspace');

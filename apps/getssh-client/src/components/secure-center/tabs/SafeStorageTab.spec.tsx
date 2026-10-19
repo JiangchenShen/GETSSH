@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SecurityStatus } from '../../../types/ipc';
 import { useAppLockStore } from '../../../store/appLockStore';
 import { useBackupRestartStore } from '../../../store/backupStore';
+import { useRecoveryReminderStore } from '../../../store/recoveryReminderStore';
 
 const mocks = vi.hoisted(() => ({ isMain: false, language: 'en-US', initWorkspaces: vi.fn(), addToast: vi.fn() }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: mocks.language } }) }));
@@ -34,6 +35,7 @@ beforeEach(() => {
   useAppLockStore.setState({ state: { phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false } });
   useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false, workspaces: [{ id: 'current', name: 'Current', themeColor: '#000', isMain: false }] });
   useBackupRestartStore.setState({ report: null });
+  useRecoveryReminderStore.setState({ unconfirmed: false, visible: false });
   window.electronAPI = { security: { status, setMasterPassword, setupRecovery }, workspace: { setPassword } } as unknown as Window['electronAPI'];
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
@@ -109,7 +111,20 @@ describe('recovery setup state', () => {
     });
     await act(async () => complete({ ok: true, code: 'LATE-RECOVERY-CODE' }));
     expect(container.textContent).not.toContain('LATE-RECOVERY-CODE'); expect(container.querySelector('input')).toBeNull();
+    // Created but never shown: Settings must still say so (R36).
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: false });
     await click('Create'); expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('');
+  });
+
+  it('counts a shown recovery code as confirmed only after "I have saved it" and Done', async () => {
+    status.mockResolvedValue(metadata(true));
+    await render('app', { recoveryRequest: 1 }); await input(0, 'typed master password'); await submit();
+    expect(container.textContent).toContain('NEW-RECOVERY-CODE');
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: true });
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    await click('Done');
+    expect(container.textContent).not.toContain('NEW-RECOVERY-CODE');
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: false, visible: false });
   });
 
   it('clears the displayed recovery code on app lock without pretending it was deleted', async () => {
@@ -117,8 +132,10 @@ describe('recovery setup state', () => {
     setupRecovery.mockImplementation(async () => { current = { ...current, recoveryConfigured: true }; return { ok: true, code: 'NEW-RECOVERY-CODE' }; });
     await render('app', { recoveryRequest: 1 }); await input(0, 'typed master password'); await submit();
     const state = useAppLockStore.getState().state!;
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: true });
     await act(async () => useAppLockStore.setState({ state: { ...state, phase: 'locked' } }));
     expect(container.textContent).not.toContain('NEW-RECOVERY-CODE');
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: false });
     await act(async () => useAppLockStore.setState({ state }));
     expect(container.textContent).not.toContain('NEW-RECOVERY-CODE'); expect(container.textContent).toContain('Created; it opens all data.');
   });

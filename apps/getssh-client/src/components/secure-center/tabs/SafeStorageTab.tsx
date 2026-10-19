@@ -5,6 +5,7 @@ import { useCryptoStore } from '../../../store/cryptoStore';
 import { useWorkspaceStore } from '../../../store/workspaceStore';
 import { useAppLockStore } from '../../../store/appLockStore';
 import { useBackupRestartStore } from '../../../store/backupStore';
+import { useRecoveryReminderStore } from '../../../store/recoveryReminderStore';
 import { storeFailureMessage } from '../../../utils/storeFeedback';
 import type { KeystoreResult, SecurityStatus } from '../../../types/ipc';
 import { SettingsRow, SettingsSection, settingButtonClass, settingDangerButtonClass, settingFieldClass } from '../../settings/SettingsControls';
@@ -92,6 +93,11 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       setForm({ kind: 'new-recovery', current: '', needsCurrent: true }); setError('');
     }
   }, [recoveryRequest]);
+  useEffect(() => {
+    if (!recoveryCode) return;
+    useRecoveryReminderStore.getState().setVisible(true);
+    return () => useRecoveryReminderStore.getState().setVisible(false);
+  }, [recoveryCode]);
 
   const workspaceScope = status?.scopes.find(scope => scope.workspaceId === activeWorkspaceId);
   const appScope = status?.scopes.find(scope => scope.id === 'app');
@@ -145,7 +151,13 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
 
   /** With a master password the store needs it typed (no Touch ID route): `password` is the one just set. */
   const createRecovery = async (password?: string, requestGeneration = generation.current, requestWorkspace = activeWorkspaceId) => {
-    const result = await run(current => window.electronAPI.security.setupRecovery({ currentPassword: password ?? current }), requestGeneration, requestWorkspace);
+    const result = await run(async current => {
+      const created = await window.electronAPI.security.setupRecovery({ currentPassword: password ?? current });
+      // Set before the staleness checks: a code created while the tab closed or the app locked
+      // was never shown either, and Settings must still say so.
+      if (created.ok) useRecoveryReminderStore.getState().setUnconfirmed(true);
+      return created;
+    }, requestGeneration, requestWorkspace);
     if (result && isCurrent(requestGeneration, requestWorkspace)) {
       setRecoveryCode(result.code);
       setRecoverySaved(false);
@@ -252,7 +264,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
         <div className="max-w-md space-y-3">
           <code className="block select-all rounded-md border border-line bg-surf-2 px-3 py-3 text-center font-mono text-base tracking-wider text-ink">{recoveryCode}</code>
           <label className="flex items-center gap-2 text-xs text-ink-2"><input type="checkbox" checked={recoverySaved} onChange={event => setRecoverySaved(event.target.checked)} />{zh ? '我已经妥善保存' : 'I have saved it'}</label>
-          <button type="button" disabled={!recoverySaved} onClick={() => setRecoveryCode(null)} className={settingButtonClass}>{zh ? '完成' : 'Done'}</button>
+          <button type="button" disabled={!recoverySaved} onClick={() => { useRecoveryReminderStore.getState().setUnconfirmed(false); setRecoveryCode(null); }} className={settingButtonClass}>{zh ? '完成' : 'Done'}</button>
         </div>
       </SettingsRow>
     </SettingsSection>}

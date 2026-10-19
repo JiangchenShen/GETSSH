@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SecurityStatus } from '../types/ipc';
 import { useAppLockStore } from '../store/appLockStore';
+import { useRecoveryReminderStore } from '../store/recoveryReminderStore';
 
 const mocks = vi.hoisted(() => ({
   isConfigLoaded: true,
@@ -64,6 +65,7 @@ beforeEach(() => {
   mocks.workspaceUnprotected = true;
   useAppLockStore.setState({ state: { phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false } });
   useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false });
+  useRecoveryReminderStore.setState({ unconfirmed: false, visible: false });
   status = vi.fn().mockResolvedValue(protectedStatus());
   getKnownHosts = vi.fn().mockResolvedValue([]);
   window.electronAPI = { security: { status }, getKnownHosts } as unknown as Window['electronAPI'];
@@ -97,6 +99,25 @@ describe('security dashboard metadata', () => {
     expect(container.querySelector('[data-section="app"]')?.getAttribute('data-recovery-request')).toBe('1');
     await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Confirm recovery setup')!.click());
     expect(container.textContent).not.toContain('No recovery code yet'); expect(container.textContent).toContain('Recovery code created.');
+  });
+
+  // R36: a code shown once and never confirmed (detail closed, Settings left, app locked) is lost.
+  it('reminds about a recovery code that was shown but never confirmed, except while it is on screen', async () => {
+    status.mockResolvedValue({ ...protectedStatus(), recoveryConfigured: true });
+    await act(async () => useRecoveryReminderStore.setState({ unconfirmed: true, visible: true })); await render();
+    expect(container.textContent).not.toContain('Recovery code not confirmed');
+    await act(async () => useRecoveryReminderStore.setState({ visible: false }));
+    expect(container.querySelector('section[aria-label="Needs attention"]')!.textContent).toContain('Recovery code not confirmed');
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Generate a new code')!.click());
+    expect(container.querySelector('[data-section="app"]')?.getAttribute('data-recovery-request')).toBe('1');
+    await act(async () => useRecoveryReminderStore.setState({ unconfirmed: false }));
+    expect(container.textContent).not.toContain('Recovery code not confirmed');
+  });
+
+  it('does not remind about an unconfirmed recovery code without a master password', async () => {
+    status.mockResolvedValue({ ...protectedStatus(), appProtected: false, recoveryConfigured: true });
+    useRecoveryReminderStore.setState({ unconfirmed: true }); await render();
+    expect(container.textContent).not.toContain('Recovery code not confirmed');
   });
 
   it.each(['no-master', 'configured'])('does not warn about missing recovery when %s', async state => {

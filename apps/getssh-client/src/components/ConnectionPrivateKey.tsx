@@ -107,13 +107,19 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, onSelect
     setPassphrase('');
     try {
       const result = await window.electronAPI.store.sshKeys.importProfileFile(body);
-      if (!current(request)) return;
+      // Main has saved the list (and may have moved the file to the Trash). Take it whenever it is
+      // still the active workspace's, even if this form closed meanwhile: the window would
+      // otherwise keep keyId null and the old path, and its next whole-list save would put them back.
+      // Checked first: adopting the list moves sessionsRevision, which current() compares.
+      const fresh = current(request);
+      const adopted = result.ok && adoptWorkspaceProfiles(result);
+      if (!fresh) return;
       if (!result.ok) {
         if (result.error === 'needs_password' || result.error === 'wrong_password') setNeedsPassphrase(true);
         setError(failure(result.error, result.retryAfterMs));
         return;
       }
-      if (!adoptWorkspaceProfiles(result)) return;
+      if (!adopted) return;
       clearDialog(); setNotice(importedNotice(result.trashed, result.kept));
     } catch { if (current(request)) setError(copy('私钥未能导入，请重试。原文件会保留。', 'The key could not be imported. Retry. The original file is kept.')); }
     finally {
