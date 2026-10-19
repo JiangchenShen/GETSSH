@@ -31,7 +31,8 @@ import { SshKeysSection } from './SshKeysSection';
 
 const ready = (): AppLockState => ({ phase: 'ready', appProtected: false, presenceSupported: false, presenceEnabled: false, recoveryConfigured: false, deviceKeyLost: false, masterPasswordMustChange: false });
 const key = (id = 'key-1'): SshKey => ({ id, name: `Key ${id}`, algorithm: 'ed25519', fingerprint: `SHA256:${id}`, publicKey: `ssh-ed25519 AAAA${id} test`, hasPassphrase: false, created_at: new Date('2026-10-18T10:00:00Z').getTime() });
-const saved = (id: string): SessionProfile => ({ id, host: `${id}.example`, username: 'ops', alias: `Server ${id}`, keyId: 'key-1', authType: 'key' });
+const saved = (id: string): SessionProfile => ({ id, host: `${id}.example`, username: 'ops', alias: `Server ${id}`, keyId: null, authType: 'password' });
+const referencing = (id: string): SessionProfile => ({ ...saved(id), keyId: 'key-1', authType: 'key' });
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(finish => { resolve = finish; });
@@ -47,7 +48,7 @@ beforeEach(() => {
   useAppLockStore.setState({ state: ready() });
   useBackupRestartStore.setState({ report: null });
   useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false });
-  useSessionStore.setState({ sessions: [saved('one'), saved('two')], profilesWorkspaceId: 'current', selectedSessionIndex: 0 });
+  useSessionStore.setState({ sessions: [referencing('one'), referencing('two')], profilesWorkspaceId: 'current', selectedSessionIndex: 0 });
   api = {
     list: vi.fn().mockResolvedValue({ ok: true, keys: [key()] }),
     chooseFile: vi.fn().mockResolvedValue({ ok: true, fileId: 'file-token', fileName: 'id_ed25519', encrypted: false }),
@@ -77,7 +78,7 @@ const submit = () => act(async () => container.querySelector('form')!.dispatchEv
 describe('current workspace private keys', () => {
   it('shows actual metadata and counts saved servers, excluding drafts, quick connections and password logins', async () => {
     // A password server can keep a stale keyId (R33); it does not use the key.
-    useSessionStore.setState({ sessions: [saved('one'), saved('two'), { ...saved('draft'), isDraft: true }, { ...saved('quick'), isQuickConnect: true }, { ...saved('pw'), authType: 'password' }] });
+    useSessionStore.setState({ sessions: [referencing('one'), referencing('two'), { ...referencing('draft'), isDraft: true }, { ...referencing('quick'), isQuickConnect: true }, { ...referencing('pw'), authType: 'password' }] });
     await render();
     expect(api.list).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current' });
     expect(container.textContent).toContain('Private keys · Current workspace');
@@ -86,6 +87,13 @@ describe('current workspace private keys', () => {
     expect(container.querySelector('[title="SHA256:key-1"]')?.textContent).toBe('SHA256:key-1');
     expect(container.textContent).toContain(new Date(key().created_at).toLocaleString('en-US'));
     expect(container.textContent).toContain('Used by 2 servers');
+  });
+
+  it.each([0, 1, 2])('R45 uses the correct English noun for %s saved key references', async count => {
+    useSessionStore.setState({ sessions: [saved('password'), ...Array.from({ length: count }, (_, index) => referencing(`key-${index}`))] });
+    await render();
+    expect(container.textContent).toContain(`Used by ${count} ${count === 1 ? 'server' : 'servers'}`);
+    if (count === 1) expect(container.textContent).not.toContain('Used by 1 servers');
   });
 
   it('requests a missing passphrase, retains the file after a wrong attempt, then imports successfully', async () => {
@@ -126,6 +134,37 @@ describe('current workspace private keys', () => {
     expect(api.import).toHaveBeenLastCalledWith({ workspaceId: 'current', fileId: 'new-token', name: 'new.pem', passphrase: undefined });
   });
 
+  it.each(['unsupported_key', 'io', 'unauthorized', 'rate_limited'])('R42 forgets a consumed file token after import returns %s', async error => {
+    api.import.mockResolvedValueOnce({ ok: false, error }).mockResolvedValue({ ok: true, key: key('imported') });
+    await render(); await click('Import private key'); await submit();
+    if (error === 'unauthorized') {
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(button('Import private key').disabled).toBe(true);
+      return;
+    }
+    expect(button('Choose file again')).toBeDefined();
+    expect(button('Import').disabled).toBe(true);
+    expect(container.textContent).not.toContain('id_ed25519');
+    expect(container.textContent).not.toContain('The selected file has expired');
+    if (error === 'unsupported_key') expect(container.querySelector('[role="alert"]')?.textContent).toContain('DSA is not supported');
+    await submit();
+    expect(api.import).toHaveBeenCalledOnce();
+    api.chooseFile.mockResolvedValue({ ok: true, fileId: 'replacement-token', fileName: 'replacement.pem', encrypted: false });
+    await click('Choose file again'); await submit();
+    expect(api.import).toHaveBeenLastCalledWith({ workspaceId: 'current', fileId: 'replacement-token', name: 'replacement.pem', passphrase: undefined });
+    expect(api.chooseFile).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Private key imported.');
+  });
+
+  it('R42 requires another file choice after a rejected import request', async () => {
+    api.import.mockRejectedValueOnce(new Error('transport unavailable'));
+    await render(); await click('Import private key'); await submit();
+    expect(button('Choose file again')).toBeDefined();
+    expect(button('Import').disabled).toBe(true);
+    expect(container.textContent).not.toContain('id_ed25519');
+    expect(container.textContent).not.toContain('transport unavailable');
+  });
+
   it('handles file cancellation quietly and explains unsupported formats including DSA', async () => {
     api.chooseFile.mockResolvedValueOnce({ ok: false, error: 'cancelled' }).mockResolvedValue({ ok: false, error: 'unsupported_key' });
     await render(); await click('Import private key');
@@ -159,9 +198,9 @@ describe('current workspace private keys', () => {
   });
 
   it.each(['draft', 'quick', 'two'])('adopts deletion profiles once, preserving %s and other temporary profiles', async selected => {
-    const draft = { ...saved('draft'), isDraft: true };
-    const quick = { ...saved('quick'), isQuickConnect: true };
-    const profiles = [saved('one'), saved('two'), draft, quick];
+    const draft = { ...referencing('draft'), isDraft: true };
+    const quick = { ...referencing('quick'), isQuickConnect: true };
+    const profiles = [referencing('one'), referencing('two'), draft, quick];
     useSessionStore.setState({ sessions: profiles, selectedSessionIndex: profiles.findIndex(profile => profile.id === selected) });
     const returned = [saved('two'), saved('one'), saved('new')].map(profile => ({ ...profile, keyId: null }));
     api.list.mockResolvedValueOnce({ ok: true, keys: [key()] }).mockResolvedValue({ ok: true, keys: [] });
@@ -270,5 +309,44 @@ describe('current workspace private keys', () => {
     await act(async () => field('名称').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(button('生成私钥')).toBe(document.activeElement);
+  });
+
+  it.each(['generate', 'wrong_password', 'unsupported_key'] as const)('R41 keeps keyboard focus inside the dialog while busy and after %s fails', async operation => {
+    const request = deferred<StoreResult<{ key: SshKey }>>();
+    if (operation === 'generate') api.generate.mockReturnValueOnce(request.promise);
+    else {
+      api.chooseFile.mockResolvedValue({ ok: true, fileId: 'protected-token', fileName: 'protected.ppk', encrypted: true });
+      api.import.mockReturnValueOnce(request.promise);
+    }
+    await render();
+    const opener = button(operation === 'generate' ? 'Generate private key' : 'Import private key');
+    opener.focus();
+    await click(operation === 'generate' ? 'Generate private key' : 'Import private key');
+    if (operation === 'generate') await input('Name', 'Operations');
+    else await input('Private key passphrase', 'bad phrase');
+    await submit();
+    const dialog = container.querySelector<HTMLDivElement>('[role="dialog"]')!;
+    expect(dialog.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(dialog);
+    const busyTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    await act(async () => document.dispatchEvent(busyTab));
+    expect(busyTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(container.querySelector('[role="dialog"]')).toBe(dialog);
+    await act(async () => request.resolve({ ok: false, error: operation === 'generate' ? 'io' : operation }));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => button('Refresh keys').focus());
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const first = dialog.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)')!;
+    const controls = [...dialog.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')];
+    await act(async () => controls.at(-1)!.focus());
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(first);
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(controls.at(-1));
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 });

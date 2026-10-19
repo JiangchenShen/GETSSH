@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppLockStore } from '../../../store/appLockStore';
 import { useBackupRestartStore } from '../../../store/backupStore';
@@ -95,13 +95,26 @@ export function SshKeysSection() {
 
   useEffect(() => {
     if (!panel) {
+      if (busy) return;
       if (returnFocus.current?.isConnected) returnFocus.current.focus();
       returnFocus.current = null;
       return;
     }
-    const input = panel.kind === 'import' && panel.needsPassphrase ? dialog.current?.querySelector<HTMLInputElement>('input[type="password"]') : null;
-    (input || dialog.current?.querySelector<HTMLElement>('input, textarea, button'))?.focus();
-  }, [panel?.kind, panel?.kind === 'import' && panel.needsPassphrase]);
+    const controls = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)') ?? []);
+    const focusFirst = () => (dialog.current?.querySelector<HTMLElement>('input[type="password"]:not(:disabled)') ?? controls()[0] ?? dialog.current)?.focus();
+    focusFirst();
+    const keys = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+      if (event.key !== 'Tab') return;
+      const items = controls(); const first = items[0]; const last = items.at(-1);
+      if (!first) { event.preventDefault(); dialog.current?.focus(); }
+      else if (event.shiftKey && (document.activeElement === first || !dialog.current?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.current?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    };
+    const focus = (event: FocusEvent) => { if (!dialog.current?.contains(event.target as Node)) focusFirst(); };
+    document.addEventListener('keydown', keys, true); document.addEventListener('focusin', focus, true);
+    return () => { document.removeEventListener('keydown', keys, true); document.removeEventListener('focusin', focus, true); };
+  }, [panel?.kind, panel?.kind === 'import' && panel.needsPassphrase, busy]);
 
   const open = (next: NonNullable<Panel>) => {
     if (!current(next.scope) || busy || loading) return;
@@ -167,8 +180,9 @@ export function SshKeysSection() {
         if (!result.ok) {
           if (panel.kind === 'import' && (result.error === 'needs_password' || result.error === 'wrong_password')) {
             setPanel({ ...panel, needsPassphrase: true, passphrase: '' });
-          } else if (panel.kind === 'import' && result.error === 'not_found') {
-            setPanel({ ...panel, file: null, passphrase: '' }); setError('file_expired'); return;
+          } else if (panel.kind === 'import') {
+            setPanel({ ...panel, file: null, needsPassphrase: false, passphrase: '' });
+            if (result.error === 'not_found') { setError('file_expired'); return; }
           }
           failure(result); return;
         }
@@ -176,7 +190,12 @@ export function SshKeysSection() {
         else { setPanel(null); setNotice('imported'); }
       }
       await load();
-    } catch { if (current(scope)) setError('request_failed'); }
+    } catch {
+      if (current(scope)) {
+        if (panel.kind === 'import') setPanel({ ...panel, file: null, needsPassphrase: false, passphrase: '' });
+        setError('request_failed');
+      }
+    }
     finally { finish(scope); }
   };
 
@@ -185,13 +204,6 @@ export function SshKeysSection() {
     if (!scope || !current(scope)) return;
     try { await navigator.clipboard.writeText(key.publicKey); if (current(scope)) { setError(''); setNotice('copied'); } }
     catch { if (current(scope)) setError('copy_failed'); }
-  };
-  const dialogKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') { event.preventDefault(); close(); }
-    if (event.key !== 'Tab') return;
-    const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), textarea:not(:disabled), button:not(:disabled)') || []);
-    const target = event.shiftKey ? controls.at(-1) : controls[0];
-    if (target && document.activeElement === (event.shiftKey ? controls[0] : controls.at(-1))) { event.preventDefault(); target.focus(); }
   };
   const feedback = <>{error && <p role="alert" className="text-xs leading-relaxed text-down">{describe()}</p>}{notice && <p role="status" className="text-xs text-ink-2">{notice === 'copied' ? text('公钥已复制。', 'Public key copied.') : notice === 'imported' ? text('私钥已导入。', 'Private key imported.') : text('私钥已删除。', 'Private key deleted.')}</p>}</>;
   const disabled = !available || busy || loading || error === 'locked' || error === 'unauthorized';
@@ -212,7 +224,7 @@ export function SshKeysSection() {
         <div className="min-w-0 flex-1 basis-52">
           <div className="break-words text-sm font-medium text-ink">{key.name} <span className="font-mono text-xs font-normal text-ink-3">{key.algorithm}</span></div>
           <p className="mt-1 truncate font-mono text-xs text-ink-2" title={key.fingerprint}>{key.fingerprint}</p>
-          <p className="mt-1 text-xs text-ink-3">{text('创建于', 'Created')} {key.created_at > 0 && Number.isFinite(new Date(key.created_at).getTime()) ? new Date(key.created_at).toLocaleString(i18n.language) : '—'} · {profilesKnown ? text(`${references(key.id).length} 台服务器在用`, `Used by ${references(key.id).length} servers`) : text('使用情况尚未加载', 'References not loaded')}</p>
+          <p className="mt-1 text-xs text-ink-3">{text('创建于', 'Created')} {key.created_at > 0 && Number.isFinite(new Date(key.created_at).getTime()) ? new Date(key.created_at).toLocaleString(i18n.language) : '—'} · {profilesKnown ? text(`${references(key.id).length} 台服务器在用`, `Used by ${references(key.id).length} ${references(key.id).length === 1 ? 'server' : 'servers'}`) : text('使用情况尚未加载', 'References not loaded')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={disabled} onClick={() => void copyKey(key)} className={settingButtonClass} aria-label={text(`复制 ${key.name} 的公钥`, `Copy public key for ${key.name}`)}>{text('复制公钥', 'Copy public key')}</button>
@@ -222,7 +234,7 @@ export function SshKeysSection() {
     </ul>
 
     {panel && available && <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4">
-      <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={dialogKeys} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-xl">
+      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-xl">
         <h3 id={titleId} className="text-base font-semibold text-ink">{panelTitle}</h3>
         <form onSubmit={submit} className="mt-4 space-y-4" aria-busy={busy}>
           {(panel.kind === 'import' || panel.kind === 'generate') && <label className="block space-y-1.5 text-sm text-ink-2"><span>{text('名称', 'Name')}</span><input value={panel.name} onChange={event => setPanel({ ...panel, name: event.target.value })} maxLength={128} required={panel.kind === 'generate'} disabled={busy} className={settingFieldClass} /></label>}
