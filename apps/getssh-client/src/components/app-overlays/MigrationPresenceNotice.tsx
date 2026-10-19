@@ -79,11 +79,12 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
     if (finished.length) setCompleted(previous => [...new Set([...previous, ...finished])]);
     return finished;
   };
-  // Workspaces turned on elsewhere (Settings) or no longer needing it drop out when the notice shows.
+  // Workspaces turned on elsewhere (Settings) or no longer needing it drop out while the notice
+  // shows. `app` is a new object on every broadcast from main, which follows any presence change.
   useEffect(() => {
     if (!shown) return;
     void refresh(capture(), remaining).catch(() => {});
-  }, [shown, activeWorkspaceId, isVaultLocked, listed.join('\0')]);
+  }, [shown, app, activeWorkspaceId, isVaultLocked, listed.join('\0')]);
 
   const enable = async () => {
     const request = capture();

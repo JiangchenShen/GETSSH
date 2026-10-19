@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppLockStore } from '../../store/appLockStore';
+import { useRecoveryReminderStore } from '../../store/recoveryReminderStore';
 import { storeFailureMessage } from '../../utils/storeFeedback';
 import { settingButtonClass, settingFieldClass } from '../settings/SettingsControls';
 
@@ -34,6 +35,11 @@ export function ForceMasterPasswordChange({ onActiveChange }: { onActiveChange?:
     });
     return () => { alive.current = false; generation.current += 1; unsubscribe(); };
   }, []);
+  useEffect(() => {
+    if (stage !== 'code' || !code) return;
+    useRecoveryReminderStore.getState().setVisible(true);
+    return () => useRecoveryReminderStore.getState().setVisible(false);
+  }, [stage, code]);
   useEffect(() => {
     onActiveChange?.(stage !== null);
     return () => { onActiveChange?.(false); };
@@ -120,6 +126,9 @@ export function ForceMasterPasswordChange({ onActiveChange }: { onActiveChange?:
     setBusy(true); setError('');
     try {
       const result = await window.electronAPI.security.setupRecovery({ currentPassword: current });
+      // As in SafeStorageTab: a code main created counts as unconfirmed until Done, even one that
+      // arrives too late to be shown.
+      if (result.ok) useRecoveryReminderStore.getState().setUnconfirmed(true);
       if (!isCurrent(requestGeneration)) return;
       if (!result.ok) { setError(storeFailureMessage(result.error, zh, result.retryAfterMs)); return; }
       setCurrent(''); setCode(result.code); setSaved(false); setStage('code');
@@ -168,7 +177,7 @@ export function ForceMasterPasswordChange({ onActiveChange }: { onActiveChange?:
         <p className="text-xs leading-relaxed text-ink-3">{zh ? '只显示这一次。请保存到密码管理器，或抄写后放在这台电脑以外的地方。' : 'Shown only once. Save it in a password manager or write it down and keep it somewhere other than this computer.'}</p>
         <code className="block select-all break-all rounded-md border border-line bg-surf-2 px-3 py-3 text-center font-mono text-base tracking-wider">{code}</code>
         <label className="flex items-center gap-2 text-xs text-ink-2"><input type="checkbox" checked={saved} onChange={event => setSaved(event.target.checked)} />{zh ? '我已经妥善保存恢复码' : 'I have saved the recovery code'}</label>
-        <div className="flex justify-end"><button type="button" disabled={!saved || busy} onClick={finish} className={settingButtonClass}>{zh ? '完成' : 'Done'}</button></div>
+        <div className="flex justify-end"><button type="button" disabled={!saved || busy} onClick={() => { useRecoveryReminderStore.getState().setUnconfirmed(false); finish(); }} className={settingButtonClass}>{zh ? '完成' : 'Done'}</button></div>
         {error && <p role="alert" className="text-xs text-down">{error}</p>}
       </div>}
     </div>

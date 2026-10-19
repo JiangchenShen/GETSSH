@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppLockState } from '../../types/ipc';
 import { useAppLockStore } from '../../store/appLockStore';
+import { useRecoveryReminderStore } from '../../store/recoveryReminderStore';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en-US' } }) }));
 import { ForceMasterPasswordChange } from './ForceMasterPasswordChange';
@@ -26,6 +27,7 @@ beforeEach(() => {
   getState = vi.fn().mockResolvedValue(ready(false));
   window.electronAPI = { security: { setMasterPassword, setupRecovery }, appLock: { getState } } as unknown as Window['electronAPI'];
   useAppLockStore.setState({ state: ready() });
+  useRecoveryReminderStore.setState({ unconfirmed: false, visible: false });
   container = document.createElement('div'); document.body.append(container);
   root = createRoot(container);
 });
@@ -85,9 +87,22 @@ describe('mandatory master password update', () => {
     await input(0, 'new secure master'); await submit();
     expect(setupRecovery).toHaveBeenCalledWith({ currentPassword: 'new secure master' });
     expect(container.textContent).toContain('NEW-RECOVERY-CODE');
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: true });
     const done = container.querySelector('button')!; expect(done.disabled).toBe(true);
     await act(async () => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await act(async () => done.click()); expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: false, visible: false });
+  });
+
+  // R36 here too: an app lock wipes the code, and the dialog does not come back after unlock.
+  it('leaves a reminder for Settings when the code is wiped before Done', async () => {
+    setMasterPassword.mockResolvedValue({ ok: true, recoveryReset: true });
+    await render(); await fill(); await submit();
+    await input(0, 'new secure master'); await submit();
+    expect(container.textContent).toContain('NEW-RECOVERY-CODE');
+    await act(async () => useAppLockStore.setState({ state: { ...ready(false), phase: 'locked' } }));
+    expect(container.textContent).not.toContain('NEW-RECOVERY-CODE');
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: false });
   });
 
   it('allows an explicit recovery-code deferral only after the password was changed', async () => {

@@ -545,6 +545,31 @@ describe('ssh keys', () => {
     }
   });
 
+  it('asks again after the Trash answer, and returns the list as it stands then', async () => {
+    const userData = fs.mkdtempSync(path.join(home, 'user-data-'));
+    mocks.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userData : os.tmpdir()));
+    try {
+      const file = path.join(home, 'id_raced');
+      fs.writeFileSync(file, rsaPem('r'));
+      const before = profile({ id: 'raced', authType: 'key', privateKeyPath: file });
+      await boot({ workspaces: [{ id: 'main', name: 'Main', is_main: true }], profiles: { main: [before] } });
+      // The window saves its whole list, still from before the import, while the question is open.
+      let answer!: (value: { response: number; checkboxChecked: boolean }) => void;
+      mocks.dialog.showMessageBox.mockImplementationOnce(() => new Promise(resolve => { answer = resolve; }));
+      const pending = call('store:ssh-keys:import-profile-file', { workspaceId: 'main', profileId: 'raced', passphrase: 'r', trashOriginal: true });
+      await vi.waitFor(() => expect(mocks.dialog.showMessageBox).toHaveBeenCalled());
+      await call('store:profiles:save', { workspaceId: 'main', profiles: [{ ...before, keyId: null }] });
+      answer({ response: 0, checkboxChecked: false });
+      const result = await pending;
+      expect(result).toMatchObject({ ok: true, trashed: false, kept: 'used_elsewhere' });
+      expect(mocks.shell.trashItem).not.toHaveBeenCalled();
+      expect(fs.existsSync(file)).toBe(true);
+      expect(result.profiles.find((entry: { id: string }) => entry.id === 'raced')).toMatchObject({ keyId: null, privateKeyPath: file });
+    } finally {
+      mocks.app.getPath.mockImplementation(() => os.tmpdir());
+    }
+  });
+
   it('keeps keyId on a save that leaves the field out, and drops one whose key is gone', async () => {
     await boot();
     const { key } = await call('store:ssh-keys:generate', { workspaceId: 'main', name: 'laptop' });

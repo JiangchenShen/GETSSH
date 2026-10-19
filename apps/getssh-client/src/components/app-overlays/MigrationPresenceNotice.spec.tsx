@@ -93,6 +93,13 @@ describe('migration system-verification reminder', () => {
     expect(container.textContent).toContain('Production'); expect(container.textContent).not.toContain('Lab');
   });
 
+  it('drops a workspace turned on in Settings while the notice is on screen', async () => {
+    await render(); expect(container.textContent).toContain('Production');
+    presence.one = true;
+    await act(async () => useAppLockStore.setState({ state: { ...ready(), presenceEnabled: true } }));
+    expect(container.textContent).not.toContain('Production'); expect(setPresence).not.toHaveBeenCalled();
+  });
+
   it('says that the master password unlock changes too, only when there is one', async () => {
     await render(); expect(container.textContent).toContain('Unlocking with the master password will use Touch ID too');
     await act(async () => useAppLockStore.setState({ state: { ...ready(), appProtected: false } }));

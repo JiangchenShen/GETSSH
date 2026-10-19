@@ -284,33 +284,44 @@ const TRASH_TEXT = {
  * user itself, naming the file, so a renderer alone cannot move files away.
  */
 async function trashKeyFile(file: string, identity: { dev: bigint; ino: bigint } | null, language: 'en-US' | 'zh-CN'): Promise<{ trashed: boolean; kept?: KeptReason }> {
-  const userData = app.getPath('userData');
-  if (['profiles.json', 'profiles.enc'].some(name => fs.existsSync(path.join(userData, name)))) return { trashed: false, kept: 'used_elsewhere' };
-  // The store's own list, not DatabaseManager's: that one is empty while the app is locked, and an
-  // empty list would look like a file nobody uses.
-  let workspaces: Array<{ id: string; state: string }>;
-  try {
-    workspaces = getStore().listWorkspaces();
-  } catch {
-    return { trashed: false, kept: 'workspaces_locked' };
-  }
-  if (workspaces.some(workspace => workspace.state !== 'open')) return { trashed: false, kept: 'workspaces_locked' };
-  for (const workspace of workspaces) {
-    for (const entry of getStore().listProfiles(workspace.id)) {
-      // A server on a stored key does not read its old privateKeyPath any more.
-      if (entry.privateKeyPath && !entry.keyId && (await isSameFile(keyPath(entry.privateKeyPath), file, identity))) return { trashed: false, kept: 'used_elsewhere' };
-    }
-  }
+  const before = await keyFileInUse(file, identity);
+  if (before) return { trashed: false, kept: before };
   const words = TRASH_TEXT[language];
   const bin = process.platform === 'win32' ? (language === 'zh-CN' ? '回收站' : 'Recycle Bin') : (language === 'zh-CN' ? '废纸篓' : 'Trash');
   const answer = await messageBox({ type: 'question', message: words.message(bin), detail: `${file}\n\n${words.detail}`, buttons: [words.move(bin), words.keep], defaultId: 1, cancelId: 1, noLink: true });
   if (answer.response !== 0) return { trashed: false, kept: 'declined' };
+  // Asked again after the answer: the window keeps running while the question is open, and a
+  // whole-list save from it (made before it took the import) can put a server back on this file.
+  const after = await keyFileInUse(file, identity);
+  if (after) return { trashed: false, kept: after };
   try {
     await shell.trashItem(file);
     return { trashed: true };
   } catch {
     return { trashed: false, kept: 'trash_failed' };
   }
+}
+
+/** Why the file must stay, or null when nothing GETSSH knows of can still need it. */
+async function keyFileInUse(file: string, identity: { dev: bigint; ino: bigint } | null): Promise<KeptReason | null> {
+  const userData = app.getPath('userData');
+  if (['profiles.json', 'profiles.enc'].some(name => fs.existsSync(path.join(userData, name)))) return 'used_elsewhere';
+  // The store's own list, not DatabaseManager's: that one is empty while the app is locked, and an
+  // empty list would look like a file nobody uses.
+  let workspaces: Array<{ id: string; state: string }>;
+  try {
+    workspaces = getStore().listWorkspaces();
+    if (workspaces.some(workspace => workspace.state !== 'open')) return 'workspaces_locked';
+    for (const workspace of workspaces) {
+      for (const entry of getStore().listProfiles(workspace.id)) {
+        // A server on a stored key does not read its old privateKeyPath any more.
+        if (entry.privateKeyPath && !entry.keyId && (await isSameFile(keyPath(entry.privateKeyPath), file, identity))) return 'used_elsewhere';
+      }
+    }
+  } catch {
+    return 'workspaces_locked';
+  }
+  return null;
 }
 
 async function readKeyFile(file: string): Promise<{ data: Buffer } | Failure> {
@@ -558,8 +569,8 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
    * The key file a saved server points at (privateKeyPath) goes into the store, and every server
    * of the workspace that uses the same file (compared as files, not spellings) switches to it,
    * dropping the passphrase it kept for the file. With trashOriginal the file may go to the Trash
-   * (trashKeyFile). Returns the list saved for this workspace, read right after the save, for the
-   * window to take like store:ssh-keys:delete's.
+   * (trashKeyFile). Returns the list saved for this workspace, for the window to take like
+   * store:ssh-keys:delete's: read right after the save, or after the Trash question when one is asked.
    */
   handle('store:ssh-keys:import-profile-file', async ({ workspaceId: ws, profileId, passphrase, trashOriginal, language }) => {
     const id = workspaceId(ws);
@@ -592,9 +603,18 @@ export function registerStoreHandlers(ipcMain: IpcMain) {
         ? { ...entry, authType: 'key', keyId: key.id, privateKeyPath: null, passphrase: null }
         : { ...entry }));
       DatabaseManager.saveProfiles(id, list);
-      const profiles = DatabaseManager.getProfiles(id);
+      let profiles = DatabaseManager.getProfiles(id);
       if (!profiles.some(entry => entry.keyId === key.id)) return { ok: false, error: 'locked' };
-      const outcome = trashOriginal ? await trashKeyFile(file, identity, words) : { trashed: false };
+      if (!trashOriginal) return { ok: true, workspaceId: id, key, profiles, trashed: false };
+      const outcome = await trashKeyFile(file, identity, words);
+      // The list as it stands after the question, which may have taken a save from the window
+      // meanwhile; an older one would show servers on the key that the store has put back on the file.
+      try {
+        getStore().listProfiles(id);
+        profiles = DatabaseManager.getProfiles(id);
+      } catch {
+        // Locked meanwhile: the window reloads its list when it unlocks.
+      }
       return { ok: true, workspaceId: id, key, profiles, ...outcome };
     } catch (error) {
       return keyFileFailure(error);
