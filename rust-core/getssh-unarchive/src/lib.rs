@@ -61,7 +61,10 @@ fn extract_entries(
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("Failed to read zip entry: {}", e))?;
-        let raw_name = entry.name().to_string();
+        let raw_name = entry
+            .name()
+            .map_err(|e| format!("[Security] Archive entry {} has a name that cannot be read: {}", i, e))?
+            .into_owned();
 
         let relative = entry.enclosed_name().ok_or_else(|| {
             format!("[Security] Zip Slip Vulnerability Detected: entry '{}' is attempting path traversal. Extraction aborted.", raw_name)
