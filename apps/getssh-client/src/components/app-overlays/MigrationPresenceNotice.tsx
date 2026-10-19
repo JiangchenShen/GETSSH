@@ -29,6 +29,7 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(state => state.isMac);
+  const privacyBlurred = useAppStore(state => state.isAppBlurred && state.appConfig.privacyMode);
   const app = useAppLockStore(state => state.state);
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
@@ -43,11 +44,11 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
   const generation = useRef(0);
   const running = useRef(false);
   const hidden = useRef(suppressed);
-  hidden.current = suppressed;
+  hidden.current = suppressed || privacyBlurred;
   const listed = [...new Set(app?.migration?.presenceToReenable ?? [])];
   const remaining = listed.filter(id => !completed.includes(id));
   const presenceName = isMac ? 'Touch ID' : 'Windows Hello';
-  const shown = !dismissed && remaining.length > 0 && !suppressed && app?.phase === 'ready' && !app.masterPasswordMustChange && !isSwitching && !isVaultLocked && !restartRequired;
+  const shown = !dismissed && remaining.length > 0 && !suppressed && !privacyBlurred && app?.phase === 'ready' && !app.masterPasswordMustChange && !isSwitching && !isVaultLocked && !restartRequired;
   const canEnable = shown && !!app?.presenceSupported && remaining.includes(activeWorkspaceId);
   const invalidate = () => { generation.current += 1; running.current = false; setBusy(false); setError(''); };
   useEffect(() => {
@@ -63,8 +64,8 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
     return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); stopBackup(); };
   }, []);
   useEffect(() => {
-    if (suppressed) invalidate();
-  }, [suppressed]);
+    if (suppressed || privacyBlurred) invalidate();
+  }, [suppressed, privacyBlurred]);
 
   const capture = () => ({ generation: generation.current, workspaceId: useWorkspaceStore.getState().activeWorkspaceId, migration: migrationKey() });
   const current = (request: ReturnType<typeof capture>) => alive.current && generation.current === request.generation && !hidden.current
@@ -107,9 +108,9 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
   };
 
   if (!shown) return null;
-  return <aside aria-label={zh ? '迁移后的系统验证' : 'System verification after migration'} className="fixed bottom-12 right-4 z-[80] max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-line bg-panel p-4 text-ink shadow-xl">
+  return <aside aria-label={zh ? '迁移后的系统验证' : 'System verification after migration'} className="fixed bottom-12 right-4 z-40 max-h-[60vh] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-line bg-panel p-4 text-ink shadow-xl">
     <h2 className="text-sm font-semibold">{zh ? `迁移后重新开启 ${presenceName}` : `Re-enable ${presenceName} after migration`}</h2>
-    <p className="mt-2 text-xs leading-relaxed text-ink-2">{zh
+    <p role="status" className="mt-2 text-xs leading-relaxed text-ink-2">{zh
       ? `这些工作区各有自己的密码，迁移后要重新开启 ${presenceName}。一次只能开当前这一个：切换过去、解锁，再点开启。${app.appProtected ? `主密码解锁也会一起改用 ${presenceName}。` : ''}`
       : `These workspaces have their own passwords and need ${presenceName} turned on again after the migration. Only the current one can be turned on at a time: switch to it, unlock it, then choose Enable.${app.appProtected ? ` Unlocking with the master password will use ${presenceName} too.` : ''}`}</p>
     <ul className="my-3 space-y-2 text-xs text-ink-2">{remaining.map(id => <li key={id}>

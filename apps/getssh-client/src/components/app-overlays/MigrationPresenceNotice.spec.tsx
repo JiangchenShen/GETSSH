@@ -7,13 +7,17 @@ import { useAppLockStore } from '../../store/appLockStore';
 import { useBackupRestartStore } from '../../store/backupStore';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en-US' } }) }));
-vi.mock('../../store/appStore', () => ({ useAppStore: (select: (state: any) => any) => select({ isMac: true }) }));
+vi.mock('../../store/appStore', async () => {
+  const { create } = await import('zustand');
+  return { useAppStore: create(() => ({ isMac: true, isAppBlurred: false, appConfig: { privacyMode: false } })) };
+});
 vi.mock('../../store/workspaceStore', async () => {
   const { create } = await import('zustand');
   return { useWorkspaceStore: create(() => ({ activeWorkspaceId: 'one', isSwitching: false, isVaultLocked: false,
     workspaces: [{ id: 'main', name: 'Main', themeColor: '#000' }, { id: 'one', name: 'Production', themeColor: '#000' }, { id: 'two', name: 'Lab', themeColor: '#000' }] })) };
 });
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useAppStore } from '../../store/appStore';
 import { MigrationPresenceNotice } from './MigrationPresenceNotice';
 
 const ready = (): AppLockState => ({ phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false,
@@ -41,6 +45,7 @@ let statusCall: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   presence = {};
+  useAppStore.setState({ isAppBlurred: false, appConfig: { ...useAppStore.getState().appConfig, privacyMode: false } });
   useAppLockStore.setState({ state: ready() }); useBackupRestartStore.setState({ report: null });
   useWorkspaceStore.setState({ activeWorkspaceId: 'one', isSwitching: false, isVaultLocked: false });
   setPresence = vi.fn(async () => turnOn());
@@ -55,6 +60,30 @@ const click = (label: string) => act(async () => button(label).click());
 const switchTo = (workspaceId: string) => act(async () => useWorkspaceStore.setState({ activeWorkspaceId: workspaceId }));
 
 describe('migration system-verification reminder', () => {
+  it('keeps the notice below z-50 modal dialogs', async () => {
+    await render();
+    const layer = container.querySelector('aside')!.className.match(/\bz-(?:\[(\d+)\]|(\d+))(?:\s|$)/);
+    expect(layer).not.toBeNull();
+    expect(Number(layer![1] ?? layer![2])).toBeLessThan(50);
+  });
+
+  it('hides workspace names only while privacy mode blurs an unfocused app', async () => {
+    await render();
+    await act(async () => useAppStore.setState({ isAppBlurred: true }));
+    expect(container.textContent).toContain('Production');
+    await act(async () => useAppStore.setState({ appConfig: { ...useAppStore.getState().appConfig, privacyMode: true } }));
+    expect(container.querySelector('aside')).toBeNull();
+    expect(container.textContent).not.toContain('Production');
+    await act(async () => useAppStore.setState({ isAppBlurred: false }));
+    expect(container.textContent).toContain('Production');
+    expect(setPresence).not.toHaveBeenCalled();
+  });
+
+  it('announces the migration explanation as a status', async () => {
+    await render();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('These workspaces have their own passwords');
+  });
+
   it('shows workspace names after unlocking and never asks for verification on its own', async () => {
     useAppLockStore.setState({ state: { ...ready(), phase: 'locked' } }); await render(); expect(container.textContent).toBe('');
     await act(async () => useAppLockStore.setState({ state: ready() }));
