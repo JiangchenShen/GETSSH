@@ -25,6 +25,7 @@ type Form =
 export interface SafeStorageTabProps {
   section?: 'app' | 'vault' | 'both';
   recoveryRequest?: number;
+  onRecoveryRequestHandled?: () => void;
   onStatusChange?: (status: SecurityStatus | null) => void;
 }
 
@@ -34,7 +35,7 @@ const MIN_MASTER_PASSWORD = 12;
 const MIN_WORKSPACE_PASSWORD = 8;
 const minPasswordFor = (kind: string) => (kind.endsWith('-master') ? MIN_MASTER_PASSWORD : MIN_WORKSPACE_PASSWORD);
 
-export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both', recoveryRequest = 0, onStatusChange }) => {
+export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both', recoveryRequest = 0, onRecoveryRequestHandled, onStatusChange }) => {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(state => state.isMac);
@@ -54,6 +55,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
   const alive = useRef(false);
   const generation = useRef(0);
   const running = useRef(false);
+  const handledRecoveryRequest = useRef(0);
   const workspaceId = useRef(activeWorkspaceId);
   workspaceId.current = activeWorkspaceId;
   const statusChanged = useRef(onStatusChange);
@@ -81,7 +83,10 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
       if (isCurrent(generation.current, workspaceId.current)) void refresh();
     };
     invalidate();
-    const stopApp = useAppLockStore.subscribe((next, previous) => { if (next.state?.phase !== previous.state?.phase) invalidate(); });
+    const stopApp = useAppLockStore.subscribe((next, previous) => {
+      if (next.state?.phase !== previous.state?.phase) invalidate();
+      else if (next.state?.presenceEnabled !== previous.state?.presenceEnabled && isCurrent(generation.current, workspaceId.current)) void refresh();
+    });
     const stopWorkspace = useWorkspaceStore.subscribe((next, previous) => {
       if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();
     });
@@ -89,10 +94,13 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
     return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); stopBackup(); };
   }, [refresh, activeWorkspaceId]);
   useEffect(() => {
-    if (recoveryRequest && isCurrent(generation.current, activeWorkspaceId)) {
-      setForm({ kind: 'new-recovery', current: '', needsCurrent: true }); setError('');
+    if (!recoveryRequest) { handledRecoveryRequest.current = 0; return; }
+    if (status && handledRecoveryRequest.current !== recoveryRequest && isCurrent(generation.current, activeWorkspaceId)) {
+      handledRecoveryRequest.current = recoveryRequest;
+      setForm({ kind: 'new-recovery', current: '', needsCurrent: !!status.appProtected }); setError('');
+      onRecoveryRequestHandled?.();
     }
-  }, [recoveryRequest]);
+  }, [recoveryRequest, status, activeWorkspaceId, onRecoveryRequestHandled]);
   useEffect(() => {
     if (!recoveryCode) return;
     useRecoveryReminderStore.getState().setVisible(true);

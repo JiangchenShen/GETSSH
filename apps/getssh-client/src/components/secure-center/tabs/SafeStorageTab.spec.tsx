@@ -40,7 +40,7 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); useAppLockStore.setState({ state: null }); });
-const render = async (section: 'app' | 'vault' | 'both' = 'vault', props: { recoveryRequest?: number; onStatusChange?: (status: SecurityStatus | null) => void } = {}) => act(async () => {
+const render = async (section: 'app' | 'vault' | 'both' = 'vault', props: { recoveryRequest?: number; onRecoveryRequestHandled?: () => void; onStatusChange?: (status: SecurityStatus | null) => void } = {}) => act(async () => {
   useWorkspaceStore.setState({ workspaces: [{ id: 'current', name: 'Current', themeColor: '#000', isMain: mocks.isMain }] });
   root.render(<SafeStorageTab section={section} {...props} />);
 });
@@ -52,6 +52,21 @@ const input = async (index: number, value: string) => act(async () => {
 });
 
 describe('recovery setup state', () => {
+  it.each([false, true])('waits for protection metadata before consuming a recovery request (master=%s)', async appProtected => {
+    let complete!: (value: SecurityStatus) => void;
+    status.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    const handled = vi.fn();
+    await render('app', { recoveryRequest: 1, onRecoveryRequestHandled: handled });
+    expect(container.querySelector('form')).toBeNull(); expect(handled).not.toHaveBeenCalled();
+    await act(async () => complete(metadata(appProtected)));
+    expect(container.querySelector('form')).not.toBeNull();
+    expect(container.querySelector('input[type="password"]') !== null).toBe(appProtected);
+    expect(handled).toHaveBeenCalledTimes(1);
+    await click('Cancel');
+    await render('app', { recoveryRequest: 0, onRecoveryRequestHandled: handled });
+    expect(container.querySelector('form')).toBeNull(); expect(handled).toHaveBeenCalledTimes(1);
+  });
+
   it('reports an unconfigured recovery code when automatic creation after a first master password fails', async () => {
     const changed = vi.fn();
     status.mockResolvedValueOnce(metadata(false)).mockResolvedValue(metadata(true));
@@ -141,6 +156,24 @@ describe('recovery setup state', () => {
   });
 });
 const submit = async () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+
+describe('presence status updates', () => {
+  it('refreshes an open settings page when migration enables presence without discarding the password form', async () => {
+    const withPresence = (presence: boolean): SecurityStatus => ({ ...metadata(true), presenceSupported: true,
+      scopes: [{ id: 'app', workspaceId: null, protected: true, ownPassword: true, presence, unlocked: true, recovery: false, revealRemainingMs: null }] });
+    status.mockResolvedValueOnce(withPresence(false)).mockResolvedValue(withPresence(true));
+    await render('app');
+    expect(buttons()).toContain('Turn on');
+    await click('Change'); await input(0, 'unsaved master draft');
+    await act(async () => {
+      const state = useAppLockStore.getState().state!;
+      useAppLockStore.setState({ state: { ...state, presenceEnabled: true } });
+    });
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(buttons()).toContain('Turn off'); expect(buttons()).not.toContain('Turn on');
+    expect(container.querySelector<HTMLInputElement>('input')!.value).toBe('unsaved master draft');
+  });
+});
 
 describe('workspace password controls', () => {
   it.each([false, true])('hides set password under a master password (main=%s)', async isMain => {

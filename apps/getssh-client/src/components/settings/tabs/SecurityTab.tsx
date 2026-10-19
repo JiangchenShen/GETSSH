@@ -39,6 +39,7 @@ export const SecurityTab: React.FC = () => {
   const recoveryShownNotSaved = useRecoveryReminderStore(state => state.unconfirmed && !state.visible);
   const [protectionEpoch, setProtectionEpoch] = useState(0);
   const [recoveryRequest, setRecoveryRequest] = useState(0);
+  const consumeRecoveryRequest = useCallback(() => setRecoveryRequest(0), []);
   const protectionGeneration = useRef(0);
   const updateProtectionStatus = useCallback((status: SecurityStatus | null) => {
     protectionGeneration.current += 1;
@@ -142,7 +143,7 @@ export const SecurityTab: React.FC = () => {
   const workspaceScope = protectionStatus?.scopes.find(scope => scope.workspaceId === activeWorkspaceId);
   const workspaceNeedsPassword = workspaceScope?.protected === false;
   const recoveryNeeded = !!protectionStatus?.appProtected && !protectionStatus.recoveryConfigured;
-  const recoveryUnconfirmed = recoveryShownNotSaved && !!protectionStatus?.appProtected && protectionStatus.recoveryConfigured;
+  const recoveryUnconfirmed = recoveryShownNotSaved && !!protectionStatus?.recoveryConfigured;
   const supervisorHealthy = sentinelStatus?.daemonState === 'running' && sentinelStatus.status === 'secure' && !sentinelStatus.sentinelDisabled && !sentinelStatusError;
   const supervisorWarning = !!sentinelStatusError || (!!sentinelStatus && sentinelStatus.daemonState !== 'starting' && !supervisorHealthy);
   const unconfirmed = zh ? '尚未确认' : 'Not confirmed';
@@ -270,7 +271,7 @@ export const SecurityTab: React.FC = () => {
 
     {detail && <section ref={detailSection} tabIndex={-1} className="border-t border-line pt-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={detailName}>
       <div className="mb-5 flex items-center justify-between gap-3"><h2 className="text-base font-semibold">{detailName}</h2><button type="button" onClick={closeDetail} aria-label={zh ? '关闭详情' : 'Close details'} className="rounded-md p-1.5 text-ink-3 hover:bg-surf-2 hover:text-ink"><X className="h-4 w-4" /></button></div>
-      {(detail === 'app' || detail === 'vault') && <SafeStorageTab section={detail} recoveryRequest={detail === 'app' ? recoveryRequest : 0} onStatusChange={updateProtectionStatus} />}
+      {(detail === 'app' || detail === 'vault') && <SafeStorageTab section={detail} recoveryRequest={detail === 'app' ? recoveryRequest : 0} onRecoveryRequestHandled={consumeRecoveryRequest} onStatusChange={updateProtectionStatus} />}
       {detail === 'hosts' && <KnownHostsTab knownHosts={knownHosts} revokingHost={revokingHost} setRevokingHost={setRevokingHost} handleRevokeHost={async (host, port) => { try { await window.electronAPI.deleteKnownHost(host, port); setKnownHosts(previous => previous.filter(item => !(item.host === host && item.port === port))); setRevokingHost(null); } catch (error) { addToast(error instanceof Error ? error.message : (zh ? '撤销失败' : 'Could not revoke host'), 'error'); } }} />}
       {detail === 'privacy' && <SettingsSection title={zh ? '隐私' : 'Privacy'}><SettingsRow label={t('security.privacyMode')} description={t('security.privacyModeDesc')}><SettingsToggle checked={appConfig.privacyMode} onChange={checked => updateConfig('privacyMode', checked)} label={t('security.privacyMode')} /></SettingsRow><SettingsRow label={t('security.autoLockTitle')}><select value={appConfig.autoLockTimeout} onChange={event => updateConfig('autoLockTimeout', Number(event.target.value))} className={`${settingFieldClass} sm:w-44`}><option value={0}>{t('security.autoLockOff')}</option>{[5, 15, 30, 60].map(minutes => <option key={minutes} value={minutes}>{minutes === 60 ? `1 ${t('security.hour')}` : `${minutes} ${t('security.minutes')}`}</option>)}</select></SettingsRow></SettingsSection>}
       {detail === 'plugins' && <SettingsSection title={t('settings.pluginSecurityMode')} description={t('settings.pluginSecurityDesc')}>

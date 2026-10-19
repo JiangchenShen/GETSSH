@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   workspaceUnprotected: true,
   pollSentinelStatus: vi.fn(),
   addToast: vi.fn(),
+  realStorage: false,
 }));
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
@@ -37,7 +38,10 @@ vi.mock('../store/workspaceStore', async () => {
     workspaces: [{ id: 'current', name: 'Current', themeColor: '#000', isMain: false, hasPassword: false }] })) };
 });
 import { useWorkspaceStore } from '../store/workspaceStore';
-vi.mock('./secure-center/tabs/SafeStorageTab', () => ({ SafeStorageTab: ({ section, recoveryRequest, onStatusChange }: any) => <div data-section={section} data-recovery-request={recoveryRequest}>Password settings<button type="button" onClick={() => onStatusChange({ ...protectedStatus(), recoveryConfigured: true })}>Confirm recovery setup</button></div> }));
+vi.mock('./secure-center/tabs/SafeStorageTab', async importOriginal => {
+  const { SafeStorageTab: ActualSafeStorageTab } = await importOriginal<typeof import('./secure-center/tabs/SafeStorageTab')>();
+  return { SafeStorageTab: (props: any) => mocks.realStorage ? <ActualSafeStorageTab {...props} /> : <div data-section={props.section} data-recovery-request={props.recoveryRequest}>Password settings<button type="button" onClick={() => props.onStatusChange({ ...protectedStatus(), recoveryConfigured: true })}>Confirm recovery setup</button></div> };
+});
 vi.mock('./secure-center/tabs/KnownHostsTab', () => ({ KnownHostsTab: () => <div>Known hosts detail</div> }));
 
 import { SecurityTab } from './settings/tabs/SecurityTab';
@@ -63,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.isConfigLoaded = true;
   mocks.workspaceUnprotected = true;
+  mocks.realStorage = false;
   useAppLockStore.setState({ state: { phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false } });
   useWorkspaceStore.setState({ activeWorkspaceId: 'current', isSwitching: false, isVaultLocked: false });
   useRecoveryReminderStore.setState({ unconfirmed: false, visible: false });
@@ -114,10 +119,33 @@ describe('security dashboard metadata', () => {
     expect(container.textContent).not.toContain('Recovery code not confirmed');
   });
 
-  it('does not remind about an unconfirmed recovery code without a master password', async () => {
+  it('reminds about an unconfirmed recovery code without a master password', async () => {
     status.mockResolvedValue({ ...protectedStatus(), appProtected: false, recoveryConfigured: true });
     useRecoveryReminderStore.setState({ unconfirmed: true }); await render();
-    expect(container.textContent).not.toContain('Recovery code not confirmed');
+    expect(container.querySelector('section[aria-label="Needs attention"]')!.textContent).toContain('Recovery code not confirmed');
+    expect(Array.from(container.querySelectorAll('button')).some(button => button.textContent === 'Generate a new code')).toBe(true);
+  });
+
+  it.each(['Generate recovery code', 'Generate a new code'])('consumes %s once, so reopening details after removing the master password does not reopen its form', async entry => {
+    mocks.realStorage = true;
+    let current = { ...protectedStatus(), recoveryConfigured: entry === 'Generate a new code' };
+    status.mockImplementation(async () => current);
+    useRecoveryReminderStore.setState({ unconfirmed: entry === 'Generate a new code' });
+    await render();
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === entry)!.click());
+    expect(container.querySelector('form')).not.toBeNull();
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Cancel')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Close details"]')!.click());
+    current = { ...current, appProtected: false };
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Master password & recovery · Manage"]')!.click());
+    expect(container.querySelector('form')).toBeNull();
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    if (entry === 'Generate a new code') {
+      await act(async () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === entry)!.click());
+      expect(container.querySelector('form')).not.toBeNull();
+      expect(container.querySelector('input[type="password"]')).toBeNull();
+    }
   });
 
   it.each(['no-master', 'configured'])('does not warn about missing recovery when %s', async state => {
