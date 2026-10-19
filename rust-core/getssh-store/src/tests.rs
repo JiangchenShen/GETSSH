@@ -1273,6 +1273,14 @@ fn a_stored_key_brings_its_passphrase_over_a_stale_one_on_the_profile() {
         .save_profiles("default", &[ProfileInput { key_id: Some(plain.id.clone()), auth_type: Some("key".into()), passphrase: set("profile-pass"), ..profile("p", SecretUpdate::Keep) }])
         .unwrap();
     assert_eq!(store.connect_secrets("default", "p").unwrap().passphrase.unwrap().as_slice(), b"profile-pass");
+    // Switched back to password login: the keyId stays, but the password is what is tried.
+    store
+        .save_profiles("default", &[ProfileInput { key_id: Some(plain.id.clone()), auth_type: Some("password".into()), password: set("pw"), ..profile("p", SecretUpdate::Keep) }])
+        .unwrap();
+    assert_eq!(store.list_profiles("default").unwrap()[0].key_id.as_deref(), Some(plain.id.as_str()));
+    let password_login = store.connect_secrets("default", "p").unwrap();
+    assert!(password_login.private_key.is_none(), "a password login does not bring the stored key");
+    assert_eq!(password_login.password.unwrap().as_slice(), b"pw");
 }
 
 #[test]

@@ -1087,13 +1087,14 @@ function connectSecrets(workspaceId, profileId) {
   const secrets = {};
   if (profile.password !== null) secrets.password = Buffer.from(profile.password, 'utf8');
   let passphrase = profile.passphrase;
-  if (profile.keyId) {
+  // A stored key only for key login: a server switched back to password keeps its keyId.
+  if (profile.keyId && profile.authType !== 'password') {
     const key = ws.sshKeys.find(entry => entry.id === profile.keyId);
     if (!key) fail('not_found', `SSH key "${profile.keyId}" does not exist`);
     secrets.privateKey = Buffer.from(key.privateKey);
     // The key's own passphrase (checked at import) wins over a stale one on the profile.
     if (key.passphrase !== null) passphrase = key.passphrase;
-  } else if (profile.privateKeyPath) {
+  } else if (profile.privateKeyPath && !profile.keyId) {
     const keyPath = profile.privateKeyPath.replace(/^~/, os.homedir());
     try {
       secrets.privateKey = fs.readFileSync(keyPath);

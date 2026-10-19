@@ -465,6 +465,9 @@ impl<D: Device> Store<D> {
             .find(|p| p.id == profile_id)
             .ok_or_else(|| StoreError::not_found(format!("profile {profile_id}")))?;
         let (private_key, passphrase) = match (&profile.key_id, &profile.private_key_path) {
+            // A stored key only for key login: a server switched back to password keeps its keyId,
+            // and the connection would otherwise try only the key and never the password.
+            (Some(key_id), _) if !key_id.is_empty() && profile.auth_type == "password" => (None, passphrase),
             // The passphrase stored with the key, which was checked when the key was imported; the
             // profile's own only for a key stored without one (a profile may keep a stale one
             // from the key file it used before).

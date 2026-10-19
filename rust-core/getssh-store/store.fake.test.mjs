@@ -852,6 +852,11 @@ test('connectSecrets gives a stored key its own passphrase over a stale one on t
   assert.equal(store.connectSecrets('default', 'stale').passphrase.toString(), 'key-pass', "the key's checked passphrase wins");
   assert.equal(store.connectSecrets('default', 'plain').passphrase.toString(), 'profile-pass', 'a key without one leaves the profile its own');
   assert.equal(store.connectSecrets('default', 'own').privateKey.toString(), 'PRIVATE KEY enc');
+  // Switched back to password login: the keyId stays, but the password is what is tried.
+  store.saveProfiles('default', [profile('own', { authType: 'password', keyId: key.id, password: 'pw' })]);
+  const login = store.connectSecrets('default', 'own');
+  assert.equal(login.privateKey, undefined, 'a password login does not bring the stored key');
+  assert.equal(login.password.toString(), 'pw');
 });
 
 test('deleteSshKey leaves the profiles that used it without a key; an unknown keyId is refused', async () => {
