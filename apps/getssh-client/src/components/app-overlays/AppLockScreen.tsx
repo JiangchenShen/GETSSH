@@ -101,7 +101,7 @@ export const AppLockScreen: React.FC = () => {
         ? (zh ? '这份数据来自另一台电脑，或这台电脑的安全芯片已重置。输入恢复码以继续。' : 'This data comes from another computer, or this computer’s security chip was reset. Enter your recovery code to continue.')
         : showRecovery
           ? (zh ? '输入恢复码。解锁后请在设置中重新设置主密码。' : 'Enter your recovery code. Set a new master password in Settings afterwards.')
-          : (zh ? '输入主密码以打开你的服务器和工作区。' : 'Enter your master password to open your servers and workspaces.')}</p>
+          : (zh ? '输入主密码以打开您的服务器和工作区。' : 'Enter your master password to open your servers and workspaces.')}</p>
     </div>
 
     {showRecovery ? (

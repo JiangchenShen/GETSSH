@@ -67,6 +67,12 @@ const geometry = (scroll: HTMLDivElement, height = (_message: HTMLElement) => 20
 };
 
 describe('chat render work', () => {
+  it('addresses the user with the respectful Chinese label', async () => {
+    useAiChatStore.setState({ conversations: [conversation([message(0, 'user')])] });
+    await render();
+    expect(container.querySelector('[data-message-id="m0"]')?.textContent).toMatch(/^您 · /);
+  });
+
   it('profiles 200 messages and only commits/parses the live reply during a token batch', async () => {
     await render();
     expect(mocks.profile).toHaveBeenCalledTimes(200);

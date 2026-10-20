@@ -219,7 +219,7 @@ export const McpTab: React.FC = () => {
           </SettingsSection>}
 
           <SettingsSection title={zh ? 'AI 权限' : 'AI permissions'}>
-            <SettingsRow label={zh ? '允许反向 AI 采样' : 'Allow reverse AI sampling'} description={zh ? '默认关闭。开启后，此服务可通过 GETSSH 使用你配置的模型服务及额度。' : 'Off by default. This lets the server use your configured AI provider and quota through GETSSH.'}>
+            <SettingsRow label={zh ? '允许反向 AI 采样' : 'Allow reverse AI sampling'} description={zh ? '默认关闭。开启后，此服务可通过 GETSSH 使用您配置的模型服务及额度。' : 'Off by default. This lets the server use your configured AI provider and quota through GETSSH.'}>
               <SettingsToggle checked={newServerSampling} onChange={setNewServerSampling} label={zh ? '允许反向 AI 采样' : 'Allow reverse AI sampling'} />
             </SettingsRow>
           </SettingsSection>

@@ -90,4 +90,20 @@ describe('About release metadata', () => {
     expect(update.disabled).toBe(false);
     expect(alert).toHaveBeenCalledWith(translation.t('update.latest'));
   });
+
+  it.each([
+    ['zh-CN', '字体许可（MiSans）', 'zh'],
+    ['en-US', 'Font License (MiSans)', 'en'],
+  ])('opens the MiSans font license directly below open-source licenses in %s', async (language, label, path) => {
+    mocks.language = language;
+    await translation.changeLanguage(language);
+    await render();
+    const compliance = [...container.querySelectorAll('section')].find(section => section.querySelector('h3')?.textContent === translation.t('about.compliance'))!;
+    const rows = [...compliance.querySelectorAll('.settings-row')];
+    expect(rows.map(row => row.querySelector('.text-sm')?.textContent)).toEqual([
+      translation.t('about.tos'), translation.t('about.privacy'), translation.t('about.licenses'), label,
+    ]);
+    await act(async () => rows[3].querySelector<HTMLButtonElement>('button')!.click());
+    expect(openExternal).toHaveBeenCalledExactlyOnceWith(`https://getssh.realmcloud.net/${path}/legal/licenses#misans`);
+  });
 });

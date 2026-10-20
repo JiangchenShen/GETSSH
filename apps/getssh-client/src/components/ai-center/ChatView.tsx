@@ -48,7 +48,7 @@ export const ChatMessageView = memo(function ChatMessageView({ msg, conversation
           <div className={`flex min-w-0 max-w-[85%] flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className="flex items-center gap-2">
               <span className="px-1 text-[10px] text-ink-3">
-                {msg.role === 'user' ? (zh ? '你' : 'You') : 'GETSSH AI'} · {new Date(msg.timestamp).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+                {msg.role === 'user' ? (zh ? '您' : 'You') : 'GETSSH AI'} · {new Date(msg.timestamp).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
               </span>
               {msg.role === 'assistant' && !msg.isThinking && !msg.isStreaming && (
                 <button

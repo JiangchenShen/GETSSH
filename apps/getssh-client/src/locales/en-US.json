@@ -492,6 +492,7 @@
       "tos": "Terms of Service",
       "privacy": "Privacy Policy",
       "licenses": "Third-Party Licenses",
+      "fontLicense": "Font License (MiSans)",
       "systemInfo": "System Information",
       "tagline": "{{product}} {{version}} · {{edition}} · {{program}}",
       "compliance": "Compliance & Legal",

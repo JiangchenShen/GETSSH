@@ -63,6 +63,7 @@ export const AboutTab: React.FC = () => {
         ['tos', 'terms'],
         ['privacy', 'privacy'],
         ['licenses', 'licenses'],
+        ['fontLicense', 'licenses#misans'],
       ] as const).map(([key, slug]) => <SettingsRow key={key} label={t(`about.${key}`)}>
         <button type="button" onClick={() => window.electronAPI.openExternal(`https://getssh.realmcloud.net/${languagePath}/legal/${slug}`)} className={settingButtonClass}>
           {zh ? '查看' : 'Open'}<ArrowUpRight className="h-3.5 w-3.5" />

@@ -267,7 +267,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
   if (phase !== 'ready' || isSwitching || (section === 'vault' && isVaultLocked) || restartRequired) return <p role="status" className="text-xs text-ink-3">{restartRequired ? storeFailureMessage('unavailable', zh) : (zh ? '请先解锁，再管理保护设置。' : 'Unlock before managing protection settings.')}</p>;
 
   return <div className="space-y-7">
-    {recoveryCode && <SettingsSection title={zh ? '你的恢复码' : 'Your recovery code'} description={zh ? '只显示这一次。请抄写下来或保存到密码管理器，放在这台电脑以外的地方。忘记主密码或换电脑时，用它找回数据。' : 'Shown only this once. Write it down or store it in a password manager, somewhere other than this computer. Use it if you forget the master password or move to another computer.'}>
+    {recoveryCode && <SettingsSection title={zh ? '您的恢复码' : 'Your recovery code'} description={zh ? '只显示这一次。请抄写下来或保存到密码管理器，放在这台电脑以外的地方。忘记主密码或换电脑时，用它找回数据。' : 'Shown only this once. Write it down or store it in a password manager, somewhere other than this computer. Use it if you forget the master password or move to another computer.'}>
       <SettingsRow label={zh ? '恢复码' : 'Recovery code'} stacked>
         <div className="max-w-md space-y-3">
           <code className="block select-all rounded-md border border-line bg-surf-2 px-3 py-3 text-center font-mono text-base tracking-wider text-ink">{recoveryCode}</code>
