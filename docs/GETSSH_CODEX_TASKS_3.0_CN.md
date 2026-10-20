@@ -690,3 +690,43 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 | R48 | 官网 `src/content/legal/licenses/zh.md`、`en.md` 的 MiSans 一节 | 补上小米 MiSans 字体许可协议的原文，从小米官方页面（<https://hyperos.mi.com/font/zh>）原样照抄，注明来源和版本或日期。英文页放原文（中文），前面用一句英文说明。这一节的锚点要是 `#misans`：打包附带的第三方声明里已经写了 `…/legal/licenses#misans`，请打开页面确认能跳到这里 |
 | R49 | 应用 `src/components/settings/tabs/AboutTab.tsx` 的"合规"一节 | 在"开源许可"下面加一行"字体许可（MiSans）"，点击打开 `https://getssh.realmcloud.net/${languagePath}/legal/licenses#misans`，写法和上面那几行一样 |
 | R50 | 官网 `src/content/sdk/zh.md`、`en.md` 的 6.1 节和第 8 节 | `safeStorageEncrypt` 改成"3.0 删除了"，照着应用仓库 `docs/PLUGIN_SDK_INTERNAL_CN.md` 和 `docs/PLUGIN_SDK_INTERNAL.md` 现在的写法；接口定义里那一行删掉 |
+
+## 10-20 复查 R38–R50（应用 `706cc09`；官网 `19025cd`）和发布前最后一轮
+
+**结果**：
+- R38、R41、R42、R45、R46、R47、R48、R49、R50 做对了；
+- 完整的 21 项检查都通过，整套测试 1056 个；
+- 官网能构建，lint 通过，中英文许可页都有 `#misans`；
+- MiSans 许可原文和小米官方 PDF 逐字对得上；
+- "称呼"一类：应用只剩写给 AI 的 6 处提示词，官网 0 处。
+
+**负责人希望这一轮改完就发布。** 下面每一条都写了具体做法。每条请补一个撤掉修复就会失败的 spec。
+
+### 应用（只改 `src/**`）
+
+| 编号 | 位置 | 问题 | 要做 |
+|---|---|---|---|
+| R51 | `ConnectForm.tsx` 的 `submit`（约 292–305 行） | **必须改。** R39 改出了三个问题：① 新建服务器时，选了私钥文件或库里的私钥，过了 400 毫秒再点"连接"，这台服务器不会被保存，重启就没了；用库里私钥的那种还会直接连不上，因为主进程按 id 找不到这台服务器。② 已保存的服务器，改完用户名、地址或私钥文件立刻连接，改动还在 400 毫秒的防抖里，`onUpdateSession` 只是发出保存，不等它完成，主进程按 id 读到的还是旧值。③ `keyId` 只在一边做了 `?? null`，这次运行里新建的服务器，以后每次连接都会先保存 | 改成下面这样，其余不动：<br>`const keyChanged = (readySession.keyId ?? null) !== (session.keyId ?? null);`<br>`const saveFirst = !readySession.isQuickConnect && (Boolean(session.isDraft) \|\| hasPendingUpdate \|\| keyChanged);`<br>`if (Object.keys(pendingClearsRef.current).length \|\| saveFirst) { 和现在一样 await savePending }`<br>`else if (readySession.isQuickConnect && hasPendingUpdate) onUpdateSession(identity.current.index, readySession);`<br>新建的、有未保存改动的、私钥选择改过的，都先保存，等保存完成再连接；什么都没改的已保存服务器直接连接，不保存。<br>spec：① 新建服务器，选私钥文件，过 400 毫秒点连接：`saveProfiles` 收到这条（`isDraft: false`），在它返回之前 `sshConnect` 不能被调用；② 同上，换成库里的私钥；③ 已保存的服务器，改用户名后 400 毫秒内点连接：同样要等保存完成；④ `keyId` 为 `undefined` 的已保存服务器，什么都没改直接连接：不调用 `saveProfiles`；⑤ 快速连接：不调用 `saveProfiles`。R33、R34、R35 的 spec 要照样通过 |
+| R52 | `ConnectForm.tsx`（防抖）、`ConnectionPrivateKey.tsx:159` | 连接表单里刚输入口令、还在 400 毫秒防抖期间，"导入到 GETSSH"就能点。防抖到时会把导入前的旧列表存一遍，可能把服务器改回原文件 | `ConnectForm` 加一个状态 `autosavePending`：防抖开始时设为真，防抖执行、被 `submit`、`clearSecret`、`savePending` 取消时设为假。把它传给 `ConnectionPrivateKey`，和 `pendingSecretClear` 一样，为真时导入按钮不可用。spec：输入口令后立刻按钮不可用，400 毫秒后可用 |
+| R53 | `SafeStorageTab.tsx:88` | R44 只在 `presenceEnabled` 变化时刷新，可 `presenceEnabled` 只表示主密码的 Touch ID。没有主密码时，工作区开了 Touch ID，这个值不变，设置页那一行还写"开启"。迁移提示最常见的就是这种情况 | 应用状态每次广播都刷新（`next.state !== previous.state`，并且 `phase` 还是 `ready`），**只调 `refresh()`，不要调 `invalidate()`**：`invalidate` 会清掉屏幕上的恢复码。spec：① 没有主密码，工作区有自己的密码，状态里它的 `presence` 从假变真、`presenceEnabled` 一直为假，那一行变成"关闭"；② 恢复码显示着的时候来一次广播，恢复码还在 |
+| R54 | `MigrationPresenceNotice.tsx`；`App.tsx` 里的主网格（`zIndex: var(--z-app-chrome)`） | R43 只改了 z-index，可主网格自己是一个层级为 20 的层叠上下文，设置页、连接表单里的对话框（`SshKeysSection` 的 `z-[1000]`、`EncryptedBackupSection`、`ExportTab`、`ConnectForm.tsx:491`）都被限制在 20 以内，提示的 `z-40` 照样盖在它们上面 | 有模态对话框打开时隐藏提示：在 `document.body` 上用 `MutationObserver` 监听 `childList`、`subtree`，以及属性 `aria-modal`，看有没有 `[aria-modal="true"]`。同时检查所有全屏的对话框都带 `role="dialog" aria-modal="true"`。`rg 'fixed inset-0' src` 找出来的这些现在附近没有 `aria-modal`：`App.tsx:221`（高风险剧本）、`CommandCenter.tsx`、`ConnectForm.tsx:491`、`CreateWorkspaceModal.tsx`、`HostKeyVerificationModal.tsx`、`SecurityOverlay.tsx`、`UnlockVaultModal.tsx`；`SplitEngine.tsx:143` 先看是不是对话框。spec：页面里加一个 `aria-modal="true"` 的元素，提示消失；去掉以后提示回来，之前的状态不丢 |
+| R55 | `MigrationPresenceNotice.tsx:47, 66-68` | 开了隐私模式时，系统弹出 Touch ID 或 Windows Hello 会让窗口失焦、触发模糊，进行中的"开启"请求被作废，失败的结果不会显示 | 隐私模糊时只隐藏，不作废：`hidden.current` 和 `invalidate()` 只看 `suppressed`；`privacyBlurred` 只影响渲染。spec：开始开启，进入模糊，请求返回失败，退出模糊后能看到错误提示 |
+
+### 官网
+
+| 编号 | 位置 | 要做 |
+|---|---|---|
+| R56 | 官网仓库 `docs/PLUGIN_SDK_3.0_ZH.md`、`docs/PLUGIN_SDK_3.0_EN.md`，`README.md:43`、`README_CN.md:43` | 这两份旧指南还把 `safeStorageEncrypt` 写成能用的接口，也没有 `context.secrets`，README 链到的就是它们。删掉这两个文件，README 的链接改到线上的 `/zh/sdk`、`/en/sdk`，这样只有一份 SDK 文档 |
+| R57 | 官网 `zh.json:24`（`aiAnnouncement`）和 `announcements.spec.mjs:11` | 我写的 R32 那句不对："完整接管"模式不会逐条确认命令。改成：`GETSSH 3.0 预览版已支持通过客户端网关进行 AI 排障。代理模式下，AI 能否操作终端、执行命令前是否逐条确认，由您选择的模式决定。` spec 的正则一起改 |
+| R58 | 官网 `package.json` | 加 `"test": "node --test src/dictionaries/*.spec.mjs src/content/**/*.spec.mjs"`，或者直接列出这 4 个文件。交付时附上 `npm test` 的原始输出 |
+| R59 | 官网 `src/app/[lang]/(inner)/download/page.tsx`、更新日志 | 下载页现在全是 2.0 的文件。macOS 和 Windows 改成 3.0 预览版，Linux 还是 2.0：<br>- 版本号和标签按负责人定的写，暂定 `3.0.0-preview`，标签 `v3.0.0-preview`，见下面"发布"；<br>- 文件名和 2.0 的规则一样：`GETSSH-3.0.0-preview-arm64.dmg`、`GETSSH-3.0.0-preview.dmg`（Intel）、`GETSSH-Setup-3.0.0-preview-x64.exe`、`GETSSH-Setup-3.0.0-preview-arm64.exe`；<br>- 版本号和标签各只写一处，方便改；<br>- 安装包没有签名，页面上要写首次打开的办法：macOS 在应用上点右键选"打开"，Windows 在 SmartScreen 里点"更多信息"再点"仍要运行"；<br>- 更新日志的标题从"预计 2026-10-20 开放体验"改成实际日期 |
+
+### 发布（Claude 和负责人）
+
+- **版本号**：官网写的是 `3.0.0-preview`，应用现在是 `3.0.0-rc.1`。负责人定一个，Claude 改 `package.json`，标签用同一个。
+- **顺序**：
+  1. Codex 交付后，Claude 复查，跑完整检查，合进 `v3-next`，跑 CI；
+  2. 负责人同意后，Claude 改版本号，合进 `main`；
+  3. 负责人打标签，发布流程在 4 个平台上打包，生成一个草稿版本；
+  4. 负责人检查草稿，下载页上的 4 个文件名都要在里面，然后发布。要不要标成 pre-release 由负责人定：标了以后，GitHub 的"最新版本"仍是 2.0；
+  5. 官网合进 `main` 上线，要和发布同时，最晚紧跟着发布。应用"关于"页和第三方声明都链到官网的 `#misans`，下载页也要指向新文件。
