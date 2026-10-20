@@ -118,7 +118,6 @@ function createPluginContext(capabilities: string[]) {
   context.showNotification = (title: string, body: string) => {
     notifyHost('notification.show', [title, body]);
   };
-  context.safeStorageEncrypt = async (text: string) => callHost('safeStorage.encrypt', [text]);
 
   if (caps.has('ssh:read') || caps.has('ssh:write')) {
     context.ssh = Object.freeze({

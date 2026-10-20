@@ -283,12 +283,11 @@ type StructuredData =
   | { [key: string]: StructuredData };
 ```
 
-### Notifications and the old encryption call
+### Notifications
 
 ```typescript
 interface MainContextAPI {
   showNotification(title: string, body: string): void;
-  safeStorageEncrypt(text: string): Promise<string>;
   host: {
     notify(
       title: string,
@@ -301,7 +300,7 @@ interface MainContextAPI {
 
 `showNotification()` is a compatibility alias; new plugins should use `host.notify()`. Notification appearance is controlled by the operating system.
 
-`safeStorageEncrypt()` is deprecated; use `context.secrets` instead. It encrypts with Electron's OS safe storage and returns base64 ciphertext that no API can decrypt again, and on macOS it may ask for Keychain access. Older plugins that call it still work; it must be awaited.
+`safeStorageEncrypt()` was removed in 3.0; use `context.secrets` instead. No API could decrypt what it returned, and on macOS it asked for Keychain access. An older plugin that calls it gets `context.safeStorageEncrypt is not a function`.
 
 ### Plugin KV storage
 
@@ -664,7 +663,7 @@ Internal TypeScript interfaces live in [`apps/getssh-client/src/types/plugin.d.t
 | Backend uses `vm.Script` in the main process | Normal/strict use a separate OS-confined process |
 | `getssh.type: "hybrid"` | Omit `getssh.type`; combine `renderer` with backend `main` |
 | `getssh.pluginId` is runtime identity | `name` is runtime identity; `pluginId` is currently metadata |
-| `safeStorageEncrypt()` to keep a token | `await context.secrets.set(name, value)`; `safeStorageEncrypt()` is deprecated |
+| `safeStorageEncrypt()` to keep a token | `await context.secrets.set(name, value)`; `safeStorageEncrypt()` was removed in 3.0 |
 | `ssh.onData()` has no cleanup | Save and call its unsubscribe function |
 | `ssh.write()` is synchronous | `await context.ssh.write()` |
 | `pluginRpcInvoke()` | `window.GETSSH.invokeBackend()` |

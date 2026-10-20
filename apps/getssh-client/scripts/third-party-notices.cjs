@@ -182,10 +182,17 @@ function fontNames(file) {
 
 const FONT_DIR = path.join(APP_DIR, 'src', 'assets', 'fonts');
 
+/** Fonts whose files name no license: where its text is. The owner keeps MiSans's on the website (10-20). */
+const FONT_LICENSE_PAGES = [
+  [/^MiSans\b/, "Used under Xiaomi's MiSans font license. Full text: https://getssh.realmcloud.net/en/legal/licenses#misans"],
+];
+
 function fonts() {
   return fs.readdirSync(FONT_DIR).filter(name => /\.(ttf|otf|woff)$/i.test(name)).sort().map(file => {
     const names = fontNames(path.join(FONT_DIR, file));
-    return { file, family: names[1] ?? file, copyright: names[0] ?? '', license: names[13] ?? '', url: names[14] ?? '' };
+    const family = names[1] ?? file;
+    const page = FONT_LICENSE_PAGES.find(([pattern]) => pattern.test(family))?.[1];
+    return { file, family, copyright: names[0] ?? '', license: names[13] || page || '', url: names[14] ?? '' };
   });
 }
 

@@ -18,7 +18,6 @@ vi.mock('electron', () => ({
     constructor(options: unknown) { mocks.notifications.push(options); }
     show() {}
   },
-  safeStorage: {},
   BrowserWindow: { getAllWindows: () => [] },
   dialog: {},
   clipboard: { readText: mocks.readText, writeText: vi.fn() },

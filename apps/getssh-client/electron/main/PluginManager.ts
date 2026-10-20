@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { app, ipcMain, Notification, safeStorage, BrowserWindow, dialog, clipboard } from 'electron';
+import { app, ipcMain, Notification, BrowserWindow, dialog, clipboard } from 'electron';
 import { getBackendConfig } from './handlers/systemHandler';
 import { clipboardTextForPlugin } from './handlers/storeHandler';
 import { getActiveWorkspaceId } from './handlers/workspaceHandler';
@@ -148,12 +148,6 @@ export class PluginManager {
   private createMainContext(manifest: PluginManifest): MainContextAPI {
     const context = Object.create(null) as MainContextAPI;
     context.showNotification = (title: string, body: string) => new Notification({ title, body }).show();
-    context.safeStorageEncrypt = async (text: string) => {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('SecurityError: OS safe storage is unavailable.');
-      }
-      return safeStorage.encryptString(text).toString('base64');
-    };
 
     // Inject SSH namespace if capabilities are requested
     const caps = manifest.getssh?.capabilities || [];
@@ -485,13 +479,6 @@ export class PluginManager {
         const body = this.stringArg(args, 1, 'Notification body', 4_096);
         new Notification({ title, body }).show();
         return null;
-      }
-      case 'safeStorage.encrypt': {
-        const text = this.stringArg(args, 0, 'Safe-storage value', 1024 * 1024);
-        if (!safeStorage.isEncryptionAvailable()) {
-          throw new Error('SecurityError: OS safe storage is unavailable.');
-        }
-        return safeStorage.encryptString(text).toString('base64');
       }
       case 'storage.get': {
         const key = this.stringArg(args, 0, 'Storage key', 256);
