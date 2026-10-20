@@ -1,0 +1,28 @@
+# Weekly update PRs for the Rust crates and the GitHub Actions (owner, 10-20). npm is left out
+# for now: whether Dependabot reads pnpm 11's lockfile is not confirmed, and pnpm audit in
+# dependency-audit.yml already reports its advisories. Dependabot alerts and security-update PRs
+# are switched on in the repository settings, not here. This file takes effect from the default
+# branch (main); the PRs go to v3-next.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: v3-next
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: v3-next
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']

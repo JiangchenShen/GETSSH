@@ -9,7 +9,6 @@ export type PluginInvocationKind = 'rpc' | 'ui';
 
 export type PluginHostMethod =
   | 'notification.show'
-  | 'safeStorage.encrypt'
   | 'storage.get'
   | 'storage.set'
   | 'storage.delete'

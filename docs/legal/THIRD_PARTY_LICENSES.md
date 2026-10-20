@@ -20,7 +20,7 @@ Every GETSSH package carries the full list, with each copyright notice and licen
 2. **Node.js packages shipped in `app.asar`**: the dependencies in `apps/getssh-client/package.json` and everything they depend on, with each package's own license files.
 3. **Rust crates linked into the native modules and tools** in `rust-core/` (including `watchdog` and `getssh-sandbox`), from `cargo metadata`, with the license files in each crate.
 4. **Fonts** in `apps/getssh-client/src/assets/fonts`:
-   - MiSans, © Beijing Xiaomi Mobile Software Co., Ltd., used under Xiaomi's MiSans font license;
+   - MiSans, © Beijing Xiaomi Mobile Software Co., Ltd., used under Xiaomi's MiSans font license. The full text is on the website (<https://getssh.realmcloud.net/en/legal/licenses#misans>), and Settings → About links to it;
    - Reddit Sans, © Reddit, Inc., under the SIL Open Font License 1.1 (full text in `RedditSans-OFL.txt`).
 
 To see the list for the current checkout, run `vite build` and then `node scripts/third-party-notices.cjs` in `apps/getssh-client`. The result is `dist/THIRD_PARTY_NOTICES.txt`.

@@ -34,11 +34,6 @@ export interface PluginSettingsSchema {
 
 export interface MainContextAPI {
   showNotification: (title: string, body: string) => void;
-  /**
-   * @deprecated Use `secrets`. Encrypts with the operating system's safe storage and returns
-   * base64 that nothing can decrypt again; on macOS it may ask for Keychain access.
-   */
-  safeStorageEncrypt: (text: string) => Promise<string>;
   onSSHSessionConnect?: (callback: (sessionId: string, host: string) => void) => void;
   ssh?: {
     onData: (sessionId: string, callback: (chunk: string) => void) => () => void;

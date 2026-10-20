@@ -394,7 +394,7 @@ payload：分块 AES-256-GCM（每块 64 KiB，nonce = 前缀‖序号‖是否�
   - 新接口 `context.secrets.get / set / delete`，隔离插件和开发者模式插件都有。秘密存在 store 里（`plugin/<插件名>`，和 AI Key 一样用应用钥匙封装），受主密码保护，导出时一起带走，卸载插件时删除。每个插件最多 64 个，每个 64 KiB，锁定期间调用会失败；
   - `password` 类型的设置项不再明文写进插件的 KV 存储，按工作区存进同一条记录。插件照旧用 `context.storage.get` 读，现有插件不用改；激活时主进程还不知道设置项的类型，所以 KV 里没有的键会再查一次 store。旧版本留在 KV 里的密码在第一次读取时移过去。删除工作区时一并删掉这个工作区的密码设置；
   - 设置页拿不到已保存的密码，只通过 `plugin-storage-saved-passwords` 知道哪些已保存；输入框留空表示不修改，"清除已保存的值"才删除。`plugin-storage-get / set` 加了发送方检查；
-  - `safeStorageEncrypt` 保留但标为弃用：它只能加密，在 macOS 上还会访问钥匙串；
+  - `safeStorageEncrypt` 先标为弃用，10-20 负责人决定在 3.0 删除：它只能加密，在 macOS 上还会访问钥匙串；
   - 测试：`PluginManager.secrets.test.ts` 13 个，关键检查逐个改坏 11 处，测试都报了错。
 - **AI 会话分页（10-11）**：
   - 原来打开 AI 面板时，`ai-get-sessions` 把工作区里每个对话连同全部消息一次读出、一次发给界面，历史一多，主进程和界面都要整份留在内存里；

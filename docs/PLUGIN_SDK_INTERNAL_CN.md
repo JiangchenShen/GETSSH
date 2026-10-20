@@ -295,12 +295,11 @@ type StructuredData =
   | { [key: string]: StructuredData };
 ```
 
-### 6.1 通知与旧的加密接口
+### 6.1 通知
 
 ```typescript
 interface MainContextAPI {
   showNotification(title: string, body: string): void;
-  safeStorageEncrypt(text: string): Promise<string>;
   host: {
     notify(
       title: string,
@@ -313,7 +312,7 @@ interface MainContextAPI {
 
 `showNotification()` 是兼容别名，新插件建议使用 `host.notify()`。`type` 当前用于表达调用意图，桌面通知的最终外观由操作系统决定。
 
-`safeStorageEncrypt()` 已弃用，请改用 `context.secrets`（6.3）。它用 Electron 的操作系统安全存储加密字符串，返回 base64 密文，但没有任何接口能把密文解开；在 macOS 上它还可能弹出钥匙串授权。旧插件调用它仍然可用，必须 `await`。
+`safeStorageEncrypt()` 在 3.0 删除了，请改用 `context.secrets`（6.3）。它返回的密文没有任何接口能解开，在 macOS 上还会弹出钥匙串授权。旧插件调用它会报错：`context.safeStorageEncrypt is not a function`。
 
 ### 6.2 插件 KV 存储
 
@@ -768,7 +767,7 @@ Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -For
 | 后端运行在主进程 `vm.Script` | 普通/严格模式运行在独立的操作系统沙盒进程 |
 | `getssh.type: "hybrid"` | 省略 `getssh.type`，用 `renderer` + 后端 `main` 组成 UI + 后端插件 |
 | `getssh.pluginId` 是运行时身份 | `name` 是运行时身份；`pluginId` 当前只是元数据 |
-| `safeStorageEncrypt()` 保存令牌 | `await context.secrets.set(name, value)`；`safeStorageEncrypt()` 已弃用 |
+| `safeStorageEncrypt()` 保存令牌 | `await context.secrets.set(name, value)`；`safeStorageEncrypt()` 在 3.0 删除了 |
 | `ssh.onData()` 不需要清理 | 保存并调用它返回的取消订阅函数 |
 | `ssh.write()` 同步调用 | `await context.ssh.write()` |
 | `pluginRpcInvoke()` | 页面调用 `window.GETSSH.invokeBackend()` |

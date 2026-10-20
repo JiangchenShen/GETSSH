@@ -666,3 +666,27 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - R38 改完后：`SafeStorageTab` 里 `recoveryRequest` 打开的表单，`needsCurrent` 改成 `!!status?.appProtected`，和 `open()` 一致。然后去掉 `SecurityTab` 里"恢复码还没确认保存"那一行的 `appProtected` 条件，没设主密码时也提醒，`securityOverview.spec.tsx` 里对应的预期一起改。
 - spec 里的服务器按真实数据带上 `keyId: null`，至少 R39、R40 的 spec 要这样写。
 - 每条补一个 spec，撤掉修复时它要失败。交付时附上整套 `pnpm exec vitest run` 的原始输出。
+
+## 10-20 负责人的决定和要做的事
+
+**负责人定了**：
+1. 删掉插件接口 `safeStorageEncrypt`：替代它的 `context.secrets` 10-11 就做好了。
+2. 中文称呼用"您"。
+3. MiSans 的许可协议原文放在官网，应用的设置里留一个入口，点击后打开官网上对应的那一节。
+4. 开 dependabot。
+
+**Claude 10-20 已做**：
+- 删掉 `safeStorageEncrypt`：直接调用的插件和沙箱里的插件都删了（`PluginManager.ts`、`plugin-host.ts`、`pluginProtocol.ts`），类型定义也删了。旧插件调用它会报 `context.safeStorageEncrypt is not a function`。`docs/PLUGIN_SDK_INTERNAL_CN.md`、`docs/PLUGIN_SDK_INTERNAL.md` 已改成"3.0 删除了"。
+- `docs/GETSSH_COPY_STYLE_CN.md` 第 6 节写了称呼的规则。`scripts/copy-lint.js` 加了一类"称呼"，会把"你"列出来。
+- 打包附带的 `THIRD_PARTY_NOTICES.txt` 里，MiSans 两条后面写上了原文的地址：`https://getssh.realmcloud.net/en/legal/licenses#misans`。
+- `.github/dependabot.yml`：每周一检查 Rust crate 和 GitHub Actions，PR 开到 `v3-next`。这个文件合进 `main` 以后才生效。
+
+**交给 Codex**（和 R38–R45、R32 一起做）：
+
+| 编号 | 位置 | 要做 |
+|---|---|---|
+| R46 | 应用 `src/**`，现在 19 处"你" | 改成"您"。写给 AI 模型的提示词不改：`utils/persona.ts` 的角色预设、`zh-CN.json` 的 `personaSystemPromptPlaceholder`。`ChatView.tsx:51` 用户消息的标签，改成"您"或者别的说法都行。spec 里对应的文字一起改。跑 `node scripts/copy-lint.js`，"称呼"一类里只能剩提示词那几处 |
+| R47 | 官网，现在 68 处"你" | 同上，全部改成"您"。`copy-lint` 的"称呼"一类要清零 |
+| R48 | 官网 `src/content/legal/licenses/zh.md`、`en.md` 的 MiSans 一节 | 补上小米 MiSans 字体许可协议的原文，从小米官方页面（<https://hyperos.mi.com/font/zh>）原样照抄，注明来源和版本或日期。英文页放原文（中文），前面用一句英文说明。这一节的锚点要是 `#misans`：打包附带的第三方声明里已经写了 `…/legal/licenses#misans`，请打开页面确认能跳到这里 |
+| R49 | 应用 `src/components/settings/tabs/AboutTab.tsx` 的"合规"一节 | 在"开源许可"下面加一行"字体许可（MiSans）"，点击打开 `https://getssh.realmcloud.net/${languagePath}/legal/licenses#misans`，写法和上面那几行一样 |
+| R50 | 官网 `src/content/sdk/zh.md`、`en.md` 的 6.1 节和第 8 节 | `safeStorageEncrypt` 改成"3.0 删除了"，照着应用仓库 `docs/PLUGIN_SDK_INTERNAL_CN.md` 和 `docs/PLUGIN_SDK_INTERNAL.md` 现在的写法；接口定义里那一行删掉 |

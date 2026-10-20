@@ -96,6 +96,14 @@ const CATEGORIES = [
       [/\binstant(?:ly)?\b/i, 'give a measured number, or drop it'],
     ],
   },
+  {
+    // Decided 10-20. Prompts written to the AI model keep "你": they address the model, not the user.
+    title: '称呼：对用户说"您"',
+    rules: [
+      [/你(?!们)/, '改成"您"；写给 AI 模型的提示词保留"你"', '你'],
+      ['你们', '写"各位"，或者换个说法'],
+    ],
+  },
 ];
 
 const EXTENSIONS = new Set(['.json', '.md', '.mdx', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.html']);
