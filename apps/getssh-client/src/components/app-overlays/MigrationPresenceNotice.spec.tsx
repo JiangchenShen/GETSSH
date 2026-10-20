@@ -6,10 +6,10 @@ import type { AppLockState, KeystoreResult, SecurityStatus } from '../../types/i
 import { useAppLockStore } from '../../store/appLockStore';
 import { useBackupRestartStore } from '../../store/backupStore';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en-US' } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'en-US' }, t: (key: string, fallback?: string) => fallback ?? key }), Trans: () => null }));
 vi.mock('../../store/appStore', async () => {
   const { create } = await import('zustand');
-  return { useAppStore: create(() => ({ isMac: true, isAppBlurred: false, appConfig: { privacyMode: false } })) };
+  return { useAppStore: create(() => ({ isMac: true, isAppBlurred: false, appConfig: { privacyMode: false }, securityPrompts: [], resolveSecurityPrompt: () => {}, isDark: false })) };
 });
 vi.mock('../../store/workspaceStore', async () => {
   const { create } = await import('zustand');
@@ -19,6 +19,7 @@ vi.mock('../../store/workspaceStore', async () => {
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useAppStore } from '../../store/appStore';
 import { MigrationPresenceNotice } from './MigrationPresenceNotice';
+import { HostKeyVerificationModal } from '../HostKeyVerificationModal';
 
 const ready = (): AppLockState => ({ phase: 'ready', appProtected: true, recoveryConfigured: false, presenceSupported: true, presenceEnabled: false, deviceKeyLost: false, masterPasswordMustChange: false,
   migration: { migratedWorkspaces: ['one', 'two'], deferredWorkspaces: [], presenceToReenable: ['one', 'two'], failedWorkspaces: [] } });
@@ -45,7 +46,7 @@ let statusCall: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   presence = {};
-  useAppStore.setState({ isAppBlurred: false, appConfig: { ...useAppStore.getState().appConfig, privacyMode: false } });
+  useAppStore.setState({ isAppBlurred: false, appConfig: { ...useAppStore.getState().appConfig, privacyMode: false }, securityPrompts: [] });
   useAppLockStore.setState({ state: ready() }); useBackupRestartStore.setState({ report: null });
   useWorkspaceStore.setState({ activeWorkspaceId: 'one', isSwitching: false, isVaultLocked: false });
   setPresence = vi.fn(async () => turnOn());
@@ -60,6 +61,67 @@ const click = (label: string) => act(async () => button(label).click());
 const switchTo = (workspaceId: string) => act(async () => useWorkspaceStore.setState({ activeWorkspaceId: workspaceId }));
 
 describe('migration system-verification reminder', () => {
+  it('leaves host verification in front and restores the migration reminder after it closes', async () => {
+    await act(async () => root.render(<><MigrationPresenceNotice /><HostKeyVerificationModal /></>));
+    expect(container.querySelector('aside')).not.toBeNull();
+    await act(async () => useAppStore.setState({ securityPrompts: [{ requestId: 'verify', hostname: 'example.test', fingerprint: 'SHA256:test' }] }));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(container.querySelector('aside')).toBeNull();
+    await act(async () => useAppStore.setState({ securityPrompts: [] }));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain('Production');
+  });
+
+  it.each(['insert-remove', 'attribute'])('hides for a modal via %s and restores progress and errors afterwards', async transition => {
+    await render(); await click('Enable Touch ID'); await switchTo('two');
+    setPresence.mockResolvedValueOnce({ ok: false, error: 'locked' }); await click('Enable Touch ID');
+    const errorBefore = container.querySelector('[role="alert"]')!.textContent;
+    expect(container.textContent).not.toContain('Production'); expect(container.textContent).toContain('Lab');
+    const parent = document.createElement('div'); await act(async () => document.body.append(parent));
+    const modal = document.createElement('div'); modal.setAttribute('role', 'dialog');
+    if (transition === 'attribute') await act(async () => parent.append(modal));
+    try {
+      await act(async () => {
+        modal.setAttribute('aria-modal', 'true');
+        if (transition === 'insert-remove') parent.append(modal);
+      });
+      expect(container.querySelector('aside')).toBeNull();
+      await act(async () => {
+        if (transition === 'attribute') modal.setAttribute('aria-modal', 'false');
+        else modal.remove();
+      });
+      expect(container.querySelector('aside')).not.toBeNull();
+      expect(container.textContent).not.toContain('Production'); expect(container.textContent).toContain('Lab');
+      expect(container.querySelector('[role="alert"]')!.textContent).toBe(errorBefore);
+      expect(setPresence).toHaveBeenCalledTimes(2);
+    } finally { await act(async () => parent.remove()); }
+  });
+
+  it('starts hidden when a modal is already mounted, then observes its removal', async () => {
+    const modal = document.createElement('div'); modal.setAttribute('aria-modal', 'true'); document.body.append(modal);
+    try {
+      await render(); expect(container.querySelector('aside')).toBeNull();
+      await act(async () => modal.remove()); expect(container.textContent).toContain('Production');
+    } finally { await act(async () => modal.remove()); }
+  });
+
+  it('keeps a pending enable result during privacy blur and shows its error on return', async () => {
+    let complete!: (value: KeystoreResult) => void;
+    setPresence.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    useAppStore.setState({ appConfig: { ...useAppStore.getState().appConfig, privacyMode: true } });
+    await render(); await click('Enable Touch ID');
+    expect(button('Enabling…').disabled).toBe(true);
+    await act(async () => useAppStore.setState({ isAppBlurred: true }));
+    expect(container.querySelector('aside')).toBeNull();
+    await act(async () => complete({ ok: false, error: 'io' }));
+    await act(async () => useAppStore.setState({ isAppBlurred: false }));
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Cannot read or write');
+    expect(button('Enable Touch ID').disabled).toBe(false);
+    await click('Enable Touch ID'); expect(setPresence).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain('Production');
+  });
+
   it('keeps the notice below z-50 modal dialogs', async () => {
     await render();
     const layer = container.querySelector('aside')!.className.match(/\bz-(?:\[(\d+)\]|(\d+))(?:\s|$)/);

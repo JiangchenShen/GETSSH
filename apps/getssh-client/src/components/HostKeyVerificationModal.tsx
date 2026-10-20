@@ -27,14 +27,14 @@ export const HostKeyVerificationModal: React.FC = () => {
       />
       
       {/* Modal Content */}
-      <div className={`relative w-full max-w-lg p-6 rounded-2xl shadow-2xl flex flex-col gap-5 ${
+      <div role="dialog" aria-modal="true" aria-labelledby="host-key-verification-title" className={`relative w-full max-w-lg p-6 rounded-2xl shadow-2xl flex flex-col gap-5 ${
         isMitm 
           ? (isDark ? 'bg-red-950/90 text-white/90 border border-red-500/50' : 'bg-red-50 text-red-950 border border-red-500/30') 
           : (isDark ? 'bg-[#1a1b1e] text-white/90 border border-white/10' : 'bg-white text-black/90 border border-black/10')
       }`}>
         <div className={`flex items-center gap-3 ${isMitm ? 'text-red-500' : 'text-amber-500'}`}>
           <ShieldAlert className="w-8 h-8" />
-          <h2 className="text-xl font-bold">
+          <h2 id="host-key-verification-title" className="text-xl font-bold">
             {isMitm ? t('hostKey.mitmTitle', 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!') : t('hostKey.title')}
           </h2>
           {pendingCount > 1 && (

@@ -64,6 +64,9 @@ export const UnlockVaultModal: React.FC = () => {
           style={{ backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', background: 'rgba(0,0,0,0.75)' }}
         >
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unlock-vault-title"
             initial={{ scale: 0.9, y: 32, opacity: 0 }}
             animate={{ scale: shake ? [1, 1.01, 0.99, 1.01, 1] : 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 24, opacity: 0 }}
@@ -89,7 +92,7 @@ export const UnlockVaultModal: React.FC = () => {
               </div>
 
               <div>
-                <h2 className="text-lg font-black tracking-[0.15em] uppercase mb-1">
+                <h2 id="unlock-vault-title" className="text-lg font-black tracking-[0.15em] uppercase mb-1">
                   {t('security.vaultLocked', 'VAULT LOCKED')}
                 </h2>
                 <div className={`text-[10px] font-mono tracking-widest uppercase ${isDark ? 'text-white/30' : 'text-black/30'}`}>

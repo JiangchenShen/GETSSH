@@ -40,15 +40,16 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
   const [completed, setCompleted] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [modalOpen, setModalOpen] = useState(() => !!document.querySelector('[aria-modal="true"]'));
   const alive = useRef(false);
   const generation = useRef(0);
   const running = useRef(false);
   const hidden = useRef(suppressed);
-  hidden.current = suppressed || privacyBlurred;
+  hidden.current = suppressed;
   const listed = [...new Set(app?.migration?.presenceToReenable ?? [])];
   const remaining = listed.filter(id => !completed.includes(id));
   const presenceName = isMac ? 'Touch ID' : 'Windows Hello';
-  const shown = !dismissed && remaining.length > 0 && !suppressed && !privacyBlurred && app?.phase === 'ready' && !app.masterPasswordMustChange && !isSwitching && !isVaultLocked && !restartRequired;
+  const shown = !dismissed && remaining.length > 0 && !suppressed && !privacyBlurred && !modalOpen && app?.phase === 'ready' && !app.masterPasswordMustChange && !isSwitching && !isVaultLocked && !restartRequired;
   const canEnable = shown && !!app?.presenceSupported && remaining.includes(activeWorkspaceId);
   const invalidate = () => { generation.current += 1; running.current = false; setBusy(false); setError(''); };
   useEffect(() => {
@@ -64,8 +65,15 @@ export function MigrationPresenceNotice({ suppressed = false }: { suppressed?: b
     return () => { alive.current = false; generation.current += 1; stopApp(); stopWorkspace(); stopBackup(); };
   }, []);
   useEffect(() => {
-    if (suppressed || privacyBlurred) invalidate();
-  }, [suppressed, privacyBlurred]);
+    if (suppressed) invalidate();
+  }, [suppressed]);
+  useEffect(() => {
+    const update = () => setModalOpen(!!document.querySelector('[aria-modal="true"]'));
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
+    update();
+    return () => observer.disconnect();
+  }, []);
 
   const capture = () => ({ generation: generation.current, workspaceId: useWorkspaceStore.getState().activeWorkspaceId, migration: migrationKey() });
   const current = (request: ReturnType<typeof capture>) => alive.current && generation.current === request.generation && !hidden.current
