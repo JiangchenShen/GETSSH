@@ -14,6 +14,7 @@ interface Props {
   session: ConnectFormSession;
   savedSession: ConnectFormSession;
   disabled: boolean;
+  autosavePending: boolean;
   pendingSecretClear: boolean;
   onSelectKey: (id: string) => void;
   onUseFile: () => void;
@@ -22,7 +23,7 @@ interface Props {
 const buttonClass = 'rounded-md border border-line px-3 py-2 text-xs text-ink hover:bg-surf focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
 
 /** Stored keys expose metadata only. Profile-file import and optional Trash confirmation stay in main. */
-export function ConnectionPrivateKey({ session, savedSession, disabled, pendingSecretClear, onSelectKey, onUseFile, children }: Props) {
+export function ConnectionPrivateKey({ session, savedSession, disabled, autosavePending, pendingSecretClear, onSelectKey, onUseFile, children }: Props) {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const isMac = useAppStore(state => state.isMac);
@@ -105,7 +106,7 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, pendingS
   };
   const importFile = async () => {
     const request = scope();
-    if (importing.current || disabled || !current(request) || !savedSession.id) return;
+    if (importing.current || disabled || autosavePending || !current(request) || !savedSession.id) return;
     importing.current = true; setBusy(true); setError('');
     const body = { workspaceId, profileId: savedSession.id, passphrase: passphrase || undefined, trashOriginal, language: zh ? 'zh-CN' as const : 'en-US' as const };
     setPassphrase('');
@@ -175,8 +176,8 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, pendingS
     {!usesStored && children}
     {fileSaved && !usesStored && <div className="space-y-2 border-t border-line-soft pt-3 text-xs text-ink-2">
       <p>{copy('这个私钥还是磁盘上的文件，加密备份里不包含它。', 'This key is still a file on disk and is not included in encrypted backups.')}</p>
-      <button type="button" disabled={disabled || !allowed || pendingEdits || pendingSecretClear} className={buttonClass} onClick={() => { clearDialog(); setNotice(''); setOpen(true); }}>{copy('导入到 GETSSH', 'Import into GETSSH')}</button>
-      {pendingSecretClear ? <p className="text-ink-3">{copy('有待清除的密码或口令，请先点“保存更改”，再导入私钥。', 'A password or passphrase is marked for clearing. Click “Save changes” before importing the key.')}</p> : pendingEdits && <p className="text-ink-3">{copy('等待连接更改保存后，再导入私钥。', 'Wait for connection changes to save before importing the key.')}</p>}
+      <button type="button" disabled={disabled || !allowed || pendingEdits || autosavePending || pendingSecretClear} className={buttonClass} onClick={() => { clearDialog(); setNotice(''); setOpen(true); }}>{copy('导入到 GETSSH', 'Import into GETSSH')}</button>
+      {pendingSecretClear ? <p className="text-ink-3">{copy('有待清除的密码或口令，请先点“保存更改”，再导入私钥。', 'A password or passphrase is marked for clearing. Click “Save changes” before importing the key.')}</p> : (pendingEdits || autosavePending) && <p className="text-ink-3">{copy('等待连接更改保存后，再导入私钥。', 'Wait for connection changes to save before importing the key.')}</p>}
     </div>}
     {notice && <p role="status" className="text-xs text-ink-2">{notice}</p>}
     {open && allowed && createPortal(<div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 p-4">

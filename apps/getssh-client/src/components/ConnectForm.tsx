@@ -88,6 +88,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   const [folders, setFolders] = useState<string[]>([]);
   const folderListId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autosavePending, setAutosavePending] = useState(false);
   const localSessionRef = useRef(session);
   const lastSubmittedGroupRef = useRef<string | null>(null);
 
@@ -107,6 +108,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
+    setAutosavePending(false);
     generation.current += 1;
     pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
     localSessionRef.current = session;
@@ -128,6 +130,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     if (session.isDraft || session.isQuickConnect) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
+    setAutosavePending(false);
     pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
     localSessionRef.current = session; setLocalSession(session);
   }, [activeWorkspaceId, sessionsRevision, profilesReady]);
@@ -151,8 +154,10 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     setLocalSession(updated);
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
+      setAutosavePending(true);
       debounceRef.current = setTimeout(() => {
         debounceRef.current = null;
+        setAutosavePending(false);
         lastSubmittedGroupRef.current = updated.group || '';
         onUpdateSession(identity.current.index, autosaveProfile(updated));
       }, 400);
@@ -165,6 +170,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
       generation.current += 1;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = null;
+      setAutosavePending(false);
       pendingClearsRef.current = {}; setPendingClears({}); setSaveError(''); setSaving(false);
       const cleared = { ...localSessionRef.current, password: undefined, passphrase: undefined };
       localSessionRef.current = cleared; setLocalSession(cleared);
@@ -189,8 +195,10 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     localSessionRef.current = updated;
     setLocalSession(updated);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setAutosavePending(true);
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
+      setAutosavePending(false);
       lastSubmittedGroupRef.current = updated.group || '';
       onUpdateSession(identity.current.index, autosaveProfile(updated));
     }, 400);
@@ -200,6 +208,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     if (saving || !profilesReady || isSwitching || isVaultLocked || pendingClearsRef.current[field]) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
+    setAutosavePending(false);
     const pending = { ...pendingClearsRef.current, [field]: { previous: localSessionRef.current[field] } };
     pendingClearsRef.current = pending; setPendingClears(pending); setSaveError('');
     const updated = { ...localSessionRef.current, [field]: '' };
@@ -225,6 +234,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     if (!currentRequest(requestGeneration, revision, profileId)) return null;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
+    setAutosavePending(false);
     const committed = { ...profile, isDraft: false };
     for (const field of Object.keys(pendingClearsRef.current) as SecretField[]) committed[field === 'password' ? 'hasPassword' : 'hasPassphrase'] = !!committed[field];
     setSaving(true); setSaveError('');
@@ -294,13 +304,16 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     const hasPendingUpdate = debounceRef.current !== null;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
+    setAutosavePending(false);
     let readySession: ConnectFormSession = { ...localSessionRef.current, isDraft: Boolean(localSessionRef.current.isQuickConnect), protocol: effectiveProtocol };
     lastSubmittedGroupRef.current = readySession.group || '';
-    if (Object.keys(pendingClearsRef.current).length || (!readySession.isQuickConnect && readySession.keyId !== (session.keyId ?? null))) {
+    const keyChanged = (readySession.keyId ?? null) !== (session.keyId ?? null);
+    const saveFirst = !readySession.isQuickConnect && (Boolean(session.isDraft) || hasPendingUpdate || keyChanged);
+    if (Object.keys(pendingClearsRef.current).length || saveFirst) {
       const saved = await savePending(readySession);
       if (!saved) return;
       readySession = saved;
-    } else if (hasPendingUpdate) onUpdateSession(identity.current.index, readySession);
+    } else if (readySession.isQuickConnect && hasPendingUpdate) onUpdateSession(identity.current.index, readySession);
     onConnect(readySession);
   };
 
@@ -332,7 +345,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           </div>
           <button type="button" disabled={saving} onClick={() => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
-            debounceRef.current = null; pendingClearsRef.current = {}; setPendingClears({}); setSaveError('');
+            debounceRef.current = null; setAutosavePending(false); pendingClearsRef.current = {}; setPendingClears({}); setSaveError('');
             const clean = { ...localSessionRef.current, password: undefined, passphrase: undefined };
             localSessionRef.current = clean; setLocalSession(clean); onCancel();
           }} className="h-10 rounded-xl border border-line px-4 text-[12px] font-semibold text-ink-2 transition-all hover:bg-surf hover:text-ink active:scale-[0.98]">{t('common.cancel')}</button>
@@ -417,6 +430,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                     </div>
                   ) : (
                     <ConnectionPrivateKey key={`${activeWorkspaceId}:${sessionIdentity}`} session={localSession} savedSession={session}
+                      autosavePending={autosavePending}
                       pendingSecretClear={Object.keys(pendingClears).length > 0}
                       disabled={saving || !profilesReady || isSwitching || isVaultLocked}
                       onUseFile={() => handleUpdate({ keyId: null })}
@@ -489,7 +503,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
         </div>
       </fieldset>
       {showProtocolHelp && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-scrim p-5 backdrop-blur-sm" onClick={() => setShowProtocolHelp(false)}>
-        <div className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-line bg-panel shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div role="dialog" aria-modal="true" aria-label={t('connection.protocol.label')} className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-line bg-panel shadow-2xl" onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-line-soft px-5 py-4"><div className="flex items-center gap-2 text-[13px] font-semibold"><Info className="h-4 w-4 text-primary" />{t('connection.protocol.label')}</div><button type="button" onClick={() => setShowProtocolHelp(false)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-3 hover:bg-surf hover:text-ink"><X className="h-4 w-4" /></button></div>
           <div className="divide-y divide-line-soft">{[['AUTO', t('connection.protocol.tooltipAuto')], ['SSH', t('connection.protocol.tooltipSsh')], [t('connection.protocol.local'), t('connection.protocol.tooltipLocal')], ['TELNET', t('connection.protocol.tooltipTelnet')]].map(([label, description]) => <div key={label} className="px-5 py-4"><div className="font-mono text-[11px] font-bold text-primary">{label}</div><p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">{description}</p></div>)}</div>
         </div>

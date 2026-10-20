@@ -78,6 +78,67 @@ const typeConnectionField = (selector: string, value: string) => act(async () =>
 const submitConnection = () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 
 describe('stored keys in the connection form', () => {
+  it.each(['file', 'saved key'])('R51 saves a new server using a %s after its debounce and waits before connecting', async source => {
+    useSessionStore.getState().setSessions([{ ...server, isDraft: true, privateKeyPath: undefined }]);
+    await act(async () => root.render(<Harness />));
+    if (source === 'file') await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="common.selectFile"]')!.click());
+    else await chooseSource(key.id);
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(useSessionStore.getState().sessions[0].isDraft).toBe(true);
+    const pending = deferred<boolean>(); saveProfiles.mockClear(); saveProfiles.mockReturnValueOnce(pending.promise);
+    await submitConnection();
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: [expect.objectContaining({
+      id: 'server', isDraft: false, authType: 'key', keyId: source === 'file' ? null : key.id,
+      privateKeyPath: source === 'file' ? '/temporary/other-key' : null,
+    })] });
+    expect(sshConnect).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(true));
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({ isDraft: false });
+    expect(sshConnect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ workspaceId: 'current', profileId: 'server' }));
+  });
+
+  it('R51 waits for the current username to save when connecting before the debounce', async () => {
+    const pending = deferred<boolean>(); saveProfiles.mockReturnValueOnce(pending.promise);
+    await act(async () => root.render(<Harness />));
+    await typeConnectionField('input[autocomplete="username"]', 'changed-user');
+    await submitConnection();
+    expect(saveProfiles).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'current', payload: [expect.objectContaining({ id: 'server', username: 'changed-user', keyId: null })] });
+    expect(sshConnect).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(true));
+    expect(sshConnect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ profileId: 'server', username: 'changed-user' }));
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(saveProfiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('R51 connects an unchanged saved server with an omitted keyId without saving', async () => {
+    // Connections created in this run can omit keyId; persisted ones have keyId: null.
+    useSessionStore.getState().setSessions([{ ...server, keyId: undefined }]);
+    saveProfiles.mockResolvedValue(false);
+    await act(async () => root.render(<Harness />)); await submitConnection();
+    expect(saveProfiles).not.toHaveBeenCalled();
+    expect(sshConnect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ profileId: 'server' }));
+  });
+
+  it('R51 keeps a quick connection with pending edits temporary and never saves it', async () => {
+    useSessionStore.getState().setSessions([{ ...server, isDraft: true, isQuickConnect: true }]);
+    await act(async () => root.render(<Harness />));
+    await typeConnectionField('input[autocomplete="username"]', 'quick-user');
+    await submitConnection();
+    expect(saveProfiles).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({ username: 'quick-user', isQuickConnect: true });
+    expect(sshConnect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ username: 'quick-user', profileId: undefined }));
+    await act(async () => vi.advanceTimersByTime(400));
+    expect(saveProfiles).not.toHaveBeenCalled();
+  });
+
+  it('R54 exposes protocol help as a modal dialog', async () => {
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="connection.protocol.label"]')!.click());
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.getAttribute('aria-label')).toBe('connection.protocol.label');
+  });
+
   it.each([null, key.id])('connects an unchanged saved key selection (%s) without a whole-list save', async keyId => {
     useSessionStore.getState().setSessions([{ ...server, keyId }]);
     saveProfiles.mockResolvedValue(false);
@@ -188,6 +249,23 @@ describe('stored keys in the connection form', () => {
 });
 
 describe('importing a saved profile key file', () => {
+  it('R52 blocks key import while a typed passphrase waits for the autosave debounce', async () => {
+    await render();
+    const importButton = () => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === 'Import into GETSSH')!;
+    expect(importButton().disabled).toBe(false);
+    await typeConnectionField('input[type="password"]', 'new passphrase');
+    expect(importButton().disabled).toBe(true);
+    await click('Import into GETSSH');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => vi.advanceTimersByTime(399));
+    expect(importButton().disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(onUpdate).toHaveBeenCalledWith(0, expect.objectContaining({ keyId: null, passphrase: 'new passphrase' }));
+    expect(importButton().disabled).toBe(false);
+    await click('Import into GETSSH');
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
   it('allows importing after a failed connection leaves a typed passphrase', async () => {
     await render(); await typeConnectionField('input[type="password"]', 'retry passphrase');
     await act(async () => vi.advanceTimersByTime(400)); await submitConnection();
