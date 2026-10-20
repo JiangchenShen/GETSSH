@@ -79,6 +79,17 @@ jobs:
       - name: Install Node Dependencies
         run: pnpm install --frozen-lockfile
 
+      # mac.extraResources copies Electron's and Chromium's licenses (FFmpeg's LGPL notice among
+      # them) from node_modules/electron/dist. Electron 44 fills that in on first use, not at
+      # install, and electron-builder skips a missing source with only a log line.
+      - name: Fetch Electron's license files
+        if: runner.os == 'macOS'
+        working-directory: apps/getssh-client
+        shell: bash
+        run: |
+          node node_modules/electron/install.js
+          ls -la node_modules/electron/dist/LICENSE node_modules/electron/dist/LICENSES.chromium.html
+
       - name: Check TypeScript
         working-directory: apps/getssh-client
         run: pnpm exec tsc -b tsconfig.json --force --pretty false

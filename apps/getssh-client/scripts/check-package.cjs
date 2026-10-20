@@ -11,7 +11,10 @@ const [archiveArgument, platform = process.platform, arch = process.arch] = proc
 assert(archiveArgument, 'Usage: node scripts/check-package.cjs <app.asar> [platform] [arch]');
 const archive = path.resolve(archiveArgument);
 const resources = path.dirname(archive);
-const entries = asar.listPackage(archive).map(entry => entry.replace(/^\/+/, ''));
+// Entries are compared with "/" everywhere. @electron/asar lists and looks them up with the
+// platform's separator, so on Windows every lookup goes through native().
+const native = entry => entry.split('/').join(path.sep);
+const entries = asar.listPackage(archive).map(entry => entry.split(path.sep).join('/').replace(/^\/+/, ''));
 
 function diskFile(file) {
   const stat = fs.statSync(file);
@@ -20,9 +23,9 @@ function diskFile(file) {
 
 function archiveFile(entry) {
   entry = entry.replace(/^\/+/, '');
-  const stat = asar.statFile(archive, entry);
+  const stat = asar.statFile(archive, native(entry));
   assert(stat.size > 0, `Missing or empty archive file: ${entry}`);
-  if (stat.unpacked) diskFile(path.join(`${archive}.unpacked`, entry));
+  if (stat.unpacked) diskFile(path.join(`${archive}.unpacked`, native(entry)));
 }
 
 function windowsBinary(file) {
@@ -61,7 +64,7 @@ const nativeBinary = platform === 'win32' ? windowsBinary : platform === 'darwin
 
 function windowsArchiveBinary(entry) {
   archiveFile(entry);
-  assert(asar.statFile(archive, entry).unpacked, `Windows native binary must be unpacked: ${entry}`);
+  assert(asar.statFile(archive, native(entry)).unpacked, `Windows native binary must be unpacked: ${entry}`);
   windowsBinary(path.join(`${archive}.unpacked`, entry));
 }
 
@@ -84,11 +87,11 @@ for (const entry of [
   'dist-electron/preload/index.js', 'dist-electron/main/plugin-host.js',
   'dist-electron/main/plugin-sandbox.js', 'dist-electron/main/package.json',
 ]) archiveFile(entry);
-const html = asar.extractFile(archive, 'dist/index.html').toString();
+const html = asar.extractFile(archive, native('dist/index.html')).toString();
 for (const [, reference] of html.matchAll(/\b(?:src|href)="([^"]+\.(?:js|css))"/g)) {
   archiveFile(path.posix.join('dist', reference));
 }
-assert.equal(JSON.parse(asar.extractFile(archive, 'dist-electron/main/package.json')).type, 'commonjs');
+assert.equal(JSON.parse(asar.extractFile(archive, native('dist-electron/main/package.json'))).type, 'commonjs');
 for (const pattern of [
   /^dist\/assets\/[^/]+\.js$/, /^dist\/assets\/[^/]+\.css$/,
   /^dist\/assets\/MiSans-Normal-[^/]+\.woff2?$/, /^dist\/assets\/MiSans-Bold-[^/]+\.woff2?$/,
@@ -101,7 +104,7 @@ for (const pattern of [
 for (const name of ['electron-updater', 'ssh2', 'node-pty']) {
   const directory = `node_modules/${name}`;
   archiveFile(`${directory}/package.json`);
-  const metadata = JSON.parse(asar.extractFile(archive, `${directory}/package.json`));
+  const metadata = JSON.parse(asar.extractFile(archive, native(`${directory}/package.json`)));
   archiveFile(path.posix.join(directory, metadata.main || 'index.js'));
 }
 if (platform === 'win32') {
