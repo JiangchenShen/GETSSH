@@ -1,5 +1,12 @@
 name: Release GETSSH v3.0
 
+# One installer per platform and architecture, each built on a runner of that architecture: the
+# native modules are compiled there and never cross-compiled. Every job checks that it made
+# exactly its own installer, that every native binary in it is of its architecture
+# (check-package.cjs) and that the packaged app starts. A v* tag then creates one draft release
+# with the four installers and the notes in docs/release-notes/<tag>.md; a manual run builds and checks
+# the same way and keeps the installers as workflow artifacts only, to try a release before tagging.
+
 on:
   workflow_dispatch:
   push:
@@ -7,7 +14,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -16,26 +23,39 @@ jobs:
   build:
     name: Build ${{ matrix.os }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-15-intel
             arch: x64
+            platform: darwin
             eb_target: --mac --x64
             rust_target: x86_64-apple-darwin
+            installer: GETSSH-VERSION.dmg
+            asar: dist/mac/GETSSH.app/Contents/Resources/app.asar
           - os: macos-15
             arch: arm64
+            platform: darwin
             eb_target: --mac --arm64
             rust_target: aarch64-apple-darwin
+            installer: GETSSH-VERSION-arm64.dmg
+            asar: dist/mac-arm64/GETSSH.app/Contents/Resources/app.asar
           - os: windows-2022
             arch: x64
+            platform: win32
             eb_target: --win --x64
             rust_target: x86_64-pc-windows-msvc
+            installer: GETSSH-Setup-VERSION-x64.exe
+            asar: dist/win-unpacked/resources/app.asar
           - os: windows-11-arm
             arch: arm64
+            platform: win32
             eb_target: --win --arm64
             rust_target: aarch64-pc-windows-msvc
+            installer: GETSSH-Setup-VERSION-arm64.exe
+            asar: dist/win-arm64-unpacked/resources/app.asar
 
     steps:
       - name: Checkout Code
@@ -88,6 +108,9 @@ jobs:
           fi
         shell: bash
 
+      # package.json names no architecture in mac.target and win.target, so the flags below decide
+      # it. With an architecture there, electron-builder would also pack that one here, with this
+      # runner's native modules in it.
       - name: Build and Package Electron App
         run: |
           pnpm exec vite build
@@ -95,18 +118,78 @@ jobs:
         working-directory: apps/getssh-client
         shell: bash
 
-      - name: Smoke-test Packaged App (Windows)
-        if: runner.os == 'Windows'
+      - name: Check the installer and the packaged app
+        shell: bash
+        env:
+          INSTALLER: ${{ matrix.installer }}
+          ASAR: ${{ matrix.asar }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          version=$(node -p "require('./apps/getssh-client/package.json').version")
+          expected="dist/${INSTALLER/VERSION/$version}"
+          ls -la dist
+          shopt -s nullglob
+          installers=(dist/GETSSH*.dmg dist/GETSSH-Setup-*.exe)
+          if [ "${#installers[@]}" -ne 1 ] || [ "${installers[0]}" != "$expected" ]; then
+            echo "Expected exactly $expected, found: ${installers[*]}"
+            exit 1
+          fi
+          node apps/getssh-client/scripts/check-package.cjs "$ASAR" "$PLATFORM" "$ARCH"
+          echo "INSTALLER_PATH=$expected" >> "$GITHUB_ENV"
+
+      - name: Smoke-test the packaged app
         working-directory: apps/getssh-client
         run: npm run test:packaged-startup
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.exe
+          name: installer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ env.INSTALLER_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Draft the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Find the release notes
+        shell: bash
+        run: |
+          notes="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -s "$notes" ]; then
+            echo "Missing release notes: $notes"
+            exit 1
+          fi
+
+      - name: Collect the installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: installers
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: installers
+        run: |
+          sha256sum GETSSH* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # One release, created once: four jobs each creating a draft could race into several.
+      - name: Create the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GETSSH ${{ github.ref_name }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          files: installers/*
           draft: true
           prerelease: false
+          fail_on_unmatched_files: true

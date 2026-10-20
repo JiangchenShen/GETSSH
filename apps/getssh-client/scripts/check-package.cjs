@@ -36,6 +36,29 @@ function windowsBinary(file) {
   assert.equal(bytes.readUInt16LE(offset + 4), machine, `Wrong Windows binary architecture (${arch} required): ${file}`);
 }
 
+/**
+ * A 64-bit Mach-O file for `arch`, or a universal one that contains it. electron-builder packs
+ * whatever native files it finds, so a package for one architecture can carry another's.
+ */
+function macBinary(file) {
+  diskFile(file);
+  const bytes = fs.readFileSync(file);
+  const cpu = { x64: 0x01000007, arm64: 0x0100000c }[arch];
+  assert(cpu, `Unsupported macOS architecture: ${arch}`);
+  assert(bytes.length >= 8, `Not a Mach-O binary: ${file}`);
+  if (bytes.readUInt32LE(0) === 0xfeedfacf) {
+    assert.equal(bytes.readUInt32LE(4), cpu, `Wrong macOS binary architecture (${arch} required): ${file}`);
+    return;
+  }
+  const fat = bytes.readUInt32BE(0);
+  assert(fat === 0xcafebabe || fat === 0xcafebabf, `Not a 64-bit Mach-O binary: ${file}`);
+  const size = fat === 0xcafebabe ? 20 : 32;
+  const cpus = Array.from({ length: bytes.readUInt32BE(4) }, (_, i) => bytes.readUInt32BE(8 + i * size));
+  assert(cpus.includes(cpu), `Universal macOS binary without ${arch}: ${file}`);
+}
+
+const nativeBinary = platform === 'win32' ? windowsBinary : platform === 'darwin' ? macBinary : diskFile;
+
 function windowsArchiveBinary(entry) {
   archiveFile(entry);
   assert(asar.statFile(archive, entry).unpacked, `Windows native binary must be unpacked: ${entry}`);
@@ -87,6 +110,14 @@ if (platform === 'win32') {
     'conpty/OpenConsole.exe', 'conpty/conpty.dll',
   ]) windowsArchiveBinary(`node_modules/node-pty/prebuilds/${platform}-${arch}/${name}`);
 }
+if (platform === 'darwin') {
+  // node-pty loads build/Release first: the copy electron-builder rebuilt for this architecture.
+  for (const entry of ['node_modules/node-pty/build/Release/pty.node', 'node_modules/node-pty/build/Release/spawn-helper']) {
+    archiveFile(entry);
+    macBinary(path.join(`${archive}.unpacked`, entry));
+  }
+  macBinary(path.join(resources, '..', 'MacOS', 'GETSSH'));
+}
 
 for (const name of [
   'getssh-kv', 'getssh-sysprobe', 'getssh-vault', 'getssh-unarchive', 'sftp-stream',
@@ -100,12 +131,12 @@ for (const name of [
   diskFile(path.join(directory, metadata.main));
   const nativeFiles = fs.readdirSync(directory).filter(entry => entry.endsWith('.node'));
   assert(nativeFiles.length > 0, `Missing Rust native addon: ${name}`);
-  nativeFiles.forEach(entry => (platform === 'win32' ? windowsBinary : diskFile)(path.join(directory, entry)));
+  nativeFiles.forEach(entry => nativeBinary(path.join(directory, entry)));
 }
 if (platform === 'win32') {
   for (const name of ['watchdog.exe', 'getssh-sandbox.exe']) windowsBinary(path.join(resources, name));
 } else {
-  diskFile(path.join(resources, 'watchdog'));
+  nativeBinary(path.join(resources, 'watchdog'));
 }
 // Third-party notices (scripts/third-party-notices.cjs), and Electron's and Chromium's
 // licenses: beside app.asar on macOS (added by mac.extraResources), next to GETSSH.exe on Windows.

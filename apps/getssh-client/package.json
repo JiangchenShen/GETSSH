@@ -1,8 +1,8 @@
 {
   "name": "getssh",
-  "version": "3.0.0-rc.1",
+  "version": "3.0.0-preview",
   "getsshRelease": {
-    "stage": "RC",
+    "stage": "Preview",
     "edition": "FUSION",
     "program": "preview"
   },
@@ -93,11 +93,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
+          "target": "nsis"
         }
       ],
       "icon": "build/icon.ico"
@@ -267,13 +263,10 @@
     ],
     "beforePack": "scripts/third-party-notices.cjs",
     "mac": {
-      "identity": null,
+      "identity": "-",
       "target": [
         {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
+          "target": "dmg"
         }
       ],
       "category": "public.app-category.developer-tools",

@@ -53,12 +53,12 @@
    - `~/Library/Application Support/GETSSH/` 里的 `profiles.json`、`profiles.enc`、`profiles.key`（有哪个复制哪个）；
    - 同一个文件夹里的 `plugin_data/`、`plugins/`、`known_hosts.json`。
    - **不要**复制 `~/.getssh`，那是 3.0 的数据；新用户要像刚从 2.0 升上来一样，没有它。
-3. 准备 3.0 的安装包，放到 `/Users/Shared/`：用发布流程打的 DMG，或者 Claude 本地打的 `dist/mac-arm64/GETSSH.app`。要用 10-15 以后打的包，之前的包还不会导入插件数据。
+3. 准备 3.0 的安装包，放到 `/Users/Shared/`：用发布流程打的 DMG（10-20 起，手动运行发布流程也会把安装包留在那次运行的 Artifacts 里）。要用 10-15 以后打的包，之前的包还不会导入插件数据。
 
 ### 演练
 
 1. 登录新用户，把 `/Users/Shared/getssh-v2/` 里的东西复制到 `~/Library/Application Support/GETSSH/`（文件夹不存在就新建）。
-2. 打开 3.0。安装包没有签名，第一次打开时 macOS 可能提示无法验证开发者，在应用上点右键选"打开"即可。然后逐项检查：
+2. 打开 3.0。应用没有 Apple 开发者签名，第一次打开时 macOS 会提示无法验证开发者：macOS 13、14 上在应用上点右键选"打开"；macOS 15 及以上打开"系统设置 → 隐私与安全性"，在下方点"仍要打开"。然后逐项检查：
    - 服务器都在主工作区里，别名、端口、用户名、私钥路径对得上；
    - 有密码的服务器能直接连上；
    - 2.0 设过主密码、而 `profiles.key` 打不开时，界面会请你输入 2.0 的主密码，输入后能导入；
