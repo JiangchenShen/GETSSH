@@ -4,6 +4,7 @@ import https from 'node:https';
 import { join } from 'node:path';
 import type { BackendConfig } from '../../../src/types/ipc';
 import { getRustCorePath } from '../utils/rustCorePath';
+import { compareVersions } from '../utils/compareVersions';
 import { isMainWebContents } from '../windowRegistry';
 
 let sysprobe: any = null;
@@ -43,20 +44,6 @@ const registerHotkey = (key: string, getWin: () => BrowserWindow | null) => {
   }
 }
 
-function compareSemVer(v1: string, v2: string) {
-  const parse = (v: string) => {
-    const match = v.match(/(\d+)\.(\d+)\.(\d+)/);
-    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
-  };
-  const a = parse(v1);
-  const b = parse(v2);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] > b[i]) return 1;
-    if (a[i] < b[i]) return -1;
-  }
-  return 0;
-}
-
 function checkLatestRelease(app: Electron.App): Promise<{ version: string, url: string } | null> {
   return new Promise((resolve) => {
     try {
@@ -76,7 +63,7 @@ function checkLatestRelease(app: Electron.App): Promise<{ version: string, url: 
               const release = JSON.parse(data);
               const latestVersion = release.tag_name;
               const currentVersion = app.getVersion();
-              if (compareSemVer(latestVersion, currentVersion) > 0) {
+              if (compareVersions(latestVersion, currentVersion) > 0) {
                 resolve({ version: latestVersion, url: release.html_url });
               } else {
                 resolve(null);
