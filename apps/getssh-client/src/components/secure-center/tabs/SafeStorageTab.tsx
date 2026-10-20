@@ -85,7 +85,7 @@ export const SafeStorageTab: React.FC<SafeStorageTabProps> = ({ section = 'both'
     invalidate();
     const stopApp = useAppLockStore.subscribe((next, previous) => {
       if (next.state?.phase !== previous.state?.phase) invalidate();
-      else if (next.state?.presenceEnabled !== previous.state?.presenceEnabled && isCurrent(generation.current, workspaceId.current)) void refresh();
+      else if (next.state !== previous.state && next.state?.phase === 'ready' && isCurrent(generation.current, workspaceId.current)) void refresh();
     });
     const stopWorkspace = useWorkspaceStore.subscribe((next, previous) => {
       if (next.activeWorkspaceId !== previous.activeWorkspaceId || next.isSwitching !== previous.isSwitching || next.isVaultLocked !== previous.isVaultLocked) invalidate();

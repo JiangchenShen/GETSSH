@@ -158,6 +158,36 @@ describe('recovery setup state', () => {
 const submit = async () => act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 
 describe('presence status updates', () => {
+  it('refreshes workspace presence on a ready broadcast without master-password presence changing', async () => {
+    const workspacePresence = (presence: boolean): SecurityStatus => ({ ...metadata(false, true), presenceSupported: true,
+      scopes: metadata(false, true).scopes.map(scope => ({ ...scope, presence })) });
+    status.mockResolvedValueOnce(workspacePresence(false)).mockResolvedValue(workspacePresence(true));
+    await render('vault');
+    expect(buttons()).toContain('Turn on');
+    await act(async () => {
+      const state = useAppLockStore.getState().state!;
+      useAppLockStore.setState({ state: { ...state } });
+    });
+    expect(useAppLockStore.getState().state).toMatchObject({ appProtected: false, presenceEnabled: false });
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(buttons()).toContain('Turn off'); expect(buttons()).not.toContain('Turn on');
+  });
+
+  it('refreshes a ready broadcast without clearing the visible recovery code or its confirmation', async () => {
+    await render('app'); await click('Create');
+    await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    const callsBefore = status.mock.calls.length;
+    await act(async () => {
+      const state = useAppLockStore.getState().state!;
+      useAppLockStore.setState({ state: { ...state } });
+    });
+    expect(status).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(container.querySelector('code')!.textContent).toBe('NEW-RECOVERY-CODE');
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+    expect(useRecoveryReminderStore.getState()).toMatchObject({ unconfirmed: true, visible: true });
+    expect(Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Done')!.disabled).toBe(false);
+  });
+
   it('refreshes an open settings page when migration enables presence without discarding the password form', async () => {
     const withPresence = (presence: boolean): SecurityStatus => ({ ...metadata(true), presenceSupported: true,
       scopes: [{ id: 'app', workspaceId: null, protected: true, ownPassword: true, presence, unlocked: true, recovery: false, revealRemainingMs: null }] });
