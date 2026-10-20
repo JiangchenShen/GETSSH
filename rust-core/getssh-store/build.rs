@@ -45,6 +45,14 @@ const SQLITE_DEFINES: &[&str] = &[
 fn main() {
   napi_build::setup();
 
+  // getssh-keystore's Swift shim needs the Swift runtime, which macOS ships in /usr/lib/swift.
+  // For x86_64 the linker records it as @rpath/libswiftCore.dylib, and the rpath that
+  // getssh-keystore's build script adds does not reach this cdylib (cargo passes a dependency's
+  // link args only to that package's own targets), so the Intel module failed to load.
+  if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,/usr/lib/swift");
+  }
+
   let source = "vendor/sqlite3mc/sqlite3.c";
   println!("cargo:rerun-if-changed={source}");
   println!("cargo:rerun-if-changed=vendor/sqlite3mc/sqlite3.h");
