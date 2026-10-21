@@ -159,24 +159,22 @@ jobs:
           echo "INSTALLER_PATH=$expected" >> "$GITHUB_ENV"
 
       # The Intel runner has no Secure Enclave, so GETSSH keeps its device key in the login
-      # Keychain, and the smoke test runs with a throwaway HOME that has none: adding the item
-      # waited for a prompt nobody answers. CI only: an unlocked keychain in that HOME, also the
-      # user's default, so the Keychain path is tested for real. Harmless with a Secure Enclave.
+      # Keychain, and there store.start() never returned: the runner's keychain could not take the
+      # item without a prompt nobody answers. CI only: an unlocked keychain of its own, by
+      # absolute path the user's default and first in the search list. Harmless with a Secure
+      # Enclave; the smoke test keeps its own isolated HOME.
       - name: Prepare a keychain for the smoke test
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          home="$RUNNER_TEMP/getssh-smoke-home"
-          mkdir -p "$home/Library/Keychains"
-          chmod 700 "$home"
-          keychain="$home/Library/Keychains/login.keychain-db"
-          security create-keychain -p getssh-smoke "$keychain"
+          keychain="$RUNNER_TEMP/getssh-ci.keychain-db"
+          security create-keychain -p getssh-ci "$keychain"
           security set-keychain-settings "$keychain"
-          security unlock-keychain -p getssh-smoke "$keychain"
+          security unlock-keychain -p getssh-ci "$keychain"
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security default-keychain -d user -s "$keychain"
           security list-keychains -d user
-          echo "GETSSH_SMOKE_HOME=$home" >> "$GITHUB_ENV"
+          security default-keychain -d user
 
       - name: Smoke-test the packaged app
         working-directory: apps/getssh-client

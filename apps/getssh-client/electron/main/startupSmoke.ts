@@ -10,6 +10,22 @@ const TOKEN_PATTERN = /^[a-f0-9]{32}$/;
 // The runner owns the root; create a fresh child before backend imports can resolve user paths.
 let smokeHome: string | undefined;
 if (shouldRunPackagedStartupSmoke(app.isPackaged)) {
+  // Nobody answers Electron's dialog for an uncaught exception in CI, and it hung a job: report
+  // the error as the smoke result and leave instead.
+  process.on('uncaughtException', error => {
+    try {
+      writePackagedStartupSmokeResult({
+        status: 'error',
+        platform: process.platform,
+        arch: process.arch,
+        electron: process.versions.electron || 'unknown',
+        error: error instanceof Error ? error.stack || error.message : String(error),
+      });
+    } catch {
+      // A result is already there.
+    }
+    app.exit(1);
+  });
   const root = path.join(os.tmpdir(), `getssh-startup-smoke-${getSmokeToken()}`);
   if (process.env.HOME !== root || process.env.USERPROFILE !== root) {
     throw new Error('Packaged-startup smoke requires the isolated runner');

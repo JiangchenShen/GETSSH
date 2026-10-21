@@ -41,10 +41,7 @@ function findPackagedExecutable() {
 const token = crypto.randomBytes(16).toString('hex');
 const resultPath = path.join(os.tmpdir(), `getssh-startup-smoke-${token}.json`);
 const executable = findPackagedExecutable();
-// CI can hand in a prepared home: the macOS release jobs put an unlocked keychain in it, for Macs
-// without a Secure Enclave, where GETSSH keeps its device key in the login Keychain.
-const providedHome = process.env.GETSSH_SMOKE_HOME ? path.resolve(process.env.GETSSH_SMOKE_HOME) : null;
-const smokeRoot = providedHome || path.join(os.tmpdir(), `getssh-startup-smoke-${token}`);
+const smokeRoot = path.join(os.tmpdir(), `getssh-startup-smoke-${token}`);
 const args = ['--use-mock-keychain', `--user-data-dir=${path.join(smokeRoot, 'bootstrap')}`];
 
 fs.rmSync(resultPath, { force: true });
@@ -105,7 +102,7 @@ function runApp() {
   let run;
   let reported;
   // Exclusive creation makes this runner the only owner of the directory it later removes.
-  if (!providedHome) fs.mkdirSync(smokeRoot, { mode: 0o700 });
+  fs.mkdirSync(smokeRoot, { mode: 0o700 });
   try {
     run = await runApp();
     if (run.error) throw run.error;
@@ -120,7 +117,7 @@ function runApp() {
     );
   } finally {
     fs.rmSync(resultPath, { force: true });
-    if (!providedHome) fs.rmSync(smokeRoot, { recursive: true, force: true });
+    fs.rmSync(smokeRoot, { recursive: true, force: true });
   }
 
   if (run.status !== 0 || reported.status !== 'ok') {
