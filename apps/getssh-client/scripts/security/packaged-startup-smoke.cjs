@@ -41,7 +41,10 @@ function findPackagedExecutable() {
 const token = crypto.randomBytes(16).toString('hex');
 const resultPath = path.join(os.tmpdir(), `getssh-startup-smoke-${token}.json`);
 const executable = findPackagedExecutable();
-const smokeRoot = path.join(os.tmpdir(), `getssh-startup-smoke-${token}`);
+// CI can hand in a prepared home: the macOS release jobs put an unlocked keychain in it, for Macs
+// without a Secure Enclave, where GETSSH keeps its device key in the login Keychain.
+const providedHome = process.env.GETSSH_SMOKE_HOME ? path.resolve(process.env.GETSSH_SMOKE_HOME) : null;
+const smokeRoot = providedHome || path.join(os.tmpdir(), `getssh-startup-smoke-${token}`);
 const args = ['--use-mock-keychain', `--user-data-dir=${path.join(smokeRoot, 'bootstrap')}`];
 
 fs.rmSync(resultPath, { force: true });
@@ -71,7 +74,7 @@ function hangDiagnostics(pid) {
   if (process.platform !== 'darwin') return '';
   const sample = spawnSync('sample', [String(pid), '5'], { encoding: 'utf8', timeout: 60_000 });
   const processes = spawnSync('ps', ['-axo', 'pid,ppid,stat,etime,command'], { encoding: 'utf8' });
-  const lines = `${sample.stdout || sample.stderr || ''}`.split('\n').slice(0, 600).join('\n');
+  const lines = `${sample.stdout || sample.stderr || ''}`.split('\n').slice(0, 4000).join('\n');
   const ours = `${processes.stdout || ''}`.split('\n').filter(line => /GETSSH|watchdog|Electron/i.test(line)).join('\n');
   return `\n--- sample ${pid} ---\n${lines}\n--- processes ---\n${ours}`;
 }
@@ -102,7 +105,7 @@ function runApp() {
   let run;
   let reported;
   // Exclusive creation makes this runner the only owner of the directory it later removes.
-  fs.mkdirSync(smokeRoot, { mode: 0o700 });
+  if (!providedHome) fs.mkdirSync(smokeRoot, { mode: 0o700 });
   try {
     run = await runApp();
     if (run.error) throw run.error;
@@ -117,7 +120,7 @@ function runApp() {
     );
   } finally {
     fs.rmSync(resultPath, { force: true });
-    fs.rmSync(smokeRoot, { recursive: true, force: true });
+    if (!providedHome) fs.rmSync(smokeRoot, { recursive: true, force: true });
   }
 
   if (run.status !== 0 || reported.status !== 'ok') {
