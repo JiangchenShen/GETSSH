@@ -32,6 +32,15 @@ type MiniMaxBlockState =
 const M3_MAX_OUTPUT = 524288;
 const M2_MAX_OUTPUT = 204800;
 
+/** In-stream error types that a retry cannot fix (the request itself is wrong). */
+const NON_RETRYABLE_STREAM_ERRORS = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error']);
+
+/** A tool streamed with no arguments sends an empty string; its input is still an object. */
+function parseToolArgs(raw: string): any {
+  if (!raw.trim()) return {};
+  try { return JSON.parse(raw); } catch { return { _raw: raw }; }
+}
+
 export class MiniMaxAdapter extends BaseAdapter {
   readonly provider = 'minimax';
 
@@ -75,6 +84,17 @@ export class MiniMaxAdapter extends BaseAdapter {
     return ModelCaps.resolve(this.provider, model).thinkingCanBeDisabled;
   }
 
+  /**
+   * Thinking depth for a model whose caps say 'effort' (M3.1-Flash): output_config.effort on the
+   * Anthropic endpoint, reasoning_effort on the OpenAI one. Left out, MiniMax runs at max.
+   */
+  private effortFor(model: string, request: LlmRequest): string | undefined {
+    if (!request.thinkingEffort) return undefined;
+    if (ModelCaps.resolve(this.provider, model).thinkingParamStyle !== 'effort') return undefined;
+    // 这个型号总在思考，none 会返回 400，按最浅的 low 发。
+    return request.thinkingEffort === 'none' ? 'low' : request.thinkingEffort;
+  }
+
   private defaultMaxTokens(model: string): number {
     return this.isM3(model) ? 131072 : 65536;
   }
@@ -91,13 +111,33 @@ export class MiniMaxAdapter extends BaseAdapter {
    *   OpenAI 端点   → { base_resp: { status_code, status_msg } }，且可能挂在 HTTP 200 上
    * 这里统一解析，并按 MiniMax 的数字码判定可重试性。
    */
+  /**
+   * A 200 that is plain JSON rather than a stream: MiniMax puts failures such as insufficient
+   * balance (1008) in its base_resp. Read as a stream it would only look like a dropped
+   * connection and be retried.
+   */
+  private async throwIfJsonInsteadOfStream(response: Response): Promise<void> {
+    const type = response.headers.get('content-type') || '';
+    if (!type.includes('application/json')) return;
+    const body = await response.json().catch(() => null);
+    const sc = body?.base_resp?.status_code;
+    if (typeof sc === 'number' && sc !== 0) {
+      const { message, code, retryable } = this.classifyError(200, body);
+      throw new LlmError(`MiniMax API Error (200): ${message}`, { retryable, provider: this.provider, code, status: 200 });
+    }
+    throw new LlmError('MiniMax API Error (200): a JSON response arrived where a stream was expected.', {
+      retryable: false, provider: this.provider, status: 200
+    });
+  }
+
   private classifyError(status: number, body: any): { message: string; code: string; retryable: boolean } {
     const sc = body?.base_resp?.status_code;
     if (typeof sc === 'number' && sc !== 0) {
       const msg = body?.base_resp?.status_msg || 'unknown';
       // 可重试：1000 unknown / 1001 timeout / 1002 rate limit / 1013,1024,1033 内部错误
-      //          1041 conn limit / 2045 请求增速超限 / 2056 Token Plan 额度窗口
-      const retryableCodes = new Set([1000, 1001, 1002, 1013, 1024, 1033, 1041, 2045, 2056]);
+      //          1039 token 限制 / 1041 conn limit / 2045 请求增速超限 / 2056 Token Plan 额度窗口
+      //          2064 集群负载高 / 2066 处理超时（1039、2064、2066 文档写的是"请稍后重试"）
+      const retryableCodes = new Set([1000, 1001, 1002, 1013, 1024, 1033, 1039, 1041, 2045, 2056, 2064, 2066]);
       return {
         message: `MiniMax base_resp ${sc}: ${msg}`,
         code: String(sc),
@@ -211,6 +251,8 @@ export class MiniMaxAdapter extends BaseAdapter {
     } else {
       requestBody.thinking = { type: 'adaptive' };
     }
+    const effort = this.effortFor(modelName, request);
+    if (effort) requestBody.output_config = { effort };
 
     // MiniMax 不像 Anthropic 那样对采样参数硬拒，但仍然只在调用方显式给了值时才下发。
     if (request.temperature !== undefined) {
@@ -247,18 +289,31 @@ export class MiniMaxAdapter extends BaseAdapter {
       });
     }
 
+    await this.throwIfJsonInsteadOfStream(response);
+
     const blockStates: Map<number, MiniMaxBlockState> = new Map();
     let stopReason = 'end_turn' as StopReason;
     let usage: NormalizedUsage | undefined;
+    // message_start 的用量：Anthropic 协议的输入 token 和缓存 token 都在这里。
+    const start = { input: 0, cacheRead: 0, cacheCreate: 0 };
     let hasStreamError = false;
     let streamErrorMsg = '';
+    let streamErrorRetryable = true;
     let sawTerminal = false;
 
     await this.processSseStream(response, (event, dataStr) => {
       let chunk: any;
       try { chunk = JSON.parse(dataStr); } catch { return; }
 
-      if (chunk.type === 'content_block_start') {
+      if (chunk.type === 'message_start') {
+        // Anthropic 协议的输入 token 在 message_start 里，message_delta 可能只带输出 token。
+        const u = chunk.message?.usage;
+        if (u) {
+          start.input = u.input_tokens || 0;
+          start.cacheRead = u.cache_read_input_tokens || 0;
+          start.cacheCreate = u.cache_creation_input_tokens || 0;
+        }
+      } else if (chunk.type === 'content_block_start') {
         const idx = chunk.index;
         const cb = chunk.content_block;
         if (cb?.type === 'thinking') {
@@ -294,9 +349,10 @@ export class MiniMaxAdapter extends BaseAdapter {
         }
         if (chunk.usage) {
           const u = chunk.usage;
-          const cacheRead = u.cache_read_input_tokens || 0;
-          const cacheCreate = u.cache_creation_input_tokens || 0;
-          const input = (u.input_tokens || 0) + cacheRead + cacheCreate;
+          // message_delta 的计数是累计值；没给的字段用 message_start 的。
+          const cacheRead = Math.max(u.cache_read_input_tokens || 0, start.cacheRead);
+          const cacheCreate = Math.max(u.cache_creation_input_tokens || 0, start.cacheCreate);
+          const input = Math.max(u.input_tokens || 0, start.input) + cacheRead + cacheCreate;
           usage = {
             inputTokens: input,
             outputTokens: u.output_tokens || 0,
@@ -310,12 +366,18 @@ export class MiniMaxAdapter extends BaseAdapter {
       } else if (chunk.type === 'error') {
         hasStreamError = true;
         streamErrorMsg = chunk.error?.message || 'stream error';
+        // 请求本身有问题的错误重试也没用，和 HTTP 4xx 一样直接失败。
+        streamErrorRetryable = !NON_RETRYABLE_STREAM_ERRORS.has(chunk.error?.type);
       }
     });
+    const startInput = start.input + start.cacheRead + start.cacheCreate;
+    if (!usage && startInput) {
+      usage = { inputTokens: startInput, outputTokens: 0, reasoningTokens: 0, cachedTokens: start.cacheRead, totalTokens: startInput };
+    }
 
     if (hasStreamError) {
       throw new LlmError(`MiniMax Stream Error: ${streamErrorMsg}`, {
-        retryable: true, provider: this.provider
+        retryable: streamErrorRetryable, provider: this.provider
       });
     }
     if (!sawTerminal) {
@@ -340,8 +402,7 @@ export class MiniMaxAdapter extends BaseAdapter {
         fullText += item.state.text;
         outputBlocks.push({ kind: 'text', text: item.state.text });
       } else {
-        let parsedArgs: any = {};
-        try { parsedArgs = JSON.parse(item.state.args); } catch { parsedArgs = { _raw: item.state.args }; }
+        const parsedArgs = parseToolArgs(item.state.args);
         outputBlocks.push({
           kind: 'tool_call',
           callId: item.state.id,
@@ -426,6 +487,8 @@ export class MiniMaxAdapter extends BaseAdapter {
     } else {
       requestBody.thinking = { type: 'adaptive' };
     }
+    const effort = this.effortFor(modelName, request);
+    if (effort) requestBody.reasoning_effort = effort;
 
     if (request.temperature !== undefined) {
       requestBody.temperature = Math.max(0, Math.min(request.temperature, 2));
@@ -473,6 +536,7 @@ export class MiniMaxAdapter extends BaseAdapter {
     let sawTerminal = false;
     let baseRespError: { code: string; message: string; retryable: boolean } | null = null;
 
+    await this.throwIfJsonInsteadOfStream(response);
     await this.processSseStream(response, (event, dataStr) => {
       if (dataStr === '[DONE]') { sawTerminal = true; return; }
 
@@ -547,8 +611,7 @@ export class MiniMaxAdapter extends BaseAdapter {
 
     const toolCallsList: LlmResponse['toolCalls'] = [];
     for (const tc of Array.from(toolCallsMap.keys()).sort((a, b) => a - b).map(k => toolCallsMap.get(k)!)) {
-      let parsedArgs: any = {};
-      try { parsedArgs = JSON.parse(tc.args); } catch { parsedArgs = { _raw: tc.args }; }
+      const parsedArgs = parseToolArgs(tc.args);
       outputBlocks.push({ kind: 'tool_call', callId: tc.id, name: tc.name, args: parsedArgs, raw: tc.args });
       toolCallsList.push({ callId: tc.id, name: tc.name, args: parsedArgs, raw: tc.args });
     }
@@ -577,15 +640,15 @@ export class MiniMaxAdapter extends BaseAdapter {
     } catch (e) {
       console.warn('[MiniMaxAdapter] Failed to fetch live models from API, using fallback roster', e);
     }
+    // M3 和 M3.1-Flash 是当前的文本模型。M2.5、M2.7 自 2026-10-19 起不再对新用户开放，
+    // 2026-11-18 下线；更早的 M2.x 已下线。
     return [
       'MiniMax-M3',
+      'MiniMax-M3.1-Flash',
       'MiniMax-M2.7',
       'MiniMax-M2.7-highspeed',
       'MiniMax-M2.5',
-      'MiniMax-M2.5-highspeed',
-      'MiniMax-M2.1',
-      'MiniMax-M2.1-highspeed',
-      'MiniMax-M2'
+      'MiniMax-M2.5-highspeed'
     ];
   }
 }

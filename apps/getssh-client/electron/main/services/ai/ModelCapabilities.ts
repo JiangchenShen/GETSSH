@@ -150,6 +150,12 @@ const FAMILY_RULES: FamilyRule[] = [
     supportsToolChoiceRequired: false, maxOutputTokens: 262144, tokenLimitField: 'max_completion_tokens' } },
 
   // ── MiniMax ──────────────────────────────────────────────────
+  // M3.1-Flash 只接受自适应思考：thinking.type="disabled" 会返回 400（2013）。
+  // 思考深度用 output_config.effort / reasoning_effort 调，只有这个型号认。
+  { provider: 'minimax', test: /m3\.1-flash/i, caps: {
+    known: true, supportsSampling: true, supportsThinking: true,
+    thinkingCanBeDisabled: false, thinkingParamStyle: 'effort',
+    supportsToolChoiceRequired: true, maxOutputTokens: 524288, tokenLimitField: 'max_completion_tokens' } },
   { provider: 'minimax', test: /m3/i, caps: {
     known: true, supportsSampling: true, supportsThinking: true,
     thinkingCanBeDisabled: true, thinkingParamStyle: 'none',
@@ -162,10 +168,11 @@ const FAMILY_RULES: FamilyRule[] = [
 
   // ── 千问 ─────────────────────────────────────────────────────
   // qwq 强制思考
+  // max_completion_tokens 只写给了 Qwen3.7-Max、Qwen3.5-Plus、Qwen3.5-Flash 及以后的型号，更早的用 max_tokens。
   { provider: 'qwen', test: /^qwq/i, caps: {
     known: true, supportsSampling: true, supportsThinking: true,
     thinkingCanBeDisabled: false, thinkingParamStyle: 'budget',
-    supportsToolChoiceRequired: false, maxOutputTokens: 32768, tokenLimitField: 'max_completion_tokens' } },
+    supportsToolChoiceRequired: false, maxOutputTokens: 32768, tokenLimitField: 'max_tokens' } },
   // Qwen3.5 及以上默认开思考；Qwen3 及以下默认关。两者都可关。
   { provider: 'qwen', test: /^qwen3(\.[5-9]|\.\d{2,})/i, caps: {
     known: true, supportsSampling: true, supportsThinking: true,
@@ -174,7 +181,7 @@ const FAMILY_RULES: FamilyRule[] = [
   { provider: 'qwen', test: /^qwen/i, caps: {
     known: true, supportsSampling: true, supportsThinking: true,
     thinkingCanBeDisabled: true, thinkingParamStyle: 'budget',
-    supportsToolChoiceRequired: false, maxOutputTokens: 65536, tokenLimitField: 'max_completion_tokens' } },
+    supportsToolChoiceRequired: false, maxOutputTokens: 65536, tokenLimitField: 'max_tokens' } },
 
   // ── Ollama / 本地端点：通用适配器，什么都不假设 ──────────────
   { provider: 'ollama', test: /.*/, caps: {

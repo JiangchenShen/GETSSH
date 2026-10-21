@@ -25,7 +25,9 @@ import {
   isConversationalModel, 
   formatModelDisplayName, 
   matchModelQuery, 
-  isSameModel 
+  isSameModel,
+  defaultModelFor,
+  isUsableEndpoint
 } from '../../utils/aiModelUtils';
 
 interface ModelItem {
@@ -82,6 +84,15 @@ const BASELINE_PRESETS: Record<string, ModelItem[]> = {
     { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', badge: 'Code', desc: '专业运维与代码调试引擎' },
     { id: 'kimi-k2.6', name: 'Kimi K2.6', badge: 'Classic', desc: '经典全栈多模态' },
   ],
+  minimax: [
+    { id: 'MiniMax-M3', name: 'MiniMax M3', badge: 'M3', desc: 'MiniMax 当前旗舰' },
+    { id: 'MiniMax-M3.1-Flash', name: 'MiniMax M3.1 Flash', badge: 'Fast', desc: '快速版，思考不能关闭' },
+  ],
+  qwen: [
+    { id: 'qwen3.8-max', name: 'Qwen3.8 Max', badge: 'Max', desc: '千问当前旗舰' },
+    { id: 'qwen3.7-plus', name: 'Qwen3.7 Plus', badge: 'Plus', desc: '效果与成本均衡' },
+    { id: 'qwen3.8-flash', name: 'Qwen3.8 Flash', badge: 'Fast', desc: '快速、低成本' },
+  ],
 };
 
 const PROVIDER_METADATA: Record<string, { label: string; badge: string; color: string }> = {
@@ -92,6 +103,8 @@ const PROVIDER_METADATA: Record<string, { label: string; badge: string; color: s
   deepseek: { label: 'DeepSeek (深度求索)', badge: 'Reasoning API', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' },
   zhipu: { label: 'Zhipu GLM (智谱清言)', badge: 'GLM API', color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' },
   kimi: { label: 'Moonshot Kimi (月之暗面)', badge: 'Moonshot API', color: 'text-red-400 bg-red-500/10 border-red-500/30' },
+  minimax: { label: 'MiniMax', badge: 'MiniMax API', color: 'text-pink-400 bg-pink-500/10 border-pink-500/30' },
+  qwen: { label: 'Alibaba Qwen (通义千问)', badge: 'DashScope API', color: 'text-orange-400 bg-orange-500/10 border-orange-500/30' },
   custom: { label: '自定义端点', badge: 'Custom', color: 'text-neutral-400 bg-neutral-500/10 border-neutral-500/30' },
 };
 
@@ -140,18 +153,11 @@ export const InputArea: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Current active provider
-  const currentProvider = (appConfig.aiProvider || aiConfig.aiProvider || 'gemini') as 'openai' | 'claude' | 'gemini' | 'ollama' | 'deepseek' | 'zhipu' | 'kimi' | 'custom';
+  const currentProvider = (appConfig.aiProvider || aiConfig.aiProvider || 'gemini') as 'openai' | 'claude' | 'gemini' | 'ollama' | 'deepseek' | 'zhipu' | 'kimi' | 'minimax' | 'qwen' | 'custom';
   const providerMeta = PROVIDER_METADATA[currentProvider] || PROVIDER_METADATA.gemini;
 
   // Resolve current active model with clean ID
-  const defaultModelForProvider = 
-    currentProvider === 'gemini' ? 'gemini-3.7-flash' :
-    currentProvider === 'claude' ? 'claude-sonnet-5' :
-    currentProvider === 'ollama' ? 'qwen2.5-coder' :
-    currentProvider === 'deepseek' ? 'deepseek-v4-pro' :
-    currentProvider === 'zhipu' ? 'glm-5.3' :
-    currentProvider === 'kimi' ? 'kimi-k3' :
-    'gpt-5.6-terra';
+  const defaultModelForProvider = defaultModelFor(currentProvider);
 
   const rawCurrentModel = appConfig.aiModel || aiConfig.aiModel || defaultModelForProvider;
   const currentModel = cleanModelId(rawCurrentModel);
@@ -164,6 +170,8 @@ export const InputArea: React.FC<{
 
   // Fetch dynamic models from API for current provider
   const fetchLiveModels = async () => {
+    // A half-typed or malformed address gets no request carrying the saved API key.
+    if (!isUsableEndpoint(appConfig.aiEndpoint)) return;
     setIsFetchingModels(true);
     try {
       const fetched = await AiBridge.getModels({

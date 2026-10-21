@@ -30,6 +30,38 @@ const NON_CHAT_PATTERNS = [
   /transcribe/i,
 ];
 
+/** The model each provider uses when none is chosen: the settings page, the model picker and every chat use this one. */
+export const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+  gemini: 'gemini-3.7-flash',
+  claude: 'claude-sonnet-5',
+  ollama: 'qwen2.5-coder',
+  deepseek: 'deepseek-v4-pro',
+  zhipu: 'glm-5.3',
+  kimi: 'kimi-k3',
+  minimax: 'MiniMax-M3',
+  qwen: 'qwen3.8-max',
+  openai: 'gpt-5.6-terra',
+  custom: 'gpt-5.6-terra',
+};
+
+export function defaultModelFor(provider?: string): string {
+  return (provider && DEFAULT_MODEL_BY_PROVIDER[provider]) || 'gpt-5.6-terra';
+}
+
+/**
+ * Whether the model list may be fetched from this service address with the saved API key: empty
+ * (the provider's own address) or a complete http(s) URL.
+ */
+export function isUsableEndpoint(endpoint?: string): boolean {
+  if (!endpoint) return true;
+  try {
+    const url = new URL(endpoint);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !!url.hostname;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Strips technical vendor prefixes like `models/` or leading slashes
  */

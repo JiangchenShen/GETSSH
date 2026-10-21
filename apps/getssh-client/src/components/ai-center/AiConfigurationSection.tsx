@@ -4,20 +4,17 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../store/appStore';
 import { useAiStore } from '../../store/aiStore';
 import { AiBridge } from '../../services/aiBridge';
-import { cleanModelId, formatModelDisplayName, isConversationalModel } from '../../utils/aiModelUtils';
+import { cleanModelId, defaultModelFor, formatModelDisplayName, isConversationalModel, isUsableEndpoint } from '../../utils/aiModelUtils';
 import { McpTab } from './McpTab';
 
 export type AiConfigurationTab = 'providers' | 'models' | 'search' | 'mcp';
 
-const providerDefaults: Record<string, string> = {
-  gemini: 'gemini-3.7-flash',
-  claude: 'claude-sonnet-5',
-  ollama: 'qwen2.5-coder',
-  deepseek: 'deepseek-v4-pro',
-  zhipu: 'glm-5.3',
-  kimi: 'kimi-k3',
-  openai: 'gpt-5.6-terra',
-  custom: 'gpt-5.6-terra',
+/** Providers whose address can be changed: a local server, a custom one, or a region or site. */
+const endpointPlaceholders: Record<string, string> = {
+  ollama: 'http://127.0.0.1:11434',
+  custom: 'https://api.example.com/v1',
+  minimax: 'https://api.minimax.io',
+  qwen: 'https://dashscope.aliyuncs.com',
 };
 
 const inputClass = 'w-full min-w-0 rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink outline-none focus:border-primary';
@@ -41,12 +38,17 @@ export const AiConfigurationSection: React.FC<{ tab: AiConfigurationTab }> = ({ 
   const [testSearchResult, setTestSearchResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const updateAiConfig = useAiStore(state => state.updateAiConfig);
-  const syncAiConfig = (key: 'aiProvider' | 'aiModel' | 'aiThinkingEffort', value: any) => {
+  const syncAiConfig = (key: 'aiProvider' | 'aiModel' | 'aiThinkingEffort' | 'aiEndpoint', value: any) => {
     updateConfig(key, value);
     updateAiConfig(key, value);
   };
 
   const fetchModels = async () => {
+    if (!isUsableEndpoint(appConfig.aiEndpoint)) {
+      const example = endpointPlaceholders[appConfig.aiProvider || ''] || endpointPlaceholders.custom;
+      setFetchError(copy(`服务地址不是完整的网址，请填写类似 ${example} 的地址。`, `The endpoint is not a complete URL. Enter an address such as ${example}.`));
+      return;
+    }
     setIsFetchingModels(true);
     setFetchError('');
     try {
@@ -62,6 +64,15 @@ export const AiConfigurationSection: React.FC<{ tab: AiConfigurationTab }> = ({ 
   useEffect(() => {
     if (tab === 'models') void fetchModels();
   }, [tab, appConfig.aiProvider, appConfig.aiEndpoint]);
+
+  // The address is saved when the field loses focus or on Enter, not on every keystroke: the model
+  // list is fetched with the saved API key from whatever address is saved.
+  const [endpointDraft, setEndpointDraft] = useState(appConfig.aiEndpoint || '');
+  useEffect(() => setEndpointDraft(appConfig.aiEndpoint || ''), [appConfig.aiEndpoint, appConfig.aiProvider]);
+  const commitEndpoint = () => {
+    const value = endpointDraft.trim();
+    if (value !== (appConfig.aiEndpoint || '')) syncAiConfig('aiEndpoint', value);
+  };
 
   const saveApiKey = async () => {
     if (!tempApiKey.trim()) return;
@@ -135,18 +146,23 @@ export const AiConfigurationSection: React.FC<{ tab: AiConfigurationTab }> = ({ 
               <select id="ai-provider" className={inputClass} value={appConfig.aiProvider || 'gemini'} onChange={event => {
                 const provider = event.target.value as NonNullable<typeof appConfig.aiProvider>;
                 syncAiConfig('aiProvider', provider);
-                syncAiConfig('aiModel', providerDefaults[provider]);
+                syncAiConfig('aiModel', defaultModelFor(provider));
+                // An address belongs to one provider: a custom or Ollama address must not go to another.
+                syncAiConfig('aiEndpoint', '');
                 setTempApiKey('');
               }}>
                 <option value="openai">OpenAI</option><option value="gemini">Google Gemini</option>
                 <option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option>
                 <option value="zhipu">Zhipu GLM</option><option value="kimi">Moonshot Kimi</option>
+                <option value="minimax">MiniMax</option><option value="qwen">{copy('阿里云通义千问 Qwen', 'Alibaba Qwen')}</option>
                 <option value="ollama">{copy('Ollama（本地）', 'Ollama (local)')}</option><option value="custom">{copy('自定义端点', 'Custom endpoint')}</option>
               </select>
             </div>
-            {(appConfig.aiProvider === 'custom' || appConfig.aiProvider === 'ollama') && <div>
+            {!!appConfig.aiProvider && appConfig.aiProvider in endpointPlaceholders && <div>
               <label className={labelClass} htmlFor="ai-endpoint">{copy('服务地址', 'Endpoint URL')}</label>
-              <input id="ai-endpoint" className={`${inputClass} font-mono`} value={appConfig.aiEndpoint || ''} onChange={event => updateConfig('aiEndpoint', event.target.value)} placeholder={appConfig.aiProvider === 'ollama' ? 'http://127.0.0.1:11434' : 'https://api.example.com/v1'} />
+              <input id="ai-endpoint" className={`${inputClass} font-mono`} value={endpointDraft} onChange={event => setEndpointDraft(event.target.value)} onBlur={commitEndpoint} onKeyDown={event => { if (event.key === 'Enter') commitEndpoint(); }} placeholder={endpointPlaceholders[appConfig.aiProvider]} />
+              {appConfig.aiProvider === 'minimax' && <p className={helpClass}>{copy('留空时用国际站 api.minimax.io。国内站账号请填 https://api.minimax.cn，两站的密钥不通用。', 'Empty means the international API, api.minimax.io. For a mainland China account, enter https://api.minimax.cn; keys do not work across the two.')}</p>}
+              {appConfig.aiProvider === 'qwen' && <p className={helpClass}>{copy('留空时用 dashscope.aliyuncs.com（北京地域）。其他地域或业务空间，请填阿里云百炼给出的地址。', 'Empty means dashscope.aliyuncs.com (Beijing region). For another region or a workspace, enter the address Alibaba Cloud Model Studio gives you.')}</p>}
             </div>}
           </section>
           {appConfig.aiProvider !== 'ollama' && <section className="border-t border-line pt-5">

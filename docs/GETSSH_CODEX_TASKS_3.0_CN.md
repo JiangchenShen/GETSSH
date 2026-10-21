@@ -749,6 +749,21 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 详见 `release.yml` 和 10-20、10-21 的提交。
 
+**MiniMax 和通义千问 Qwen 接进界面**（Claude，负责人要求这次就带上）：
+- 设置里可以选这两家，各有默认模型；两家都显示"服务地址"，切换服务商时清空地址；
+- 两个适配器各加了一份按官方文档写的测试（`MiniMaxAdapter.test.ts`、`QwenAdapter.test.ts`），查出的问题已经修掉：
+  - MiniMax：M3.1-Flash 不能关思考；无参数的工具调用；输入 token 从 `message_start` 读；流里的请求错误不再重试；文档写"请稍后重试"的 1039、2064、2066 会重试；200 但返回 JSON 错误时报出真正的原因；模型列表加上 M3.1-Flash，去掉已下线的 M2.1、M2；
+  - Qwen：能输入图片的模型和带图片的请求走 multimodal-generation 接口，其余走 text-generation 并且纯文本发字符串（规则见下）；Qwen3.8 按所选强度发 `reasoning_effort`，思考预算上限 262144；思考模式下不强制指定工具；流里错误按 `:HTTP_STATUS` 行的状态码判断能否重试；SSE 格式的 HTTP 错误能读出错误码；统计思考 token。
+- 复查后又修了：
+  - Qwen 接口：文档写明"输入模态包含图片或视频的模型使用多模态接口，即使只传入文本也需要使用多模态接口"，走错接口每轮返回 400。按各型号详情页的输入模态：Qwen3.5 起的型号（含 qwen3.8-flash、qwen3.8-27b、qwen3.7-flash）都走多模态，只有 qwen3.7-max（含 -preview、-2026-05-17、-2026-05-20）和 qwen3.8-2.4t-a95b 是纯文本；VL、QVQ、audio 系列也走多模态。模型总览页把 qwen3.8-flash 只列在"文本生成"下，但它的详情页写的是 Image/Text/Video；
+  - Qwen 的输出上限：文档只给 Qwen3.7-Max、Qwen3.5-Plus、Qwen3.5-Flash 及以后的型号，以及 kimi-k2.5、glm-5、MiniMax-M2.5、deepseek-v4 及以后的第三方型号写了 `max_completion_tokens`（不含带厂商前缀的"三方直供"型号），其余用 `max_tokens`；都不超过已知的最大输出；
+  - MiniMax M3.1-Flash 按所选强度发 `output_config.effort` / `reasoning_effort`（原来一律按最深的 max 跑）；缓存命中的 token 从 `message_start` 读；
+  - **所有服务商**：只读问答和感知助手两种模式会把"上下文上限"（默认 200K，最大 2M）当成输出上限发给模型，超过多数模型的最大输出。现在不再发，和两种执行模式一样由适配器自己决定；没选模型时由适配器用自己的默认模型，不再发 gpt-3.5-turbo；
+  - 服务地址在离开输入框或按回车时才保存，原来每按一个键保存一次，模型列表会带着保存的 API 密钥去请求打到一半的地址；地址不是完整网址时不拉模型列表；
+  - 没选模型时，聊天发出的模型和界面上显示的默认模型一致（`defaultModelFor`）。
+- 没修、留在测试里标 `it.fails` 的：MiniMax 不认识的模型仍会带 `thinking` 字段；没有签名的思考块在下一轮不回放。
+- 两家都没用真实密钥测过。负责人可以在开发版里填自己的密钥试一次。
+
 **发布以后再做**：
 - R51 还剩一个几毫秒的窗口：防抖刚触发、自动保存还在路上时点"连接"，主进程可能读到旧值。修法：`onUpdateSession` 返回保存的 Promise，`submit` 等它完成。
 - Windows 后台的自动更新检查用的是 electron-updater，发布里没有 `latest.yml`，所以不会提示新版本；"设置 → 关于"里的手动检查没问题。以后改成和 macOS 一样查 GitHub 的发布列表。

@@ -6,8 +6,10 @@ import { ModelCaps } from './ModelCapabilities';
 /**
  * 通义千问 / 阿里云百炼 DashScope 适配器
  *
- * 走 **原生 DashScope 模式**（/api/v1/services/aigc/text-generation/generation），
- * 不走 OpenAI 兼容模式。唯一理由但很硬：兼容模式不返回 search_info，
+ * 走 **原生 DashScope 模式**，不走 OpenAI 兼容模式。纯文本模型走
+ * /api/v1/services/aigc/text-generation/generation；能输入图片的模型（文档："即使只传入文本也需要
+ * 使用多模态接口"：Qwen3.5 起除少数纯文本型号外都是，另有 VL、QVQ、audio 系列）和带图片的请求走
+ * /api/v1/services/aigc/multimodal-generation/generation。唯一理由但很硬：兼容模式不返回 search_info，
  * 联网搜索的引用溯源做不了 —— 运维场景里「这结论从哪查到的」是要给用户看的。
  *
  * 三个必须显式处理的 DashScope 特性：
@@ -26,6 +28,46 @@ import { ModelCaps } from './ModelCapabilities';
 // 文档自相矛盾：deep-thinking 页称 thinking_budget 有效范围 1–32768，
 // 各模型页却标最大思维链 262144。取保守值做上限校验。
 const THINKING_BUDGET_CAP = 32768;
+// Qwen3.8 的 API 参考写明 thinking_budget 可到 262144（xhigh），默认 131072。
+const QWEN38_THINKING_BUDGET_CAP = 262144;
+
+const TEXT_PATH = '/api/v1/services/aigc/text-generation/generation';
+const MULTIMODAL_PATH = '/api/v1/services/aigc/multimodal-generation/generation';
+/**
+ * Models that take images, which DashScope serves only on the multimodal-generation endpoint, text-only
+ * requests included. Each model page lists its input modalities: from Qwen3.5 on they include images
+ * (qwen3.8-max, qwen3.8-flash, qwen3.8-27b, qwen3.7-plus, qwen3.7-flash, the 3.6 and 3.5 series),
+ * except TEXT_ONLY_MODEL; so do the VL, QVQ and audio models.
+ */
+const MULTIMODAL_MODEL = /^(qwen3\.([5-9]|\d{2,})|qwen[\d.]*-vl|qvq|qwen-audio)/i;
+/** Qwen3.5-and-later models whose pages list text input only. qwen3.7-max-2026-06-08 added images. */
+const TEXT_ONLY_MODEL = /^(qwen3\.7-max(-preview|-2026-05-17|-2026-05-20)?|qwen3\.8-2\.4t-a95b)$/i;
+/**
+ * The models DashScope documents max_completion_tokens for: Qwen3.7-Max, Qwen3.5-Plus and Qwen3.5-Flash
+ * and later, kimi-k2.5, glm-5, MiniMax-M2.5 and deepseek-v4 and later. "以上模型均不包含三方直供模型"
+ * (vendor-prefixed IDs). Everything else uses max_tokens.
+ */
+const MAX_COMPLETION_TOKENS_MODEL = /^(qwen3\.(([5-9]|\d{2,})-(plus|flash)|([7-9]|\d{2,})-max)|kimi-k(2\.([5-9]|\d{2,})|[3-9])|glm-([5-9]|\d{2,})|minimax-m(2\.([5-9]|\d{2,})|[3-9])|deepseek-v([4-9]|\d{2,}))/i;
+const QWEN38 = /^qwen3\.8/i;
+/** Qwen3.5 及以上和 QwQ 默认开思考，其余默认关。 */
+const THINKS_BY_DEFAULT = /^(qwq|qwen3(\.[5-9]|\.\d{2,}))/i;
+
+/** Qwen3.8 only takes low, medium and xhigh. */
+function qwen38Effort(request: LlmRequest): 'low' | 'medium' | 'xhigh' | undefined {
+  const e = request.thinkingEffort;
+  if (e === 'low' || request.thinkingLevel === 'minimal' || request.thinkingLevel === 'low') return 'low';
+  if (e === 'medium' || request.thinkingLevel === 'medium') return 'medium';
+  if (e === 'high' || e === 'xhigh' || e === 'max' || request.thinkingLevel === 'high') return 'xhigh';
+  return undefined;
+}
+
+/** A DashScope error body is JSON, or, for a request sent with X-DashScope-SSE, an SSE body whose first data: line is that JSON. */
+function parseErrorBody(text: string): any {
+  try { return JSON.parse(text); } catch { /* maybe SSE */ }
+  const line = text.split('\n').find(l => l.startsWith('data:'));
+  if (!line) return null;
+  try { return JSON.parse(line.slice(5).trim()); } catch { return null; }
+}
 
 export class QwenAdapter extends BaseAdapter {
   readonly provider = 'qwen';
@@ -43,7 +85,7 @@ export class QwenAdapter extends BaseAdapter {
   private resolveHost(endpoint?: string): string {
     let base = endpoint || 'https://dashscope.aliyuncs.com';
     base = base
-      .replace(/\/api\/v1\/services\/aigc\/text-generation\/generation\/?$/, '')
+      .replace(/\/api\/v1\/services\/aigc\/(text|multimodal)-generation\/generation\/?$/, '')
       .replace(/\/compatible-mode\/v1\/chat\/completions\/?$/, '')
       .replace(/\/compatible-mode\/v1\/?$/, '')
       .replace(/\/apps\/anthropic(\/v1\/messages)?\/?$/, '')
@@ -61,13 +103,15 @@ export class QwenAdapter extends BaseAdapter {
    */
   private async readDashScopeSse(
     response: Response,
-    onEvent: (eventName: string, data: string) => void
+    onEvent: (eventName: string, data: string, status: number) => void
   ): Promise<void> {
     if (!response.body) throw new Error('Response body is null');
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     let currentEvent = 'message';
+    // 流内错误的 HTTP 状态只在 `:HTTP_STATUS/500` 这一行上。
+    let currentStatus = 200;
 
     try {
       while (true) {
@@ -87,11 +131,15 @@ export class QwenAdapter extends BaseAdapter {
 
         for (const rawLine of lines) {
           const line = rawLine.replace(/\r$/, '');
-          if (!line) { currentEvent = 'message'; continue; }
+          if (!line) { currentEvent = 'message'; currentStatus = 200; continue; }
 
           const colon = line.indexOf(':');
-          // 冒号在第 0 位 = SSE 注释行，例如 `:HTTP_STATUS/200`，直接丢弃
-          if (colon === 0) continue;
+          // 冒号在第 0 位 = SSE 注释行，例如 `:HTTP_STATUS/200`；只取其中的状态码
+          if (colon === 0) {
+            const m = /^:HTTP_STATUS\/(\d{3})/.exec(line);
+            if (m) currentStatus = Number(m[1]);
+            continue;
+          }
           if (colon === -1) continue;
 
           const field = line.slice(0, colon);
@@ -99,7 +147,7 @@ export class QwenAdapter extends BaseAdapter {
           if (val.startsWith(' ')) val = val.slice(1);
 
           if (field === 'event') currentEvent = val.trim();
-          else if (field === 'data') onEvent(currentEvent, val);
+          else if (field === 'data') onEvent(currentEvent, val, currentStatus);
           // id: / retry: 忽略
         }
       }
@@ -122,9 +170,13 @@ export class QwenAdapter extends BaseAdapter {
   }
 
   private async streamNativeApi(request: LlmRequest, callbacks: StreamCallbacks): Promise<LlmResponse> {
-    const url = `${this.resolveHost(request.endpoint)}/api/v1/services/aigc/text-generation/generation`;
     const modelName = request.model || 'qwen3.8-max';
     const { systemInstruction, turns } = this.normalizeTurns(request);
+    const hasImage = turns.some(t => t.blocks.some(b => b.kind === 'image'));
+    const multimodal = hasImage || (MULTIMODAL_MODEL.test(modelName) && !TEXT_ONLY_MODEL.test(modelName));
+    const url = `${this.resolveHost(request.endpoint)}${multimodal ? MULTIMODAL_PATH : TEXT_PATH}`;
+    // text-generation 的纯文本内容是字符串；multimodal-generation 的文档示例连纯文本也用 [{ text }]。
+    const textContent = (text: string) => (multimodal ? [{ text }] : text);
 
     // callId -> 工具名，用于回填 tool_result 缺失的 name
     const toolNameByCallId = new Map<string, string>();
@@ -136,7 +188,7 @@ export class QwenAdapter extends BaseAdapter {
 
     const messages: any[] = [];
     if (systemInstruction) {
-      messages.push({ role: 'system', content: [{ text: systemInstruction }] });
+      messages.push({ role: 'system', content: textContent(systemInstruction) });
     }
 
     for (const turn of turns) {
@@ -146,7 +198,10 @@ export class QwenAdapter extends BaseAdapter {
           if (b.kind === 'text') parts.push({ text: b.text });
           else if (b.kind === 'image') parts.push({ image: `data:${b.mime};base64,${b.data}` });
         }
-        if (parts.length > 0) messages.push({ role: 'user', content: parts });
+        if (parts.length > 0) {
+          const textOnly = parts.every(part => 'text' in part);
+          messages.push({ role: 'user', content: textOnly && !multimodal ? parts.map(part => part.text).join('\n') : parts });
+        }
 
         for (const b of turn.blocks) {
           if (b.kind !== 'tool_result') continue;
@@ -190,7 +245,10 @@ export class QwenAdapter extends BaseAdapter {
 
     const caps = ModelCaps.resolve(this.provider, modelName);
 
-    if (request.maxOutputTokens) parameters.max_completion_tokens = request.maxOutputTokens;
+    if (request.maxOutputTokens) {
+      const limit = caps.maxOutputTokens ? Math.min(request.maxOutputTokens, caps.maxOutputTokens) : request.maxOutputTokens;
+      parameters[MAX_COMPLETION_TOKENS_MODEL.test(modelName) ? 'max_completion_tokens' : 'max_tokens'] = limit;
+    }
     if (caps.supportsSampling && request.temperature !== undefined) {
       parameters.temperature = Math.max(0, Math.min(request.temperature, 1.999));
     }
@@ -201,10 +259,18 @@ export class QwenAdapter extends BaseAdapter {
       parameters.enable_thinking = false;
     } else if (request.thinkingEffort || request.thinkingLevel || request.thinkingBudget) {
       parameters.enable_thinking = true;
+      const qwen38 = QWEN38.test(modelName);
       if (request.thinkingBudget) {
-        parameters.thinking_budget = Math.max(1, Math.min(request.thinkingBudget, THINKING_BUDGET_CAP));
+        const cap = qwen38 ? QWEN38_THINKING_BUDGET_CAP : THINKING_BUDGET_CAP;
+        parameters.thinking_budget = Math.max(1, Math.min(request.thinkingBudget, cap));
+      } else if (qwen38) {
+        // Qwen3.8 不设的话按 xhigh 跑；reasoning_effort 和 thinking_budget 同时设会报错，只发一个。
+        const effort = qwen38Effort(request);
+        if (effort) parameters.reasoning_effort = effort;
       }
     }
+    const thinking = caps.supportsThinking
+      && (parameters.enable_thinking ?? THINKS_BY_DEFAULT.test(modelName));
 
     if (request.tools && request.tools.length > 0) {
       // 注意：tools / tool_choice 在 parameters 里，不是请求体顶层。
@@ -215,10 +281,11 @@ export class QwenAdapter extends BaseAdapter {
 
       if (request.toolChoice === 'none') {
         parameters.tool_choice = 'none';
-      } else if (typeof request.toolChoice === 'object' && request.toolChoice.name) {
+      } else if (typeof request.toolChoice === 'object' && request.toolChoice.name && !thinking) {
         parameters.tool_choice = { type: 'function', function: { name: request.toolChoice.name } };
       } else {
-        // DashScope 的思考模式不支持强制指定工具，'required'/'any' 一律降级为 auto。
+        // Qwen 不支持 'required'；思考模式下也不能强制指定某个工具（文档写明会报错），
+        // 这些情况一律降级为 auto。
         parameters.tool_choice = 'auto';
       }
       parameters.parallel_tool_calls = true;
@@ -248,7 +315,7 @@ export class QwenAdapter extends BaseAdapter {
     });
 
     if (!response.ok) {
-      const errJson = await response.json().catch(() => null);
+      const errJson = parseErrorBody(await response.text().catch(() => ''));
       const { message, code, retryable } = this.classifyError(response.status, errJson);
       throw new LlmError(`Qwen API Error (${response.status} ${code}): ${message}`, {
         retryable, provider: this.provider, code, status: response.status
@@ -262,15 +329,15 @@ export class QwenAdapter extends BaseAdapter {
     let usage: NormalizedUsage | undefined;
     let searchResults: any[] | undefined;
     let sawTerminal = false;
-    let inStreamError: { code: string; message: string; retryable: boolean } | null = null;
+    let inStreamError: { code: string; message: string; retryable: boolean; status: number } | null = null;
 
-    await this.readDashScopeSse(response, (_event, dataStr) => {
+    await this.readDashScopeSse(response, (_event, dataStr, status) => {
       let chunk: any;
       try { chunk = JSON.parse(dataStr); } catch { return; }
 
-      // 流内错误：DashScope 会在 data 帧里直接给 code/message
+      // 流内错误：DashScope 会在 data 帧里直接给 code/message，状态码在前面的 :HTTP_STATUS 行
       if (chunk.code && !chunk.output) {
-        inStreamError = this.classifyError(200, chunk);
+        inStreamError = { ...this.classifyError(status, chunk), status };
         return;
       }
 
@@ -281,7 +348,7 @@ export class QwenAdapter extends BaseAdapter {
           outputTokens: u.output_tokens || 0,
           totalTokens: u.total_tokens || ((u.input_tokens || 0) + (u.output_tokens || 0)),
           cachedTokens: u.prompt_tokens_details?.cached_tokens || 0,
-          reasoningTokens: 0
+          reasoningTokens: u.output_tokens_details?.reasoning_tokens || 0
         };
       }
 
@@ -338,9 +405,9 @@ export class QwenAdapter extends BaseAdapter {
     });
 
     if (inStreamError) {
-      const e = inStreamError as { code: string; message: string; retryable: boolean };
+      const e = inStreamError as { code: string; message: string; retryable: boolean; status: number };
       throw new LlmError(`Qwen API Error (${e.code}): ${e.message}`, {
-        retryable: e.retryable, provider: this.provider, code: e.code
+        retryable: e.retryable, provider: this.provider, code: e.code, status: e.status
       });
     }
     if (!sawTerminal) {
@@ -363,7 +430,9 @@ export class QwenAdapter extends BaseAdapter {
     for (const key of Array.from(toolCallsMap.keys()).sort((a, b) => a - b)) {
       const tc = toolCallsMap.get(key)!;
       let parsedArgs: any = {};
-      try { parsedArgs = JSON.parse(tc.args); } catch { parsedArgs = { _raw: tc.args }; }
+      if (tc.args.trim()) {
+        try { parsedArgs = JSON.parse(tc.args); } catch { parsedArgs = { _raw: tc.args }; }
+      }
       outputBlocks.push({ kind: 'tool_call', callId: tc.id, name: tc.name, args: parsedArgs, raw: tc.args });
       toolCallsList.push({ callId: tc.id, name: tc.name, args: parsedArgs, raw: tc.args });
     }

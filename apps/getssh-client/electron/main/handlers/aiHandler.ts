@@ -106,7 +106,8 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
     const aiMaxTokens = payload?.aiMaxTokens || 200000;
     const endpoint = payload?.endpoint || '';
     const provider = payload?.provider || 'openai';
-    const model = payload?.model || 'gpt-3.5-turbo';
+    // Empty means the provider's default model, which each adapter sets.
+    const model = payload?.model || '';
 
     const sessionId = typeof contextData?.sessionId === 'string' ? contextData.sessionId : undefined;
     const workspaceId = ChatStorageManager.getCurrentWorkspaceId() || undefined;
@@ -233,13 +234,15 @@ export function registerAiHandlers(ipcMain: Electron.IpcMain, getWin: () => Brow
       );
     } else {
       const thinkingEffort = payload?.thinkingEffort || 'medium';
-      const aiMaxTokens = payload?.aiMaxTokens;
 
+      // aiMaxTokens is the context limit from AI settings (200K by default, up to 2M), not an
+      // output limit: sent as one, it was above most models' maximum output. Each adapter keeps
+      // its own default, as in the agent modes.
       streamLLM(
         endpoint, apiKey, provider, model,
         rawPrompt, rawContext,
         onChunk, onDone, onError,
-        { thinkingEffort, maxOutputTokens: aiMaxTokens }
+        { thinkingEffort }
       );
     }
 

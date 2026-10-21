@@ -56,7 +56,7 @@ GETSSH 是一个免费、开源的 SSH 客户端，支持 macOS 和 Windows。
 - **命令中心**：搜索主机和常用操作。快捷键是 ⌥ + Space 或 ⌘ + K，Windows 上是 Alt + Space 或 Ctrl + Shift + K。
 - **加密备份**：把选中的工作区导出成一个 `.getssh-backup` 文件，在另一台电脑上只凭导出密码就能整份恢复。
 - **AI 排障**：
-  - 可以选 OpenAI、Gemini、Claude、DeepSeek、智谱 GLM、Kimi、Ollama（本地模型）或自定义端点；
+  - 可以选 OpenAI、Gemini、Claude、DeepSeek、智谱 GLM、Kimi、MiniMax、通义千问 Qwen、Ollama（本地模型）或自定义端点；
   - 四种模式：只读问答、感知助手、审批执行、自动执行；
   - 每条命令执行前要不要经您同意，由所选模式决定；
   - 审批执行和自动执行模式下，AI 可以联网搜索，默认开启，可以在 AI 设置里关掉。

@@ -50,7 +50,7 @@ export interface AppConfig {
   aiZhipuApiKey?: string;
   aiKimiApiKey?: string;
   hasAiApiKey?: boolean;
-  aiProvider?: 'openai' | 'gemini' | 'claude' | 'ollama' | 'deepseek' | 'zhipu' | 'kimi' | 'custom';
+  aiProvider?: 'openai' | 'gemini' | 'claude' | 'ollama' | 'deepseek' | 'zhipu' | 'kimi' | 'minimax' | 'qwen' | 'custom';
   aiModel?: string;
   aiThinkingEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   aiEnabled?: boolean;

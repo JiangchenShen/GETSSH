@@ -25,7 +25,7 @@ The 3.0 preview: the FUSION edition for macOS (Apple Silicon, Intel) and Windows
   - Ed25519 key generation;
   - a key file a server already uses can be imported, the original optionally moved to the Trash.
 - **AI troubleshooting**:
-  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, Ollama (local models) or a custom endpoint;
+  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, MiniMax, Alibaba Qwen, Ollama (local models) or a custom endpoint; MiniMax and Qwen take the address of another site or region;
   - four modes: Read-only, Context assistant, Approval required, Automatic execution;
   - recognisable sensitive values are replaced with placeholders before a request leaves;
   - web search in Approval required and Automatic execution (on by default): queries go to public SearXNG servers, DuckDuckGo or Bing, with the placeholders only;

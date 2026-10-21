@@ -6,6 +6,7 @@ import { useAiStore } from '../store/aiStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Send, TerminalSquare, ClipboardPaste, X } from 'lucide-react';
 import { getPersonaContent } from '../utils/persona';
+import { defaultModelFor } from '../utils/aiModelUtils';
 import { useTranslation } from 'react-i18next';
 import { AiBridge } from '../services/aiBridge';
 import { ContextService } from '../services/contextService';
@@ -134,7 +135,7 @@ export const FloatingAiCenter: React.FC = () => {
           terminalBuffer: snapshot?.buffer
         },
         provider: appConfig.aiProvider || aiConfig.aiProvider,
-        model: appConfig.aiModel || aiConfig.aiModel,
+        model: appConfig.aiModel || aiConfig.aiModel || defaultModelFor(appConfig.aiProvider || aiConfig.aiProvider),
         thinkingEffort: appConfig.aiThinkingEffort || aiConfig.aiThinkingEffort || 'medium',
         endpoint: appConfig.aiEndpoint || aiConfig.aiEndpoint,
         aiMaxTokens: appConfig.aiMaxTokens || aiConfig.aiMaxTokens || 200000,

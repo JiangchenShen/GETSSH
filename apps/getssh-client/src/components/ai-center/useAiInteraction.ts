@@ -6,6 +6,7 @@ import { useAiChatStore } from '../../store/aiChatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { AiBridge } from '../../services/aiBridge';
 import { getPersonaContent } from '../../utils/persona';
+import { defaultModelFor } from '../../utils/aiModelUtils';
 import { ContextService } from '../../services/contextService';
 
 export function useAiInteraction(setIsGenerating: (val: boolean) => void, targetSessionId?: string) {
@@ -36,7 +37,7 @@ export function useAiInteraction(setIsGenerating: (val: boolean) => void, target
     const searchPayload = useAiStore.getState().getSearchPayload();
 
     const provider = appConfig.aiProvider || aiConfig.aiProvider || 'gemini';
-    const model = appConfig.aiModel || aiConfig.aiModel || (provider === 'gemini' ? 'gemini-3.7-flash' : provider === 'claude' ? 'claude-sonnet-5' : 'gpt-5.6-terra');
+    const model = appConfig.aiModel || aiConfig.aiModel || defaultModelFor(provider);
     const endpoint = appConfig.aiEndpoint || aiConfig.aiEndpoint;
     const thinkingEffort = appConfig.aiThinkingEffort || aiConfig.aiThinkingEffort || 'medium';
     const aiMode = appConfig.aiMode || aiConfig.aiMode || 'readonly';

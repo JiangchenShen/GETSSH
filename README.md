@@ -56,7 +56,7 @@ Upgrading from 2.0, the first launch imports the 2.0 servers and plugin data; th
 - **Command Center**: search hosts and common actions. ⌥ + Space or ⌘ + K; on Windows, Alt + Space or Ctrl + Shift + K.
 - **Encrypted backups**: export the workspaces you choose to one `.getssh-backup` file; the export password alone restores it on another computer.
 - **AI troubleshooting**:
-  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, Ollama (local models) or a custom endpoint;
+  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, MiniMax, Alibaba Qwen, Ollama (local models) or a custom endpoint;
   - four modes: Read-only, Context assistant, Approval required, Automatic execution;
   - the mode decides whether each command waits for your approval;
   - in Approval required and Automatic execution, the AI can search the web; this is on by default and can be turned off in AI settings.

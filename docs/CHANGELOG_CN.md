@@ -25,7 +25,7 @@
   - 可以生成 Ed25519 私钥；
   - 服务器原来用的私钥文件可以导入，原文件可以选择移到废纸篓。
 - **AI 排障**：
-  - 可以选 OpenAI、Gemini、Claude、DeepSeek、智谱 GLM、Kimi、Ollama（本地模型）或自定义端点；
+  - 可以选 OpenAI、Gemini、Claude、DeepSeek、智谱 GLM、Kimi、MiniMax、通义千问 Qwen、Ollama（本地模型）或自定义端点；MiniMax 和 Qwen 可以填国内站或其他地域的地址；
   - 四种模式：只读问答、感知助手、审批执行、自动执行；
   - 发给模型服务之前，能识别出的敏感信息会换成占位符；
   - 审批执行和自动执行模式下可以联网搜索（默认开启），搜索词发给公共 SearXNG 服务器、DuckDuckGo 或 Bing，只带占位符；

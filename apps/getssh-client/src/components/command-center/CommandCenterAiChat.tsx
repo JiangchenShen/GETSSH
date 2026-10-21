@@ -10,6 +10,7 @@ import { useAiChatStore, type ChatMessage } from '../../store/aiChatStore';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { parseThoughtProcess, ThoughtProcessBlock } from '../common/ThoughtProcessBlock';
 import { getPersonaContent } from '../../utils/persona';
+import { defaultModelFor } from '../../utils/aiModelUtils';
 
 interface Props {
   onClose: () => void;
@@ -103,7 +104,7 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
             },
             mode: appConfig.aiMode || aiConfig.aiMode || 'readonly',
             provider: appConfig.aiProvider || aiConfig.aiProvider,
-            model: appConfig.aiModel || aiConfig.aiModel,
+            model: appConfig.aiModel || aiConfig.aiModel || defaultModelFor(appConfig.aiProvider || aiConfig.aiProvider),
             thinkingEffort: appConfig.aiThinkingEffort || aiConfig.aiThinkingEffort || 'medium',
             endpoint: appConfig.aiEndpoint || aiConfig.aiEndpoint,
             aiMaxTokens: appConfig.aiMaxTokens || aiConfig.aiMaxTokens || 200000,

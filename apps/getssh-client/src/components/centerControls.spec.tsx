@@ -198,6 +198,80 @@ describe('center controls', () => {
     expect(saveApiKey).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['minimax', 'MiniMax-M3', 'https://api.minimax.io', 'api.minimax.cn'],
+    ['qwen', 'qwen3.8-max', 'https://dashscope.aliyuncs.com', '阿里云百炼'],
+  ])('offers %s with its default model and an optional address', async (provider, model, placeholder, hint) => {
+    mocks.appConfig = { ...mocks.appConfig, aiProvider: 'custom', aiEndpoint: 'https://my-gateway.example/v1' };
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    const select = container.querySelector<HTMLSelectElement>('#ai-provider')!;
+    expect(Array.from(select.options).map(option => option.value)).toContain(provider);
+    await act(async () => { select.value = provider; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(mocks.updateConfig).toHaveBeenCalledWith('aiProvider', provider);
+    expect(mocks.updateConfig).toHaveBeenCalledWith('aiModel', model);
+    // The custom gateway's address must not be sent to this provider.
+    expect(mocks.updateConfig).toHaveBeenCalledWith('aiEndpoint', '');
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    const endpoint = container.querySelector<HTMLInputElement>('#ai-endpoint')!;
+    expect(endpoint.value).toBe('');
+    expect(endpoint.placeholder).toBe(placeholder);
+    expect(container.textContent).toContain(hint);
+  });
+
+  it('clears an address when switching to a provider without one', async () => {
+    mocks.appConfig = { ...mocks.appConfig, aiProvider: 'ollama', aiEndpoint: 'http://127.0.0.1:11434' };
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    const select = container.querySelector<HTMLSelectElement>('#ai-provider')!;
+    await act(async () => { select.value = 'deepseek'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(mocks.appConfig.aiEndpoint).toBe('');
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    expect(container.querySelector('#ai-endpoint')).toBeNull();
+  });
+
+  // The model list is fetched with the saved API key from the saved address, so a half-typed
+  // address (e.g. "https://dashscope-intl.aliyuncs.co") must never be saved.
+  it('saves a typed address only when the field loses focus or on Enter', async () => {
+    mocks.appConfig = { ...mocks.appConfig, aiProvider: 'qwen', aiEndpoint: '' };
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    const endpoint = () => container.querySelector<HTMLInputElement>('#ai-endpoint')!;
+    const type = (value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(endpoint(), value);
+      endpoint().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const saved = () => mocks.updateConfig.mock.calls.filter(([key]) => key === 'aiEndpoint').map(([, value]) => value);
+
+    for (const partial of ['h', 'https://dashscope-intl.aliyuncs.co', 'https://dashscope-intl.aliyuncs.com ']) await type(partial);
+    expect(endpoint().value).toBe('https://dashscope-intl.aliyuncs.com ');
+    expect(saved()).toEqual([]);
+    await act(async () => { endpoint().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    // Saved once, trimmed, in both stores.
+    expect(saved()).toEqual(['https://dashscope-intl.aliyuncs.com', 'https://dashscope-intl.aliyuncs.com']);
+
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    await type('https://dashscope.aliyuncs.com');
+    expect(saved()).toHaveLength(2);
+    await act(async () => { endpoint().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(saved().slice(2)).toEqual(['https://dashscope.aliyuncs.com', 'https://dashscope.aliyuncs.com']);
+    // Leaving the field without a change saves nothing more.
+    await act(async () => root.render(<AiConfigurationSection tab="providers" />));
+    await act(async () => { endpoint().dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(saved()).toHaveLength(4);
+  });
+
+  it('does not fetch the model list from an address that is not a complete URL', async () => {
+    const getModels = vi.fn().mockResolvedValue({ success: true, models: [] });
+    (window.electronAPI as any).ai.getModels = getModels;
+    mocks.appConfig = { ...mocks.appConfig, aiProvider: 'qwen', aiEndpoint: 'dashscope-intl.aliyuncs' };
+    await act(async () => root.render(<AiConfigurationSection tab="models" />));
+    expect(getModels).not.toHaveBeenCalled();
+    // The example is this provider's own address form: a bare /v1 would break Qwen's paths.
+    expect(container.textContent).toContain('服务地址不是完整的网址，请填写类似 https://dashscope.aliyuncs.com 的地址。');
+
+    mocks.appConfig = { ...mocks.appConfig, aiEndpoint: 'https://dashscope-intl.aliyuncs.com' };
+    await act(async () => root.render(<AiConfigurationSection tab="models" />));
+    expect(getModels).toHaveBeenCalledWith({ endpoint: 'https://dashscope-intl.aliyuncs.com', provider: 'qwen' });
+  });
+
   it('uses the actual main workspace flag while retaining default workspace protection', async () => {
     await act(async () => root.render(<WorkspaceCenter />));
     expect(Array.from(container.querySelectorAll('span')).filter(item => item.textContent === '主要')).toHaveLength(1);
