@@ -38,4 +38,4 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 # WinRT async operations (IAsyncOperation, .join()) live here since windows 0.59.
-windows-future = "0.3.2"
+windows-future = "0.100.0"
