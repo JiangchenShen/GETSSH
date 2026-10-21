@@ -42,7 +42,9 @@ const token = crypto.randomBytes(16).toString('hex');
 const resultPath = path.join(os.tmpdir(), `getssh-startup-smoke-${token}.json`);
 const executable = findPackagedExecutable();
 const smokeRoot = path.join(os.tmpdir(), `getssh-startup-smoke-${token}`);
-const args = ['--use-mock-keychain', `--user-data-dir=${path.join(smokeRoot, 'bootstrap')}`];
+// No GPU: the smoke checks native modules, a PTY, SSH and the store, not drawing, and the Intel
+// runner has no GPU, so Chromium kept relaunching its GPU process there.
+const args = ['--use-mock-keychain', '--disable-gpu', `--user-data-dir=${path.join(smokeRoot, 'bootstrap')}`];
 
 fs.rmSync(resultPath, { force: true });
 const env = {

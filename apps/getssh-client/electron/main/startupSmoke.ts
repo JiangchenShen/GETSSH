@@ -248,6 +248,21 @@ function testLocalSshTransport(ssh2: any): Promise<void> {
   });
 }
 
+/**
+ * One named step with its own deadline, logged as it starts: a step that never settles fails the
+ * smoke with its name instead of leaving the runner waiting on a silent app.
+ */
+function step<T>(name: string, run: () => Promise<T> | T, ms = 30_000): Promise<T> {
+  console.log(`[startup smoke] ${name}`);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`startup smoke step "${name}" did not finish within ${ms / 1000} s`)), ms);
+    Promise.resolve().then(run).then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export function shouldRunPackagedStartupSmoke(isPackaged: boolean): boolean {
   return isPackaged && getSmokeToken() !== null;
 }
@@ -260,24 +275,24 @@ export async function runPackagedStartupSmoke(): Promise<PackagedStartupSmokeRes
   }
   const loadedModules: string[] = [];
 
-  const nodePty = require('node-pty');
+  const nodePty = await step('load node-pty', () => require('node-pty'));
   assertExports('node-pty', nodePty, ['spawn']);
-  await testLocalPty(nodePty);
+  await step('run a command in a local PTY', () => testLocalPty(nodePty));
   loadedModules.push('node-pty');
 
-  const ssh2 = require('ssh2');
+  const ssh2 = await step('load ssh2', () => require('ssh2'));
   assertExports('ssh2', ssh2, ['Client', 'Server']);
-  await testLocalSshTransport(ssh2);
+  await step('SSH handshake over loopback', () => testLocalSshTransport(ssh2));
   loadedModules.push('ssh2');
 
   for (const [moduleName, expectedExports] of Object.entries(RUST_MODULE_EXPORTS)) {
-    const loaded = require(getRustCorePath(moduleName));
+    const loaded = await step(`load ${moduleName}`, () => require(getRustCorePath(moduleName)));
     assertExports(moduleName, loaded, expectedExports);
     if (moduleName === 'getssh-store') {
       if (!/^SQLite \d+\.\d+\.\d+/.test(loaded.engineVersion())) {
         throw new Error('getssh-store SQLite engine did not report its version');
       }
-      loadedModules.push(`${moduleName} (${await testStore(loaded)})`);
+      loadedModules.push(`${moduleName} (${await step('start getssh-store with this device key', () => testStore(loaded))})`);
     } else {
       loadedModules.push(moduleName);
     }
