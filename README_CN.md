@@ -1,213 +1,154 @@
 # GETSSH
 
-中文 | [English](README.md)
+[English](README.md) | 中文
 
-[![Version](https://img.shields.io/badge/版本-3.0.0--preview-blueviolet?style=flat-square)](package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
-[![Electron](https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
+[![版本](https://img.shields.io/badge/版本-3.0.0--preview-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/更新日志-v3.0-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_CN.md)
+[![许可](https://img.shields.io/badge/许可-Apache%202.0-blue?style=flat-square)](LICENSE)
 
-**GETSSH** 是一款面向 macOS 与 Windows、为开发者和运维工程师打造的下一代 SSH 终端客户端，围绕三个不妥协的核心原则构建：**纵深安全防御**、**GPU 加速终端体验**，以及**令人真正想打开终端的毛玻璃界面**。
+GETSSH 是一个免费、开源的 SSH 客户端，支持 macOS 和 Windows。
 
-在底层架构上，GETSSH v3.0 是一个完整的 **TypeScript + Rust 混合体**。五个 Rust 原生扩展（N-API）负责您的 CPU 和内存最在意的一切——密码学、文件 I/O、系统监控和系统级看门狗守护进程——而 React 19 与 Electron 42 则以严格的架构纪律处理其余工作，保持极低的启动时间和流畅如丝的渲染体验。
+- SSH、Telnet 会话、本地终端和 SFTP 都在同一个窗口里。
+- 服务器、密码和私钥加密存放在您的电脑上。
+- 需要时，可以用自己的模型密钥让 AI 帮忙排查问题。
 
-📢 **[查看完整更新日志 (v3.0)](docs/CHANGELOG_CN.md)**
+当前版本是 **3.0 预览版**（`3.0.0-preview`，2026-10-21），提供 macOS 和 Windows 的 FUSION 版本。Linux 用户请继续使用 [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S)，2.x 在 [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) 分支上维护。
 
----
+- 官网：<https://getssh.realmcloud.net>
+- 3.0 预览版的发布说明：[docs/release-notes/v3.0.0-preview.md](docs/release-notes/v3.0.0-preview.md)
+- 更新日志：[docs/CHANGELOG_CN.md](docs/CHANGELOG_CN.md)
 
-## ✨ v3.0 带来了什么
+## 下载
 
-v3.0 是一次从根基开始的架构重塑，而不只是一次功能发布：
+在 [GitHub 发布页](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)下载：
 
-- 🦀 **全套 Rust 原生核心** — 五个生产级 Rust N-API 扩展，彻底替换了 JS 层的加密、SFTP I/O 和系统监控整个技术栈
-- 🛡 **六层纵深安全架构** — 看门狗守护进程、AES-256-GCM 金库、Zeroize 内存即焚、零拷贝网络引擎、RASP 运行时防御、原生内存完整性校验
-- 🔒 **32 个安全漏洞全部修复** — 完整内部安全审计，覆盖 Critical、High、Medium、Low 四个级别，全部已修复归零
-- ⚛️ **React 19 + Electron 42** — 在最新稳定版基础上重建
-- 🎨 **Tailwind CSS v4** — 样式系统全面升级
-
----
-
-## 🔒 安全架构
-
-GETSSH v3.0 实现了一套**从操作系统到应用层的六道纵深防御体系**：
-
-| 防御层 | 组件 | 职责 |
+| 系统 | 处理器 | 文件 |
 |---|---|---|
-| **1. Ocean Sentinel 系统级看门狗** | `rust-core/ocean-sentinel` — 独立 `watchdog` 二进制 | 独立于 Electron 进程运行。通过 IPC 心跳监控主进程。若心跳超过 5 秒未响应，将调用操作系统级 API 强制杀死整个 Node.js 进程——完全绕过 JavaScript 层。 |
-| **2. 内存即焚 (Zeroize)** | `getssh-vault` Rust N-API | 所有 AES 密钥和解密后的凭证缓冲区均被 `ZeroizeOnDrop` 包裹。TypeScript 层的 `finally` 块调用 `buffer.fill(0)` 进行二次覆写。明文绝不在堆内存中残留。 |
-| **3. 金库级加密引擎** | `getssh-vault` Rust N-API | AES-256-GCM 认证加密。密钥通过 PBKDF2-HMAC-SHA256 派生，100,000 次迭代，32 字节 Salt（符合 NIST SP 800-132）。V2 格式含魔数头，支持安全版本迁移。 |
-| **4. 零拷贝网络引擎** | `sftp-stream` Rust N-API | SFTP 大文件传输完全绕过 V8 堆内存，由 Rust 直接掌管磁盘 I/O。从根本上杜绝大文件传输时的 OOM 崩溃。 |
-| **5. RASP 运行态防御** | `SecureCenter.ts` | 运行时应用自我保护。审计插件的 Shell 命令，检测 Fork Bomb、`rm -rf /`、`mkfs`、`dd` 等毁灭性操作。检测到威胁时触发 Ocean Sentinel 看门狗锁定协议。 |
-| **6. 底层内存完整性校验** | `getssh-sysprobe` Rust N-API | 定期校验关键系统函数内存首字节，检测 Inline Hook 植入企图。需要提权运行。 |
+| macOS 13 及以上 | Apple Silicon | `GETSSH-3.0.0-preview-arm64.dmg` |
+| macOS 13 及以上 | Intel | `GETSSH-3.0.0-preview.dmg` |
+| Windows 10 及以上 | x64 | `GETSSH-Setup-3.0.0-preview-x64.exe` |
+| Windows 10 及以上 | ARM64 | `GETSSH-Setup-3.0.0-preview-arm64.exe` |
 
-### IPC 安全加固
+`SHA256SUMS.txt` 里是这几个文件的 SHA-256。
 
-所有 `ipcMain.on` 和 `ipcMain.handle` 调用均被全局补丁拦截，任何来自子帧（`event.senderFrame.parent !== null`）的请求一律拒绝。插件 iframe 无法突破沙盒边界调用高权限的 IPC 通道。
+应用没有 Apple 开发者签名，Windows 安装包也没有签名。第一次打开时：
+- macOS 13、14：在"应用程序"里右键点 GETSSH，选"打开"。
+- macOS 15 及以上：先打开一次 GETSSH，系统提示无法验证开发者以后，打开"系统设置 → 隐私与安全性"，在下方点"仍要打开"。
+- Windows：SmartScreen 提示时，点"更多信息"，再点"仍要运行"。
 
-### 插件沙盒
+从 2.0 升级时，第一次启动会自动导入 2.0 的服务器和插件数据，2.0 的文件不改也不删。详见发布说明。
 
-插件 UI 运行在 `<iframe sandbox="allow-scripts">` 内——`allow-same-origin` 被明确移除。`PluginBridge` 对每条 `postMessage` 进行来源校验，与发送方 iframe 的 `contentWindow` 严格比对。危险操作（`sshWrite`、`saveProfiles`、`sftpDelete` 等）均被列入永久黑名单。
+## 功能
 
----
+- **连接**：
+  - SSH：可以用密码、磁盘上的私钥文件，或存进 GETSSH 的私钥；
+  - Telnet 和本地终端；
+  - 第一次连接一台主机时要确认它的指纹，指纹变了会提醒；
+  - 可以经 SOCKS5 或 HTTP 代理连接。
+- **工作区**：可以建多个，每个工作区有自己的加密数据库。主工作区以外的工作区可以各自设密码。
+- **私钥**：
+  - 可以导入 OpenSSH、PEM（PKCS#1、SEC1、PKCS#8）和 PuTTY `.ppk`（第 2、3 版）格式的 Ed25519、RSA、ECDSA 私钥；
+  - 可以生成新的 Ed25519 私钥；
+  - 服务器原来用的私钥文件可以导入 GETSSH，原文件可以选择移到废纸篓（Windows 上是回收站）。
+- **SFTP**：在 SSH 会话旁边浏览和传输文件。
+- **潮汐引擎（Tidal Engine）**：分屏、调整窗格比例、聚焦一个窗格，或者把会话移到独立窗口。
+- **命令中心**：搜索主机和常用操作。快捷键是 ⌥ + Space 或 ⌘ + K，Windows 上是 Alt + Space 或 Ctrl + Shift + K。
+- **加密备份**：把选中的工作区导出成一个 `.getssh-backup` 文件，在另一台电脑上只凭导出密码就能整份恢复。
+- **AI 排障**：
+  - 可以选 OpenAI、Gemini、Claude、DeepSeek、智谱 GLM、Kimi、Ollama（本地模型）或自定义端点；
+  - 四种模式：只读问答、感知助手、审批执行、自动执行；
+  - 每条命令执行前要不要经您同意，由所选模式决定；
+  - 审批执行和自动执行模式下，AI 可以联网搜索，默认开启，可以在 AI 设置里关掉。
+- **插件和 MCP**：后端插件和本地 MCP 服务器在受系统限制的进程里运行。插件开发见 [SDK 指南](https://getssh.realmcloud.net/zh/sdk)，示例插件在 [`plugins/`](plugins)。
 
-## 🧩 插件系统
+## 数据怎么保护
 
-GETSSH 采用独立后端进程与沙盒 UI 组成的插件架构：
+**防住了什么**：
+- **硬盘上的数据**：每个工作区一个数据库，用 SQLCipher 4 格式加密，钥匙各不相同。密码、私钥和口令在库里再用 AES-256-GCM 单独加密一层。
+- **界面拿不到秘密**：秘密只在主进程里解开，连接时直接交给 SSH。
+- **主密码**：可选，至少 12 个字符，用 Argon2id 处理（64 MiB，3 轮），不会存下来。
+  - 设了主密码，加密数据库里的内容（服务器、密码、私钥、AI 会话和 AI 服务的密钥）都由它保护。数据加上主密码，在任何电脑上都能恢复。
+  - 设主密码时会生成一个恢复码，只显示一次。
+- **不设主密码**：钥匙由这台电脑保管，macOS 用 Secure Enclave 或登录钥匙串，Windows 用 TPM 或 DPAPI。数据库文件复制到别的电脑上打不开，数据也只能在这台电脑上打开。
+- **Touch ID / Windows Hello**：可以代替输入密码，开不开都不影响数据能否带走。
+- **加密备份**：导出密码至少 12 个字符，经 Argon2id 派生出钥匙，再用 AES-256-GCM 分块加密。
+- **AI 请求**：发给模型服务之前，能识别出的敏感信息（如密码、令牌）会换成占位符。AI 发起的联网搜索也只带占位符。
+- **插件**：插件安全模式为两种"隔离模式"时，每个后端插件在一个受限进程里运行，macOS 用 Seatbelt，Windows 用 AppContainer。插件访问文件、网络和客户端功能都要先声明。
 
-- **后端插件** — 普通和严格模式下，每个后端都运行在受操作系统约束的独立进程中。宿主文件、直接网络、子进程和 Worker 均被阻断，插件只能通过注入的 `context` 调用已声明的能力。安全模式不执行后端代码；开发者模式把插件视为完全可信的主进程代码。
-- **UI 插件** — 运行在沙盒 iframe 中，通过白名单 `window.GETSSH` 桥通信。纯 UI 插件声明 `getssh.type: "sandbox"`；带后端的插件省略 `getssh.type`。
+**没防住的**：
+- GETSSH 解锁期间，以您的账号运行的其他程序有可能读取它的内存。
+- 不设主密码时，能登录您这个电脑账号的人就能打开 GETSSH。
+- 还在用磁盘上私钥文件的服务器，那个文件的安全取决于它所在的磁盘，它也不在加密备份里。
+- 敏感信息替换只能处理认得出的内容，不能保证发给模型的文字里没有一点敏感信息。
+- 主机指纹、连接记录、最近连接、界面设置（包括您填的 Google 搜索 API 密钥）、插件自己存的数据和终端录像，不在加密数据库里，明文存在磁盘上。
+- "开发者模式"下，后端插件直接在主进程里运行，权限和 GETSSH 一样。
 
-**扩展点全览：**
-- `registerSidebarAction` — 向侧边栏注入自定义操作按钮（图标经 DOMPurify 消毒）
-- `registerPanel` / `openPanel` — 注册并打开自定义面板（作为分屏树叶节点展示）
-- `context.ui.registerTerminalContextMenu` / `registerSFTPContextMenu` — 添加原生右键菜单操作
-- `context.ui.registerSettings` — 定义由宿主渲染的插件设置
-- `context.storage` — 每个插件独立的 KV 存储（`getssh-kv` Rust 模块）
-- `context.rpc` / `window.GETSSH.invokeBackend` — 结构化前后端通信
-- `context.net.fetch` — 通过 SSRF 防护网关访问公网 HTTP/HTTPS
+## 隐私
 
-Manifest、完整函数签名、示例、限制和迁移方法请查看 [GETSSH 3.0 插件 SDK 开发指南](docs/PLUGIN_SDK_INTERNAL_CN.md)。
+GETSSH 没有账号，不做统计，也没有遥测。它只在这些时候联网：
+- 您打开的 SSH 和 Telnet 连接；
+- 检查新版本：启动时一次，之后每 12 小时一次，在"设置 → 关于"里点检查时也会查。macOS 访问 GitHub 的发布接口，Windows 访问 GitHub 上的发布文件；
+- 您用 AI 时，访问您配置的模型服务；
+- AI 联网搜索（审批执行和自动执行模式下，默认开启）：搜索词发给公共 SearXNG 服务器（列表取自 searx.space）、DuckDuckGo 或 Bing，或者您设置的 Google、SearXNG 地址；
+- 插件和 MCP 服务器，只在您允许的范围内联网。
 
----
+## 从源码构建
 
-## ⚡ 核心功能
-
-### 多协议终端连接
-
-- **SSH** — `ssh2` 库，支持密码/私钥认证，支持 SOCKS5/HTTP 代理转发
-- **本地 Shell** — `node-pty`，macOS（Zsh/Bash），Windows（PowerShell），基于安全白名单的 Shell 路径验证
-- **Telnet** — 原生 `net.Socket` 加 NVT 协议协商，强制 `vt100` 终端类型，适配思科/华为等网络设备
-- **协议自动识别** — 输入时自动解析 `ssh://`、`telnet://`、`user@host` 等多种格式
-
-**终端引擎：** `xterm.js` v6，WebGL 加速渲染（Canvas 降级兜底），Ligatures 字体连字支持，字体/颜色/光标/回滚行数/响铃全可配置，防瞎眼（Anti-Glare）高对比模式。
-
-**分屏架构：** 递归二叉树数据结构（`PaneNode`）。任意叶节点可进行水平或垂直分割，支持任意深度嵌套。每个分屏独立持有终端会话、插件面板或 Command Center 欢迎页，任意混搭。
-
-### SFTP 文件管理器
-
-- 通过 Rust `sftp-stream` 实现双模上传/下载引擎（零拷贝，大文件传输完全绕过 V8 堆）
-- 文件读取上限：应用内直接预览 **10MB**（防止 OOM 崩溃）；纯下载模式无大小限制
-- 实时本地同步编辑——双击文件在本地默认编辑器中打开，保存时自动上传
-- 原子写入（先写 UUID 后缀临时文件，再 `rename()` 原子替换），防止写入中断损坏文件
-- 对所有远端路径执行 `path.posix.normalize()` 路径穿越防御
-
-### 主控台 (Command Center)
-
-Raycast/Spotlight 风格的统一入口：对所有已保存会话（别名/主机/用户名）进行全文模糊搜索，键盘全程导航（↑/↓/Enter/Esc），支持直接输入 `user@host` 回车闪电直连，无需预先保存配置。Ocean Sentinel 安全告警会在此处以内联横幅形式呈现。
-
-### SafeStorage 凭证保险箱
-
-- Rust `getssh-vault`：PBKDF2（10 万次迭代）+ AES-256-GCM，V1/V2 双格式自动识别与迁移
-- `Electron.safeStorage` 保护主密码落盘安全（依赖硬件级 TPM / Secure Enclave 的 macOS Keychain / Windows DPAPI）
-- macOS Touch ID 生物识别解锁，实现无密码快速启动
-- 敏感配置字段（`initScript`、`proxyHost`、`proxyPort`）单独通过 `safeStorage` 加密，与主 localStorage 键完全隔离存储
-- 自动锁屏：空闲超时后触发主密码解锁界面，Zustand `cryptoStore` 在锁定时同步清空内存
-
-### 已知主机与 MITM 防护
-
-- 首次连接时弹出 SHA256 指纹验证弹窗
-- 主机指纹发生变化时触发高危 MITM 警告覆层，对比展示新旧指纹
-- 设置 → 安全 → 已知主机，支持逐条撤销信任记录
-
-### 连接审计日志
-
-只读的连接元数据记录（别名、主机、接入/断开时间戳、持续时长）。终端内容从不捕获。支持导出 CSV。
-
----
-
-## 🛠 开发技术栈
-
-| 层次 | 技术 | 版本 |
-|---|---|---|
-| 桌面底座 | Electron | 42.x |
-| 前端框架 | React + TypeScript | 19.x + 6.x |
-| 构建工具 | Vite + vite-plugin-electron | 8.x |
-| 样式方案 | TailwindCSS | v4.x |
-| 状态管理 | Zustand | 5.x |
-| SSH/SFTP | ssh2 | 1.x |
-| 本地终端 | node-pty | 1.x |
-| 终端渲染 | xterm.js + WebGL | 6.x |
-| 加密核心 | Rust (getssh-vault) | AES-256-GCM + PBKDF2 |
-| 系统监控 | Rust (getssh-sysprobe) | sysinfo crate |
-| SFTP 引擎 | Rust (sftp-stream) | 零拷贝 N-API |
-| 插件存储 | Rust (getssh-kv) | 隔离 KV |
-| 解压引擎 | Rust (getssh-unarchive) | ZipSlip 防御加固 |
-| 看门狗 | Rust（独立二进制） | 操作系统级强杀 |
-| 国际化 | react-i18next | en-US, zh-CN |
-| DOM 安全 | DOMPurify | 3.x |
-| 测试 | Vitest + Playwright | 单元测试 + E2E |
-
----
-
-## 🚀 快速开始
-
-### 环境准备
-
-- **Node.js** ≥ 18.x
-- **pnpm** ≥ 9.x
-- **Rust 工具链**（用于编译原生模块）— 推荐使用 `rustup` 安装
-
-### 启动开发
+需要：
+- Node.js 24；
+- pnpm 11.2.2（`corepack enable` 会按 `packageManager` 字段装好）；
+- Rust stable（用 `rustup` 安装）；
+- macOS 13 及以上：Xcode 命令行工具，存储模块里有一段 Swift 代码要编译；
+- Windows 10 及以上：Python 3，以及 Visual Studio 2022 生成工具，选"使用 C++ 的桌面开发"，再加上"MSVC Spectre 缓解库"组件（ARM64 电脑还要装 ARM64 生成工具）。装依赖时 node-gyp 要重新编译 node-pty。
 
 ```bash
-# 克隆仓库
 git clone https://github.com/JiangchenShen/GETSSH.git
 cd GETSSH
+pnpm install --frozen-lockfile
 
-# 安装依赖
-pnpm install
+# Rust 原生模块。按本机填 aarch64-apple-darwin、x86_64-apple-darwin、
+# x86_64-pc-windows-msvc 或 aarch64-pc-windows-msvc
+RUST_TARGET=aarch64-apple-darwin node scripts/build-native.js
+pnpm --filter getssh build:native-tools   # watchdog，Windows 上还有 getssh-sandbox
 
-# 编译 Ocean Sentinel 看门狗二进制文件（SecureCenter 所需）
-pnpm run build:watchdog
-
-# 启动 Vite Dev Server + Electron（支持 HMR 热重载）
-pnpm run dev
+pnpm dev
 ```
 
-> **注意：** 五个 Rust `.node` 扩展（`getssh-vault`、`getssh-sysprobe`、`sftp-stream`、`getssh-kv`、`getssh-unarchive`）已为 macOS arm64/x64 预编译。如在 Windows 上开发，需在各 `rust-core/*` 目录内执行 `napi build --release` 手动重新编译。
+上面是 bash 的写法。Windows 的 PowerShell 里这样设环境变量：`$env:RUST_TARGET='x86_64-pc-windows-msvc'; node scripts/build-native.js`。
 
-### 打包安装包
+**注意**：开发版用的是您真实的数据目录 `~/.getssh`。只改界面时，可以用 `GETSSH_FAKE_STORE=1 pnpm dev`（PowerShell：`$env:GETSSH_FAKE_STORE='1'; pnpm dev`）：加密存储只放在内存里，但 `~/.getssh` 下的 `app-config.json`、插件数据和 MCP 设置仍会写入。
+
+测试：
 
 ```bash
-# 编译所有 Rust 组件 + Vite 构建 + electron-builder 打包（一键）
-pnpm run build
-
-# 指定平台打包
-pnpm run build -- --mac      # macOS DMG (ULFO 格式) — x64 + arm64 双架构
-pnpm run build -- --win      # Windows NSIS 安装包 — x64 + arm64
+pnpm --filter getssh test                        # 应用的单元测试（vitest）
+cargo test --workspace --exclude ocean-sentinel  # Rust 模块
 ```
 
----
+在 Windows 上，请在 cargo test 后面加上 `-- --skip made_up_tpm_key_names_are_lost_keys`：这个测试会把改过的数据交给真实的 TPM，`scripts/windows-verify.ps1` 默认也跳过它。
 
-## ⚖️ 为什么选择 GETSSH？
+`apps/getssh-client/package.json` 里还有插件隔离、MCP 沙箱、加密存储端到端等专项测试，它们要用编译好的原生模块。
 
-| | **GETSSH** | Termius | Tabby | iTerm2 |
-|---|---|---|---|---|
-| **安全性** | Rust AES-256-GCM + 看门狗守护进程 + RASP + Zeroize 内存即焚 | 闭源，云端同步存在隐患 | 开源，无硬件安全层 | 开源，无加密层 |
-| **SFTP** | 零拷贝 Rust 引擎，实时本地编辑同步 | 付费订阅专享 | 功能较基础 | 需安装插件 |
-| **架构** | TypeScript + Rust 混合，6 个原生扩展 | 闭源专有 | Electron + TS | Objective-C |
-| **插件** | 系统隔离后端进程 + 沙盒 UI，能力声明门控 | 功能有限 | 主题向 | 脚本 API |
-| **价格** | **完全免费开源** | 月度/年度订阅制 | 免费 | 免费（仅 macOS）|
+安装包由 [`.github/workflows/release.yml`](.github/workflows/release.yml) 打出：
+- 4 种系统和架构，各在对应的机器上打包，原生模块不交叉编译；
+- 打包后检查每个原生文件的架构，再启动一次打好的应用；
+- 推 `v*` 标签时，生成一个草稿版本。
 
----
+## 目录
 
-## 🗺 路线图
+| 位置 | 内容 |
+|---|---|
+| `apps/getssh-client/electron` | 主进程和 preload：连接、存储接口、插件和 MCP 的进程隔离 |
+| `apps/getssh-client/src` | 界面（React） |
+| `rust-core/getssh-store` | 数据层：SQLCipher 加密库、服务器和私钥、加密备份 |
+| `rust-core/getssh-keystore` | 钥匙层级、主密码、恢复码和设备密钥，编译进 getssh-store |
+| `rust-core/ocean-sentinel` | 敏感信息替换、Watchdog，以及 Windows 上的沙箱启动器 |
+| `rust-core/` 下的其他模块 | 插件存储（getssh-kv）、系统监控（getssh-sysprobe）、插件解压（getssh-unarchive）、2.x 的加密格式（getssh-vault）、SFTP 传输（sftp-stream）、布局（tidal-engine）、审计日志（audit-stream） |
+| `docs` | 设计文档，大多是中文。`GETSSH_STORE_DESIGN_CN.md` 讲数据层，`PLUGIN_SDK_INTERNAL_CN.md` 讲插件接口 |
 
-- [ ] **v3.1** — CSP 全面移除 `unsafe-eval` · Windows 代码签名 · Workspace 工作区隔离（多金库）
-- [ ] **v3.2** — 插件市场 · SSH 跳板机（ProxyJump）· 终端内容搜索
-- [ ] **v3.3** — 集群广播（一键向 N 个会话同步发送命令）· SSH 配置文件（`~/.ssh/config`）导入
+## 许可
 
----
+Copyright © 2026 Jiangchen Shen。以 [Apache License 2.0](LICENSE) 授权。
 
-## 🛡 隐私声明
-
-一切都留在本地。SSH 私钥、密码、会话日志与连接元数据**从不离开您的设备**。GETSSH 没有任何埋点统计、遥测上报、云端账户，也不会发起任何网络请求（仅 GitHub Releases API 用于检查更新）。
-
----
-
-## 📄 开源协议
-
-Copyright © 2026 Jiangchen Shen. Licensed under the [Apache License 2.0](LICENSE).
+安装包里附带 `THIRD_PARTY_NOTICES.txt`，列出用到的第三方软件和各自的许可，说明见 [docs/legal/THIRD_PARTY_LICENSES.md](docs/legal/THIRD_PARTY_LICENSES.md)。MiSans 字体的许可协议原文在[官网](https://getssh.realmcloud.net/zh/legal/licenses#misans)。

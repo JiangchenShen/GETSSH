@@ -6,6 +6,72 @@ All notable changes to this project will be documented in this file. The project
 
 ---
 
+## [3.0.0-preview] - 2026-10-21
+
+The 3.0 preview: the FUSION edition for macOS (Apple Silicon, Intel) and Windows (x64, ARM64); there is no Linux version. Release notes: [release-notes/v3.0.0-preview.md](release-notes/v3.0.0-preview.md).
+
+### Added
+
+- **Encrypted store (getssh-store)**:
+  - servers, passwords, private keys, AI sessions and the keys of AI services are kept in encrypted databases on this computer, one per workspace, in the SQLCipher 4 format;
+  - passwords, private keys and passphrases are encrypted once more inside them with AES-256-GCM;
+  - database keys are used only in Rust; the interface never receives a secret.
+- **Master password**: optional, at least 12 characters, processed with Argon2id. Setting one creates a recovery code. With a master password, GETSSH locks at launch, after 5 idle minutes, a locked screen or sleep.
+- **Device keys**: without a master password, this computer keeps the keys: the Secure Enclave or the login Keychain on macOS, the TPM or DPAPI on Windows. Touch ID and Windows Hello can replace typing a password.
+- **Workspaces**: several, one database each; workspaces other than the main one can have their own password.
+- **Encrypted backups**: chosen workspaces export to a `.getssh-backup` file encrypted with an export password (Argon2id, AES-256-GCM). Importing replaces all data, after an automatic backup of the current data.
+- **Private keys in GETSSH**:
+  - Ed25519, RSA and ECDSA keys in OpenSSH, PEM (PKCS#1, SEC1, PKCS#8) and PuTTY `.ppk` (versions 2 and 3) format;
+  - Ed25519 key generation;
+  - a key file a server already uses can be imported, the original optionally moved to the Trash.
+- **AI troubleshooting**:
+  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, Ollama (local models) or a custom endpoint;
+  - four modes: Read-only, Context assistant, Approval required, Automatic execution;
+  - recognisable sensitive values are replaced with placeholders before a request leaves;
+  - web search in Approval required and Automatic execution (on by default): queries go to public SearXNG servers, DuckDuckGo or Bing, with the placeholders only;
+  - past sessions are indexed on this computer and the index is kept in the encrypted database.
+- **PLUGIN 3.0**:
+  - in the two Isolated modes each backend plugin runs in its own OS-confined process (Seatbelt on macOS, AppContainer on Windows) and declares the files, network and client features it uses;
+  - `context.secrets` stores tokens and passwords encrypted, and `password` settings are stored encrypted.
+- **MCP**: local MCP servers run under the same confinement, with no network by default and only the paths allowed in Settings.
+- **Tidal Engine**: split panes, resize them, focus one, move a session to its own window.
+- **Installers** include `THIRD_PARTY_NOTICES.txt` with the third-party software and licenses.
+
+### Upgrading from 2.0
+
+- On first launch the 2.0 server list is imported into the main workspace; if the master password 2.0 saved cannot be opened, you are asked for it.
+- The data of 2.0 plugins is copied into the main workspace once.
+- Host fingerprints, connection history and interface settings carry over.
+- The 2.0 server files and plugin data are neither changed nor deleted. Back on 2.0, servers added or changed in 3.0 are missing, and the init scripts and proxy settings return to their defaults.
+
+### Changed
+
+- Electron 44; macOS 13 and Windows 10 are the minimum.
+- The macOS app is ad-hoc signed; the release notes say how to open it the first time.
+- The Chinese interface addresses the user as 您.
+
+### Removed
+
+- **Breaking**: the plugin API `context.safeStorageEncrypt()`; use `context.secrets`.
+- The 2.x database export and import, and the old channels that read and wrote database files directly. Encrypted backups replace them.
+
+### Security
+
+- The Rust dependency `zip` is at 9.0.5 (RUSTSEC-2026-0367, -0368, -0369). GETSSH's plugin extraction does not call the affected `extract()`.
+- The build tool vite is at 8.3.3 (GHSA-587h-7wmj-h5pm); the issue is in the dev server, which is not in the installers.
+- AI web search queries no longer get real values back: what was masked for the model does not appear in requests to search engines.
+
+### Known limits
+
+- No Linux version.
+- The macOS app is not signed with an Apple Developer ID or notarized; the Windows installer is not signed.
+- Importing a backup replaces all data.
+- Host fingerprints, connection history, recent hosts, interface settings, plugins' own storage and terminal recordings are not in the encrypted databases.
+- On an Intel Mac without a T2 chip and without a master password, the first launch after an update may ask for the login password before GETSSH can read its device key from the Keychain.
+- New versions are downloaded by hand.
+
+---
+
 ## [2.0.0-preview] (Build R7K4S) - 2026-05-28 → 2026-05-29
 
 ### 🏗️ Infrastructure Overhaul Phase 1: React 19 Core Engine Hot-Swap

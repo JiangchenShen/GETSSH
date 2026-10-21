@@ -1,219 +1,154 @@
 # GETSSH
 
-[中文版](README_CN.md) | English
+English | [中文](README_CN.md)
 
-[![Version](https://img.shields.io/badge/version-3.0.0--preview-blueviolet?style=flat-square)](package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
-[![Electron](https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
+[![Version](https://img.shields.io/badge/version-3.0.0--preview-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
-[![Changelog](https://img.shields.io/badge/Changelog-v3.0-brightgreen?style=flat-square&logo=gitbook)](docs/CHANGELOG_EN.md)
 
-**GETSSH** is a next-generation SSH terminal client for macOS and Windows, built for developers and DevOps engineers. It is designed around three uncompromising principles: **defense-in-depth security**, **a GPU-accelerated terminal experience**, and **a Glassmorphism UI that makes you actually want to open your terminal**.
+GETSSH is a free, open-source SSH client for macOS and Windows.
 
-Under the hood, GETSSH v3.0 is a full **TypeScript + Rust** hybrid. Five Rust native addons handle everything your CPU and memory care about most — cryptography, file I/O, system monitoring, and Ocean Sentinel's OS-level watchdog daemon — while React 19 and Electron 42 handle the rest with an architectural discipline that keeps startup time low and renders butter-smooth.
+- SSH and Telnet sessions, local terminals and SFTP in one window.
+- Servers, passwords and private keys are stored encrypted on your computer.
+- When you want it, AI helps troubleshoot, using your own model key.
 
-📢 **[View Full Changelog (v3.0)](docs/CHANGELOG_EN.md)**
+The current version is the **3.0 preview** (`3.0.0-preview`, 2026-10-21), the FUSION edition for macOS and Windows. On Linux, please keep using [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S); 2.x is maintained on the [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) branch.
 
----
+- Website: <https://getssh.realmcloud.net>
+- Release notes for the 3.0 preview: [docs/release-notes/v3.0.0-preview.md](docs/release-notes/v3.0.0-preview.md)
+- Changelog: [docs/CHANGELOG_EN.md](docs/CHANGELOG_EN.md)
 
-## ✨ What's New in v3.0
+## Download
 
-v3.0 is a ground-up architectural overhaul — not just a feature release:
+From the [GitHub release](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview):
 
-- 🦀 **Full Rust Native Core** — Five production Rust N-API addons replace the entire JS-layer crypto, SFTP I/O, and system monitoring stack
-- 🛡 **Six-Layer Defense-in-Depth Architecture** — Ocean Sentinel watchdog daemon, AES-256-GCM Vault, Zeroize memory scrubbing, Zero-copy network engine, RASP runtime defense, and native memory integrity scanning
-- 🔒 **32 Security Vulnerabilities Fixed** — Full internal security audit covering Critical, High, Medium, and Low severity findings, all resolved
-- ⚛️ **React 19 + Electron 42** — Rebuilt on the latest stable foundation
-- 🎨 **Tailwind CSS v4** — Complete style system overhaul
-
----
-
-## 🖥 Screenshots
-
-> *Glassmorphism dark mode with split-pane terminal sessions and the Security Center RASP dashboard.*
-
----
-
-## 🔒 Security Architecture
-
-GETSSH v3.0 implements a **six-layer defense-in-depth architecture** extending from the OS kernel to the application layer:
-
-| Layer | Component | What It Does |
+| System | Processor | File |
 |---|---|---|
-| **1. Ocean Sentinel Watchdog** | `rust-core/ocean-sentinel` — standalone `watchdog` binary | Runs independently from Electron. Monitors the main process via IPC heartbeat. If the heartbeat is missed for >5s, it calls OS-level APIs to forcibly kill the entire Node.js process — bypassing JavaScript entirely. |
-| **2. Memory Zeroize** | `getssh-vault` Rust N-API | All AES keys and decrypted credential buffers are wrapped in `ZeroizeOnDrop`. TypeScript's `finally` blocks call `buffer.fill(0)` as a second pass. No plaintext ever lingers in heap. |
-| **3. Crypto Vault** | `getssh-vault` Rust N-API | AES-256-GCM authenticated encryption. Key derived via PBKDF2-HMAC-SHA256 with 100,000 iterations and a 32-byte salt (NIST SP 800-132). V2 format with magic header for safe migration. |
-| **4. Zero-Copy Network** | `sftp-stream` Rust N-API | SFTP large-file transfers bypass the V8 heap entirely. Rust owns the disk I/O. No OOM from large file transfers. |
-| **5. RASP Defense** | `SecureCenter.ts` | Runtime Application Self-Protection. Audits plugin shell commands for fork bombs, `rm -rf /`, `mkfs`, and disk-destroying `dd`. Triggers the Ocean Sentinel watchdog lockdown protocol on detection. |
-| **6. Memory Scanner** | `getssh-sysprobe` Rust N-API | Periodically validates the first bytes of critical system function memory to detect Inline Hook attempts. Requires elevated privileges. |
+| macOS 13 or later | Apple Silicon | `GETSSH-3.0.0-preview-arm64.dmg` |
+| macOS 13 or later | Intel | `GETSSH-3.0.0-preview.dmg` |
+| Windows 10 or later | x64 | `GETSSH-Setup-3.0.0-preview-x64.exe` |
+| Windows 10 or later | ARM64 | `GETSSH-Setup-3.0.0-preview-arm64.exe` |
 
-### IPC Security
+`SHA256SUMS.txt` lists the SHA-256 of these files.
 
-All `ipcMain.on` and `ipcMain.handle` calls are globally patched to reject any request originating from a sub-frame (`event.senderFrame.parent !== null`). Plugin iframes cannot escape their sandbox to call privileged IPC channels.
+The app is not signed with an Apple Developer ID, and the Windows installer is not signed. On first launch:
+- macOS 13 and 14: in Applications, right-click GETSSH and choose Open.
+- macOS 15 and later: open GETSSH once; after the message that the developer cannot be verified, open System Settings → Privacy & Security and click Open Anyway near the bottom.
+- Windows: when SmartScreen appears, click More info, then Run anyway.
 
-### Plugin Sandbox
+Upgrading from 2.0, the first launch imports the 2.0 servers and plugin data; the 2.0 files are neither changed nor deleted. The release notes have the details.
 
-Plugin UIs run inside `<iframe sandbox="allow-scripts">` — `allow-same-origin` is explicitly removed. `PluginBridge` validates every `postMessage` against the originating iframe's `contentWindow`. Dangerous actions (`sshWrite`, `saveProfiles`, `sftpDelete`, etc.) are on a permanent blocklist.
+## Features
 
----
+- **Connections**:
+  - SSH with a password, a key file on disk, or a key stored in GETSSH;
+  - Telnet and local terminals;
+  - a host's fingerprint is confirmed on first connect, and a changed fingerprint is flagged;
+  - connections can go through a SOCKS5 or HTTP proxy.
+- **Workspaces**: create several, each with its own encrypted database. Workspaces other than the main one can each have their own password.
+- **Private keys**:
+  - import Ed25519, RSA and ECDSA keys in OpenSSH, PEM (PKCS#1, SEC1, PKCS#8) and PuTTY `.ppk` (versions 2 and 3) format;
+  - generate a new Ed25519 key;
+  - import a key file a server already uses, and optionally move the original to the Trash (the Recycle Bin on Windows).
+- **SFTP**: browse and transfer files next to the SSH session.
+- **Tidal Engine**: split panes, resize them, focus one, or move a session to its own window.
+- **Command Center**: search hosts and common actions. ⌥ + Space or ⌘ + K; on Windows, Alt + Space or Ctrl + Shift + K.
+- **Encrypted backups**: export the workspaces you choose to one `.getssh-backup` file; the export password alone restores it on another computer.
+- **AI troubleshooting**:
+  - OpenAI, Gemini, Claude, DeepSeek, Zhipu GLM, Kimi, Ollama (local models) or a custom endpoint;
+  - four modes: Read-only, Context assistant, Approval required, Automatic execution;
+  - the mode decides whether each command waits for your approval;
+  - in Approval required and Automatic execution, the AI can search the web; this is on by default and can be turned off in AI settings.
+- **Plugins and MCP**: backend plugins and local MCP servers run in OS-confined processes. See the [SDK guide](https://getssh.realmcloud.net/en/sdk) for plugin development; an example plugin is in [`plugins/`](plugins).
 
-## 🧩 Plugin System
+## How your data is protected
 
-GETSSH has an isolated backend and sandboxed UI plugin architecture:
+**What is covered**:
+- **Data on disk**: one database per workspace, in the SQLCipher 4 format, each with its own key. Passwords, private keys and passphrases are encrypted once more inside it with AES-256-GCM.
+- **The interface never holds secrets**: they are opened only in the main process and handed to SSH when you connect.
+- **Master password**: optional, at least 12 characters, processed with Argon2id (64 MiB, 3 passes), not stored.
+  - With a master password, it protects what is in the encrypted databases (servers, passwords, private keys, AI sessions and AI service keys), and the data plus the master password can be restored on any computer.
+  - Setting one creates a recovery code, shown only once.
+- **Without a master password**: this computer keeps the keys, in the Secure Enclave or the login Keychain on macOS and the TPM or DPAPI on Windows. Copied database files do not open elsewhere, and the data opens only on this computer.
+- **Touch ID / Windows Hello** can replace typing a password; whether they are on does not affect moving the data.
+- **Encrypted backups**: an export password of at least 12 characters, Argon2id to derive the key, AES-256-GCM in chunks.
+- **AI requests**: before a request goes to the model service, recognisable sensitive values such as passwords and tokens are replaced with placeholders. Web searches the AI makes carry the placeholders too.
+- **Plugins**: in the two Isolated plugin security modes, each backend plugin runs in its own confined process (Seatbelt on macOS, AppContainer on Windows) and declares the files, network and client features it uses.
 
-- **Backend plugins** — In normal and strict modes, each backend runs in a separate OS-confined process. Host files, direct networking, subprocesses, and Workers are blocked; capability-bound operations are exposed through the injected `context` API. Safe mode runs no backend plugin code, while developer mode treats plugins as fully trusted main-process code.
-- **UI plugins** — Run in sandboxed iframes and communicate through the allowlisted `window.GETSSH` bridge. UI-only plugins declare `getssh.type: "sandbox"`; plugins with a backend omit `getssh.type`.
+**What is not**:
+- While GETSSH is unlocked, other programs running under your account may be able to read its memory.
+- Without a master password, anyone who can log in to your computer account can open GETSSH.
+- A key file a server still reads from disk is only as safe as that disk, and it is not in encrypted backups.
+- Replacing sensitive values only covers what can be recognised; it cannot guarantee that no sensitive text reaches the model.
+- Host fingerprints, connection history, recent hosts, interface settings (including a Google search API key if you enter one), plugins' own storage and terminal recordings are not in the encrypted databases; they are stored on disk unencrypted.
+- In Developer mode, backend plugins run in the main process with the same rights as GETSSH.
 
-**Extension Points:**
-- `registerSidebarAction` — Inject custom sidebar buttons (SVG sanitized via DOMPurify)
-- `registerPanel` / `openPanel` — Register and open custom panels as Pane Tree nodes
-- `context.ui.registerTerminalContextMenu` / `registerSFTPContextMenu` — Add native context-menu actions
-- `context.ui.registerSettings` — Define host-rendered plugin settings
-- `context.storage` — Isolated KV store per plugin (`getssh-kv` Rust module)
-- `context.rpc` / `window.GETSSH.invokeBackend` — Structured frontend/backend messaging
-- `context.net.fetch` — Public HTTP/HTTPS through an SSRF-protected gateway
+## Privacy
 
-See the [GETSSH 3.0 Plugin SDK Guide](docs/PLUGIN_SDK_INTERNAL.md) for manifests, complete API signatures, examples, limits, and migration notes.
+GETSSH has no accounts, analytics or telemetry. It goes online only for:
+- the SSH and Telnet connections you open;
+- checking for a new version: at launch, every 12 hours, and when you click Check in Settings → About; macOS asks the GitHub releases API, Windows reads the release files on GitHub;
+- the model service you configure, when you use AI;
+- AI web searches (in Approval required and Automatic execution, on by default): queries go to public SearXNG servers (the list comes from searx.space), DuckDuckGo or Bing, or to the Google or SearXNG address you set;
+- plugins and MCP servers, within the network access you allow.
 
----
+## Building from source
 
-## ⚡ Core Features
-
-### Multi-Protocol Terminal
-
-- **SSH** — `ssh2` library, password and private key auth, SOCKS5/HTTP proxy support
-- **Local Shell** — `node-pty`, macOS (Zsh/Bash), Windows (PowerShell), shell allowlist enforcement
-- **Telnet** — Raw `net.Socket` with NVT negotiation, forced `vt100` termType for network gear
-- **Protocol auto-detect** — `ssh://`, `telnet://`, `user@host` format parsed on input
-
-**Terminal Engine:** `xterm.js` v6 with WebGL rendering (canvas fallback), ligatures, configurable fonts/colors/cursor/scrollback/bell, anti-glare mode.
-
-**Split Pane Architecture:** Recursive binary tree (`PaneNode`). Any leaf can be independently split horizontally or vertically to arbitrary depth. Each pane independently holds a terminal session, a plugin panel, or the Command Center welcome screen.
-
-### SFTP File Manager
-
-- Dual-mode uploader/downloader via Rust `sftp-stream` (Zero-copy, no V8 heap involvement for large files)
-- File read limit: **10MB** for in-app preview (prevents OOM). No size limit for pure downloads.
-- Real-time local edit sync — double-click to open in your default editor, auto-uploads on save
-- Atomic write (`rename()` from UUID-suffixed temp file) prevents partial-write corruption
-- Full `path.posix.normalize()` path traversal defense on all remote paths
-
-### Command Center
-
-A Raycast/Spotlight-style launcher: full-text fuzzy search across all saved sessions (alias/host/username), keyboard-driven navigation (↑/↓/Enter/Esc), one-line `user@host` quick connect without saving a profile first. Security warnings from Ocean Sentinel appear as inline banners.
-
-### SafeStorage Credential Vault
-
-- Rust `getssh-vault`: PBKDF2 (100k iterations) + AES-256-GCM, two format versions with auto-migration
-- `Electron.safeStorage` protects the master password at rest (hardware-backed via macOS Keychain / Windows DPAPI)
-- Touch ID biometric unlock on macOS for passwordless app launch
-- Sensitive config fields (`initScript`, `proxyHost`, `proxyPort`) encrypted separately via `safeStorage` and stored outside the main localStorage key
-- Auto-lock: idle timeout triggers master password screen; Zustand `cryptoStore` is cleared on lock
-
-### Known Hosts & MITM Protection
-
-- SHA256 fingerprint verification on first connect
-- Changed fingerprint detection triggers a high-severity MITM warning overlay with old/new comparison
-- Full revocation management in Settings → Security → Known Hosts
-
-### Audit Logs
-
-Read-only connection metadata logging (alias, host, connected/disconnected timestamps, duration). No terminal content is ever captured. CSV export available.
-
----
-
-## 🛠 Tech Stack
-
-| Layer | Technology | Version |
-|---|---|---|
-| Desktop Shell | Electron | 42.x |
-| Frontend | React + TypeScript | 19.x + 6.x |
-| Build | Vite + vite-plugin-electron | 8.x |
-| Styling | TailwindCSS | v4.x |
-| State | Zustand | 5.x |
-| SSH/SFTP | ssh2 | 1.x |
-| Local Terminal | node-pty | 1.x |
-| Terminal Render | xterm.js + WebGL | 6.x |
-| Crypto Core | Rust (getssh-vault) | AES-256-GCM + PBKDF2 |
-| System Monitor | Rust (getssh-sysprobe) | sysinfo crate |
-| SFTP Engine | Rust (sftp-stream) | Zero-copy N-API |
-| Plugin Storage | Rust (getssh-kv) | Isolated KV |
-| Unarchiver | Rust (getssh-unarchive) | ZipSlip-hardened |
-| Ocean Sentinel Watchdog | Rust (`ocean-sentinel`, standalone `watchdog` binary) | OS-level kill |
-| i18n | react-i18next | en-US, zh-CN |
-| DOM Security | DOMPurify | 3.x |
-| Testing | Vitest + Playwright | Unit + E2E |
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Node.js** ≥ 18.x
-- **pnpm** ≥ 9.x
-- **Rust toolchain** (for building native modules) — `rustup` recommended
-
-### Development
+You need:
+- Node.js 24;
+- pnpm 11.2.2 (`corepack enable` installs the version in `packageManager`);
+- Rust stable (via `rustup`);
+- on macOS 13 or later, the Xcode command line tools: the store compiles a Swift shim;
+- on Windows 10 or later, Python 3 and the Visual Studio 2022 Build Tools with "Desktop development with C++" plus the "MSVC Spectre-mitigated libs" component (and the ARM64 build tools on an ARM64 PC): installing rebuilds node-pty with node-gyp.
 
 ```bash
-# Clone
 git clone https://github.com/JiangchenShen/GETSSH.git
 cd GETSSH
+pnpm install --frozen-lockfile
 
-# Install dependencies
-pnpm install
+# Rust native modules. RUST_TARGET is this machine's: aarch64-apple-darwin, x86_64-apple-darwin,
+# x86_64-pc-windows-msvc or aarch64-pc-windows-msvc
+RUST_TARGET=aarch64-apple-darwin node scripts/build-native.js
+pnpm --filter getssh build:native-tools   # watchdog, and getssh-sandbox on Windows
 
-# Build the Ocean Sentinel watchdog binary (required for SecureCenter)
-pnpm run build:watchdog
-
-# Start Vite dev server + Electron with HMR
-pnpm run dev
+pnpm dev
 ```
 
-> **Note:** The five Rust `.node` addons (`getssh-vault`, `getssh-sysprobe`, `sftp-stream`, `getssh-kv`, `getssh-unarchive`) ship pre-compiled for macOS arm64/x64. On Windows, rebuild them with `napi build --release` inside each `rust-core/*` directory.
+These are bash commands. In Windows PowerShell, set the variable like this: `$env:RUST_TARGET='x86_64-pc-windows-msvc'; node scripts/build-native.js`.
 
-### Build Distributable
+**Note**: the development build uses your real data directory, `~/.getssh`. For interface work you can run `GETSSH_FAKE_STORE=1 pnpm dev` (PowerShell: `$env:GETSSH_FAKE_STORE='1'; pnpm dev`): the encrypted store stays in memory, but `app-config.json`, plugin data and MCP settings under `~/.getssh` are still written.
+
+Tests:
 
 ```bash
-# Build all Rust components + Vite bundle + electron-builder package
-pnpm run build
-
-# Platform-specific builds
-pnpm run build -- --mac      # macOS DMG (ULFO) — x64 + arm64
-pnpm run build -- --win      # Windows NSIS — x64 + arm64
+pnpm --filter getssh test                        # app unit tests (vitest)
+cargo test --workspace --exclude ocean-sentinel  # Rust modules
 ```
 
----
+On Windows, add `-- --skip made_up_tpm_key_names_are_lost_keys` to cargo test: that test hands modified data to the real TPM, and `scripts/windows-verify.ps1` skips it by default too.
 
-## ⚖️ Why GETSSH?
+`apps/getssh-client/package.json` has further suites, such as plugin isolation, the MCP sandbox and the encrypted store end to end; they need the built native modules.
 
-| | **GETSSH** | Termius | Tabby | iTerm2 |
-|---|---|---|---|---|
-| **Security** | Rust AES-256-GCM + Ocean Sentinel daemon + RASP + Zeroize | Closed-source cloud sync | Open source, no hardware security | Open source, no encryption layer |
-| **SFTP** | Zero-copy Rust engine, real-time local edit sync | Paid tier only | Basic | Requires plugin |
-| **Architecture** | TS + Rust hybrid, 6 native addons | Proprietary | Electron + TS | Objective-C |
-| **Plugins** | OS-confined backend processes + sandboxed UI, capability-gated | Limited | Theme-focused | Scripting API |
-| **Price** | **Free & Open Source** | Subscription | Free | Free (macOS only) |
+Installers are built by [`.github/workflows/release.yml`](.github/workflows/release.yml):
+- each of the four systems and architectures on a runner of its own kind, with no cross-compiled native modules;
+- each package has the architecture of every native file checked and the packaged app started once;
+- a `v*` tag creates a draft release.
 
----
+## Repository layout
 
-## 🗺 Roadmap
+| Path | Contents |
+|---|---|
+| `apps/getssh-client/electron` | Main process and preload: connections, the store interface, process confinement for plugins and MCP |
+| `apps/getssh-client/src` | Interface (React) |
+| `rust-core/getssh-store` | Data layer: SQLCipher databases, servers and private keys, encrypted backups |
+| `rust-core/getssh-keystore` | Key hierarchy, master password, recovery code and device keys; compiled into getssh-store |
+| `rust-core/ocean-sentinel` | Sensitive-value replacement, the Watchdog, and the sandbox launcher on Windows |
+| other modules in `rust-core/` | Plugin storage (getssh-kv), system monitoring (getssh-sysprobe), plugin extraction (getssh-unarchive), the 2.x encryption format (getssh-vault), SFTP transfers (sftp-stream), layout (tidal-engine), audit logs (audit-stream) |
+| `docs` | Design documents, mostly in Chinese. `GETSSH_STORE_DESIGN_CN.md` covers the data layer; `PLUGIN_SDK_INTERNAL.md` the plugin API |
 
-- [ ] **v3.1** — CSP `unsafe-eval` full removal · Windows code signing · Workspace isolation (multi-vault)
-- [ ] **v3.2** — Plugin Marketplace · SSH Jump Host (ProxyJump) · In-terminal search
-- [ ] **v3.3** — Cluster broadcast (send command to N sessions simultaneously) · SSH config file import
-
----
-
-## 🛡 Privacy Statement
-
-Everything stays local. SSH private keys, passwords, session logs, and connection metadata **never leave your machine**. GETSSH has no analytics, no telemetry, no cloud account, and no network calls except the GitHub Releases API for update checks.
-
----
-
-## 📄 License
+## License
 
 Copyright © 2026 Jiangchen Shen. Licensed under the [Apache License 2.0](LICENSE).
+
+The installers include `THIRD_PARTY_NOTICES.txt` with the third-party software used and their licenses; see [docs/legal/THIRD_PARTY_LICENSES.md](docs/legal/THIRD_PARTY_LICENSES.md). The MiSans font license is on the [website](https://getssh.realmcloud.net/en/legal/licenses#misans).
