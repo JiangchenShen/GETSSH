@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -96,7 +97,31 @@ function assertExports(moduleName: string, loaded: unknown, expected: readonly s
  * directory stays behind: the store keeps its databases open until the process exits, and Windows
  * cannot delete open files.
  */
+/**
+ * GitHub's macOS runners only. A Mac without a Secure Enclave (the Intel runner) keeps the store's
+ * device key in the default keychain, which macOS looks up under HOME, and the smoke's HOME is a
+ * fresh directory: adding the item waited for a "keychain not found" prompt nobody answers. An
+ * unlocked keychain there, made the default, lets that path run. Never on a person's Mac: it
+ * would change their keychain settings.
+ */
+function prepareCiKeychain(): void {
+  if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') return;
+  const keychain = path.join(os.homedir(), 'Library', 'Keychains', 'login.keychain-db');
+  fs.mkdirSync(path.dirname(keychain), { recursive: true, mode: 0o700 });
+  for (const args of [
+    ['create-keychain', '-p', 'getssh-smoke', keychain],
+    ['set-keychain-settings', keychain],
+    ['unlock-keychain', '-p', 'getssh-smoke', keychain],
+    ['list-keychains', '-d', 'user', '-s', keychain],
+    ['default-keychain', '-d', 'user', '-s', keychain],
+  ]) {
+    const result = spawnSync('security', args, { encoding: 'utf8', timeout: 15_000 });
+    if (result.status !== 0) throw new Error(`security ${args[0]} failed: ${(result.stderr || result.error?.message || '').trim()}`);
+  }
+}
+
 async function testStore(store: any): Promise<string> {
+  prepareCiKeychain();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-startup-store-'));
   store.configure(dir, 'startup-smoke');
   await store.start();
