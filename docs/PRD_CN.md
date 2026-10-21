@@ -414,8 +414,7 @@ font-family: 'Reddit Sans', 'MiSans', '-apple-system', 'BlinkMacSystemFont',
 
 | 功能 | 描述 |
 |---|---|
-| macOS（未代码签名）| 通过 `electron.net.request` 调用 GitHub Releases API 进行手动版本检查 |
-| Windows | 通过 `electron-updater` 进行全自动更新检查与下载 |
+| macOS、Windows | 安装包没有代码签名，两个平台都用 `net.fetch` 查 GitHub 的 `releases/latest`（不含草稿和预发布版本），按语义化版本比较，3.0.0-preview 早于 3.0.0。有新版本只提示，用户到发布页下载，不自动下载安装 |
 | 更新提示横幅 | 检测到新版本后，侧边栏设置图标显示红色提醒角标，全局顶部横幅提示 |
 | 后台静默检查 | 应用启动时检查一次，此后每 12 小时后台检查一次 |
 | 手动触发检查 | 偏好设置 → 关于 → 检查更新 |

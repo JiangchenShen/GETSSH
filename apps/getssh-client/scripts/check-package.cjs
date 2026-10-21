@@ -101,7 +101,7 @@ for (const pattern of [
   matches.forEach(archiveFile);
 }
 
-for (const name of ['electron-updater', 'ssh2', 'node-pty']) {
+for (const name of ['ssh2', 'node-pty']) {
   const directory = `node_modules/${name}`;
   archiveFile(`${directory}/package.json`);
   const metadata = JSON.parse(asar.extractFile(archive, native(`${directory}/package.json`)));

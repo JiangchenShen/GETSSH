@@ -4,7 +4,7 @@ import https from 'node:https';
 import { join } from 'node:path';
 import type { BackendConfig } from '../../../src/types/ipc';
 import { getRustCorePath } from '../utils/rustCorePath';
-import { compareVersions } from '../utils/compareVersions';
+import { checkForUpdates, fetchLatestRelease, notifyWindow } from '../services/updateCheck';
 import { isMainWebContents } from '../windowRegistry';
 
 let sysprobe: any = null;
@@ -41,78 +41,6 @@ const registerHotkey = (key: string, getWin: () => BrowserWindow | null) => {
         }
       });
     } catch(e) { console.error("Hotkey failed to register", e) }
-  }
-}
-
-function checkLatestRelease(app: Electron.App): Promise<{ version: string, url: string } | null> {
-  return new Promise((resolve) => {
-    try {
-      const { net } = require('electron');
-      const request = net.request({
-        method: 'GET',
-        url: 'https://api.github.com/repos/JiangchenShen/GETSSH/releases/latest'
-      });
-      request.setHeader('User-Agent', 'GETSSH-Updater');
-
-      request.on('response', (res: Electron.IncomingMessage) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk.toString('utf-8'));
-        res.on('end', () => {
-          try {
-            if (res.statusCode === 200) {
-              const release = JSON.parse(data);
-              const latestVersion = release.tag_name;
-              const currentVersion = app.getVersion();
-              if (compareVersions(latestVersion, currentVersion) > 0) {
-                resolve({ version: latestVersion, url: release.html_url });
-              } else {
-                resolve(null);
-              }
-            } else {
-              resolve(null);
-            }
-          } catch (e) {
-            console.error('Failed to parse release data', e);
-            resolve(null);
-          }
-        });
-      });
-      request.on('error', (e: Error) => {
-        console.error('Update check failed', e);
-        resolve(null);
-      });
-      request.end();
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-
-import { autoUpdater } from 'electron-updater';
-
-export async function checkForUpdates(app: Electron.App, getWin: () => BrowserWindow | null) {
-  if (process.platform === 'darwin') {
-    // macOS unsigned builds can't auto-update, fallback to manual check
-    const update = await checkLatestRelease(app);
-    const win = getWin();
-    if (update && win && !win.isDestroyed()) {
-      win.webContents.send('update-available', update);
-    }
-  } else {
-    // Other platforms can use autoUpdater
-    try {
-      autoUpdater.autoDownload = false; // We can still prompt the user
-      const res = await autoUpdater.checkForUpdates();
-      const win = getWin();
-      if (res && res.updateInfo && win && !win.isDestroyed()) {
-        win.webContents.send('update-available', {
-          version: res.updateInfo.version,
-          url: `https://github.com/JiangchenShen/GETSSH/releases/latest`
-        });
-      }
-    } catch (e) {
-      console.error('autoUpdater error', e);
-    }
   }
 }
 
@@ -241,18 +169,16 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
     };
   });
 
-  // Updates
+  // Updates: Settings → About runs the same check as the background one, but shows a failure.
   ipcMain.handle('check-for-updates', async () => {
     try {
-      const update = await checkLatestRelease(app);
-      const win = getWin();
-      if (update && win && !win.isDestroyed()) {
-        win.webContents.send('update-available', update);
-        return { hasUpdate: true, version: update.version, url: update.url };
-      }
-      return { hasUpdate: false };
+      const update = await fetchLatestRelease(app.getVersion());
+      if (!update) return { hasUpdate: false };
+      notifyWindow(update, getWin);
+      return { hasUpdate: true, version: update.version, url: update.url };
     } catch (e) {
-      return { hasUpdate: false, error: String(e) };
+      console.warn('[Update] Update check failed:', e);
+      return { hasUpdate: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
 
@@ -278,8 +204,8 @@ export function registerSystemHandlers(ipcMain: Electron.IpcMain, app: Electron.
   });
   
   // Periodic background update check
-  checkForUpdates(app, getWin);
-  setInterval(() => checkForUpdates(app, getWin), 12 * 60 * 60 * 1000); // Check every 12 hours
+  checkForUpdates(app.getVersion(), getWin);
+  setInterval(() => checkForUpdates(app.getVersion(), getWin), 12 * 60 * 60 * 1000); // Check every 12 hours
 
   ipcMain.handle('system:promptTouchID', async (event, reason: string) => {
     try {

@@ -766,4 +766,4 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 **发布以后再做**：
 - R51 还剩一个几毫秒的窗口：防抖刚触发、自动保存还在路上时点"连接"，主进程可能读到旧值。修法：`onUpdateSession` 返回保存的 Promise，`submit` 等它完成。
-- Windows 后台的自动更新检查用的是 electron-updater，发布里没有 `latest.yml`，所以不会提示新版本；"设置 → 关于"里的手动检查没问题。以后改成和 macOS 一样查 GitHub 的发布列表。
+- ~~Windows 后台的自动更新检查用的是 electron-updater，发布里没有 `latest.yml`，所以不会提示新版本；"设置 → 关于"里的手动检查没问题。以后改成和 macOS 一样查 GitHub 的发布列表。~~ 已改（Claude，10-21）：两个平台的后台检查和手动检查都走 `services/updateCheck.ts`，启动时查一次，之后每 12 小时一次；去掉了 electron-updater。手动检查失败时显示原因，原来会说"已经是最新版本"。
