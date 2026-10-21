@@ -57,6 +57,37 @@ async function setup() {
   return { OceanSentinel, gateway, streamTurn };
 }
 
+describe('LlmGateway tool arguments', () => {
+  it('puts real values back for local tools but leaves placeholders in search queries sent to search engines', async () => {
+    const { gateway, streamTurn } = await setup();
+    streamTurn.mockImplementation(async (sent: LlmRequest) => {
+      const placeholder = /\[[A-Za-z0-9_]+\]/.exec(sent.prompt || '')?.[0];
+      expect(placeholder).toBeDefined();
+      const command = { command: `ping ${placeholder}` };
+      const search = { query: `connection refused ${placeholder}` };
+      return {
+        model: 'fixture-model', text: '', stopReason: 'tool_use',
+        blocks: [
+          { kind: 'tool_call', callId: 'c1', name: 'execute_terminal', args: command, raw: JSON.stringify(command) },
+          { kind: 'tool_call', callId: 'c2', name: 'search_web', args: search, raw: JSON.stringify(search) },
+        ],
+        toolCalls: [
+          { callId: 'c1', name: 'execute_terminal', args: command, raw: JSON.stringify(command) },
+          { callId: 'c2', name: 'search_web', args: search, raw: JSON.stringify(search) },
+        ],
+      } as LlmResponse;
+    });
+    const result = await gateway.streamTurn('fixture', { apiKey: 'fixture-key', model: 'fixture-model', prompt: 'why does 10.9.8.7 refuse ssh' }, {});
+    const byName = Object.fromEntries(result.toolCalls.map(call => [call.name, call]));
+    expect(byName.execute_terminal.args.command).toBe('ping 10.9.8.7');
+    expect(JSON.stringify(byName.search_web)).not.toContain('10.9.8.7');
+    expect(byName.search_web.args.query).toMatch(/^connection refused \[[A-Za-z0-9_]+\]$/);
+    const blocks = result.blocks.filter(block => block.kind === 'tool_call');
+    expect(JSON.stringify(blocks.find(block => block.name === 'search_web'))).not.toContain('10.9.8.7');
+    expect(JSON.stringify(blocks.find(block => block.name === 'execute_terminal'))).toContain('10.9.8.7');
+  });
+});
+
 describe('LlmGateway redaction metrics at the real egress boundary', () => {
   it('counts repeated replacements across all supported segments, excluding the local audit pass', async () => {
     const { OceanSentinel, gateway, streamTurn } = await setup();

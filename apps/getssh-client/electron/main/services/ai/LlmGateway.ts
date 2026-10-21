@@ -12,6 +12,9 @@ import { OceanSentinel } from '../OceanSentinel';
 import { ModelCaps } from './ModelCapabilities';
 import type { OceanSession } from '../OceanSentinel';
 
+/** Tools whose arguments leave this computer for a third party; see keepsPlaceholders below. */
+const OUTBOUND_TOOLS = new Set(['search_web']);
+
 /**
  * 深度脱敏：工具调用参数是结构化的（{ command: "ssh root@1.2.3.4" }），
  * 只处理顶层字符串会把真实地址漏在嵌套字段里。
@@ -189,6 +192,9 @@ export class LlmGateway {
       // execute_terminal { command: "ssh root@[IP_1]" } 如果不还原，
       // 落到 SSHBridge.writeCommand 的就是字面量 [IP_1]。
       // 去程脱敏了却没有回程，方向不闭合。
+      // Arguments of tools that send them to a third party (search_web: public search engines)
+      // keep their placeholders, so a value masked for the model does not reach them in clear.
+      const keepsPlaceholders = (name: string) => OUTBOUND_TOOLS.has(name);
       const rehydrateBlock = (block: Block): Block => {
         if (block.kind === 'text') {
           return { kind: 'text', text: OceanSentinel.rehydrate(block.text, mappingDict) };
@@ -197,6 +203,7 @@ export class LlmGateway {
           return { ...block, text: OceanSentinel.rehydrate(block.text, mappingDict) };
         }
         if (block.kind === 'tool_call') {
+          if (keepsPlaceholders(block.name)) return block;
           return {
             ...block,
             args: OceanSentinel.rehydrateDeep(block.args, mappingDict),
@@ -209,7 +216,7 @@ export class LlmGateway {
         ...response,
         text: OceanSentinel.rehydrate(response.text, mappingDict),
         blocks: response.blocks.map(rehydrateBlock),
-        toolCalls: response.toolCalls.map(tc => ({
+        toolCalls: response.toolCalls.map(tc => (keepsPlaceholders(tc.name) ? tc : {
           ...tc,
           args: OceanSentinel.rehydrateDeep(tc.args, mappingDict),
           raw: OceanSentinel.rehydrate(tc.raw, mappingDict)
