@@ -76,8 +76,17 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      # node-gyp downloads Node's headers during install, and that download has been cut off on
+      # the Windows runners: retried twice before the job gives up.
       - name: Install Node Dependencies
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            pnpm install --frozen-lockfile && exit 0
+            echo "pnpm install failed (attempt $attempt)"
+            sleep 15
+          done
+          exit 1
 
       # mac.extraResources copies Electron's and Chromium's licenses (FFmpeg's LGPL notice among
       # them) from node_modules/electron/dist. Electron 44 fills that in on first use, not at
