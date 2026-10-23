@@ -767,3 +767,20 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 **发布以后再做**：
 - R51 还剩一个几毫秒的窗口：防抖刚触发、自动保存还在路上时点"连接"，主进程可能读到旧值。修法：`onUpdateSession` 返回保存的 Promise，`submit` 等它完成。
 - ~~Windows 后台的自动更新检查用的是 electron-updater，发布里没有 `latest.yml`，所以不会提示新版本；"设置 → 关于"里的手动检查没问题。以后改成和 macOS 一样查 GitHub 的发布列表。~~ 已改（Claude，10-21）：两个平台的后台检查和手动检查都走 `services/updateCheck.ts`，启动时查一次，之后每 12 小时一次；去掉了 electron-updater。手动检查失败时显示原因，原来会说"已经是最新版本"。
+
+**10-22 写 README 的 2.0 / 3.0 对比时，从代码里查到的问题**（都是读代码确认的，没有运行验证；README 里已经如实写了，没有回避）：
+- 主进程（Claude）：
+  - **插件页面可以直接联网**：`getssh-plugin://` 注册时带 `bypassCSP`，返回的 HTML 没有 CSP 头，iframe 只有 `sandbox="allow-scripts"`。插件声明的 `net:fetch` 只管后端。修法：给插件页面的响应加 CSP（`connect-src 'none'` 等），或按来源拦截插件页面的网络请求。
+  - **MCP 反向采样不用您选的服务商**：`setAiConfigProvider` 没有调用方，`resolveAiConfig` 落到 Gemini `gemini-2.5-flash`；"RASP 检查"调用的 `SecureCenter.checkSecurityRisk` 不存在。设置里的说明（"使用您配置的 AI 服务商和额度"）和代码不符。
+  - **本地记忆没有排除当前对话**：`aiHandler` 把终端会话 id 当成 `excludeSessionId`，而 `ai_memory_vectors.session_id` 存的是对话 id。
+  - **"启用 AI"开关只管浮动窗口和 AI 中心**：指令中心的 AI 和主进程都不检查它。
+  - **审批执行模式下，`open_session` 不需要审批**，但提示词告诉模型要审批。
+  - **"GETSSH 原生 MCP 服务"没有接上**：MCP 页给出 `getssh --mcp-server` 的配置片段，但主程序不处理这个参数。
+  - **工作区隔离规则里只有"Disable SFTP File Transfers"生效**："Block Plaintext Protocols"默认打开，但 Telnet 照样能连；"Strict Host Key Checking"等其余规则也不生效。要么接上，要么从界面去掉。
+  - "清空全部记录"只删列表里加载的对话（最多 2,000 个）。
+- 界面（Codex）：
+  - en-US 比 zh-CN 少 132 个键：英文界面里 `sidebar.editSession`、`autoStartSession`、`deleteSession` 等提示显示成键名，约 16 处显示中文（AI 中心的审批按钮、内置角色名、安全锁定的按钮等）。
+  - `SecurityTab.tsx` 用到的 `security.autoLockTitle`、`security.hour` 在两种语言里都不存在。
+  - `ConnectionPrivateKey.tsx` 让用户去"设置 → SSH"，实际的分页叫"连接与传输"。
+  - 插件模式在下拉框里叫"隔离模式（兼容严格策略/普通策略）"，在安全页的汇总里叫"严格模式 / 常规模式"。
+  - 浮动 AI 窗口的输入栏把两种智能体模式写成"半托管 (审批)""全托管 (Agent)"，和其他地方的"审批执行""自动执行"不一致。
