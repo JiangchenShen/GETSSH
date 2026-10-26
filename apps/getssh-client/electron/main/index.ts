@@ -7,11 +7,10 @@ import {
 // A fake-store development run keeps userData and the Keychain out of the real profile.
 import './devProfile'
 import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, session, shell } from 'electron'
-import fs from 'node:fs'
 import { join } from 'node:path'
-import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { PluginManager } from './PluginManager'
+import { PLUGIN_PAGE_SCHEME, PLUGIN_PAGE_SCHEME_PRIVILEGES, createPluginPageHandler } from './services/plugin/pluginPageProtocol'
 import { registerAllIpcHandlers } from './handlers'
 import { getBackendConfig } from './handlers/systemHandler'
 import { getBrowserWindowOptions, bindWindowEvents, denyClipboardRead, setupSecurityPolicies } from './handlers/windowHandler'
@@ -27,7 +26,7 @@ process.env.DIST_ELECTRON = join(__dirname, '..')
 process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'getssh-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }
+  { scheme: PLUGIN_PAGE_SCHEME, privileges: PLUGIN_PAGE_SCHEME_PRIVILEGES }
 ])
 
 // Prevent background throttling for SSH persistence
@@ -45,9 +44,6 @@ app.commandLine.appendSwitch('disable-software-rasterizer')
 // [M-11] Security Fix: Enforce senderFrame validation globally for all IPC channels
 // Only allow IPC messages from the top-level frame (the GETSSH UI).
 // If event is null/undefined (e.g., emitted internally by main process), skip this check
-/** Plugin pages are read whole to add the bridge script; larger pages are refused. */
-const MAX_PLUGIN_PAGE_BYTES = 4 * 1024 * 1024
-
 const isSubframeIpcEvent = (event: any) => !!(event && event.senderFrame && event.senderFrame.parent !== null);
 
 type IpcListener = (event: any, ...args: any[]) => void;
@@ -341,150 +337,7 @@ app.whenReady().then(async () => {
   // watchdog took a box left open for a minute as a freeze, killed the app and restarted it.
   void appLock.start();
 
-  protocol.handle('getssh-plugin', (request) => {
-    try {
-      const parsedUrl = new URL(request.url);
-      const pluginId = parsedUrl.hostname;
-      const pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
-      
-      const pluginsDir = join(app.getPath('userData'), 'plugins');
-      const pluginPath = join(pluginsDir, pluginId, pathname);
-      
-      // Prevent Path Traversal (C-01)
-      if (!pluginPath.startsWith(pluginsDir + require('path').sep)) {
-        return new Response('Forbidden', { status: 403 });
-      }
-
-    if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
-      // A page is read whole (the bridge script goes into its <head>): only up to 4 MiB.
-      return require('fs').promises.stat(pluginPath).then((stats: import('node:fs').Stats) => {
-        if (!stats.isFile()) throw new Error('Not Found');
-        if (stats.size > MAX_PLUGIN_PAGE_BYTES) throw new Error('Plugin page is larger than 4 MiB');
-        return require('fs').promises.readFile(pluginPath, 'utf-8');
-      }).then((text: string) => {
-        const injection = `
-          <script>
-            (function() {
-              // #1 FIX: pluginId is JSON-encoded server-side — no XSS via plugin directory names
-              var PLUGIN_ID = ${JSON.stringify(pluginId).replace(/</g, '\\u003c')};
-              // #2 FIX: Capture and verify parent origin once at load time
-              var PARENT_ORIGIN = (typeof location !== 'undefined' && location.ancestorOrigins && location.ancestorOrigins.length > 0) ? location.ancestorOrigins[0] : (document.referrer ? new URL(document.referrer).origin : '*');
-              
-              window.__GETSSH_LOCALE = navigator.language;
-              window.__themeListeners = [];
-              window.__sidebarHandlers = {};
-
-              window.GETSSH = {
-                _callbacks: {},
-                _reqId: 0,
-                _backendListeners: [],
-                invokeBackend: function(method, payload) {
-                  return new Promise((resolve, reject) => {
-                    const reqId = ++this._reqId;
-                    this._callbacks[reqId] = { resolve, reject };
-                    window.parent.postMessage({
-                      type: 'rpc-invoke',
-                      pluginId: PLUGIN_ID,
-                      method: method,
-                      payload: payload,
-                      reqId: reqId
-                    }, PARENT_ORIGIN);
-                  });
-                },
-                onBackendMessage: function(callback) {
-                  this._backendListeners.push(callback);
-                },
-                registerPanel: function(panelId, title, renderUrl) {
-                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "registerPanel", payload: { panelId, title, renderUrl } }, PARENT_ORIGIN);
-                },
-                openPanel: function(panelId) {
-                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "openPanel", payload: { panelId } }, PARENT_ORIGIN);
-                },
-                registerSidebarAction: function(id, icon, label) {
-                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "registerSidebarAction", payload: { id, icon, label } }, PARENT_ORIGIN);
-                },
-                showNotification: function(title, body) {
-                  window.parent.postMessage({ __getssh_plugin: true, pluginId: PLUGIN_ID, action: "showNotification", payload: { title, body } }, PARENT_ORIGIN);
-                },
-                getLocale: function() {
-                  return window.__GETSSH_LOCALE;
-                },
-                onThemeChange: function(callback) {
-                  window.__themeListeners.push(callback);
-                }
-              };
-
-              window.addEventListener('message', (e) => {
-                if (e.source !== window.parent || (PARENT_ORIGIN !== '*' && e.origin !== PARENT_ORIGIN)) return;
-                const data = e.data;
-                
-                // RPC and Backend Messages
-                if (data && data.type === 'rpc-response') {
-                  const cb = window.GETSSH._callbacks[data.reqId];
-                  if (cb) {
-                    if (data.error) cb.reject(new Error(data.error));
-                    else cb.resolve(data.result);
-                    delete window.GETSSH._callbacks[data.reqId];
-                  }
-                } else if (data && data.type === 'backend-message') {
-                  window.GETSSH._backendListeners.forEach(fn => fn(data.payload));
-                }
-                
-                // Host UI/Env Messages
-                if (data && data.__getssh_host) {
-                  if (data.event === "sidebarClick") {
-                    var handler = window.__sidebarHandlers[data.actionId];
-                    if (handler) handler();
-                  } else if (data.event === "envChange") {
-                    if (data.locale) window.__GETSSH_LOCALE = data.locale;
-                    if (data.theme) {
-                      window.__themeListeners.forEach(cb => cb(data.theme));
-                    }
-                  }
-                }
-                
-                // Also handle direct host:theme-change from PluginPane
-                if (data && data.type === 'host:theme-change' && data.payload) {
-                   window.__themeListeners.forEach(cb => cb(data.payload));
-                }
-              });
-            })();
-          </script>
-        `;
-        const modifiedText = text.includes('<head>') 
-          ? text.replace('<head>', '<head>' + injection)
-          : injection + text;
-          
-        return new Response(modifiedText, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        });
-      }).catch((e: Error) => {
-        return new Response(e.message, { status: 404 });
-      });
-    }
-    
-    // For non-HTML files, fetch manually to ensure correct MIME types on macOS. Streamed: a
-    // plugin's 400 MB asset requested many times at once must not be read whole each time.
-    return require('fs').promises.stat(pluginPath).then((stats: import('node:fs').Stats) => {
-      if (!stats.isFile()) return new Response('Not Found', { status: 404 });
-      let contentType = 'application/octet-stream';
-      if (pluginPath.endsWith('.js')) contentType = 'application/javascript; charset=utf-8';
-      else if (pluginPath.endsWith('.css')) contentType = 'text/css; charset=utf-8';
-      else if (pluginPath.endsWith('.json')) contentType = 'application/json; charset=utf-8';
-      else if (pluginPath.endsWith('.svg')) contentType = 'image/svg+xml';
-      else if (pluginPath.endsWith('.png')) contentType = 'image/png';
-      else if (pluginPath.endsWith('.jpg') || pluginPath.endsWith('.jpeg')) contentType = 'image/jpeg';
-      
-      const body = Readable.toWeb(fs.createReadStream(pluginPath)) as unknown as ReadableStream;
-      return new Response(body, {
-        headers: { 'content-type': contentType, 'content-length': String(stats.size) }
-      });
-    }).catch(() => new Response('Not Found', { status: 404 }));
-    } catch (e: any) {
-      return new Response('Bad Request: ' + e.message, { status: 400 });
-    }
-  });
+  protocol.handle(PLUGIN_PAGE_SCHEME, createPluginPageHandler(join(app.getPath('userData'), 'plugins')));
 })
 
 // Quit flow (Cmd+Q, closing the main window, window-all-closed):

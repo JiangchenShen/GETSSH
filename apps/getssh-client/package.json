@@ -21,6 +21,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:plugin-isolation": "electron scripts/security/plugin-host-smoke.cjs",
+    "test:plugin-page": "electron scripts/security/plugin-page-smoke.cjs",
     "test:plugin-network": "vitest run electron/main/services/plugin/PluginNetworkGateway.test.ts --environment node",
     "test:plugin-sandbox": "vitest run electron/main/services/plugin/PluginProcessSandbox.test.ts --environment node",
     "test:asset-folders": "node scripts/security/keystore-e2e/run.mjs asset-folders",

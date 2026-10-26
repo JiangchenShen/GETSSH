@@ -582,6 +582,17 @@ const data = await response.json();
 
 插件页面必须由 GETSSH 通过 `getssh-plugin://<name>/<file>` 打开。直接在浏览器或磁盘上打开 HTML 时，不会存在 `window.GETSSH`。
 
+### 页面能加载什么
+
+3.0.0-preview 之后的版本，`getssh-plugin://` 的每个响应都带一条 CSP：
+
+- 页面只能加载本插件目录里的文件，以及 `data:`、`blob:` 地址。内联脚本、内联样式和 `eval` 可以用。
+- 页面不能直接联网。`fetch`、`XMLHttpRequest`、WebSocket、`EventSource`、`sendBeacon` 都发不出去；外部的脚本、样式、图片、字体和音视频加载不了；也不能嵌入外部页面或提交表单。
+- 页面不能加载别的插件目录里的文件。
+- 第三方库、字体和图标要打包进插件目录，不要从 CDN 引用。
+- 需要联网时，页面用 `invokeBackend()` 调用自己的后端；后端声明 `net:fetch` 以后，经 GETSSH 的网络网关访问公网（见第 6 节的 `context.net.fetch()`）。
+- WebRTC 不受 CSP 限制，但它不是允许的联网方式，以后的版本可能会关掉它。
+
 ### API 可用范围
 
 | API | `renderer.js` 启动沙盒 | 可见 HTML 面板 |

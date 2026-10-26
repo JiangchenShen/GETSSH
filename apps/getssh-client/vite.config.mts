@@ -51,6 +51,7 @@ export default defineConfig({
           index: 'electron/main/index.ts',
           'plugin-host': 'electron/main/plugin-host.ts',
           'plugin-sandbox': 'electron/main/services/plugin/PluginProcessSandbox.ts',
+          'plugin-page-protocol': 'electron/main/services/plugin/pluginPageProtocol.ts',
         },
         vite: {
           build: {

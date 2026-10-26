@@ -86,6 +86,10 @@ jobs:
         working-directory: apps/getssh-client
         run: npm run test:plugin-isolation
 
+      - name: Test plugin pages stay offline (CSP)
+        working-directory: apps/getssh-client
+        run: npm run test:plugin-page
+
       - name: Test Sentinel gateway against the native module
         working-directory: apps/getssh-client
         run: npm run test:sentinel

@@ -506,6 +506,17 @@ A network policy violation raises `SecurityError`, activates the security center
 
 GETSSH must load a page through `getssh-plugin://<name>/<file>` for the SDK to exist. Opening the HTML directly in a browser or from disk does not inject `window.GETSSH`.
 
+### What a page can load
+
+In versions after 3.0.0-preview, every `getssh-plugin://` response carries a CSP:
+
+- A page loads only files from its own plugin folder, plus `data:` and `blob:` URLs. Inline scripts, inline styles and `eval` are allowed.
+- A page has no direct network. `fetch`, `XMLHttpRequest`, WebSocket, `EventSource` and `sendBeacon` are blocked; outside scripts, styles, images, fonts and media do not load; the page cannot embed outside pages or submit forms.
+- A page cannot load files from another plugin's folder.
+- Bundle libraries, fonts and icons into the plugin folder instead of linking a CDN.
+- For network access, the page calls its own backend with `invokeBackend()`; a backend that declares `net:fetch` reaches public addresses through the GETSSH network gateway (`context.net.fetch()` in section 6).
+- CSP does not cover WebRTC, but WebRTC is not a supported way to go online, and a later version may turn it off.
+
 | API | `renderer.js` bootstrap | Visible HTML panel |
 |---|---:|---:|
 | `registerSidebarAction` | Yes | Yes |
