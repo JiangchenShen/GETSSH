@@ -826,3 +826,36 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - 修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。
 - **README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。
 - **官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。
+
+## 10-28 依赖升级（Claude）
+
+10-28 推送 `2b9de94` 后，Dependency Audit 报出 10-21 之后新公布的安全公告：npm 高危 12 个、中危 14 个、低危 2 个，Rust 2 个。
+
+**升了什么**：
+- Electron 44.5.1 → 44.10.0：
+  - 44.9.1 起修了 GHSA-jr5w-w6x2-84p9（被盗用的 eMudhra 中间证书）；
+  - 44.10.0 另修了 asar 包大小字段和文件长度对不上时的处理，Chromium 升到 152.0.7977.169，Node 升到 24.22.1；
+  - 原生模块 ABI 还是 149，SQLCipher 和 node-pty 的预编译包不用换。
+- undici：6.29.0 → 6.29.1，7.30.0 → 7.30.1，8.11.2 → 8.12.3。分别来自 node-gyp、`@electron/get`、jsdom，都不进安装包。
+- fast-uri 3.1.8 → 3.1.9（electron-builder 里的 ajv），ip-address 10.7.2 → 10.7.5（`socks`，进安装包）。这两个是中危，和 undici 一样只是在原来的版本范围里升，`package.json` 只改了 Electron 那一行。
+- Rust：
+  - crypto-bigint 0.7.5 → 0.7.10（RUSTSEC-2026-0387，经 `p256` 进 `getssh-keystore`）；0.7.6–0.7.8 已被撤回；
+  - ctutils 0.4.2 → 0.4.6（RUSTSEC-2026-0385，经 `aes-gcm` 进 `getssh-keystore`、`getssh-vault`）；
+  - tokio 1.53.1 → 1.53.3（RUSTSEC-2026-0386，审计里是警告，不挡 CI）。没有跟着 `cargo update` 升到 1.54。
+
+**检查**（本机 macOS arm64）：
+- `pnpm audit --audit-level high` 通过，只剩 1 个中危（见下）。
+- Rust 模块用 `scripts/build-native.js` 重新编译，9 个 `.node` 都能加载。
+- cargo test：
+  - keystore 70 条，其中 4 条 golden 测试：旧版本生成的密钥环、恢复码照样能打开；
+  - store 122 条，vault 5 条；
+  - CI 里那组 hardened 模块和 sandbox 启动器的测试。
+- 整套 vitest 跑了 3 遍。第 1 遍 `sshKeyFiles.test.ts` 有 1 条失败，后 2 遍都是 1343 个全过。那条测试只用 ssh2 和 `node:crypto`，断言拒绝要在 1000 毫秒内完成（墙上时间），整套并行跑、机器负载高时会超时，和这次升级无关。
+- 冒烟测试：插件隔离、插件页面、Sentinel、keystore 端到端（迁移、应用锁、2.0 导入、加密备份、回滚）都通过。
+- 打包：`electron-builder --mac --arm64 --dir` 加 `check-package.cjs` 通过，打包后的启动检查也通过（Electron 44.10.0，11 个原生和运行时模块，getssh-store 用 Secure Enclave）。
+- Windows 还没在这次升级上跑过，要等推送后的 Security Sandbox 结果。
+
+**没升的**：
+- postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。
+- `sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。
+
