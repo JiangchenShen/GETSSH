@@ -81,13 +81,13 @@ export const CreateWorkspaceModal: React.FC = () => {
   return (
     <AnimatePresence>
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-[999999] flex items-center justify-center p-8 bg-black/60 backdrop-blur-2xl">
+        <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4 sm:p-8 bg-black/60 backdrop-blur-2xl">
           <motion.div
             {...CINEMATIC_IN}
             role="dialog"
             aria-modal="true"
             aria-label={t('workspaceCenter.createTitle')}
-            className="relative w-full max-w-[540px] flex flex-col shadow-[0_40px_80px_rgba(0,0,0,0.8)] border border-white/10 border-t-white/30 rounded-xl bg-[#050505]/95 overflow-hidden"
+            className="relative max-h-full w-full max-w-[540px] flex flex-col shadow-[0_40px_80px_rgba(0,0,0,0.8)] border border-white/10 border-t-white/30 rounded-xl bg-[#050505]/95 overflow-y-auto"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-8 pb-4">
@@ -126,12 +126,15 @@ export const CreateWorkspaceModal: React.FC = () => {
                 <label className="text-xs font-bold tracking-widest text-white/40 uppercase mb-4">
                   {t('workspaceCenter.identityColorLabel')}
                 </label>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
                   {PRESET_COLORS.map(c => (
                     <button
                       key={c}
+                      type="button"
+                      aria-label={`${t('workspaceCenter.identityColorLabel')} ${c}`}
+                      aria-pressed={color === c}
                       onClick={() => setColor(c)}
-                      className="w-8 h-8 rounded-full transition-all hover:scale-110"
+                      className="w-8 h-8 shrink-0 rounded-full transition-all hover:scale-110"
                       style={{ 
                         backgroundColor: c,
                         boxShadow: color === c ? `0 0 0 2px #050505, 0 0 0 4px ${c}` : 'none'
@@ -144,25 +147,29 @@ export const CreateWorkspaceModal: React.FC = () => {
 
               {/* Field 3: Encryption Toggle */}
               <div className="flex flex-col p-6 bg-white/[0.02] border border-white/5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {encryption ? <Lock className="text-amber-500" size={20} /> : <Unlock className="text-white/40" size={20} />}
-                    <label className="text-sm font-bold tracking-widest uppercase text-white">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {encryption ? <Lock className="shrink-0 text-amber-500" size={20} /> : <Unlock className="shrink-0 text-white/40" size={20} />}
+                    <span className="min-w-0 break-words text-sm font-bold tracking-widest uppercase text-white">
                       {t('workspaceCenter.vaultEncryptionLabel')}
-                    </label>
+                    </span>
                   </div>
                   
-                  {/* Framer Motion Toggle */}
-                  <div 
-                    className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors ${encryption ? 'bg-amber-500' : 'bg-white/20'}`}
+                  {/* Native switch keeps its dimensions and keyboard behavior. */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label={t('workspaceCenter.vaultEncryptionLabel')}
+                    aria-checked={encryption}
+                    disabled={loading}
+                    className={`w-12 h-6 shrink-0 rounded-full p-1 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${encryption ? 'bg-amber-500' : 'bg-white/20'}`}
                     onClick={() => !loading && setEncryption(!encryption)}
                   >
-                    <motion.div 
-                      className="w-4 h-4 bg-white rounded-full shadow-md"
-                      animate={{ x: encryption ? 24 : 0 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    <span
+                      aria-hidden="true"
+                      className={`block w-4 h-4 bg-white rounded-full shadow-md transition-transform motion-reduce:transition-none ${encryption ? 'translate-x-6' : ''}`}
                     />
-                  </div>
+                  </button>
                 </div>
 
                 <p className="mt-3 text-xs text-white/40 leading-relaxed">

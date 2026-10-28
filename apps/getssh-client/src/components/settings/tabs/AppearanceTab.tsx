@@ -1,10 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../../store/appStore';
-import { SettingsRow, SettingsSection, SettingsToggle, settingFieldClass } from '../SettingsControls';
+import { SettingsRow, SettingsSection, SettingsToggle } from '../SettingsControls';
 
 const toHex = (rgb: string) => `#${rgb.split(' ').map(value => Number(value).toString(16).padStart(2, '0')).join('')}`;
 const toRgb = (hex: string) => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(' ');
+const colorFieldClass = 'h-9 w-12 shrink-0 cursor-pointer rounded-md border border-line bg-panel p-1 outline-none transition-colors focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/20';
 
 const monoColors = [
   ['#176f60', '23 111 96'], ['#a855f7', '168 85 247'],
@@ -53,10 +54,10 @@ export const AppearanceTab: React.FC = () => {
         </div>
       </SettingsRow>
       {colors && <SettingsRow label={zh ? '自定义双轨色' : 'Custom two-color theme'}>
-        <div className="flex items-center gap-2">
-          <input type="color" value={toHex(colors.colorA)} onChange={event => updateConfig('duoTone', { ...colors, colorA: toRgb(event.target.value) })} aria-label={zh ? '轨道 A' : 'Track A'} className={`${settingFieldClass} h-9 w-12 cursor-pointer p-1`} />
-          <input type="color" value={toHex(colors.colorB)} onChange={event => updateConfig('duoTone', { ...colors, colorB: toRgb(event.target.value) })} aria-label={zh ? '轨道 B' : 'Track B'} className={`${settingFieldClass} h-9 w-12 cursor-pointer p-1`} />
-          <span className="font-mono text-xs text-ink-3">{toHex(colors.colorA)} / {toHex(colors.colorB)}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="color" value={toHex(colors.colorA)} onChange={event => updateConfig('duoTone', { ...colors, colorA: toRgb(event.target.value) })} aria-label={zh ? '轨道 A' : 'Track A'} className={colorFieldClass} />
+          <input type="color" value={toHex(colors.colorB)} onChange={event => updateConfig('duoTone', { ...colors, colorB: toRgb(event.target.value) })} aria-label={zh ? '轨道 B' : 'Track B'} className={colorFieldClass} />
+          <span className="min-w-0 break-all font-mono text-xs text-ink-3">{toHex(colors.colorA)} / {toHex(colors.colorB)}</span>
         </div>
       </SettingsRow>}
     </SettingsSection>

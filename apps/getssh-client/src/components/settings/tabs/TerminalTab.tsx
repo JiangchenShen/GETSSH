@@ -55,7 +55,7 @@ export const TerminalTab: React.FC = () => {
       <SettingsSection title={zh ? '显示' : 'Display'}>
         <SettingsRow label={t('appearance.terminalTheme')} description={zh ? '只改变终端内容的颜色。' : 'Colors of the terminal content.'} stacked>
           <div className="flex flex-wrap items-center gap-2">
-            <select value={appConfig.terminalTheme || 'default'} onChange={event => updateConfig('terminalTheme', event.target.value)} className={`${settingFieldClass} min-w-[180px] flex-1`}>
+            <select value={appConfig.terminalTheme || 'default'} onChange={event => updateConfig('terminalTheme', event.target.value)} className={`${settingFieldClass} min-w-0 flex-[1_1_180px]`}>
               <option value="default">{t('appearance.themeDefault')}</option>
               <option value="dracula">Dracula</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option>
               <option value="tokyo-night">Tokyo Night</option><option value="catppuccin">Catppuccin</option>
