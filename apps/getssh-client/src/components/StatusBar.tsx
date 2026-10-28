@@ -28,12 +28,13 @@ const BItem: React.FC<{
     type="button"
     onClick={onClick}
     title={title || label}
+    aria-label={label}
     className="group flex-none flex items-center gap-[7px] h-[26px] px-[9px] rounded-md
                text-xs text-ink-2 whitespace-nowrap transition-colors
                hover:bg-surf hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
   >
-    <span className="flex-none text-ink-3 transition-colors group-hover:text-primary">{icon}</span>
-    {label}
+    <span className="flex h-4 w-4 flex-none items-center justify-center text-ink-3 transition-colors group-hover:text-primary">{icon}</span>
+    <span className="hidden sm:inline">{label}</span>
     {hint && (
       <kbd className="hidden min-[980px]:inline font-mono text-[9.5px] px-[5px] py-px rounded border border-line-soft bg-surf-2 text-ink-3">
         {hint}
@@ -53,8 +54,9 @@ export const StatusBar: React.FC = () => {
 
   return (
     <div
-      className="no-drag-region flex-none flex items-center gap-0.5 h-[38px] px-3
-                 border-t border-line-soft bg-panel/75 backdrop-blur-xl overflow-x-auto"
+      className="no-drag-region sidebar-material flex-none flex items-center gap-0.5 h-[38px] px-3
+                 border-t border-line-soft overflow-x-auto"
+      style={{ '--sidebar-tint': 'var(--v2-panel)' } as React.CSSProperties}
     >
       <BItem
         icon={<Terminal className={ico} />}
@@ -93,7 +95,7 @@ export const StatusBar: React.FC = () => {
           onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
             detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'Security' },
           }))}
-          className="flex-none flex items-center gap-[7px] max-w-[190px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap rounded-md hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          className="flex min-w-0 items-center gap-[7px] max-w-[190px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap rounded-md hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
           aria-label={`${t('statusBar.secure')} · ${sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}`}
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-none ${sentinelOk ? 'bg-ok' : 'bg-warn'}`} />

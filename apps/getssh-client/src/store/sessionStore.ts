@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 // Only read inside actions: workspaceStore imports this module too.
 import { useWorkspaceStore } from './workspaceStore';
 import { stripConnectionSecrets } from '../utils/connectionProfile';
+import { toRgbChannels } from '../utils/themes';
 
 // ── Pane Layout Tree ──────────────────────────────────────────────────────
 
@@ -335,8 +336,10 @@ export const useSessionStore = create<SessionStore>()(
            set({ sessions: (mainSwitchResult as any).profiles });
         }
 
-        if (mainSwitchResult.visualMeta?.themeColor) {
-          document.documentElement.style.setProperty('--primary-color', mainSwitchResult.visualMeta.themeColor);
+        const themeColor = mainSwitchResult.visualMeta?.themeColor;
+        const accent = themeColor ? toRgbChannels(themeColor) : null;
+        if (accent) {
+          document.documentElement.style.setProperty('--primary-color', accent);
         }
         
         return true;
