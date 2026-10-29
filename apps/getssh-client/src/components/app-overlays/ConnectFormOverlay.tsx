@@ -50,7 +50,7 @@ export const ConnectFormOverlay: React.FC<ConnectFormOverlayProps> = ({
   const editingSessionId = editingSession.id;
 
   return (
-    <div className={`absolute inset-0 z-30 overflow-hidden dashboard-shell ${activeTabId ? 'backdrop-blur-xl' : ''}`}>
+    <div className="absolute inset-0 z-30 overflow-hidden bg-bg">
       <div className="relative h-full w-full overflow-hidden">
         <ConnectForm
           key={`${sessions[selectedSessionIndex].id}:${Boolean(sessions[selectedSessionIndex].isQuickConnect)}`}

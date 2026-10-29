@@ -6,15 +6,14 @@ import { CheckCircle2, Info, AlertTriangle, XCircle, X } from 'lucide-react';
 export const ToastProvider: React.FC = () => {
   const toasts = useAppStore(state => state.toasts);
   const removeToast = useAppStore(state => state.removeToast);
-  const isDark = useAppStore(state => state.isDark);
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'success': return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-      case 'warning': return <AlertTriangle className="w-4 h-4 text-amber-500" />;
-      case 'error': return <XCircle className="w-4 h-4 text-red-500" />;
+      case 'success': return <CheckCircle2 className="w-4 h-4 text-ok" />;
+      case 'warning': return <AlertTriangle className="w-4 h-4 text-warn" />;
+      case 'error': return <XCircle className="w-4 h-4 text-down" />;
       case 'info':
-      default: return <Info className="w-4 h-4 text-blue-400" />;
+      default: return <Info className="w-4 h-4 text-primary" />;
     }
   };
 
@@ -29,19 +28,13 @@ export const ToastProvider: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className={`px-4 py-3 rounded-lg flex items-center gap-3 text-sm min-w-[240px] max-w-md shadow-2xl pointer-events-auto ${
-              isDark 
-                ? 'water-glass text-neutral-200 border border-neutral-800/50' 
-                : 'bg-white/90 backdrop-blur-xl text-slate-700 border border-slate-200/50 shadow-slate-200/50'
-            }`}
+            className="px-4 py-3 rounded-lg flex items-center gap-3 text-sm min-w-[240px] max-w-md shadow-2xl pointer-events-auto border border-line bg-panel text-ink"
           >
             <div className="shrink-0">{getIcon(toast.type)}</div>
             <div className="flex-1 font-medium">{toast.message}</div>
             <button
               onClick={() => removeToast(toast.id)}
-              className={`shrink-0 p-1 rounded-md transition-colors ${
-                isDark ? 'hover:bg-white/10 text-neutral-500 hover:text-neutral-300' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
-              }`}
+              className="shrink-0 p-1 rounded-md text-ink-3 transition-colors hover:bg-surf hover:text-ink"
             >
               <X className="w-3.5 h-3.5" />
             </button>

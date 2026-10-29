@@ -249,7 +249,7 @@ export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: 
       </div>
 
       {promptData && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className={`p-4 rounded-xl shadow-2xl w-3/4 max-w-sm ${isDark ? 'bg-[#2a2a2a] text-white border border-white/10' : 'bg-white text-black border border-black/10'}`}>
              <h3 className="text-sm font-bold mb-3">{promptData.type === 'file' ? 'New File' : 'New Folder'}</h3>
              <input

@@ -279,9 +279,7 @@ export const InputArea: React.FC<{
   return (
     <div 
       ref={containerRef} 
-      className={`relative p-3.5 border-t shrink-0 flex flex-col gap-2.5 transition-colors ${
-        isDark ? 'border-white/10 bg-[#0c0e14]/80' : 'border-black/10 bg-slate-100/80'
-      }`}
+      className="relative p-3.5 border-t border-line bg-panel text-ink shrink-0 flex flex-col gap-2.5 transition-colors"
     >
       {/* ── Selection Injection Pill ── */}
       <AnimatePresence>
@@ -312,9 +310,7 @@ export const InputArea: React.FC<{
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            className={`absolute bottom-16 left-4 z-30 w-80 p-3 rounded-2xl border backdrop-blur-2xl shadow-2xl flex flex-col gap-2.5 ${
-              isDark ? 'bg-[#12141e]/95 border-white/10 text-white shadow-black/80' : 'bg-white/95 border-black/10 text-slate-900 shadow-xl'
-            }`}
+            className="absolute bottom-16 left-4 z-30 w-80 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-2.5"
           >
             {/* Header with active provider badge & refresh button */}
             <div className="flex items-center justify-between px-1">
@@ -437,9 +433,7 @@ export const InputArea: React.FC<{
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            className={`absolute bottom-16 left-28 z-30 w-72 p-3 rounded-2xl border backdrop-blur-2xl shadow-2xl flex flex-col gap-1.5 ${
-              isDark ? 'bg-[#12141e]/95 border-white/10 text-white shadow-black/80' : 'bg-white/95 border-black/10 text-slate-900 shadow-xl'
-            }`}
+            className="absolute bottom-16 left-28 z-30 w-72 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-1.5"
           >
             <div className="flex items-center justify-between px-1 mb-1">
               <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
@@ -483,9 +477,7 @@ export const InputArea: React.FC<{
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            className={`absolute bottom-16 left-60 z-30 w-72 p-3 rounded-2xl border backdrop-blur-2xl shadow-2xl flex flex-col gap-1.5 ${
-              isDark ? 'bg-[#12141e]/95 border-white/10 text-white shadow-black/80' : 'bg-white/95 border-black/10 text-slate-900 shadow-xl'
-            }`}
+            className="absolute bottom-16 left-60 z-30 w-72 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-1.5"
           >
             <div className="flex items-center justify-between px-1 mb-1">
               <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>

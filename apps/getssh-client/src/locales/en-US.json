@@ -165,7 +165,7 @@
       "bgOpacity": "Background Opacity",
       "language": "Language",
       "systemColor": "Theme Presets",
-      "enableGlassmorphism": "Enable Glassmorphism",
+      "enableGlassmorphism": "Frosted navigation",
       "glassmorphismOnlyDark": "Glassmorphism is only available in Dark Mode",
       "glassmorphismOpacity": "Background Opacity",
       "langZh": "Simplified Chinese",
@@ -174,24 +174,7 @@
       "importTheme": "Import Custom Theme (.json)",
       "importSuccess": "Theme imported successfully!",
       "importFail": "Failed to parse theme. Please ensure it's a valid JSON format.",
-      "deleteTheme": "Delete Theme",
-      "themeColorsTitle": "System Accent & Duo-Tone Colors",
-      "monoColor": "Monochrome (Mono)",
-      "custom": "Custom",
-      "duoTone": "Duo-Tone (Dual-Track)",
-      "colors": {
-        "cyberPurple": "Cyber Purple",
-        "geekGreen": "Geek Green",
-        "deepBlue": "Deep Blue",
-        "geekRed": "Geek Red",
-        "goldBlack": "Glory Gold & Obsidian Black",
-        "blueGray": "Neon Blue & Mecha Gray",
-        "redBlack": "Flame Red & Mist Black",
-        "greenGray": "Lime Green & Charcoal Gray",
-        "pinkPurple": "Neon Pink & Night Purple",
-        "orangeBlue": "Sunset Orange & Sky Blue",
-        "mintRed": "Mint Green & Cherry Red"
-      }
+      "deleteTheme": "Delete Theme"
     },
     "terminal": {
       "sessionClosed": "Session Closed",

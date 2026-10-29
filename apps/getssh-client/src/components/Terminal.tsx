@@ -53,7 +53,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   }, [config]);
 
   // Build xterm theme object based on antiGlare and isDark
-  const buildTheme = (themeColor: string, isDark: boolean, antiGlare?: boolean, terminalTheme: string = 'default', customThemes: Record<string, any> = {}) => {
+  const buildTheme = (isDark: boolean, antiGlare?: boolean, terminalTheme: string = 'default', customThemes: Record<string, any> = {}) => {
     let baseTheme: any = {};
     if (terminalTheme && terminalTheme !== 'default') {
       if (terminalTheme.startsWith('custom_') && customThemes[terminalTheme]) {
@@ -89,9 +89,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           brightWhite: isDark ? '#FFFFFF' : '#FFFFFF',
         };
       } else {
-        // Soft mode uses xterm's built-in DOM renderer for transparent backgrounds.
+        // The terminal canvas stays opaque independently of navigation transparency.
         baseTheme = {
-          background: isDark ? 'transparent' : '#F1F5F9', // Fix light mode transparent disaster
+          background: isDark ? '#101215' : '#F5F6F5',
           foreground: isDark ? '#E2E8F0' : '#334155',
           cursor: isDark ? '#F8FAFC' : '#0F172A',
           cursorAccent: isDark ? '#000000' : '#FFFFFF',
@@ -101,7 +101,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
 
     return {
       ...baseTheme,
-      selectionBackground: `rgba(${themeColor}, 0.35)`,
+      background: baseTheme.background || (isDark ? '#101215' : '#F5F6F5'),
+      selectionBackground: baseTheme.selectionBackground || (isDark ? 'rgb(138 205 187 / 0.35)' : 'rgb(23 111 96 / 0.35)'),
     };
   };
 
@@ -146,7 +147,7 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
         fontSize: config.fontSize || 14,
         lineHeight: config.lineHeight || 1.2,
         cursorStyle: config.cursorStyle || 'block',
-        theme: buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme, config.customThemes),
+        theme: buildTheme(isDark, config.antiGlare, config.terminalTheme, config.customThemes),
         allowTransparency: true,
         scrollback: clampScrollback(config.scrollback),
         ...({ bellStyle: config.bellStyle === 'audible' ? 'sound' : 'none' } as any),
@@ -381,9 +382,8 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
     term.options.cursorBlink = config.cursorBlink ?? true;
     (term.options as any).bellStyle = config.bellStyle === 'audible' ? 'sound' : 'none';
 
-    // Sync theme foreground & cursor when isDark, themeColor, or antiGlare changes
-    const themeColor = config.themeColor || '168 85 247';
-    term.options.theme = buildTheme(themeColor, isDark, config.antiGlare, config.terminalTheme, config.customThemes);
+    // Sync the terminal palette independently of navigation colors and transparency.
+    term.options.theme = buildTheme(isDark, config.antiGlare, config.terminalTheme, config.customThemes);
 
     // Dynamic Renderer Dispatch
     const cache = xtermCache.get(sessionId);
@@ -465,31 +465,13 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
   };
 
   // Calculate current theme properties for container styling
-  const currentTheme = buildTheme(config.themeColor || '168 85 247', isDark, config.antiGlare, config.terminalTheme, config.customThemes);
+  const currentTheme = buildTheme(isDark, config.antiGlare, config.terminalTheme, config.customThemes);
   const containerBgColor = currentTheme.background;
-
-  const getUnderlayOpacity = () => {
-    if (!isDark || config.antiGlare) return 0;
-    const uiOpacity = config.bgOpacity ?? 1;
-    if (uiOpacity === 1) return 0.3; // 30% base protection
-    if (uiOpacity === 0.75) return 0.45; // 45% protection
-    if (uiOpacity === 0.5) return 0.6; // 60% protection
-    if (uiOpacity === 0.25) return 0.75; // 75% protection
-    return 0.5; // Fallback
-  };
 
   return (
     <div className="w-full h-full p-0 flex flex-col flex-1 min-h-0 overflow-hidden relative group text-white dark:text-white" style={{ color: 'white', backgroundColor: containerBgColor }}>
       {visualBell && <div className="absolute inset-0 bg-white/20 pointer-events-none z-50 transition-opacity duration-200" />}
       
-      {/* 5.1 & 5.2: Readability Defense Underlay */}
-      {isDark && !config.antiGlare && (
-        <div 
-           className="absolute inset-0 pointer-events-none transition-opacity duration-300"
-           style={{ backgroundColor: `rgba(0, 0, 0, ${getUnderlayOpacity()})` }} 
-        />
-      )}
-
       <div 
         className="flex-1 relative w-full h-full min-h-0 overflow-hidden text-white z-10" 
         ref={terminalRef} 
@@ -506,9 +488,9 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           ref={overlayRef}
           tabIndex={0}
           onKeyDown={handleOverlayKeyDown}
-          className="absolute top-0 left-0 w-full h-full bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-10 outline-none"
+          className="absolute top-0 left-0 w-full h-full bg-black/40 flex items-center justify-center z-10 outline-none"
         >
-          <div className="bg-black/70 text-white/90 px-7 py-5 rounded-2xl shadow-2xl border border-white/10 flex flex-col items-center space-y-3 backdrop-blur-md">
+          <div className="bg-panel text-ink px-7 py-5 rounded-2xl shadow-2xl border border-line flex flex-col items-center space-y-3">
             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse mb-1" />
             <span className="font-bold text-base text-red-400 tracking-wide">{t('terminal.sessionClosed')}</span>
             <span className="text-sm opacity-75">Press <kbd className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">Enter</kbd> {t('terminal.pressEnterReconnect')}</span>

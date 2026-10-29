@@ -193,15 +193,6 @@ function TornWindowApp() {
   }, [tab?.title]);
 
   const isWindows = window.electronAPI?.getEnvInfo?.().platform === 'win32';
-  let backgroundColor: string;
-  if (!isDark) {
-    const uiOpacity = appConfig.enableGlassmorphism ? (appConfig.bgOpacity ?? 0.8) : 1;
-    backgroundColor = `rgba(244, 244, 245, ${uiOpacity})`;
-  } else if (!appConfig.enableGlassmorphism) {
-    backgroundColor = '#09090b';
-  } else {
-    backgroundColor = `rgba(9, 9, 11, ${appConfig.bgOpacity ?? 1})`;
-  }
 
   const statusText =
     status === 'missing' ? 'This window is not attached to a tab.'
@@ -210,8 +201,8 @@ function TornWindowApp() {
 
   return (
     <div
-      className={`w-screen h-screen overflow-hidden flex flex-col font-sans text-ink transition-all duration-200 relative ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`}
-      style={{ backgroundColor }}
+      className={`w-screen h-screen overflow-hidden flex flex-col font-sans text-ink transition-[filter] duration-200 relative ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`}
+      style={{ backgroundColor: 'var(--v2-bg)' }}
     >
       {!isFullScreen && (
         // Drag title bar; leaves room for the macOS traffic lights / the Windows caption buttons.

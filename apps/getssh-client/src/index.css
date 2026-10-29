@@ -75,25 +75,24 @@
     /* ── v2 语义令牌 · 浅色（默认） ─────────────────────────────
        深色在下面 html.dark 里成套重定义。任何组件都不该直接写死颜色，
        一律走这里的语义名，否则换主题必然漏。 */
-    --v2-bg:        #f4f4f5;
-    --v2-panel:     #ffffff;
-    --v2-surf:      #fafafa;
-    --v2-surf-2:    #f1f1f3;
-    --v2-line:      #e4e4e7;
-    --v2-line-soft: #eeeef0;
-    --v2-ink:       #18181b;
-    --v2-ink-2:     #52525b;
-    --v2-ink-3:     #71717a;
+    --v2-bg:        #f5f6f5;
+    --v2-panel:     #eaeeec;
+    --v2-surf:      #ffffff;
+    --v2-surf-2:    #eef2ef;
+    --v2-line:      #d9dedc;
+    --v2-line-soft: #e6eae8;
+    --v2-ink:       #202726;
+    --v2-ink-2:     #5f6d6a;
+    --v2-ink-3:     #65736e;
     --v2-ok:        #059669;
     --v2-warn:      #b45309;
     --v2-down:      #e11d48;
     --v2-scrim:     #27272a5c;   /* 遮罩：浅色下压暗一档就够 */
-    --sidebar-tint: #eaeeec;
-    --sidebar-divider: #c4cdca;
+    --sidebar-tint: var(--v2-panel);
+    --sidebar-divider: var(--v2-line);
 
-    --primary-color: 0 212 255; /* Default: fallback to color-a */
-    --color-a: 0 212 255; /* Duo-Tone Track A Default (e.g. 电光蓝) */
-    --color-b: 44 44 52;  /* Duo-Tone Track B Default (e.g. 机甲灰) */
+    --primary-color: 23 111 96;
+    --primary-ink: #ffffff;
     
     /* Application layout */
     /* 骨架尺寸对齐原型：导轨 56 / 侧栏 244 */
@@ -109,24 +108,23 @@
   }
 
 
-  /* ── v2 语义令牌 · 深色（主场） ───────────────────────────────
-     沿用已有的 Obsidian 阶：bg #09090b / panel #121214 / surf #18181b。 */
+  /* Fixed workbench palette, shared by chrome and center pages. */
   html.dark {
-    --v2-bg:        #09090b;
-    --v2-panel:     #121214;
-    --v2-surf:      #18181b;
-    --v2-surf-2:    #1f1f23;
-    --v2-line:      #27272a;
-    --v2-line-soft: #1a1a1d;
-    --v2-ink:       #fafafa;
-    --v2-ink-2:     #a1a1aa;
-    --v2-ink-3:     #92929d;
+    --v2-bg:        #101215;
+    --v2-panel:     #181b1f;
+    --v2-surf:      #20252a;
+    --v2-surf-2:    #262c30;
+    --v2-line:      #343a40;
+    --v2-line-soft: #2a3035;
+    --v2-ink:       #e8eceb;
+    --v2-ink-2:     #9da8a7;
+    --v2-ink-3:     #788684;
     --v2-ok:        #34d399;
     --v2-warn:      #fbbf24;
     --v2-down:      #fb7185;
     --v2-scrim:     #000000a8;
-    --sidebar-tint: #14181b;
-    --sidebar-divider: #535c60;
+    --primary-color: 138 205 187;
+    --primary-ink: #101815;
   }
 
   html, body, #root {
@@ -139,7 +137,7 @@
   }
 }
 
-/* ── xterm.js transparency (lets macOS vibrancy bleed through) ───────────── */
+/* xterm's viewport uses the opaque theme background painted by its container. */
 
 .xterm-viewport {
   background-color: transparent !important;
@@ -235,48 +233,11 @@ html[data-glass="true"] .sidebar-material {
   }
 }
 
-/* Center pages share the calmer workbench palette without changing terminal themes. */
+/* Center pages use the same fixed palette as the application chrome. */
 .center-workbench {
   container: center / inline-size;
-  --v2-bg: #f5f6f5;
-  --v2-panel: #eaeeec;
-  --v2-surf: #ffffff;
-  --v2-surf-2: #eef2ef;
-  --v2-line: #d9dedc;
-  --v2-line-soft: #e6eae8;
-  --v2-ink: #202726;
-  --v2-ink-2: #5f6d6a;
-  --v2-ink-3: #65736e;
-  --primary-color: var(--center-custom-accent, 23 111 96);
   --center-accent: rgb(var(--primary-color));
-  --center-accent-ink: var(--center-custom-accent-ink, #ffffff);
-  /* @theme aliases resolve where they are declared. Rebind them here so
-     this scoped palette reaches Tailwind utilities instead of inheriting root colors. */
-  --color-bg: var(--v2-bg);
-  --color-panel: var(--v2-panel);
-  --color-surf: var(--v2-surf);
-  --color-surf-2: var(--v2-surf-2);
-  --color-line: var(--v2-line);
-  --color-line-soft: var(--v2-line-soft);
-  --color-ink: var(--v2-ink);
-  --color-ink-2: var(--v2-ink-2);
-  --color-ink-3: var(--v2-ink-3);
-  --color-primary: rgb(var(--primary-color));
-}
-
-html.dark .center-workbench {
-  --v2-bg: #101215;
-  --v2-panel: #181b1f;
-  --v2-surf: #20252a;
-  --v2-surf-2: #262c30;
-  --v2-line: #343a40;
-  --v2-line-soft: #2a3035;
-  --v2-ink: #e8eceb;
-  --v2-ink-2: #9da8a7;
-  --v2-ink-3: #788684;
-  --primary-color: var(--center-custom-accent, 138 205 187);
-  --center-accent: rgb(var(--primary-color));
-  --center-accent-ink: var(--center-custom-accent-ink, #101815);
+  --center-accent-ink: var(--primary-ink);
 }
 
 .center-workbench .center-side-nav {
@@ -295,8 +256,9 @@ html.dark .center-workbench {
   background-color: var(--v2-bg);
 }
 
-.center-workbench .bg-primary.text-bg {
-  color: var(--center-accent-ink);
+/* Solid accent controls need the paired foreground in both appearances. */
+.bg-primary:is(.text-bg, .text-white, .text-black) {
+  color: var(--primary-ink);
 }
 
 /* Respond to the pane, not the whole window: centers also live in split tabs. */
@@ -378,11 +340,7 @@ html[data-glass="true"] .center-workbench[data-glass="true"] .center-page-nav {
 /* Legacy connection editor material. The new home page is scoped below. */
 
 .dashboard-shell {
-  background:
-    radial-gradient(circle at 88% -10%, rgba(var(--color-a), 0.10), transparent 32%),
-    radial-gradient(circle at 12% 112%, rgba(168, 85, 247, 0.08), transparent 34%),
-    color-mix(in srgb, var(--v2-bg) 78%, transparent);
-  backdrop-filter: blur(24px) saturate(118%);
+  background: var(--v2-bg);
 }
 
 .dashboard-grid {
@@ -922,30 +880,6 @@ html.dark .home-shell {
   .home-shell *,
   .home-shell *::before,
   .home-shell *::after { transition-duration: 0.01ms !important; }
-}
-
-/* ── Duo-Tone System (Dual-Track) utilities ──────────────────────────────── */
-
-@utility bg-gradient-duo {
-  background: linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
-}
-
-@utility text-gradient-duo {
-  background: linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-@utility border-duo {
-  border: 1px solid transparent;
-  background-image: linear-gradient(var(--color-obsidian-bg), var(--color-obsidian-bg)), linear-gradient(135deg, rgb(var(--color-a)), rgb(var(--color-b)));
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
-}
-
-@utility ring-duo {
-  --tw-ring-color: rgba(var(--color-a), 0.5);
 }
 
 /* ── Window Dragging System (IPC Native) ─────────────────────────────────── */

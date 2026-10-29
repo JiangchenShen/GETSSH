@@ -195,7 +195,7 @@
       "bgOpacity": "背景不透明度",
       "language": "语言",
       "systemColor": "主题颜色",
-      "enableGlassmorphism": "开启亚克力毛玻璃视效",
+      "enableGlassmorphism": "导航毛玻璃",
       "glassmorphismOnlyDark": "毛玻璃视效仅在暗色模式下可用",
       "glassmorphismOpacity": "背景不透明度",
       "langZh": "简体中文",
@@ -204,24 +204,7 @@
       "importTheme": "导入自定义主题 (.json)",
       "importSuccess": "主题导入成功！",
       "importFail": "解析主题失败，请确保文件是合法的 JSON 格式。",
-      "deleteTheme": "删除主题",
-      "themeColorsTitle": "系统强调色 & 双轨拼色 (DUO-TONE)",
-      "monoColor": "单色模式 (Mono)",
-      "custom": "自定义",
-      "duoTone": "双轨拼色 (Dual-Track)",
-      "colors": {
-        "cyberPurple": "赛博紫",
-        "geekGreen": "极客绿",
-        "deepBlue": "深空蓝",
-        "geekRed": "极客红",
-        "goldBlack": "荣耀金 & 曜石黑",
-        "blueGray": "电光蓝 & 机甲灰",
-        "redBlack": "赤焰红 & 迷雾黑",
-        "greenGray": "青柠绿 & 炭黑灰",
-        "pinkPurple": "霓虹粉 & 魅夜紫",
-        "orangeBlue": "日落橙 & 天空蓝",
-        "mintRed": "薄荷绿 & 樱桃红"
-      }
+      "deleteTheme": "删除主题"
     },
     "terminal": {
       "sessionClosed": "会话已断开",

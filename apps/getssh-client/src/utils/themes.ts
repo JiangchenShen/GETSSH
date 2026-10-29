@@ -2,19 +2,6 @@ import type { ITheme } from '@xterm/xterm';
 
 export type ThemeName = 'default' | 'dracula' | 'nord' | 'gruvbox' | 'tokyo-night' | 'catppuccin' | 'monokai' | 'solarized';
 
-// --primary-color is consumed inside rgb(), so it must contain channels, not HEX.
-export const toRgbChannels = (color: string): string | null => {
-  const hex = color.trim().match(/^#([\da-f]{3}|[\da-f]{6})$/i)?.[1];
-  if (hex) {
-    const full = hex.length === 3 ? [...hex].map(value => value + value).join('') : hex;
-    return [0, 2, 4].map(index => parseInt(full.slice(index, index + 2), 16)).join(' ');
-  }
-  const channels = color.trim().split(/\s+/);
-  return channels.length === 3 && channels.every(value => /^\d{1,3}$/.test(value) && Number(value) <= 255)
-    ? channels.map(Number).join(' ')
-    : null;
-};
-
 // Convert hex to rgba for glassmorphism
 export const applyOpacity = (hex: string, opacity: number) => {
   if (!hex || hex === 'transparent' || hex.startsWith('rgba')) return hex;

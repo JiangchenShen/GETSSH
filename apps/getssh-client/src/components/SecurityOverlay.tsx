@@ -120,7 +120,7 @@ export const SecurityOverlay: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
           {/* Card 1: Alert Header */}
-          <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} ${boxBg} backdrop-blur-2xl rounded-3xl shadow-2xl flex items-center gap-8 relative overflow-hidden group`}>
+          <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} ${boxBg} rounded-3xl shadow-2xl flex items-center gap-8 relative overflow-hidden group`}>
             <div className={`absolute -left-10 top-1/2 -translate-y-1/2 w-40 h-40 ${glowCore} blur-3xl opacity-50`} />
             
             <div className={`relative shrink-0 w-24 h-24 rounded-2xl flex items-center justify-center border ${borderColor} bg-black/40 shadow-inner group-hover:scale-105 transition-transform duration-500`}>
@@ -138,7 +138,7 @@ export const SecurityOverlay: React.FC = () => {
           </div>
 
           {/* Card 2: Countdown Timer */}
-          <div className={`p-8 border ${borderColor} ${boxBg} backdrop-blur-2xl rounded-3xl shadow-2xl flex flex-col items-center justify-center relative overflow-hidden`}>
+          <div className={`p-8 border ${borderColor} ${boxBg} rounded-3xl shadow-2xl flex flex-col items-center justify-center relative overflow-hidden`}>
             <div className={`absolute -right-10 top-1/2 -translate-y-1/2 w-40 h-40 ${glowCore} blur-3xl opacity-50`} />
             <div className="text-xs font-bold text-white/50 uppercase tracking-widest mb-2">Time Remaining</div>
             {isRed ? (
@@ -158,7 +158,7 @@ export const SecurityOverlay: React.FC = () => {
         </div>
 
         {/* Middle Row: Terminal Output */}
-        <div className={`p-8 border ${borderColor} bg-black/80 backdrop-blur-3xl rounded-3xl shadow-2xl flex flex-col relative`}>
+        <div className={`p-8 border ${borderColor} bg-black/80 rounded-3xl shadow-2xl flex flex-col relative`}>
           <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
             <Terminal className={`w-5 h-5 ${accentColor}`} />
             <span className="text-xs font-bold uppercase tracking-widest text-white/50">Trace Log // Violation Details</span>
@@ -173,7 +173,7 @@ export const SecurityOverlay: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
           
           {pwdPrompt ? (
-            <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} bg-black/90 backdrop-blur-3xl rounded-3xl shadow-2xl flex flex-col gap-6 animate-in slide-in-from-bottom-8`}>
+            <div className={`col-span-1 md:col-span-2 p-8 border ${borderColor} bg-black/90 rounded-3xl shadow-2xl flex flex-col gap-6 animate-in slide-in-from-bottom-8`}>
               <div className="flex items-center gap-3">
                 <Key className={`w-6 h-6 ${accentColor}`} />
                 <h3 className="text-lg font-bold text-white tracking-wide">Identity Verification Required</h3>
@@ -212,7 +212,7 @@ export const SecurityOverlay: React.FC = () => {
               {/* Secondary Actions */}
               <button 
                 onClick={handleSave15s}
-                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
+                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
                 <Save className="w-5 h-5 opacity-70" /> 【抢救性存盘 (解锁 15 秒)】
               </button>
@@ -245,7 +245,7 @@ export const SecurityOverlay: React.FC = () => {
                   setIsPolluted(false);
                   setLockdownInfo(null);
                 }}
-                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 backdrop-blur-md flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
+                className="p-6 rounded-3xl border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center gap-3 text-sm font-bold tracking-widest uppercase transition-all"
               >
                 <RefreshCcw className="w-5 h-5 opacity-70" /> 【继续执行】
               </button>

@@ -43,7 +43,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
 
   const nav = [
     { id: 'System' as const, title: label('通用', 'General'), icon: Settings2, group: label('应用', 'App'), intro: label('语言、快捷键与应用行为。', 'Language, shortcuts and app behavior.') },
-    { id: 'Appearance' as const, title: label('外观', 'Appearance'), icon: Monitor, group: '', intro: label('界面主题、强调色与侧栏质感。', 'Theme, colors and sidebar material.') },
+    { id: 'Appearance' as const, title: label('外观', 'Appearance'), icon: Monitor, group: '', intro: label('浅色、深色与导航透明度。', 'Light and dark appearance, and navigation transparency.') },
     { id: 'Terminal' as const, title: label('终端', 'Terminal'), icon: TerminalSquare, group: '', intro: label('字体、配色与输入行为。', 'Typography, colors and input behavior.') },
     { id: 'SSH' as const, title: label('连接与传输', 'Connections & Transfer'), icon: Network, group: '', intro: label('SSH 默认值、代理、传输与初始化脚本。', 'SSH defaults, proxy, transfers and connection scripts.') },
     { id: 'AI' as const, title: label('AI 与集成', 'AI & Integrations'), icon: Sparkles, group: label('能力', 'Capabilities'), intro: label('模型连接、网页搜索与 MCP。', 'Model connections, web search and MCP.') },

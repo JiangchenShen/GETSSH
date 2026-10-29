@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { useSessionStore } from './sessionStore';
 import { useCryptoStore } from './cryptoStore';
 import { useAppStore } from './appStore';
-import { toRgbChannels } from '../utils/themes';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 
 export interface WorkspaceMeta {
@@ -128,12 +127,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           leaveWorkspace();
           set({ activeWorkspaceId: targetId, runbooks: res.visualMeta?.runbooks || (res as any).runbooks || [] });
           
-          // Try to update theme color + check vault lock using a single lookup
+          // Workspace color is only an identification mark; it does not recolor the app.
           const targetWs = get().workspaces.find(w => w.id === targetId);
-          const accent = targetWs?.themeColor ? toRgbChannels(targetWs.themeColor) : null;
-          if (accent) {
-             document.documentElement.style.setProperty('--primary-color', accent);
-          }
 
           // The main process opened the workspace unless it needs its password (or Touch ID).
           useCryptoStore.getState().setWorkspaceUnprotected(!targetWs?.hasPassword);

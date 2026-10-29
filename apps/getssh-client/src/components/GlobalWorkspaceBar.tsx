@@ -59,7 +59,7 @@ export const GlobalWorkspaceBar: React.FC = () => {
       <div className="no-drag-region flex-1 min-h-0 w-full flex flex-col items-center gap-2 overflow-y-auto">
         {workspaces.map((wObj: any) => {
           const wsId = typeof wObj === 'string' ? wObj : wObj.id;
-          const meta = typeof wObj === 'string' ? null : wObj.visualMeta;
+          const meta = typeof wObj === 'string' ? null : (wObj.visualMeta || wObj);
           const isActive = wsId === activeWorkspaceId;
           const name = (typeof wObj === 'object' && wObj.name) || wsId;
           const tint = meta?.themeColor;

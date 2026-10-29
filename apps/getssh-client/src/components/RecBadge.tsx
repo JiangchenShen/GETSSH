@@ -6,7 +6,7 @@ export const RecBadge: React.FC<{ isRecording: boolean }> = ({ isRecording }) =>
 
   return (
     <div 
-      className="absolute top-2 right-4 flex items-center gap-2 px-2 py-1 rounded border border-red-500/30 bg-red-500/10 backdrop-blur-md z-[60] pointer-events-auto cursor-help group"
+      className="absolute top-2 right-4 flex items-center gap-2 px-2 py-1 rounded border border-red-500/30 bg-red-500/10 z-[60] pointer-events-auto cursor-help group"
       title="Asciinema 底层会话审计流记录中 (Gzipped)"
     >
       <motion.div

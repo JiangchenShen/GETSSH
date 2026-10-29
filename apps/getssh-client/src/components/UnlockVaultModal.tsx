@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, KeyRound, ArrowRight, ShieldAlert } from 'lucide-react';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useAppStore } from '../store/appStore';
 import { useTranslation } from 'react-i18next';
 
 const SPRING_FLUID = { type: 'spring', stiffness: 280, damping: 26, mass: 0.9 } as const;
@@ -14,7 +13,6 @@ export const UnlockVaultModal: React.FC = () => {
   const unlockVault = useWorkspaceStore(state => state.unlockVault);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const workspaces = useWorkspaceStore(state => state.workspaces);
-  const isDark = useAppStore(state => state.isDark);
 
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -60,8 +58,7 @@ export const UnlockVaultModal: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
-          className="fixed inset-0 z-[99998] flex items-center justify-center"
-          style={{ backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', background: 'rgba(0,0,0,0.75)' }}
+          className="fixed inset-0 z-[99998] flex items-center justify-center bg-scrim"
         >
           <motion.div
             role="dialog"
@@ -71,11 +68,7 @@ export const UnlockVaultModal: React.FC = () => {
             animate={{ scale: shake ? [1, 1.01, 0.99, 1.01, 1] : 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 24, opacity: 0 }}
             transition={SPRING_FLUID}
-            className={`relative w-full max-w-sm flex flex-col overflow-hidden border rounded-xl shadow-[0_32px_64px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.12)] ${
-              isDark
-                ? 'bg-[#0a0a0a]/90 border-white/10 text-white'
-                : 'bg-white/90 border-black/10 text-slate-900'
-            }`}
+            className="relative w-full max-w-sm flex flex-col overflow-hidden rounded-xl border border-line bg-panel text-ink shadow-2xl"
           >
             {/* Top alert stripe */}
             <div className="h-px bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
@@ -95,12 +88,12 @@ export const UnlockVaultModal: React.FC = () => {
                 <h2 id="unlock-vault-title" className="text-lg font-black tracking-[0.15em] uppercase mb-1">
                   {t('security.vaultLocked', 'VAULT LOCKED')}
                 </h2>
-                <div className={`text-[10px] font-mono tracking-widest uppercase ${isDark ? 'text-white/30' : 'text-black/30'}`}>
+                <div className="text-[10px] font-mono tracking-widest uppercase text-ink-3">
                   {activeWs?.name || activeWorkspaceId}
                 </div>
               </div>
 
-              <p className={`text-xs leading-relaxed ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+              <p className="text-xs leading-relaxed text-ink-3">
                 {t('security.vaultEncryptedDesc', 'Assets encrypted with')} <span className="text-red-400 font-mono font-bold">AES-256-GCM</span>
                 <br />
                 {t('security.vaultEnterPassword', 'Enter workspace password to unseal the vault')}
@@ -120,9 +113,7 @@ export const UnlockVaultModal: React.FC = () => {
                 </motion.div>
               )}
 
-              <div className={`flex items-center border rounded-xl transition-colors focus-within:border-primary/50 ${
-                isDark ? 'bg-black/40 border-white/10' : 'bg-black/5 border-black/10'
-              }`}>
+              <div className="flex items-center rounded-xl border border-line bg-surf transition-colors focus-within:border-primary/50">
                 <KeyRound className="w-4 h-4 mx-3 opacity-40 shrink-0" />
                 <input
                   type="password"
@@ -130,7 +121,7 @@ export const UnlockVaultModal: React.FC = () => {
                   value={password}
                   onChange={e => { setPassword(e.target.value); setError(''); }}
                   placeholder={t('security.workspacePassword', 'Workspace Password')}
-                  className="flex-1 py-3 pr-3 bg-transparent text-sm outline-none placeholder-current placeholder-opacity-30 font-mono tracking-widest"
+                  className="flex-1 py-3 pr-3 bg-surf text-ink text-sm outline-none placeholder:text-ink-3 font-mono tracking-widest"
                 />
               </div>
 

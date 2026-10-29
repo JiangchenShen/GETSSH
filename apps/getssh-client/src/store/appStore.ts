@@ -13,8 +13,6 @@ export interface AiPrompt {
 
 export interface AppConfig {
   language: string;
-  themeColor?: string;
-  duoTone?: { colorA: string; colorB: string } | null;
   theme: 'system' | 'light' | 'dark';
   fontFamily: string;
   fontSize: number;
@@ -69,8 +67,6 @@ const isWindows = typeof process !== 'undefined' ? process.platform === 'win32' 
 
 export const DEFAULT_CONFIG: AppConfig = {
   language: 'en-US',
-  themeColor: '168 85 247',
-  duoTone: { colorA: '0 212 255', colorB: '44 44 52' }, // Default Duo-Tone: 电光蓝 & 机甲灰
   theme: 'system',
   fontFamily: '"Fira Code", monospace, "Courier New", Courier',
   fontSize: 14,
@@ -192,27 +188,9 @@ function applyConfigVisuals(appConfig: AppConfig, systemIsDark: boolean): boolea
   const opacity = Number.isFinite(appConfig.bgOpacity) ? Math.min(1, Math.max(0.25, appConfig.bgOpacity)) : DEFAULT_CONFIG.bgOpacity;
   document.documentElement.dataset.glass = String(appConfig.enableGlassmorphism);
   document.documentElement.style.setProperty('--sidebar-opacity', `${opacity * 100}%`);
-  const defaultDuoTone = appConfig.duoTone?.colorA === '0 212 255' && appConfig.duoTone.colorB === '44 44 52';
-  const centerAccent = appConfig.duoTone?.colorA ?? appConfig.themeColor;
-  const accentRgb = centerAccent?.trim().split(/\s+/).map(Number);
-  const validAccent = accentRgb?.length === 3 && accentRgb.every(value => Number.isInteger(value) && value >= 0 && value <= 255);
-  if (!defaultDuoTone && centerAccent && validAccent && accentRgb) {
-    document.documentElement.style.setProperty('--center-custom-accent', centerAccent);
-    const [red, green, blue] = accentRgb;
-    const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
-    document.documentElement.style.setProperty('--center-custom-accent-ink', brightness > 150 ? '#101815' : '#ffffff');
-  } else {
-    document.documentElement.style.removeProperty('--center-custom-accent');
-    document.documentElement.style.removeProperty('--center-custom-accent-ink');
-  }
-  if (appConfig.duoTone) {
-    document.documentElement.style.setProperty('--color-a', appConfig.duoTone.colorA);
-    document.documentElement.style.setProperty('--color-b', appConfig.duoTone.colorB);
-    document.documentElement.style.setProperty('--primary-color', appConfig.duoTone.colorA);
-  } else if (appConfig.themeColor) {
-    document.documentElement.style.setProperty('--color-a', appConfig.themeColor);
-    document.documentElement.style.setProperty('--color-b', appConfig.themeColor);
-    document.documentElement.style.setProperty('--primary-color', appConfig.themeColor);
+  // Old saved accents must not override the fixed palette, including after hot reload.
+  for (const name of ['--primary-color', '--color-a', '--color-b', '--center-custom-accent', '--center-custom-accent-ink']) {
+    document.documentElement.style.removeProperty(name);
   }
 
   const dark = appConfig.theme === 'system' ? systemIsDark : appConfig.theme === 'dark';

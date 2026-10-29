@@ -11,14 +11,14 @@ interface CryptoModalProps {
   onSkip?: () => void;
   onRetryBiometric?: () => void;
   encryptionDisabled?: boolean;
-  /** Context-aware unlock: shows workspace name and ambient color in lock screen */
+  /** Context-aware unlock: shows workspace name and an identity color on the lock icon. */
   workspaceName?: string;
   themeColor?: string;
   /** Escape hatch: switch back to default workspace */
   onSwitchWorkspace?: () => void;
 }
 
-export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip, onRetryBiometric, encryptionDisabled, workspaceName, themeColor, onSwitchWorkspace }: CryptoModalProps) {
+export function CryptoModal({ mode, onUnlock, onSetup, onCancel, onSkip, onRetryBiometric, encryptionDisabled, workspaceName, themeColor, onSwitchWorkspace }: CryptoModalProps) {
   const { t } = useTranslation();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -53,19 +53,8 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
   };
 
   return (
-    <div className={`absolute inset-0 z-50 flex items-center justify-center bg-black/70 transition-all`} style={{ backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}>
-      {/* Context-aware ambient glow from workspace themeColor */}
-      {mode === 'locked' && themeColor && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `radial-gradient(ellipse 60% 50% at 50% 0%, ${themeColor}22 0%, transparent 70%)`,
-            transition: 'background 0.8s ease',
-          }}
-        />
-      )}
-      <div className={`w-full max-w-md p-8 rounded-[20px] shadow-2xl border flex flex-col relative ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-black/10 text-black'}`}
-           style={mode === 'locked' && themeColor ? { boxShadow: `0 0 0 1px ${themeColor}30, 0 32px 64px rgba(0,0,0,0.6)` } : undefined}>
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg text-ink">
+      <div className="relative flex w-full max-w-md flex-col rounded-[20px] border border-line bg-panel p-8 shadow-2xl">
         
         {/* Top-right action buttons for setup mode */}
         {mode === 'setup' && (onSkip || onCancel) && (
@@ -92,18 +81,15 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
         )}
 
         <div className="flex justify-center mb-6">
-          <div
-               className="w-16 h-16 rounded-full flex items-center justify-center"
-               style={{ background: themeColor ? `${themeColor}25` : 'rgba(var(--primary-rgb,99,102,241),0.2)' }}>
-            {mode === 'locked' ? <Lock className="w-8 h-8" style={{ color: themeColor || '' }} /> : <ShieldAlert className="w-8 h-8 text-primary" />}
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-surf">
+            {mode === 'locked' ? <Lock className="w-8 h-8 text-primary" style={{ color: themeColor || undefined }} /> : <ShieldAlert className="w-8 h-8 text-primary" />}
           </div>
         </div>
 
         {/* Context-aware workspace label */}
         {mode === 'locked' && workspaceName && (
           <div className="text-center mb-1">
-            <span className="text-[10px] font-mono uppercase tracking-[0.25em] px-3 py-1 rounded-xl border"
-                  style={{ color: themeColor || '', borderColor: `${themeColor}40`, background: `${themeColor}10` }}>
+            <span className="rounded-xl border border-line bg-surf px-3 py-1 font-mono text-[10px] uppercase tracking-[0.25em] text-ink-2">
               {workspaceName}
             </span>
           </div>
@@ -147,14 +133,14 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder={t('crypto.masterPassword', 'Master Password')} 
-                className={`w-full pl-10 ${mode === 'locked' && onRetryBiometric ? 'pr-12' : 'pr-4'} py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
+                className={`w-full pl-10 ${mode === 'locked' && onRetryBiometric ? 'pr-12' : 'pr-4'} rounded-[20px] border border-line bg-surf py-3 text-ink outline-none transition-colors focus:border-primary`}
                 required
               />
               {mode === 'locked' && onRetryBiometric && (
                 <button
                   type="button"
                   onClick={onRetryBiometric}
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isDark ? 'hover:bg-white/10 text-primary' : 'hover:bg-black/5 text-primary'}`}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-primary transition-colors hover:bg-surf-2"
                   title={t('crypto.retryBiometric', 'Retry TouchID')}
                 >
                   <Fingerprint className="w-5 h-5" />
@@ -170,7 +156,7 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
                   placeholder={t('crypto.confirmPassword', 'Confirm Master Password')} 
-                  className={`w-full pl-10 pr-4 py-3 rounded-[20px] border outline-none transition-colors ${isDark ? 'bg-black/40 border-white/10 focus:border-primary' : 'bg-black/5 border-black/10 focus:border-primary'}`}
+                  className="w-full rounded-[20px] border border-line bg-surf py-3 pl-10 pr-4 text-ink outline-none transition-colors focus:border-primary"
                   required
                 />
               </div>
@@ -180,7 +166,6 @@ export function CryptoModal({ mode, isDark, onUnlock, onSetup, onCancel, onSkip,
               type="submit" 
               disabled={loading || !password || (mode === 'setup' && !confirm)}
               className="mt-4 flex items-center justify-center gap-2 w-full py-3 rounded-[20px] bg-primary hover:bg-primary/80 text-white font-medium transition-all disabled:opacity-50"
-              style={themeColor && mode === 'locked' ? { background: themeColor, boxShadow: `0 8px 24px ${themeColor}40` } : undefined}
             >
               {loading ? t('crypto.processing', 'Processing...') : (mode === 'locked' ? t('crypto.decrypt', 'Decrypt Profiles') : t('crypto.encrypt', 'Encrypt & Save'))}
               {!loading && <ArrowRight className="w-4 h-4" />}

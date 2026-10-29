@@ -319,7 +319,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
   const inputClass = 'w-full h-10 rounded-xl border border-line bg-surf px-3.5 text-[13px] text-ink outline-none transition-all placeholder:text-ink-3 focus:border-primary/70 focus:ring-2 focus:ring-primary/15';
   const labelClass = 'mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3';
-  const cardClass = 'rounded-[22px] border border-line-soft bg-panel/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl';
+  const cardClass = 'rounded-[22px] border border-line-soft bg-panel p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]';
   const protocols: { value: DisplayProtocol; label: string }[] = [
     { value: 'auto', label: t('connection.protocol.auto') },
     { value: 'ssh', label: 'SSH' },
@@ -329,7 +329,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
   return (
     <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="flex h-full w-full flex-col text-ink">
-      <header className="flex flex-none items-center justify-between gap-5 border-b border-line-soft bg-panel/35 px-7 py-4 backdrop-blur-xl">
+      <header className="flex flex-none items-center justify-between gap-5 border-b border-line-soft bg-panel px-7 py-4">
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
             <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary-color),0.8)]" />
@@ -512,7 +512,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
           </div>
         </div>
       </fieldset>
-      {showProtocolHelp && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-scrim p-5 backdrop-blur-sm" onClick={() => setShowProtocolHelp(false)}>
+      {showProtocolHelp && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-scrim p-5" onClick={() => setShowProtocolHelp(false)}>
         <div role="dialog" aria-modal="true" aria-label={t('connection.protocol.label')} className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-line bg-panel shadow-2xl" onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-line-soft px-5 py-4"><div className="flex items-center gap-2 text-[13px] font-semibold"><Info className="h-4 w-4 text-primary" />{t('connection.protocol.label')}</div><button type="button" onClick={() => setShowProtocolHelp(false)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-3 hover:bg-surf hover:text-ink"><X className="h-4 w-4" /></button></div>
           <div className="divide-y divide-line-soft">{[['AUTO', t('connection.protocol.tooltipAuto')], ['SSH', t('connection.protocol.tooltipSsh')], [t('connection.protocol.local'), t('connection.protocol.tooltipLocal')], ['TELNET', t('connection.protocol.tooltipTelnet')]].map(([label, description]) => <div key={label} className="px-5 py-4"><div className="font-mono text-[11px] font-bold text-primary">{label}</div><p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">{description}</p></div>)}</div>

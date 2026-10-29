@@ -20,12 +20,12 @@ afterEach(() => {
 
 describe.each(['workspace', 'session'] as const)('%s workspace accent', entry => {
   it.each([
-    ['#f43f5e', '244 63 94'],
-    ['#AbC', '170 187 204'],
-    ['14 165 233', '14 165 233'],
+    ['#f43f5e', '0 212 255'],
+    ['#AbC', '0 212 255'],
+    ['14 165 233', '0 212 255'],
     ['invalid', '0 212 255'],
     ['999 0 0', '0 212 255'],
-  ])('keeps a valid RGB channel value after switching to %s', async (themeColor, expected) => {
+  ])('keeps workspace color %s local to its identification mark', async (themeColor, expected) => {
     window.electronAPI = { workspace: { switchWorkspace: vi.fn().mockResolvedValue({ success: true, visualMeta: { themeColor }, profiles: [] }) } } as any;
     useWorkspaceStore.setState({ workspaces: [{ id: 'after', name: 'After', themeColor, hasPassword: false }] });
     const switched = entry === 'workspace'
@@ -33,5 +33,6 @@ describe.each(['workspace', 'session'] as const)('%s workspace accent', entry =>
       : await useSessionStore.getState().switchWorkspace('after');
     expect(switched).toBe(true);
     expect(document.documentElement.style.getPropertyValue('--primary-color')).toBe(expected);
+    expect(useWorkspaceStore.getState().workspaces[0].themeColor).toBe(themeColor);
   });
 });

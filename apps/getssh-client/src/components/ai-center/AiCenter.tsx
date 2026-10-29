@@ -83,7 +83,7 @@ export const AiCenter: React.FC = () => {
               dragMomentum
               dragTransition={{ bounceStiffness: 120, bounceDamping: 20, timeConstant: 400 }}
               whileDrag={{ scale: 1.02, cursor: 'grabbing' }}
-              className={`w-full flex flex-col border backdrop-blur-3xl overflow-hidden ${isDark ? 'bg-[#0f111a]/80 border-white/10 shadow-[0_24px_64px_rgba(0,0,0,0.6)]' : 'bg-white/90 border-black/10 shadow-[0_24px_64px_rgba(0,0,0,0.15)]'}`}
+              className="w-full flex flex-col overflow-hidden border border-line bg-panel text-ink shadow-[0_24px_64px_rgba(0,0,0,0.25)]"
               style={{ borderRadius: '24px', WebkitAppRegion: 'no-drag', height: '620px' } as any}
             >
               {/* ── Header ── */}

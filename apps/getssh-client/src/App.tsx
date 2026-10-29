@@ -158,25 +158,12 @@ function AppMain() {
 
   // Torn-off windows never render App: main.tsx mounts TornWindowApp for ?isHollow=true.
 
-  // Global Background & Glassmorphism Logic
-  let appBgStyle = { 
-    '--titlebar-height': isMac ? '40px' : '32px'
+  // Keep the work canvas opaque; only navigation exposes the native material.
+  const appBgStyle = {
+    '--titlebar-height': isMac ? '40px' : '32px',
+    backgroundColor: 'var(--v2-bg)',
   } as React.CSSProperties;
-  let containerClasses = '';
-
-  // 主工作区保持用户选择的底色；macOS 的根层让出原生 vibrancy，
-  // 左侧导航才能独立成为常驻毛玻璃，而不是模糊一块不透明的纯色。
-  // 文字颜色一律走 text-ink，不再写死 slate/neutral，否则换主题必然漏。
-  containerClasses = 'text-ink border-none';
-  if (!isDark) {
-    const uiOpacity = appConfig.enableGlassmorphism ? (appConfig.bgOpacity ?? 0.8) : 1;
-    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(244, 244, 245, ${uiOpacity})` }; // --v2-bg 浅
-  } else if (!appConfig.enableGlassmorphism) {
-    appBgStyle = { ...appBgStyle, backgroundColor: '#09090b' }; // --v2-bg 深
-  } else {
-    const uiOpacity = appConfig.bgOpacity ?? 1;
-    appBgStyle = { ...appBgStyle, backgroundColor: `rgba(9, 9, 11, ${uiOpacity})` };
-  }
+  const containerClasses = 'text-ink border-none';
 
   /** Types the confirmed high-risk runbook into the active terminal (not executed: no newline). */
   const fillPendingRunbook = () => {
@@ -207,11 +194,9 @@ function AppMain() {
     <>
       <IpcManager />
       <div 
-        className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-all duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
+        className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-[filter] duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
         style={isMac ? { ...appBgStyle, backgroundColor: 'transparent' } : appBgStyle}
       >
-        {/* Removed Duo-Tone Ambient Glow to let pure Liquid Glass shine through */}
-
         <AnimatePresence>
           {pendingHighRiskRunbook && (
             <motion.div 
@@ -221,7 +206,7 @@ function AppMain() {
                role="dialog"
                aria-modal="true"
                aria-label="High Risk Operation"
-               className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-auto"
+               className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 pointer-events-auto"
             >
               <div className="bg-[#1a1a1a] border border-red-500/30 p-8 rounded-xl max-w-md w-full shadow-2xl">
                 <h3 className="text-xl font-bold text-red-500 mb-4 flex items-center gap-2">
@@ -324,9 +309,9 @@ function AppMain() {
                 {(selectedSessionIndex === null && !activeTabId) && (
                   <motion.div 
                     key="dashboard"
-                    initial={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.98, filter: 'blur(4px)' }}
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
                     transition={{ duration: 0.4, ease: DASHBOARD_EASE }}
                     className="absolute inset-0 z-20 bg-transparent"
                   >
