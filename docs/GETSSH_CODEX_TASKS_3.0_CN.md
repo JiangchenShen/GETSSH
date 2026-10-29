@@ -893,4 +893,4 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 **还没做的**：
 - WebRTC、`renderer.js`，见 10-26。
-- Scorecard 工作流，见上。
+- ~~Scorecard 工作流，见上。~~ 已改（Claude，10-29）：`ossf/scorecard-action` 升到 v2.5.0，镜像改从 `ghcr.io/ossf/scorecard-action` 拉。这个工作流只在 main 上跑，改动进了 main 才生效。
