@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { utils as sshUtils } from 'ssh2';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519, keyFileNeedsPassphrase, type KeyFileOptions, KeyFileProblem, readPrivateKey } from './sshKeyFiles';
 
 // Key files as the tools that write them do: OpenSSH files from ssh2's generator, PEM files from
@@ -25,6 +25,20 @@ async function code(promise: Promise<unknown>): Promise<string> {
   }
   return 'ok';
 }
+
+/**
+ * Counts the calls that turn the passphrase into a key: node:crypto decrypting PKCS#8 (PBKDF2)
+ * and ssh2 opening an encrypted OpenSSH key (bcrypt). A file over a cost cap must be refused
+ * before either; counting calls instead of timing them holds on a loaded machine too.
+ */
+function watchDerivations(): () => number {
+  const decrypt = vi.spyOn(crypto, 'createPrivateKey');
+  const parse = vi.spyOn(sshUtils, 'parseKey');
+  return () => decrypt.mock.calls.filter(([input]) => typeof input === 'object' && 'passphrase' in input).length
+    + parse.mock.calls.filter(([, passphrase]) => passphrase !== undefined).length;
+}
+
+afterEach(() => vi.restoreAllMocks());
 
 // --- .ppk files, written the way PuTTY writes them ---
 
@@ -245,10 +259,12 @@ describe('key derivation costs', () => {
     const fine = encryptedPkcs8(key, PASS, 4096);
     expect((await readPrivateKey(fine, PASS)).publicKey.equals(ppkBlobs(key).publicBlob)).toBe(true);
     expect(await code(readPrivateKey(fine, 'wrong'))).toBe('wrong_password');
-    const started = Date.now();
+    const derivations = watchDerivations();
     expect(await code(readPrivateKey(encryptedPkcs8(key, PASS, 5_000_000), PASS))).toBe('unsupported_key');
-    expect(Date.now() - started).toBeLessThan(1000);
     expect(await code(readPrivateKey(Buffer.from('-----BEGIN ENCRYPTED PRIVATE KEY-----\nMAA=\n-----END ENCRYPTED PRIVATE KEY-----\n'), PASS))).toBe('unsupported_key');
+    expect(derivations()).toBe(0);
+    await readPrivateKey(fine, PASS);
+    expect(derivations()).toBe(1);
   });
 
   it('refuses an OpenSSH key with more bcrypt rounds than the cap, before ssh2 runs them', async () => {
@@ -262,10 +278,11 @@ describe('key derivation costs', () => {
     raw.writeUInt32BE(0xffffffff, at + 8 + saltLength);
     const hostile = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${raw.toString('base64').match(/.{1,70}/g)!.join('\n')}\n-----END OPENSSH PRIVATE KEY-----\n`);
     expect(keyFileNeedsPassphrase(hostile)).toBe(true);
-    const started = Date.now();
+    const derivations = watchDerivations();
     expect(await code(readPrivateKey(hostile, 'any passphrase'))).toBe('unsupported_key');
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(derivations()).toBe(0);
     expect((await readPrivateKey(Buffer.from(pair.private), PASS)).passphrase).toBe(PASS);
+    expect(derivations()).toBe(1);
   });
 });
 
@@ -283,12 +300,13 @@ describe('the file is one key, in a form Electron can use', () => {
     const key = KEYS.ed25519();
     const cheap = encryptedPkcs8(key, PASS, 2048).toString();
     const costly = encryptedPkcs8(key, PASS, 5_000_000).toString();
+    const derivations = watchDerivations();
     for (const file of [`x${cheap}${costly}`, `${cheap}${costly}`, `note\n${cheap}`, `${cheap}trailing`]) {
-      const started = Date.now();
       expect(await code(readPrivateKey(Buffer.from(file), PASS))).toBe('unsupported_key');
-      expect(Date.now() - started).toBeLessThan(1000);
     }
+    expect(derivations()).toBe(0);
     expect((await readPrivateKey(Buffer.from(`\n\n${cheap}\n`), PASS)).passphrase).toBeNull();
+    expect(derivations()).toBe(1);
   });
 
   it('refuses PKCS#8 encryptions Electron cannot decrypt instead of calling the passphrase wrong', async () => {
