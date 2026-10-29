@@ -22,7 +22,9 @@ unicode-normalization = "0.1.24"
 zeroize = { version = "1.8.1", features = ["zeroize_derive"] }
 
 # Device keys on Windows (src/device/windows.rs): TPM through NCrypt, DPAPI, Windows Hello.
-# 0.57 is the version already in the workspace lock.
+# The WinRT async types (IAsyncOperation, .join()) come from windows-future, which `windows`
+# pulls in at its own version. Keep it out of this list: its types only fit `windows` at that
+# version, and as a direct dependency Dependabot bumps it alone (PR 205: 0.100.0 next to 0.62.2).
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
     "Foundation",
@@ -37,5 +39,3 @@ windows = { version = "0.62.2", features = [
     "Win32_System_WinRT",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# WinRT async operations (IAsyncOperation, .join()) live here since windows 0.59.
-windows-future = "0.3.2"

@@ -562,7 +562,6 @@ dependencies = [
  "subtle",
  "unicode-normalization",
  "windows",
- "windows-future",
  "zeroize",
 ]
 
