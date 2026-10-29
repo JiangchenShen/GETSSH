@@ -856,8 +856,8 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - Windows 还没在这次升级上跑过，要等推送后的 Security Sandbox 结果。
 
 **没升的**：
-- postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。
-- `sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。
+- ~~postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。~~ 已改（Claude，10-29）：加了 override，升到 6.1.5，见下面"10-29 修 #205、Scorecard 的漏洞告警和一条偶发失败的测试"。
+- ~~`sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。~~ 已改（Claude，10-29），见同一节。
 
 ## 10-29 发布 3.0.0-preview.2（Claude）
 
@@ -925,3 +925,30 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - 冒烟测试：插件隔离、插件页面（21 种外连都被拦下）、Sentinel、插件网络网关、插件沙箱、MCP 沙箱、本地语义记忆、keystore 端到端都通过。
 - 整套 vitest：94 个文件，1343 个通过，另 2 个本来就标着 `it.fails`。
 - 打包：`electron-builder --mac --arm64 --dir` 加 `check-package.cjs`（267 项）通过；打包后的启动检查也通过（Electron 44.10.0，11 个原生和运行时模块，getssh-store 用 Secure Enclave）。
+
+## 10-29 修 #205、Scorecard 的漏洞告警和一条偶发失败的测试（Claude）
+
+三个提交，都在 v3-next：`0723e7e`、`37623ab`、`418521c`。
+
+**#205：windows-future 0.3.2 → 0.100.0**（Dependabot，10-21 起在 Windows 上编译失败）
+- 原因：windows-rs 9 月发的 0.100 只有 windows-core、windows-future 这些小 crate，`windows` 本身没发，最新还是 0.62.2。官方说明（microsoft/windows-rs#4867）写的是两个大包还要再测。windows-future 的类型只认构建它的那一版 windows-core，单独升到 0.100 以后，`windows` 0.62.2 返回的 `IAsyncOperation<UserConsentVerificationResult>` 就对不上了，报 5 个编译错误。本机用 `cargo check --target x86_64-pc-windows-msvc` 复现，和 CI 的一样。
+- 改法（`0723e7e`，只动了 getssh-keystore）：去掉对 windows-future 的直接依赖。原来只拿它在 Windows Hello 验证里写出 `RequestVerificationForWindowAsync` 要的接口类型；现在这个调用和 `RequestVerificationAsync` 放在同一个 `match` 里，类型从后者的返回值推断出来。还是同一个类型、同一个接口 ID，调用的顺序也没变。windows-future 改由 `windows` 按它自己的版本带进来，Dependabot 就没有可以单独升的了。`Cargo.toml` 里写了原因。
+- 推送到 v3-next 以后，Dependabot 下次运行时会因为依赖已经不在，自动关掉 #205。
+- 以后 `windows` 发了 0.100，Dependabot 会提 `windows` 本身的 PR，到时再看 API 的变化。
+
+**Scorecard 的 5 条漏洞告警**（`37623ab`）
+- 4 条 js-yaml 不是 pnpm override 引起的误报，我 10-29 早些时候这么猜，猜错了。真正的来源是 getssh-sysprobe、getssh-unarchive、getssh-vault、sftp-stream 四个目录里的旧 `package-lock.json`，锁着 js-yaml 4.1.1。这几个目录早就在 pnpm 工作区里，依赖由根目录的 `pnpm-lock.yaml` 管。这些 npm 锁文件里的 `@napi-rs/cli` 还是 ^2.18 或 ^3.0，跟现在 package.json 里的 ^3.10.5 对不上，也没有脚本在这些目录里用 npm。`rust-core/` 下这样的 6 份都删了，理由和当初删根目录那份一样（见 `docs/dependency-upgrade-plan.md`）。
+- postcss-selector-parser：在 `pnpm-workspace.yaml` 加 override `postcss-selector-parser@^6: ^6.1.5`，修 GHSA-rj75-hqrm-r3gf。改前改后各构建一次，生成的 CSS 逐字节相同，里面有 typography 生成的 514 处 `.prose` 规则。
+- 用 OSV（Scorecard 查的就是它）查了剩下两份锁文件：`pnpm-lock.yaml` 的 736 个包、`Cargo.lock` 的 194 个 crate。改前 1 个漏洞，就是 postcss-selector-parser；改后 0 个。`pnpm audit` 也从 1 个中危变成 0 个。Scorecard 要等推送 main 后才会更新。
+
+**`sshKeyFiles.test.ts` 偶发失败**（`418521c`）
+- 三条测试原来要求"拒绝要在 1000 毫秒内完成"，以此证明没有先跑密钥派生。整套并行跑、机器负载高时会超时。
+- 这个限制其实也抓不到问题：这台机器上 5,000,000 次 PBKDF2 用不了半秒。临时在实现里加一行"先解密、再检查上限"，旧测试 14 条照样全过。
+- 现在改成数调用：监视 `crypto.createPrivateKey` 和 ssh2 的 `parseKey`，带密码的调用才会跑 PBKDF2 或 bcrypt。被拒的文件必须是 0 次；接着读一个正常文件，必须正好 1 次，说明监视确实生效。同样的临时改动，新测试有 2 条失败。
+
+**检查**（本机 macOS arm64）：
+- Windows 目标（`--target x86_64-pc-windows-msvc -p getssh-keystore --all-targets`）：`cargo check` 和 `cargo clippy -- -D warnings` 通过。getssh-store 要编译 SQLite 的 C 代码，需要 Windows SDK，Mac 上没法交叉检查；它的代码没用到 windows-future。
+- macOS：keystore 的 cargo test 70 条通过。
+- `pnpm install --frozen-lockfile`、`tsc -b` 通过；整套 vitest 连跑 3 遍，都是 94 个文件、1343 个通过，另 2 个本来就标着 `it.fails`。
+- 没重新打包：CSS 逐字节相同，JS 依赖和 macOS 上的原生模块都没变。
+- 还没在 Windows 上真跑：要等推送后 Security Sandbox 在 windows-2022 上编译，并跑 keystore 和 store 的测试。Windows Hello 验证这条路径 CI 跑不到；这次只改了类型的写法，调用和类型都没变。
