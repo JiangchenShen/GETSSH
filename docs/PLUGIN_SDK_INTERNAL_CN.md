@@ -146,6 +146,8 @@ hello-getssh/
 
 ### `renderer.js`：注册入口
 
+> **已知问题（3.0.0-preview.2）**：`renderer.js` 目前不会运行，在这里注册的侧栏按钮和面板不会出现。插件页面本身照常能打开，页面里也能调用 `registerSidebarAction`、`registerPanel`。
+
 `renderer.js` 运行在隐藏的沙盒 iframe 中，只用来注册宿主 UI。不要在这里调用后端 RPC。
 
 ```javascript
@@ -584,7 +586,7 @@ const data = await response.json();
 
 ### 页面能加载什么
 
-3.0.0-preview 之后的版本，`getssh-plugin://` 的每个响应都带一条 CSP：
+从 3.0.0-preview.2 起，`getssh-plugin://` 的每个响应都带一条 CSP：
 
 - 页面只能加载本插件目录里的文件，以及 `data:`、`blob:` 地址。内联脚本、内联样式和 `eval` 可以用。
 - 页面不能直接联网。`fetch`、`XMLHttpRequest`、WebSocket、`EventSource`、`sendBeacon` 都发不出去；外部的脚本、样式、图片、字体和音视频加载不了；也不能嵌入外部页面或提交表单。

@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file. The project
 
 ---
 
+## [3.0.0-preview.2] - 2026-10-29
+
+The 3.0 Preview 2. Release notes: [release-notes/v3.0.0-preview.2.md](release-notes/v3.0.0-preview.2.md).
+
+### Fixed
+
+- In the installed app, plugin pages received no messages from the main window: replies to `invokeBackend()`, `onBackendMessage()` pushes and theme and language changes were all dropped. The main window is a `file://` page, so its messages arrive with the origin `"null"`, while the bridge script compared them with `"file://"`.
+- The background update check on Windows never found new versions: it went through electron-updater, and the releases carry no `latest.yml` for it. Both platforms now ask GitHub's `releases/latest`; electron-updater is gone.
+- When the check in Settings → About fails, it shows why instead of saying the app is up to date.
+
+### Security
+
+- **Plugin pages no longer go online directly**: every `getssh-plugin://` response carries a CSP. A page loads only files from its own plugin's folder and `data:` and `blob:` URLs; it cannot fetch, open WebSockets, submit forms or embed other web pages. For the network it goes through its backend's `net:fetch`.
+- The scheme lost `bypassCSP`, and the path check is held to the plugin's own folder. In 3.0.0-preview a plugin page could load another plugin's scripts and read files in another plugin's folder.
+- When a plugin page's file cannot be read, the reply no longer contains the local path.
+- Electron 44.5.1 → 44.10.0: GHSA-jr5w-w6x2-84p9 (compromised eMudhra intermediate certificates), asar archives whose size fields do not match the file length, Chromium 152.0.7977.169, Node 24.22.1.
+- Rust: crypto-bigint 0.7.10 (RUSTSEC-2026-0387) and ctutils 0.4.6 (RUSTSEC-2026-0385), both about operations meant to take constant time whose timing varied, used by getssh-keystore through `p256` and `aes-gcm`; tokio 1.53.3 (RUSTSEC-2026-0386).
+- npm: ip-address 10.7.5 (GHSA-rxp7-6hxx-x8q5, in the installers through `socks`); undici 6.29.1, 7.30.1, 8.12.3 and fast-uri 3.1.9 are used only for building and testing.
+
+### Known issues
+
+- Plugin pages can still reach external STUN and TURN servers over WebRTC.
+- A plugin's `renderer.js` does not run, so the sidebar actions and panels it registers do not appear.
+
 ## [3.0.0-preview] - 2026-10-21
 
 The 3.0 preview: the FUSION edition for macOS (Apple Silicon, Intel) and Windows (x64, ARM64); there is no Linux version. Release notes: [release-notes/v3.0.0-preview.md](release-notes/v3.0.0-preview.md).
