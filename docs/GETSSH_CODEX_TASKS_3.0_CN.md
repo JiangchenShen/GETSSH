@@ -824,8 +824,8 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - `PluginBridge.bootSandboxedPlugins` 对带 sandbox 的 iframe 调 `doc.open()`，主窗口没有这个权限，会抛 SecurityError。第一个插件就停了，后面的插件也都不跑。
   - SDK 文档却写着 `renderer.js` 可以注册侧栏按钮和面板。
   - 修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。
-- **README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。
-- **官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。
+- ~~**README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。~~ 已改（Claude，10-29），随 3.0.0-preview.2 发布，见下面"10-29 发布 3.0.0-preview.2"。
+- ~~**官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。~~ 已同步（Claude，10-29），另在 `renderer.js` 一节注明它目前不运行。
 
 ## 10-28 依赖升级（Claude）
 
@@ -859,3 +859,38 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。
 - `sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。
 
+## 10-29 发布 3.0.0-preview.2（Claude）
+
+**版本号**：负责人定 `3.0.0-preview.2`，对外叫"3.0 预览版 2"（Preview 2）。
+- 没用 `3.0.0-beta.2`：已装的 3.0.0-preview 拿自己带的 `compareVersions` 比版本，预发布标记逐段按字母比，`beta` 排在 `preview` 前面，会被当成旧版本。预览版用户收不到提示，"设置 → 关于"里手动检查也会说已是最新。拿标签上的代码实测过：`v3.0.0-preview.2` 比 `3.0.0-preview` 新（1），`v3.0.0-beta.2` 比它旧（-1）。
+- 以后的版本号都要排在上一版后面：`3.0.0-preview.3`、`3.0.0-rc.1`、`3.0.0` 可以，`alpha`、`beta` 不行。
+- 发布要设成 Latest，不能标成预发布：两个平台的检查都只看 GitHub 的 `releases/latest`，它不含草稿和预发布版本。
+
+**改了什么**（`a8df52d`，main 和 v3-next 都快进到这里）：
+- `apps/getssh-client/package.json`：版本号；`getsshRelease.stage` 改成 `Preview 2`，"关于"页标题显示"GETSSH 3.0 Preview 2"。
+- `docs/release-notes/v3.0.0-preview.2.md`（中英文）、两份更新日志。
+- README 两种语言各 16 处：版本、下载、发布说明链接；安全和隐私两节改成插件页面不能直接联网。"3.0 和 2.0 有什么不同"仍是两个标签的对比，这次变了的几行在括号里注明。
+- 内部 SDK 文档：CSP 从 3.0.0-preview.2 起生效；`renderer.js` 一节注明它目前不运行。
+
+**发布**：
+- 标签 `v3.0.0-preview.2`，和上一版一样是附注标签。Release 运行 40923127811：4 个平台的构建、`check-package.cjs` 和打包后的启动检查都通过，生成了草稿。
+- 草稿核对：4 个安装包加 `SHA256SUMS.txt`，文件名都对；`SHA256SUMS.txt` 和 GitHub 记录的 4 个摘要一致；正文就是发布说明文件。
+- 2026-10-29 17:55（UTC）发布为 Latest。`releases/latest` 返回 `v3.0.0-preview.2`，5 个下载链接都返回 200。
+- 推送后的 CI：main 和 v3-next 的 Security Sandbox、Dependency Audit 都通过。
+- Scorecard 在 main 上失败，10-21 起每次都这样：工作流固定用 `gcr.io/openssf/scorecard-action:v2.3.1`，拉镜像时报"requires billing to be enabled"。要把 `ossf/scorecard-action` 升到从 ghcr.io 拉镜像的版本。
+
+**官网**（`8317af2`，推到官网 main，由 Vercel 部署）：
+- 下载页的 `VERSION` 改成 `3.0.0-preview.2`，标记和说明写"FUSION 预览版 2"、2026-10-29；首页 JSON-LD 的 `softwareVersion` 同步。
+- 首页和下载页的 SEO 描述：原来还写着下载 2.0、3.0 预览版"计划"支持 macOS 和 Windows，改成 macOS 和 Windows 下载 3.0 预览版 2，Linux 下载 2.0。
+- 更新日志加 3.0.0-preview.2；SDK 指南同步"页面能加载什么"，加了 `renderer.js` 的说明。
+- `announcements.spec.mjs` 跟着改版本号，另加一条：更新日志要有两个预览版的条目。
+- `npm test` 22 个通过，lint 和 `next build` 通过。
+- 上线后核对（发布后约 5 分钟）：中英文的下载页、更新日志、SDK 指南和首页 JSON-LD 都是新内容，下载页的 4 个链接都指向 `v3.0.0-preview.2`。
+
+**检查**（发布前，本机）：
+- copy-lint：新发布说明和所有改动的行，0 处。
+- vitest：compareVersions、updateCheck、systemHandler、AboutTab、pluginPageProtocol 5 个文件，37 个通过；`tsc -b` 通过。
+
+**还没做的**：
+- WebRTC、`renderer.js`，见 10-26。
+- Scorecard 工作流，见上。
