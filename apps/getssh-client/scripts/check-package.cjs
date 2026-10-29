@@ -85,7 +85,8 @@ assert(!fs.existsSync(path.join(resources, 'rust-core', 'getssh-keystore')), 'Th
 for (const entry of [
   'package.json', 'dist/index.html', 'dist-electron/main/index.js',
   'dist-electron/preload/index.js', 'dist-electron/main/plugin-host.js',
-  'dist-electron/main/plugin-sandbox.js', 'dist-electron/main/package.json',
+  'dist-electron/main/plugin-sandbox.js', 'dist-electron/main/plugin-page-protocol.js',
+  'dist-electron/main/package.json',
 ]) archiveFile(entry);
 const html = asar.extractFile(archive, native('dist/index.html')).toString();
 for (const [, reference] of html.matchAll(/\b(?:src|href)="([^"]+\.(?:js|css))"/g)) {

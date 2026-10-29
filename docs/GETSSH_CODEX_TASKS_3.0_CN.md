@@ -770,7 +770,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 **10-22 写 README 的 2.0 / 3.0 对比时，从代码里查到的问题**（都是读代码确认的，没有运行验证；README 里已经如实写了，没有回避）：
 - 主进程（Claude）：
-  - **插件页面可以直接联网**：`getssh-plugin://` 注册时带 `bypassCSP`，返回的 HTML 没有 CSP 头，iframe 只有 `sandbox="allow-scripts"`。插件声明的 `net:fetch` 只管后端。修法：给插件页面的响应加 CSP（`connect-src 'none'` 等），或按来源拦截插件页面的网络请求。
+  - ~~**插件页面可以直接联网**：`getssh-plugin://` 注册时带 `bypassCSP`，返回的 HTML 没有 CSP 头，iframe 只有 `sandbox="allow-scripts"`。插件声明的 `net:fetch` 只管后端。修法：给插件页面的响应加 CSP（`connect-src 'none'` 等），或按来源拦截插件页面的网络请求。~~ 已改（Claude，10-26），见下面"10-26 插件页面的 CSP"；WebRTC 还挡不住。
   - **MCP 反向采样不用您选的服务商**：`setAiConfigProvider` 没有调用方，`resolveAiConfig` 落到 Gemini `gemini-2.5-flash`；"RASP 检查"调用的 `SecureCenter.checkSecurityRisk` 不存在。设置里的说明（"使用您配置的 AI 服务商和额度"）和代码不符。
   - **本地记忆没有排除当前对话**：`aiHandler` 把终端会话 id 当成 `excludeSessionId`，而 `ai_memory_vectors.session_id` 存的是对话 id。
   - **"启用 AI"开关只管浮动窗口和 AI 中心**：指令中心的 AI 和主进程都不检查它。
@@ -784,3 +784,78 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - `ConnectionPrivateKey.tsx` 让用户去"设置 → SSH"，实际的分页叫"连接与传输"。
   - 插件模式在下拉框里叫"隔离模式（兼容严格策略/普通策略）"，在安全页的汇总里叫"严格模式 / 常规模式"。
   - 浮动 AI 窗口的输入栏把两种智能体模式写成"半托管 (审批)""全托管 (Agent)"，和其他地方的"审批执行""自动执行"不一致。
+
+## 10-26 插件页面的 CSP（Claude）
+
+**改了什么**：
+- `getssh-plugin://` 的每个响应都带一条 CSP，HTML、脚本、图片、SVG 和出错的回复都带（`electron/main/services/plugin/pluginPageProtocol.ts` 的 `pluginPageCsp`）：
+  - 只能加载本插件目录里的文件，以及 `data:`、`blob:`；
+  - `connect-src`、`frame-src` 只有本插件自己；
+  - `form-action`、`base-uri` 都是 `'none'`；
+  - 内联脚本和 `eval` 照常能用：这条 CSP 管的是页面能连到哪里，不管插件自己的代码怎么写。
+- 去掉了这个协议的 `bypassCSP`。开着时，页面自己的 CSP 管不到这个协议的文件，一个插件的页面能加载另一个插件的脚本。主窗口的 CSP 本来就在 `frame-src` 里写了 `getssh-plugin:`，去掉以后 iframe 照常打开。
+- 处理函数从 `index.ts` 挪进了上面这个文件，另外改了两处：
+  - 路径检查收紧到本插件的目录。原来地址里写 `%2e%2e%2f` 就能读到别的插件目录里的文件；
+  - 读不到文件时，回复里不再带本机的完整路径。
+- **顺带修了一个 3.0.0-preview 安装包里就有的问题**：打包版的插件页面收不到主窗口发来的任何消息。
+  - 原因：主窗口是 `file://` 页面，它发出的消息 `origin` 是 `"null"`，桥接脚本却拿 `location.ancestorOrigins[0]`（`"file://"`）去比。
+  - 结果：`invokeBackend()` 的回复、`onBackendMessage()` 的推送、主题和语言的变化，全部被丢掉。
+  - 开发版的主窗口是 `http://localhost`，所以一直没发现。
+
+**测试**：
+- `pluginPageProtocol.test.ts`，9 条。
+- `npm run test:plugin-page`（`scripts/security/plugin-page-smoke.cjs`），用真实 Electron 跑：
+  - 主窗口用 `index.html` 里的 CSP，插件页面放进和 `PluginPane` 一样的 iframe；
+  - 探测页面试了 21 种外连：fetch、XHR、WebSocket、EventSource、sendBeacon、图片、外部脚本和样式、CSS 里的 `@import` 和背景图、字体、音视频、嵌套 iframe、嵌套页面跳转、meta refresh、SVG 文档、Worker、srcdoc、blob 和 data 页面、动态 import 等。本机的测试服务器一个请求也没收到；
+  - 同一个页面去掉 CSP 再跑一遍，27 个请求都到了，说明这些探测确实能连出去；
+  - 插件自己的脚本、样式、图片、JSON，以及桥接的 `invokeBackend()` 往返都照常能用。
+- 这个冒烟测试已加进 `security-sandbox.yml`，macOS 和 Windows 都会跑。还没在 CI 上跑过。
+- 逐一撤掉 8 处修复，每次都有对应的测试失败。
+- 示例插件 `plugins/system-monitor` 在新 CSP 下显示正常，没有 CSP 报错。
+- 整套 vitest：94 个文件，1343 个通过，另有 2 个本来就标着 `it.fails`。`test:plugin-isolation`、`test:plugin-network`、`test:plugin-sandbox`、`test:mcp-sandbox` 都通过。
+
+**还没解决的**：
+- **WebRTC 挡不住**。页面仍能连到外部的 STUN（UDP）和 TURN（TCP）服务器，并通过 TURN 的用户名之类的字段带出数据。试过的办法都不行：
+  - CSP 管不到 WebRTC，Chromium 没有实现 `webrtc 'block'`；
+  - `setWebRTCIPHandlingPolicy('disable_non_proxied_udp')` 只挡住 UDP，TURN 走 TCP 照样能连；
+  - 在页面里删掉 `RTCPeerConnection` 也没用：插件嵌一个 srcdoc 子页面，就能拿到新的 `RTCPeerConnection`。
+  - 要彻底关掉，只能等 Electron 提供开关，或者把插件页面从主窗口的 iframe 挪到单独的 `WebContentsView`。
+- **`renderer.js` 从来没有运行过**（读代码和实测都确认了）：
+  - `PluginBridge.bootSandboxedPlugins` 对带 sandbox 的 iframe 调 `doc.open()`，主窗口没有这个权限，会抛 SecurityError。第一个插件就停了，后面的插件也都不跑。
+  - SDK 文档却写着 `renderer.js` 可以注册侧栏按钮和面板。
+  - 修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。
+- **README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。
+- **官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。
+
+## 10-28 依赖升级（Claude）
+
+10-28 推送 `2b9de94` 后，Dependency Audit 报出 10-21 之后新公布的安全公告：npm 高危 12 个、中危 14 个、低危 2 个，Rust 2 个。
+
+**升了什么**：
+- Electron 44.5.1 → 44.10.0：
+  - 44.9.1 起修了 GHSA-jr5w-w6x2-84p9（被盗用的 eMudhra 中间证书）；
+  - 44.10.0 另修了 asar 包大小字段和文件长度对不上时的处理，Chromium 升到 152.0.7977.169，Node 升到 24.22.1；
+  - 原生模块 ABI 还是 149，SQLCipher 和 node-pty 的预编译包不用换。
+- undici：6.29.0 → 6.29.1，7.30.0 → 7.30.1，8.11.2 → 8.12.3。分别来自 node-gyp、`@electron/get`、jsdom，都不进安装包。
+- fast-uri 3.1.8 → 3.1.9（electron-builder 里的 ajv），ip-address 10.7.2 → 10.7.5（`socks`，进安装包）。这两个是中危，和 undici 一样只是在原来的版本范围里升，`package.json` 只改了 Electron 那一行。
+- Rust：
+  - crypto-bigint 0.7.5 → 0.7.10（RUSTSEC-2026-0387，经 `p256` 进 `getssh-keystore`）；0.7.6–0.7.8 已被撤回；
+  - ctutils 0.4.2 → 0.4.6（RUSTSEC-2026-0385，经 `aes-gcm` 进 `getssh-keystore`、`getssh-vault`）；
+  - tokio 1.53.1 → 1.53.3（RUSTSEC-2026-0386，审计里是警告，不挡 CI）。没有跟着 `cargo update` 升到 1.54。
+
+**检查**（本机 macOS arm64）：
+- `pnpm audit --audit-level high` 通过，只剩 1 个中危（见下）。
+- Rust 模块用 `scripts/build-native.js` 重新编译，9 个 `.node` 都能加载。
+- cargo test：
+  - keystore 70 条，其中 4 条 golden 测试：旧版本生成的密钥环、恢复码照样能打开；
+  - store 122 条，vault 5 条；
+  - CI 里那组 hardened 模块和 sandbox 启动器的测试。
+- 整套 vitest 跑了 3 遍。第 1 遍 `sshKeyFiles.test.ts` 有 1 条失败，后 2 遍都是 1343 个全过。那条测试只用 ssh2 和 `node:crypto`，断言拒绝要在 1000 毫秒内完成（墙上时间），整套并行跑、机器负载高时会超时，和这次升级无关。
+- 冒烟测试：插件隔离、插件页面、Sentinel、keystore 端到端（迁移、应用锁、2.0 导入、加密备份、回滚）都通过。
+- 打包：`electron-builder --mac --arm64 --dir` 加 `check-package.cjs` 通过，打包后的启动检查也通过（Electron 44.10.0，11 个原生和运行时模块，getssh-store 用 Secure Enclave）。
+- Windows 还没在这次升级上跑过，要等推送后的 Security Sandbox 结果。
+
+**没升的**：
+- postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。
+- `sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。
+
