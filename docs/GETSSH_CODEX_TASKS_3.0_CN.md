@@ -894,3 +894,34 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 **还没做的**：
 - WebRTC、`renderer.js`，见 10-26。
 - ~~Scorecard 工作流，见上。~~ 已改（Claude，10-29）：`ossf/scorecard-action` 升到 v2.5.0，镜像改从 `ghcr.io/ossf/scorecard-action` 拉。这个工作流只在 main 上跑，改动进了 main 才生效。
+
+## 10-29 合并 Dependabot #207、#208（Claude）
+
+两个都用合并提交并进 v3-next，保留 Dependabot 原来的提交，推送后 GitHub 会把 PR 标成已合并。
+
+**#207：12 个 Cargo 小版本更新**（只改 Cargo.lock）
+- 加密核心，用在 getssh-keystore、getssh-store、getssh-vault：
+  - sha2 0.11.0 → 0.11.1：只改了 AArch64 后端加载常量的写法，输出不变；
+  - zeroize 1.9.0 → 1.9.1：`Zeroizing` 的 Debug 输出不再显示内容，另修了一处可能读到未初始化内存的问题；
+  - unicode-normalization 0.1.25 → 0.1.26。
+- 插件解压：zip 9.0.5 → 9.1.1，间接带上 typed-path 0.12.3 → 0.13.0。9.1 改的是 `extract()`、`extract_with_options()` 和写入；getssh-unarchive 不用这些，自己逐项检查 `enclosed_name()`、符号链接和大小。typed-path 0.13 对 Windows 路径更严，`\\server\share` 算绝对路径。
+- tokio 1.53.3 → 1.54.1：1.54 起 `BufReader` 或内存管道的容量为 0 会 panic，我们的代码里没有这类调用。
+- napi 3.14.0 → 3.15.0：环境销毁时会等 Tokio 的线程结束。keystore 端到端测试里 Electron 照常退出。
+- 其余：napi-derive、serde_json、cc、uuid、tree-sitter、libc，以及间接的 find-msvc-tools、napi-sys、napi-derive-backend、tree-sitter-language。
+
+**#208：7 个 action 升大版本**
+- checkout 4→7、setup-node 4→7、pnpm/action-setup 3→6、upload-artifact 4→7、download-artifact 4→8、action-gh-release 2→3、CodeQL 3→4，都改用 Node 24 运行。
+- 对照了每个大版本的发布说明，和我们的用法有关的都没问题：
+  - setup-node v5 曾给有 `packageManager` 字段的项目自动开缓存，v6 起只对 npm 开；
+  - pnpm/action-setup v4 起，`packageManager` 和 action 里的版本不一致会报错，我们两处都是 11.2.2；
+  - download-artifact v5 改的是按 ID 下载单个 artifact 的路径，我们按 `pattern` 加 `merge-multiple` 下载；v8 起摘要不符默认报错；
+  - 新版的 action.yml 里，我们用到的参数都还在。
+- PR 上的 Security Sandbox（macOS、Windows）和 Dependency Audit 已经用新的 checkout、setup-node、pnpm/action-setup 跑过，都通过。
+- 还没跑过的：release.yml 里的 upload-artifact v7、download-artifact v8、action-gh-release v3，要等下一个标签（手动运行 release.yml 能先试上传，下载和建草稿只在打标签时跑）；Scorecard 里的 CodeQL v4 和 upload-artifact v7，要等下次推送 main。
+
+**本机检查**（`96f8598`，macOS arm64）：
+- 9 个原生模块用 `scripts/build-native.js` 重新编译，都能加载；两个 `index.d.ts` 照例还原。
+- cargo test：keystore 70 条，其中 4 条 golden 测试，旧版本的恢复码和密钥环照样能打开；store 122 条；vault 5 条，其中 2 条 golden；hardened 那组 80 条；沙箱启动器 1 条。
+- 冒烟测试：插件隔离、插件页面（21 种外连都被拦下）、Sentinel、插件网络网关、插件沙箱、MCP 沙箱、本地语义记忆、keystore 端到端都通过。
+- 整套 vitest：94 个文件，1343 个通过，另 2 个本来就标着 `it.fails`。
+- 打包：`electron-builder --mac --arm64 --dir` 加 `check-package.cjs`（267 项）通过；打包后的启动检查也通过（Electron 44.10.0，11 个原生和运行时模块，getssh-store 用 Secure Enclave）。
