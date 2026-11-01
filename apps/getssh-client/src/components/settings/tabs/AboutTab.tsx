@@ -80,6 +80,7 @@ export const AboutTab: React.FC = () => {
     </SettingsSection>
 
     <div className="space-y-3 text-xs leading-relaxed text-ink-3">
+      <p className="break-words font-mono text-ink-2">POWERED BY TIDAL ENGINE(TM) &amp; OCEAN SENTINEL(TM)</p>
       <p><Trans i18nKey="about.openSourceDesc" components={{ strong: <strong className="font-medium text-ink-2" /> }} /></p>
       <p>{t('about.copyright')}</p>
     </div>
