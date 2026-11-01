@@ -4,7 +4,8 @@ import { Readable } from 'node:stream';
 
 /**
  * getssh-plugin://<plugin folder>/<file> serves plugin pages and their files from
- * userData/plugins. The main window's CSP lists the scheme in frame-src, so it needs no bypassCSP;
+ * userData/plugins, and getssh-plugin://<plugin folder>/?renderer=<path> the page its renderer.js
+ * runs in. The main window's CSP lists the scheme in frame-src, so it needs no bypassCSP;
  * with bypassCSP, a page's own policy did not apply to files of this scheme, and one plugin's page
  * could load another plugin's scripts.
  */
@@ -18,6 +19,17 @@ export const MAX_PLUGIN_PAGE_BYTES = 4 * 1024 * 1024;
 const PLUGIN_HOST = /^(?!\.{1,2}$)[a-z0-9._-]{1,128}$/i;
 
 const DENY_ALL_CSP = "default-src 'none'; form-action 'none'; base-uri 'none'";
+
+/**
+ * renderer.js runs in a page of the plugin's own host, getssh-plugin://<plugin>/?renderer=<path>,
+ * so it gets the same policy as the plugin's other pages. A srcdoc or about:blank frame would take
+ * the main window's policy instead, whose connect-src reaches localhost and the AI services.
+ */
+const RENDERER_PARAM = 'renderer';
+const LOCALE_PARAM = 'locale';
+const MAX_RENDERER_PATH = 1024;
+// A language tag such as zh-CN (the app's language, for getLocale()); nothing else reaches the page.
+const LOCALE_TAG = /^[a-z]{2,8}(?:-[a-z0-9]{1,8}){0,4}$/i;
 
 /**
  * Every response of the scheme carries this policy, so plugin pages stay offline: they load only
@@ -48,6 +60,49 @@ export function pluginPageCsp(host: string): string {
     "form-action 'none'",
     "base-uri 'none'",
   ].join('; ');
+}
+
+/**
+ * A manifest's `renderer` as a '/'-separated path inside the plugin folder, or null for anything
+ * but a plain relative path: '..', an absolute path, a backslash or a drive letter.
+ */
+export function rendererScriptPath(renderer: unknown): string | null {
+  if (typeof renderer !== 'string' || renderer.length > MAX_RENDERER_PATH) return null;
+  if (renderer.startsWith('/') || /[\\:\0]/.test(renderer)) return null;
+  const segments = renderer.split('/').filter(segment => segment !== '' && segment !== '.');
+  return segments.length && !segments.includes('..') ? segments.join('/') : null;
+}
+
+export interface PluginRendererPage {
+  /** The plugin folder: the page's host, and the data-plugin-id of the frame it runs in. */
+  pluginId: string;
+  url: string;
+}
+
+/**
+ * The renderer.js page of every plugin that declares one, for the main window to open. A plugin
+ * is left out when its folder cannot be a host of the scheme or its renderer is not a file inside
+ * its folder (symbolic links resolved); the other plugins are not affected.
+ */
+export async function pluginRendererPages(plugins: ReadonlyArray<{ renderer?: unknown; localPath?: string }>): Promise<PluginRendererPage[]> {
+  const pages = await Promise.all(plugins.map(async ({ renderer, localPath }) => {
+    if (renderer === undefined || typeof localPath !== 'string') return null;
+    const pluginId = path.basename(localPath);
+    const script = rendererScriptPath(renderer);
+    try {
+      if (!PLUGIN_HOST.test(pluginId) || !script) throw new Error('the folder name or the renderer path is not allowed');
+      const folder = await fs.promises.realpath(localPath);
+      const file = await fs.promises.realpath(path.join(folder, ...script.split('/')));
+      if (!file.startsWith(folder + path.sep) || !(await fs.promises.stat(file)).isFile()) {
+        throw new Error('the renderer is not a file inside the plugin folder');
+      }
+    } catch (error) {
+      console.warn(`[PluginManager] renderer.js of plugin '${pluginId}' is not loaded: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    return { pluginId, url: `${PLUGIN_PAGE_SCHEME}://${pluginId}/?${RENDERER_PARAM}=${encodeURIComponent(script)}` };
+  }));
+  return pages.filter((page): page is PluginRendererPage => page !== null);
 }
 
 function contentTypeFor(file: string): string {
@@ -154,6 +209,20 @@ function pluginBridgeScript(pluginId: string): string {
   `;
 }
 
+/**
+ * The page renderer.js runs in: the bridge, the app's language for getLocale(), then the script.
+ * renderer.js only registers UI, so invokeBackend() fails at once there instead of waiting for an
+ * answer nobody sends (only a panel's PluginPane answers it).
+ */
+function rendererPage(pluginId: string, script: string, locale: string | null): string {
+  const src = '/' + script.split('/').map(encodeURIComponent).join('/');
+  const setup = [
+    locale ? `window.__GETSSH_LOCALE = ${JSON.stringify(locale)};` : '',
+    "window.GETSSH.invokeBackend = function () { return Promise.reject(new Error('invokeBackend() is not available in renderer.js; call it from a plugin page.')); };",
+  ].join('\n');
+  return `<!doctype html><html><head><meta charset="utf-8">${pluginBridgeScript(pluginId)}<script>${setup}</script></head><body><script src="${src}"></script></body></html>`;
+}
+
 /** The protocol.handle handler for getssh-plugin://, serving files under pluginsDir. */
 export function createPluginPageHandler(pluginsDir: string): (request: Request) => Promise<Response> {
   return async (request) => {
@@ -163,12 +232,21 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
 
     let pluginId: string;
     let pluginPath: string;
+    let renderer: { script: string; locale: string | null } | null = null;
     try {
       const parsedUrl = new URL(request.url);
       pluginId = parsedUrl.hostname;
       // Throws for a host it cannot put in a policy; the answer then keeps the deny-all policy.
       csp = pluginPageCsp(pluginId);
-      const pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
+      let pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
+      if (!pathname && parsedUrl.searchParams.has(RENDERER_PARAM)) {
+        // The renderer.js page: the checks below then apply to the script it loads.
+        const script = rendererScriptPath(parsedUrl.searchParams.get(RENDERER_PARAM));
+        if (!script) return respond('Bad Request: invalid renderer path', 400);
+        const locale = parsedUrl.searchParams.get(LOCALE_PARAM);
+        renderer = { script, locale: locale && LOCALE_TAG.test(locale) ? locale : null };
+        pathname = script;
+      }
       const pluginDir = path.join(pluginsDir, pluginId);
       pluginPath = path.join(pluginDir, pathname);
       // Prevent Path Traversal (C-01), into another plugin's folder too ('%2e%2e%2f' decodes to '../').
@@ -184,6 +262,10 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
       return respond('Not Found', 404);
     }
     if (!stats.isFile()) return respond('Not Found', 404);
+
+    if (renderer) {
+      return respond(rendererPage(pluginId, renderer.script, renderer.locale), 200, { 'content-type': 'text/html; charset=utf-8' });
+    }
 
     if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
       // A page is read whole (the bridge script goes into its <head>): only up to 4 MiB.

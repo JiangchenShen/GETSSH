@@ -85,7 +85,8 @@ declare global {
       commitPluginInstall: (payload: { sourceDir: string; tempDir: string }) => Promise<{ success: boolean; manifest?: import('./types/plugin').PluginManifest; error?: string }>;
       abortPluginInstall: (tempDir: string) => Promise<{ success: boolean; error?: string }>;
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
-      getPluginRenderers: () => Promise<string[]>;
+      /** The page each plugin's renderer.js runs in (pluginPageProtocol.pluginRendererPages). */
+      getPluginRenderers: () => Promise<Array<{ pluginId: string; url: string }>>;
       reloadPlugins: () => Promise<{ success: boolean; error?: string }>;
       sftpList: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; list?: import('./components/SFTPManager').SFTPFile[]; truncated?: boolean }>;
       sftpMkdir: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string }>;

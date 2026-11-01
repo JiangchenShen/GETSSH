@@ -33,6 +33,10 @@ const BLOCKED_ACTIONS = new Set([
  */
 const MAX_PANELS_PER_PLUGIN = 16;
 const OPEN_PANEL_INTERVAL_MS = 1000;
+// A panel shows one of its plugin's own pages; its id and title are capped like a sidebar label.
+const MAX_PANEL_ID_LENGTH = 128;
+const MAX_PANEL_TITLE_LENGTH = 128;
+const MAX_PANEL_URL_LENGTH = 2048;
 const panelsByPlugin = new Map<string, Set<string>>();
 // Sidebar actions need no capability: a page registering fresh ids in a loop, with large icons,
 // must not fill the main window's memory.
@@ -41,8 +45,26 @@ const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
 const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
 
+/** Marks the hidden frame a plugin's renderer.js runs in (bootSandboxedPlugins). */
+const RENDERER_FRAME_ATTR = 'data-plugin-renderer';
+
 function pluginFrames(): HTMLIFrameElement[] {
   return [...document.querySelectorAll<HTMLIFrameElement>('iframe[data-plugin-id]')];
+}
+
+function rendererFrames(): HTMLIFrameElement[] {
+  return pluginFrames().filter(frame => frame.hasAttribute(RENDERER_FRAME_ATTR));
+}
+
+/** getssh-plugin://<plugin>/…: the host is the plugin folder, compared like a URL host. */
+function isOwnPluginPage(url: string, pluginId: string): boolean {
+  if (url.length > MAX_PANEL_URL_LENGTH) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'getssh-plugin:' && parsed.hostname.toLowerCase() === pluginId.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 function handlePluginMessage(event: MessageEvent) {
@@ -54,7 +76,8 @@ function handlePluginMessage(event: MessageEvent) {
 
   // The plugin is the one whose frame sent the message, never the id the message names: a
   // page naming other ids (or a CSS selector) would get a fresh limit for each.
-  const pluginId = pluginFrames().find(frame => frame.contentWindow === event.source)?.getAttribute('data-plugin-id');
+  const source = event.source;
+  const pluginId = pluginFrames().find(frame => frame.contentWindow === source)?.getAttribute('data-plugin-id');
   if (!pluginId) return;
 
   if (BLOCKED_ACTIONS.has(action)) {
@@ -84,27 +107,40 @@ function handlePluginMessage(event: MessageEvent) {
       sidebarActionsByPlugin.set(pluginId, actions);
       usePluginStore.getState().registerSidebarAction({
         id: `plugin-${pluginId}-${actionId}`,
+        pluginId,
         icon: sanitizeSVG(icon),
         label: String(payload.label ?? '').slice(0, 128),
         onClick: () => {
-          // Send click event back to the plugin's iframe
-          const iframe = pluginFrames().find(frame => frame.getAttribute('data-plugin-id') === pluginId);
-          if (iframe?.contentWindow) {
-            iframe.contentWindow.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId }, '*');
-          }
+          // The handler (window.__sidebarHandlers) is in the page that registered the action:
+          // renderer.js, or an open panel. Panels come before the hidden renderer.js frames in
+          // the document, so the plugin's first frame is not necessarily that page.
+          const frames = pluginFrames();
+          const iframe = frames.find(frame => frame.contentWindow === source)
+            ?? frames.find(frame => frame.getAttribute('data-plugin-id') === pluginId && frame.hasAttribute(RENDERER_FRAME_ATTR))
+            ?? frames.find(frame => frame.getAttribute('data-plugin-id') === pluginId);
+          iframe?.contentWindow?.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId }, '*');
         }
       });
       break;
     }
 
     case 'registerPanel': {
-      const panels = panelsByPlugin.get(pluginId) ?? new Set<string>();
-      if (!panels.has(payload.panelId) && panels.size >= MAX_PANELS_PER_PLUGIN) {
-        console.warn(`[PluginBridge] Plugin "${pluginId}" already has ${MAX_PANELS_PER_PLUGIN} panels; "${payload.panelId}" was not registered`);
+      const panelId = typeof payload?.panelId === 'string' ? payload.panelId : '';
+      const renderUrl = typeof payload?.renderUrl === 'string' ? payload.renderUrl : '';
+      // Another plugin's page in this plugin's panel would run under that plugin's id (PluginPane
+      // takes the id from the URL), with this plugin's title on the tab.
+      if (!panelId || panelId.length > MAX_PANEL_ID_LENGTH || !isOwnPluginPage(renderUrl, pluginId)) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" sent an invalid panel; a panel shows a getssh-plugin://${pluginId}/ page`);
         break;
       }
-      if (useSessionStore.getState().registerPluginPanel(pluginId, payload.panelId, payload.title, payload.renderUrl)) {
-        panels.add(payload.panelId);
+      const panels = panelsByPlugin.get(pluginId) ?? new Set<string>();
+      if (!panels.has(panelId) && panels.size >= MAX_PANELS_PER_PLUGIN) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" already has ${MAX_PANELS_PER_PLUGIN} panels; "${panelId}" was not registered`);
+        break;
+      }
+      const title = String(payload.title ?? '').slice(0, MAX_PANEL_TITLE_LENGTH);
+      if (useSessionStore.getState().registerPluginPanel(pluginId, panelId, title, renderUrl)) {
+        panels.add(panelId);
         panelsByPlugin.set(pluginId, panels);
       }
       break;
@@ -140,11 +176,11 @@ function handlePluginMessage(event: MessageEvent) {
 
 export function initPluginBridge() {
   window.addEventListener('message', handlePluginMessage);
-  
+
   const unsubUIExtensions = window.electronAPI.onSyncPluginUIExtensions?.((payload) => {
     usePluginStore.getState().setUIExtensions(payload);
   });
-  
+
   const unsubSettingsSchemas = window.electronAPI.onSyncPluginSettingsSchemas?.((payload) => {
     usePluginStore.getState().setSettingsSchemas(payload);
   });
@@ -163,88 +199,84 @@ export function initPluginBridge() {
     }
   });
 
+  // An install or uninstall changes the plugin list: start or remove renderer.js frames to match.
+  const unsubPlugins = usePluginStore.subscribe((state, prevState) => {
+    if (state.installedPlugins !== prevState.installedPlugins) {
+      bootSandboxedPlugins().catch(e => console.error('[PluginBridge] Failed to update plugin renderers:', e));
+    }
+  });
+
   return () => {
     window.removeEventListener('message', handlePluginMessage);
     unsubUIExtensions?.();
     unsubSettingsSchemas?.();
     unsubAppStore();
+    unsubPlugins();
   };
 }
 
-/**
- * Boot plugins in sandboxed iframes instead of eval/new Function.
- * Each plugin gets its own isolated iframe with no access to the parent DOM or electronAPI.
- */
-export async function bootSandboxedPlugins() {
-  try {
-    const scripts = await window.electronAPI.getPluginRenderers();
-    scripts.forEach((script, idx) => {
-      if (!script) return;
+/** Drops what a plugin no longer installed registered here: its sidebar actions and its limits. */
+function forgetPlugin(pluginId: string) {
+  usePluginStore.getState().removePluginSidebarActions(pluginId);
+  sidebarActionsByPlugin.delete(pluginId);
+  panelsByPlugin.delete(pluginId);
+  lastPanelOpen.delete(pluginId);
+}
 
-      const pluginId = `plugin-${idx}`;
+function startRenderer(pluginId: string, url: string) {
+  // getLocale() in renderer.js returns the app's language from the start, not the system's.
+  const src = new URL(url);
+  src.searchParams.set('locale', useAppStore.getState().appConfig.language || navigator.language);
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('sandbox', 'allow-scripts');
+  iframe.setAttribute('data-plugin-id', pluginId);
+  iframe.setAttribute(RENDERER_FRAME_ATTR, '');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.tabIndex = -1;
+  iframe.style.display = 'none';
+  // The current theme once the page is up, for the callbacks of onThemeChange().
+  iframe.addEventListener('load', () => {
+    const { theme, language } = useAppStore.getState().appConfig;
+    iframe.contentWindow?.postMessage({ __getssh_host: true, event: 'envChange', theme, locale: language }, '*');
+  });
+  iframe.src = src.href;
+  document.body.appendChild(iframe);
+}
 
-      // Create sandboxed iframe
-      const iframe = document.createElement('iframe');
-      iframe.setAttribute('sandbox', 'allow-scripts');
-      iframe.setAttribute('data-plugin-id', pluginId);
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-
-      // Inject a minimal SDK into the iframe
-      const sdkCode = `
-        window.__GETSSH_PLUGIN_ID = "${pluginId}";
-        window.__GETSSH_LOCALE = "${useAppStore.getState().appConfig.language || navigator.language}";
-        window.GETSSH = {
-          registerSidebarAction: function(id, icon, label) {
-            parent.postMessage({ __getssh_plugin: true, pluginId: "${pluginId}", action: "registerSidebarAction", payload: { id, icon, label } }, "*");
-          },
-          registerPanel: function(panelId, title, renderUrl) {
-            parent.postMessage({ __getssh_plugin: true, pluginId: "${pluginId}", action: "registerPanel", payload: { panelId, title, renderUrl } }, "*");
-          },
-          openPanel: function(panelId) {
-            parent.postMessage({ __getssh_plugin: true, pluginId: "${pluginId}", action: "openPanel", payload: { panelId } }, "*");
-          },
-          showNotification: function(title, body) {
-            parent.postMessage({ __getssh_plugin: true, pluginId: "${pluginId}", action: "showNotification", payload: { title, body } }, "*");
-          },
-          getLocale: function() {
-            return window.__GETSSH_LOCALE;
-          },
-          onThemeChange: function(callback) {
-            if (!window.__themeListeners) window.__themeListeners = [];
-            window.__themeListeners.push(callback);
-          }
-        };
-        window.addEventListener("message", function(e) {
-          if (e.data && e.data.__getssh_host) {
-            if (e.data.event === "sidebarClick") {
-              var handler = window.__sidebarHandlers && window.__sidebarHandlers[e.data.actionId];
-              if (handler) handler();
-            } else if (e.data.event === "envChange") {
-              if (e.data.locale) window.__GETSSH_LOCALE = e.data.locale;
-              if (e.data.theme && window.__themeListeners) {
-                window.__themeListeners.forEach(cb => cb(e.data.theme));
-              }
-            }
-          }
-        });
-        window.__sidebarHandlers = {};
-      `;
-
-      // Write to iframe
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write('<html><body></body></html>');
-        doc.close();
-
-        const scriptEl = doc.createElement('script');
-        scriptEl.textContent = `${sdkCode}\n${script}`;
-        doc.body.appendChild(scriptEl);
-      }
-    });
-  } catch (e) {
-    console.error('[PluginBridge] Failed to boot sandboxed plugins:', e);
-    throw e;
+async function syncRendererFrames() {
+  const pages = await window.electronAPI.getPluginRenderers();
+  const wanted = new Map(pages.map(page => [page.pluginId, page.url]));
+  for (const iframe of rendererFrames()) {
+    const pluginId = iframe.getAttribute('data-plugin-id') ?? '';
+    if (wanted.has(pluginId)) continue;
+    iframe.remove();
+    forgetPlugin(pluginId);
   }
+  const running = new Set(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id')));
+  for (const [pluginId, url] of wanted) {
+    if (running.has(pluginId)) continue;
+    try {
+      startRenderer(pluginId, url);
+    } catch (e) {
+      console.error(`[PluginBridge] renderer.js of plugin "${pluginId}" did not start:`, e);
+    }
+  }
+}
+
+let rendererSync: Promise<void> = Promise.resolve();
+
+/**
+ * Runs each plugin's renderer.js in a hidden frame of its own. The frame is sandboxed like a panel
+ * (opaque origin, no access to this window) and loads the plugin's own getssh-plugin:// page, so
+ * the plugin page CSP applies to it too. A script that is missing, does not parse or throws stops
+ * only its own frame. Frames already running are kept; the frame of a plugin no longer installed
+ * is removed, with its sidebar actions.
+ *
+ * Calls run one after another, each on a list fetched after the one before it finished: an older
+ * list answered late cannot bring back the frame of a plugin uninstalled since.
+ */
+export function bootSandboxedPlugins(): Promise<void> {
+  const run = rendererSync.then(syncRendererFrames);
+  rendererSync = run.catch(() => {});
+  return run;
 }

@@ -13,6 +13,7 @@ import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './w
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
+import { pluginRendererPages } from './services/plugin/pluginPageProtocol';
 import {
   clearPasswordSettings,
   deletePluginSecret,
@@ -55,9 +56,6 @@ interface RunningPlugin {
 const MAX_UI_RPC_IN_FLIGHT = 32;
 const MAX_UI_RPC_PER_SECOND = 100;
 const MAX_UI_RPC_PAYLOAD = 256 * 1024;
-
-/** A plugin's renderer bundle is cached and sent to every window. */
-const MAX_RENDERER_BUNDLE_BYTES = 8 * 1024 * 1024;
 
 /** Plugins with a dialog on screen: one at a time each, so a plugin cannot stack dialogs. */
 const pluginsWithDialog = new Set<string>();
@@ -1249,33 +1247,12 @@ export class PluginManager {
       }
     });
 
-    ipcMain.handle('get-plugin-renderers', async () => {
+    // The pages renderer.js runs in, one hidden sandboxed frame each in the main window
+    // (PluginBridge.bootSandboxedPlugins). The window loads the script from getssh-plugin:// itself.
+    ipcMain.handle('get-plugin-renderers', async (event) => {
+      if (!isKnownTopLevelSender(event)) return [];
       await this.initialLoad;
-      return Promise.all(
-        this.installedPlugins
-          .filter((p) => !!p.renderer)
-          .map(async (p) => {
-            if (p._rendererContentCache !== undefined) {
-              return p._rendererContentCache;
-            }
-            try {
-              const pluginPath = await fs.promises.realpath(this.getSecurePluginPath(p.name));
-              const rendererPath = await fs.promises.realpath(path.resolve(pluginPath, p.renderer!));
-              if (!rendererPath.startsWith(pluginPath + path.sep)) {
-                throw new Error('Invalid renderer path');
-              }
-              // Kept for the life of the process and sent to every window: a bounded size.
-              if ((await fs.promises.stat(rendererPath)).size > MAX_RENDERER_BUNDLE_BYTES) {
-                throw new Error('Renderer bundle is too large');
-              }
-              p._rendererContentCache = await fs.promises.readFile(rendererPath, 'utf8');
-              return p._rendererContentCache;
-            } catch {
-              p._rendererContentCache = '';
-              return p._rendererContentCache;
-            }
-          })
-      );
+      return pluginRendererPages(this.installedPlugins);
     });
   }
 }

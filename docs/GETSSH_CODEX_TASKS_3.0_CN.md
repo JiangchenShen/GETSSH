@@ -820,10 +820,10 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - `setWebRTCIPHandlingPolicy('disable_non_proxied_udp')` 只挡住 UDP，TURN 走 TCP 照样能连；
   - 在页面里删掉 `RTCPeerConnection` 也没用：插件嵌一个 srcdoc 子页面，就能拿到新的 `RTCPeerConnection`。
   - 要彻底关掉，只能等 Electron 提供开关，或者把插件页面从主窗口的 iframe 挪到单独的 `WebContentsView`。
-- **`renderer.js` 从来没有运行过**（读代码和实测都确认了）：
-  - `PluginBridge.bootSandboxedPlugins` 对带 sandbox 的 iframe 调 `doc.open()`，主窗口没有这个权限，会抛 SecurityError。第一个插件就停了，后面的插件也都不跑。
-  - SDK 文档却写着 `renderer.js` 可以注册侧栏按钮和面板。
-  - 修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。
+- ~~**`renderer.js` 从来没有运行过**（读代码和实测都确认了）：~~ 已改（Claude，11-01），见下面"11-01 插件的 renderer.js 能运行了"。
+  - ~~`PluginBridge.bootSandboxedPlugins` 对带 sandbox 的 iframe 调 `doc.open()`，主窗口没有这个权限，会抛 SecurityError。第一个插件就停了，后面的插件也都不跑。~~
+  - ~~SDK 文档却写着 `renderer.js` 可以注册侧栏按钮和面板。~~
+  - ~~修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。~~
 - ~~**README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。~~ 已改（Claude，10-29），随 3.0.0-preview.2 发布，见下面"10-29 发布 3.0.0-preview.2"。
 - ~~**官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。~~ 已同步（Claude，10-29），另在 `renderer.js` 一节注明它目前不运行。
 
@@ -892,7 +892,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - vitest：compareVersions、updateCheck、systemHandler、AboutTab、pluginPageProtocol 5 个文件，37 个通过；`tsc -b` 通过。
 
 **还没做的**：
-- WebRTC、`renderer.js`，见 10-26。
+- WebRTC，见 10-26。~~`renderer.js`~~ 已改（Claude，11-01），见下面"11-01 插件的 renderer.js 能运行了"。
 - ~~Scorecard 工作流，见上。~~ 已改（Claude，10-29）：`ossf/scorecard-action` 升到 v2.5.0，镜像改从 `ghcr.io/ossf/scorecard-action` 拉。这个工作流只在 main 上跑，改动进了 main 才生效。
 
 ## 10-29 合并 Dependabot #207、#208（Claude）
@@ -952,3 +952,48 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - `pnpm install --frozen-lockfile`、`tsc -b` 通过；整套 vitest 连跑 3 遍，都是 94 个文件、1343 个通过，另 2 个本来就标着 `it.fails`。
 - 没重新打包：CSS 逐字节相同，JS 依赖和 macOS 上的原生模块都没变。
 - 还没在 Windows 上真跑：要等推送后 Security Sandbox 在 windows-2022 上编译，并跑 keystore 和 store 的测试。Windows Hello 验证这条路径 CI 跑不到；这次只改了类型的写法，调用和类型都没变。
+
+## 11-01 插件的 renderer.js 能运行了（Claude）
+
+**原因**（见 10-26）：`PluginBridge.bootSandboxedPlugins` 对 `sandbox="allow-scripts"` 的 iframe 调 `doc.open()`。这个 iframe 的源是不透明的，和主窗口不同源，Electron 报 "Can only call open() on same-origin documents"。第一个插件就抛错，后面的插件也不跑。新的冒烟测试对旧代码复现了这条报错。
+
+**改了什么**：
+- 主进程（`pluginPageProtocol.ts`、`PluginManager.ts`）：
+  - `get-plugin-renderers` 不再把 `renderer.js` 读出来发给窗口，改为返回每个插件的启动页地址 `getssh-plugin://<插件目录>/?renderer=<路径>`。只回答已知窗口，开机的插件扫描完才回答。
+  - 协议处理函数为这个地址生成页面：先放 `window.GETSSH` 桥接脚本，再用 `<script src>` 加载插件目录里的 `renderer.js`。响应带插件页面的 CSP（`pluginPageCsp`），和插件的其他页面相同。没有用 srcdoc 或 about:blank，所以不会带上主窗口的 `connect-src`。
+  - `renderer` 只接受插件目录里的相对路径，带 `..`、绝对路径、反斜杠或盘符的都拒绝；主进程再用 realpath 确认文件在插件目录里，经符号链接指到外面的也拒绝。有问题的插件只记一条警告，不影响别的插件。
+  - 这个页面里 `invokeBackend()` 立刻 reject，原来会一直等下去；`getLocale()` 一开始就返回界面语言（窗口用 `locale` 参数传进来，只接受语言标签）。
+  - 删掉了 renderer 内容的缓存 `_rendererContentCache`。它每个插件最多 8 MiB，还会跟着 `get-plugin-list` 发给窗口。
+- 窗口（`PluginBridge.ts`）：
+  - 每个插件一个隐藏的 `sandbox="allow-scripts"` iframe，`src` 是上面的地址。每个插件单独 try/catch。
+  - 安装、卸载改变插件列表时同步：新插件马上启动；卸载的插件，iframe 和侧栏按钮一起移除。多次调用按顺序执行，晚到的旧列表不会把已卸载的插件加回来。
+  - 侧栏按钮的点击发回注册它的页面。原来发给文档里第一个同 ID 的 iframe，而打开的面板排在隐藏 iframe 前面，点击会发错地方。
+  - `registerPanel` 只接受本插件自己的 `getssh-plugin://<name>/` 页面。`panelId` 必须是不超过 128 个字符的字符串，标题转成字符串、截到 128 个字符。原来不检查类型，标题传一个对象，React 渲染标签页时会出错。
+  - 页面加载完时发一次当前主题和语言。
+- 侧栏（新增 `PluginSidebarActions.tsx`，放在 `ContextSidebar` 的"新建连接"上方）：
+  - 6 月的界面改版（`d16721f`）删掉了渲染 `sidebarActions` 的代码，此后注册的按钮只进了 store，界面上看不到。现在重新显示。
+  - 插件的 SVG 不插进主窗口的 DOM，只当 CSS mask 的图片，用文字颜色填充。`svgSanitizer` 是黑名单，挡不住 `<a href="javascript:…">`；主窗口的 CSP 又允许内联脚本，用 innerHTML 插入的话，点一下按钮就能在拿得到 `window.electronAPI` 的主窗口里执行代码。
+  - 这是 `src/**` 下的界面改动，样式照现有侧栏写，Codex 可以再调。
+- store：侧栏按钮记下所属插件；同一个 ID 再注册时原地替换，不再挪到最后。
+- SDK 文档两种语言：去掉"目前不运行"的说明，写清 `renderer.js` 在哪里运行、受什么限制、出错时怎么查，以及 `renderUrl` 的新限制和侧栏按钮的位置。
+
+**测试**：
+- vitest 新增 20 条：`pluginPageProtocol.test.ts` 6 条、`PluginBridge.spec.ts` 9 条、`PluginSidebarActions.spec.tsx` 4 条、`PluginManager.renderers.test.ts` 1 条。
+- 逐一撤掉 15 处修复，每次都有对应的测试失败。
+- `npm run test:plugin-renderer`（新加，`scripts/security/plugin-renderer-smoke.mjs` 和 `.cjs`），用真实 Electron 跑：
+  - HOME 和 USERPROFILE 指向临时目录，Electron 带 `--use-mock-keychain`。
+  - 从源码打包真实的 PluginBridge、pluginStore、sessionStore 和协议处理函数，只替换 appStore 和 workspaceStore；测试窗口用 `index.html` 的 CSP。
+  - 9 个测试插件。排在最前的 3 个：一直不返回、有语法错误、注册一个按钮后抛异常。接着是 alpha（SDK 文档的示例）、beta（脚本在子目录里，文件名带空格）、leaky（从 `renderer.js` 往本机的测试服务器外连）。最后 3 个不会启动：renderer 文件不存在、路径跑出插件目录、没有 renderer。
+  - 结果：6 个 iframe 启动，注册了 6 个侧栏按钮和 2 个面板；点 alpha 和 beta 的侧栏按钮，会话 store 里开了两个面板标签页。alpha 把 beta 的页面注册成自己的面板，被拒绝。
+  - 13 种外连（fetch、XHR、WebSocket、EventSource、sendBeacon、图片、外部脚本和样式、动态 import、Worker、嵌套 iframe、srcdoc、blob 页面）一个也没到测试服务器；去掉 CSP 再跑一遍，13 个都到了。
+  - 对旧的 `PluginBridge.ts` 跑，失败在 "Can only call open() on same-origin documents"。
+  - 已加进 `security-sandbox.yml`，macOS 和 Windows 都会跑，还没在 CI 上跑过。
+- 整套 vitest：96 个文件，1363 个通过，另 2 个本来就标着 `it.fails`。这个 worktree 原来没有编译原生模块，`OceanSentinel.test.ts` 和 `LlmGateway.metrics.test.ts` 要用真实的 ocean-sentinel，先用 `scripts/build-native.js` 编了 9 个模块（照例还原了两个 `index.d.ts`）再跑。
+- `tsc -b` 通过；`test:plugin-page`（21 种外连被拦下，对照组 27 个请求都到了）、`test:plugin-isolation` 通过。三个冒烟测试都在临时 HOME 和 USERPROFILE 下跑。
+
+**还没做的**：
+- README 两种语言对比的是已发布的两个标签，里面没有 `renderer.js` 不运行的说法。对比表"插件页面"一行等下次发布时再补。官网 SDK 指南、`docs/release-notes/v3.0.0-preview.2.md` 和两份更新日志写的是 3.0.0-preview.2 的情况，也等下次发布时改。
+- 一直不返回的 `renderer.js`：每个插件的沙盒 iframe 在单独的进程里（实验里主窗口和两个插件各一个 PID），主窗口照常响应，别的插件照常注册。但这个 iframe 一直算"加载中"，`webContents.isLoading()` 会一直是 true，`did-stop-loading` 不会再触发。主进程现在只用 `ready-to-show`，不受影响；以后有代码要等页面加载完，要考虑这一点。冒烟测试也因此在页面加载完以后才启动插件，和应用一样：加载完以前加进来的 iframe，页面的 load 要等它们。
+- 同名重装（更新插件）时，主进程 `installedPlugins` 里还是旧的 Manifest，重启才更新，这是原有问题。新版本如果换了 `renderer` 路径，按钮会消失到下次启动。
+- 侧栏收起时不显示插件按钮。
+- Windows 上的冒烟测试要等推送后的 CI。

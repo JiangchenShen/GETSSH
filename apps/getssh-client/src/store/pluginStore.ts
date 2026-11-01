@@ -6,6 +6,8 @@ import type { PluginSettingsSchema } from '../types/plugin';
 
 export interface SidebarAction {
   id: string;
+  /** The plugin whose page registered it (the frame's data-plugin-id). */
+  pluginId: string;
   icon: string; // SVG string representation
   label: string;
   onClick: () => void;
@@ -18,6 +20,7 @@ interface PluginStore {
   settingsSchemas: Record<string, PluginSettingsSchema[]>;
   setPlugins: (plugins: PluginManifest[]) => void;
   registerSidebarAction: (action: SidebarAction) => void;
+  removePluginSidebarActions: (pluginId: string) => void;
   setUIExtensions: (payload: UIExtensionSyncPayload) => void;
   setSettingsSchemas: (schemas: Record<string, PluginSettingsSchema[]>) => void;
 }
@@ -28,9 +31,15 @@ export const usePluginStore = create<PluginStore>((set) => ({
   uiExtensions: { terminal: [], sftp: [] },
   settingsSchemas: {},
   setPlugins: (plugins) => set({ installedPlugins: plugins }),
-  registerSidebarAction: (action) => set((state) => ({ 
-      sidebarActions: [...state.sidebarActions.filter(a => a.id !== action.id), action] 
-  })), // Prevent duplicate registration on hot reload
+  // Registering an id again (hot reload, a page updating its icon) replaces it in place.
+  registerSidebarAction: (action) => set((state) => ({
+    sidebarActions: state.sidebarActions.some(a => a.id === action.id)
+      ? state.sidebarActions.map(a => a.id === action.id ? action : a)
+      : [...state.sidebarActions, action]
+  })),
+  removePluginSidebarActions: (pluginId) => set((state) => ({
+    sidebarActions: state.sidebarActions.filter(a => a.pluginId !== pluginId)
+  })),
   setUIExtensions: (payload) => set({ uiExtensions: payload }),
   setSettingsSchemas: (schemas) => set({ settingsSchemas: schemas }),
 }));
