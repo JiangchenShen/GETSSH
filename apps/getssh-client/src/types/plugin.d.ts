@@ -7,7 +7,6 @@ export interface PluginManifest {
   main: string;
   renderer?: string;
   localPath?: string;
-  _rendererContentCache?: string;
   getssh?: {
     pluginId: string;
     name?: string;

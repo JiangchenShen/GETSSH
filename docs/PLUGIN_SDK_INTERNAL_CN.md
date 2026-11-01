@@ -57,7 +57,7 @@ GETSSH 3.0 的插件 SDK 不是一个需要安装的 npm 包。宿主会在插�
 | `displayName` | 推荐 | 界面显示名称 |
 | `description` | 推荐 | 插件简介 |
 | `author` | 推荐 | 作者信息 |
-| `renderer` | UI 集成时需要 | 在隐藏 UI 沙盒中执行的启动脚本，用来注册侧边栏按钮和面板 |
+| `renderer` | UI 集成时需要 | 插件目录里的相对路径。GETSSH 启动时在隐藏的沙盒 iframe 里运行它，用来注册侧栏按钮和面板（见第 4 节） |
 | `getssh.type` | 纯 UI 必填 | 当前唯一有效值为 `"sandbox"`；出现此值时，GETSSH 完全跳过后端加载 |
 | `getssh.capabilities` | 后端必填 | 后端能力声明；必须包含 `"lifecycle"` |
 | `getssh.name` | 可选 | 显示名称，优先级高于 `displayName` |
@@ -146,9 +146,14 @@ hello-getssh/
 
 ### `renderer.js`：注册入口
 
-> **已知问题（3.0.0-preview.2）**：`renderer.js` 目前不会运行，在这里注册的侧栏按钮和面板不会出现。插件页面本身照常能打开，页面里也能调用 `registerSidebarAction`、`registerPanel`。
+`renderer.js` 只用来注册宿主 UI：侧栏按钮和面板。GETSSH 解锁并加载完插件以后，给每个声明了 `renderer` 的插件开一个隐藏的沙盒 iframe，地址是 `getssh-plugin://<name>/?renderer=<路径>`。这个页面先放入 `window.GETSSH`，再加载您的脚本。
 
-`renderer.js` 运行在隐藏的沙盒 iframe 中，只用来注册宿主 UI。不要在这里调用后端 RPC。
+- 页面和插件的其他页面带同一条 CSP（见第 7 节"页面能加载什么"）：不能直接联网，也不能加载别的插件的文件。
+- 每个插件一个 iframe，源是不透明的，碰不到主窗口。一个插件的 `renderer.js` 找不到、有语法错误、抛出异常或一直不返回，都只影响它自己。
+- `renderer` 必须是插件目录里的相对路径。带 `..`、绝对路径、反斜杠，或者文件实际落在目录外（包括经符号链接）的，不会加载。
+- `invokeBackend()` 在这里会立刻 reject。后端 RPC 请在插件页面里调用。
+- `getLocale()` 一开始就返回 GETSSH 的界面语言；`onThemeChange()` 的回调在页面加载完时会收到一次当前主题。
+- 新装的插件装好后马上运行 `renderer.js`；卸载插件时，它的 iframe 和侧栏按钮一起移除。更新插件（安装同名的新包）时，旧的 iframe 和它注册的侧栏按钮会被移除，新的 `renderer.js` 马上运行。
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -313,6 +318,8 @@ interface MainContextAPI {
 ```
 
 `showNotification()` 是兼容别名，新插件建议使用 `host.notify()`。`type` 当前用于表达调用意图，桌面通知的最终外观由操作系统决定。
+
+隔离运行的插件，`host.notify()` 和 `showNotification()` 合计 30 秒内最多 3 条，多出的调用会 reject。标题前会加上 `[插件 name]`；标题最多 256 个字符，正文最多 4096 个字符。开发者模式的插件在主进程里运行，不受这个限制。
 
 `safeStorageEncrypt()` 在 3.0 删除了，请改用 `context.secrets`（6.3）。它返回的密文没有任何接口能解开，在 macOS 上还会弹出钥匙串授权。旧插件调用它会报错：`context.safeStorageEncrypt is not a function`。
 
@@ -594,6 +601,7 @@ const data = await response.json();
 - 第三方库、字体和图标要打包进插件目录，不要从 CDN 引用。
 - 需要联网时，页面用 `invokeBackend()` 调用自己的后端；后端声明 `net:fetch` 以后，经 GETSSH 的网络网关访问公网（见第 6 节的 `context.net.fetch()`）。
 - WebRTC 不受 CSP 限制，但它不是允许的联网方式，以后的版本可能会关掉它。
+- `renderer.js` 运行的页面受同样的限制。
 
 ### API 可用范围
 
@@ -603,7 +611,7 @@ const data = await response.json();
 | `registerPanel` / `openPanel` | 是 | 是 |
 | `showNotification` | 是 | 是 |
 | `getLocale` / `onThemeChange` | 是 | 是 |
-| `invokeBackend` / `onBackendMessage` | 否 | 是 |
+| `invokeBackend` / `onBackendMessage` | 否（`invokeBackend()` 立刻 reject） | 是 |
 
 ### `registerSidebarAction`
 
@@ -613,7 +621,9 @@ interface RendererContextAPI {
 }
 ```
 
-SVG 会经过净化。点击回调不作为参数传入；请把同名处理器放入 `window.__sidebarHandlers`：
+按钮显示在主机侧栏底部的"插件"一栏，"新建连接"的上方；侧栏收起时不显示。图标按单色显示：GETSSH 只取 SVG 的形状，用侧栏的文字颜色画出来，SVG 里的脚本、链接和外部资源都不会生效。同一个 `id` 再注册一次会原地替换这个按钮。
+
+点击回调不作为参数传入。请把同名处理器放进注册这个按钮的页面的 `window.__sidebarHandlers`，点击会发回那个页面：
 
 ```javascript
 window.__sidebarHandlers.open = () => window.GETSSH.openPanel('server-dashboard.main');
@@ -629,7 +639,7 @@ interface RendererContextAPI {
 }
 ```
 
-推荐始终使用插件包内 URL：
+`renderUrl` 必须是本插件自己的页面，即 `getssh-plugin://<name>/...`，`<name>` 与 Manifest 的 `name` 相同。其他插件的页面、`https://` 地址和相对路径都会被拒绝，面板不会注册。`panelId` 最长 128 个字符，标题超过 128 个字符的部分会被截掉。
 
 ```javascript
 window.GETSSH.registerPanel(
@@ -650,6 +660,8 @@ interface RendererContextAPI {
 ```
 
 前端通知使用浏览器 Notification API；系统没有授予通知权限时可能不显示。
+
+一个插件的页面（包括 `renderer.js`）30 秒内最多显示 3 条通知，多出的直接丢掉。标题前会加上 `[插件 name]`；标题超过 256 个字符、正文超过 4096 个字符的部分会被截掉。后端的通知另算，规则见 6.1。
 
 ### `getLocale` 与 `onThemeChange`
 
@@ -714,6 +726,8 @@ window.addEventListener('message', (event) => {
 | 隔离插件发往宿主的调用 | 250 次/秒 |
 | 隔离进程协议消息 | 500 条/秒、16 MiB/秒 |
 | 后端日志采集 | 每次运行最多 64 KiB |
+| 侧栏按钮 | 每个插件 8 个，图标最长 32 KiB |
+| 面板 | 每个插件 16 个；`openPanel()` 每秒最多 1 次 |
 
 这些限制用于保护宿主。轮询、日志和事件推送应进行节流与合并。
 
@@ -769,7 +783,7 @@ Windows PowerShell：
 Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -Force
 ```
 
-在 GETSSH 中打开“设置 → 插件”，把 ZIP 拖入安装区，检查权限列表后安装。相同 `name` 的新包会替换旧目录。
+在 GETSSH 中打开“设置 → 插件”，把 ZIP 拖入安装区，检查权限列表后安装。相同 `name` 的新包会替换旧目录。替换以后，插件列表马上显示新版本，`renderer.js` 换成新版本重新运行。旧版本的后端如果正在运行，会先停下，再按当前的插件运行模式用新文件启动；新装的插件，后端要到下次启动 GETSSH 才运行。
 
 当前实现的内部类型声明位于 [`apps/getssh-client/src/types/plugin.d.ts`](../apps/getssh-client/src/types/plugin.d.ts)；第三方插件应以本文档中的签名为准。
 
@@ -811,6 +825,13 @@ Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -For
 ### `Method '<method>' not found`
 
 确认后端在 `activate()` 完成前调用了 `context.rpc.registerMethod()`，且方法名完全一致。
+
+### 侧栏里没有插件的按钮
+
+- 主进程日志里有 `[PluginManager] renderer.js of plugin '<name>' is not loaded`：Manifest 的 `renderer` 不是插件目录里的文件。开发版的日志在运行 `pnpm run dev` 的终端里。
+- `renderer.js` 自己出错时，错误在开发版开发者工具的控制台里，上下文选这个插件的 iframe。
+- 侧栏收起时不显示插件按钮。
+- 同一个插件最多 8 个按钮，超出的不会注册。
 
 ### `window.GETSSH` 是 `undefined`
 

@@ -13,6 +13,7 @@ import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './w
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
+import { pluginRendererPages } from './services/plugin/pluginPageProtocol';
 import {
   clearPasswordSettings,
   deletePluginSecret,
@@ -56,8 +57,12 @@ const MAX_UI_RPC_IN_FLIGHT = 32;
 const MAX_UI_RPC_PER_SECOND = 100;
 const MAX_UI_RPC_PAYLOAD = 256 * 1024;
 
-/** A plugin's renderer bundle is cached and sent to every window. */
-const MAX_RENDERER_BUNDLE_BYTES = 8 * 1024 * 1024;
+/**
+ * Notifications go out in GETSSH's name: an isolated plugin may show 3 in any 30 seconds, with its
+ * name first in the title. PluginBridge.ts applies the same rule to the plugin's pages.
+ */
+const NOTIFICATION_WINDOW_MS = 30_000;
+const MAX_NOTIFICATIONS_PER_WINDOW = 3;
 
 /** Plugins with a dialog on screen: one at a time each, so a plugin cannot stack dialogs. */
 const pluginsWithDialog = new Set<string>();
@@ -92,6 +97,10 @@ export class PluginManager {
   /** An ssh.write approval on screen, per plugin: calls made meanwhile wait for its answer. */
   private pendingSshApprovals = new Map<string, Promise<number>>();
   private runningPlugins: Map<string, RunningPlugin> = new Map();
+  /** Installs of each plugin since GETSSH started; never reset, so a reinstall always counts up. */
+  private installCounts = new Map<string, number>();
+  /** When each isolated plugin showed its recent notifications (showPluginNotification). */
+  private notificationTimes = new Map<string, number[]>();
 
   private uiExtensions: {
     terminal: Array<{ pluginId: string, actionId: string, label: string, handler: Function }>,
@@ -392,6 +401,22 @@ export class PluginManager {
     });
   }
 
+  /**
+   * A notification from an isolated plugin, through notification.show or host.notify. GETSSH's
+   * own notices about a plugin (a clipboard read) do not count. A developer-mode plugin runs in
+   * this process and could show notifications directly, so its context is not limited.
+   */
+  private showPluginNotification(pluginId: string, title: string, body: string): void {
+    const now = Date.now();
+    const recent = (this.notificationTimes.get(pluginId) ?? []).filter(time => now - time < NOTIFICATION_WINDOW_MS);
+    if (recent.length >= MAX_NOTIFICATIONS_PER_WINDOW) {
+      throw new Error(`A plugin can show at most ${MAX_NOTIFICATIONS_PER_WINDOW} notifications in ${NOTIFICATION_WINDOW_MS / 1000} seconds.`);
+    }
+    recent.push(now);
+    this.notificationTimes.set(pluginId, recent);
+    new Notification({ title: title ? `[${pluginId}] ${title}` : `[${pluginId}]`, body }).show();
+  }
+
   private stringArg(args: unknown[], index: number, label: string, maxLength = 65_536): string {
     const value = args[index];
     if (typeof value !== 'string' || value.length > maxLength) {
@@ -477,7 +502,7 @@ export class PluginManager {
       case 'notification.show': {
         const title = this.stringArg(args, 0, 'Notification title', 256);
         const body = this.stringArg(args, 1, 'Notification body', 4_096);
-        new Notification({ title, body }).show();
+        this.showPluginNotification(pluginId, title, body);
         return null;
       }
       case 'storage.get': {
@@ -564,7 +589,7 @@ export class PluginManager {
       case 'host.notify': {
         const title = this.stringArg(args, 0, 'Notification title', 256);
         const body = this.stringArg(args, 1, 'Notification body', 4_096);
-        new Notification({ title, body }).show();
+        this.showPluginNotification(pluginId, title, body);
         return null;
       }
       case 'host.clipboard.writeText': {
@@ -1213,16 +1238,25 @@ export class PluginManager {
 
         const targetDir = this.getSecurePluginPath(serverManifest.name);
 
-        if (this.runningPlugins.has(serverManifest.name)) {
+        const wasRunning = this.runningPlugins.has(serverManifest.name);
+        if (wasRunning) {
           await this.gracefulDeactivate(serverManifest.name);
         }
 
         await fs.promises.rm(targetDir, { recursive: true, force: true });
         await fs.promises.rename(sourceDir, targetDir);
 
+        // An update replaces the old manifest in place: the plugin list shows the new version,
+        // and get-plugin-renderers gives a new page URL, so the window restarts renderer.js.
         serverManifest.localPath = targetDir;
-        if (!this.installedPlugins.find(p => p.name === serverManifest.name)) {
-          this.installedPlugins.push(serverManifest);
+        const listed = this.installedPlugins.findIndex(p => p.name === serverManifest.name);
+        if (listed < 0) this.installedPlugins.push(serverManifest);
+        else this.installedPlugins[listed] = serverManifest;
+        this.installCounts.set(serverManifest.name, (this.installCounts.get(serverManifest.name) ?? 0) + 1);
+        // A backend the update stopped starts again from the new files, under the current mode
+        // (reloadPlugin skips it in safe mode). A new plugin's backend still waits for a restart.
+        if (wasRunning) {
+          await this.reloadPlugin(serverManifest.name);
         }
 
         return { success: true, manifest: serverManifest };
@@ -1249,33 +1283,12 @@ export class PluginManager {
       }
     });
 
-    ipcMain.handle('get-plugin-renderers', async () => {
+    // The pages renderer.js runs in, one hidden sandboxed frame each in the main window
+    // (PluginBridge.bootSandboxedPlugins). The window loads the script from getssh-plugin:// itself.
+    ipcMain.handle('get-plugin-renderers', async (event) => {
+      if (!isKnownTopLevelSender(event)) return [];
       await this.initialLoad;
-      return Promise.all(
-        this.installedPlugins
-          .filter((p) => !!p.renderer)
-          .map(async (p) => {
-            if (p._rendererContentCache !== undefined) {
-              return p._rendererContentCache;
-            }
-            try {
-              const pluginPath = await fs.promises.realpath(this.getSecurePluginPath(p.name));
-              const rendererPath = await fs.promises.realpath(path.resolve(pluginPath, p.renderer!));
-              if (!rendererPath.startsWith(pluginPath + path.sep)) {
-                throw new Error('Invalid renderer path');
-              }
-              // Kept for the life of the process and sent to every window: a bounded size.
-              if ((await fs.promises.stat(rendererPath)).size > MAX_RENDERER_BUNDLE_BYTES) {
-                throw new Error('Renderer bundle is too large');
-              }
-              p._rendererContentCache = await fs.promises.readFile(rendererPath, 'utf8');
-              return p._rendererContentCache;
-            } catch {
-              p._rendererContentCache = '';
-              return p._rendererContentCache;
-            }
-          })
-      );
+      return pluginRendererPages(this.installedPlugins, this.installCounts);
     });
   }
 }

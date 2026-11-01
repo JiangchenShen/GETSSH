@@ -57,7 +57,7 @@ Every plugin needs a `package.json` at its root. This is a complete UI + backend
 | `displayName` | Recommended | Friendly display name |
 | `description` | Recommended | Short plugin description |
 | `author` | Recommended | Author information |
-| `renderer` | For host UI integration | Bootstrap script run in a hidden UI sandbox to register sidebar actions and panels |
+| `renderer` | For host UI integration | A relative path inside the plugin folder. GETSSH runs it at startup in a hidden sandboxed iframe to register sidebar actions and panels (section 4) |
 | `getssh.type` | UI-only plugins | The only valid value is `"sandbox"`; it makes GETSSH skip backend loading completely |
 | `getssh.capabilities` | Backend plugins | Capability declarations; must contain `"lifecycle"` |
 | `getssh.name` | Optional | Display name with priority over `displayName` |
@@ -144,9 +144,14 @@ Use the full manifest from section 2. `renderer.js` registers the UI, `index.htm
 
 ### `renderer.js`: register the UI
 
-> **Known issue (3.0.0-preview.2)**: `renderer.js` does not run at the moment, so the sidebar actions and panels registered here do not appear. The plugin's page itself opens as before, and it can call `registerSidebarAction` and `registerPanel` too.
+`renderer.js` only registers host UI: sidebar actions and panels. Once GETSSH is unlocked and has loaded its plugins, it opens a hidden sandboxed iframe for each plugin that declares `renderer`, at `getssh-plugin://<name>/?renderer=<path>`. That page sets up `window.GETSSH`, then loads your script.
 
-The renderer bootstrap runs in a hidden sandboxed iframe. Use it only for host UI registration; backend RPC is not available there.
+- The page carries the same CSP as the plugin's other pages (see "What a page can load" in section 7): no direct network, and no files from other plugins.
+- Each plugin gets its own iframe, in an opaque origin with no access to the main window. A `renderer.js` that is missing, fails to parse, throws, or never returns affects only its own plugin.
+- `renderer` must be a relative path inside the plugin folder. A path with `..`, an absolute path, a backslash, or a file that resolves outside the folder (symbolic links included) is not loaded.
+- `invokeBackend()` rejects at once here. Call backend RPC from a plugin page.
+- `getLocale()` returns the GETSSH interface language from the start, and `onThemeChange()` callbacks receive the current theme once the page has loaded.
+- A newly installed plugin runs its `renderer.js` right after the install; uninstalling a plugin removes its iframe and its sidebar actions. Updating a plugin (installing a package with the same `name`) removes the old iframe and the sidebar actions it registered, and runs the new `renderer.js` right away.
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -301,6 +306,8 @@ interface MainContextAPI {
 ```
 
 `showNotification()` is a compatibility alias; new plugins should use `host.notify()`. Notification appearance is controlled by the operating system.
+
+An isolated plugin can show 3 notifications in any 30 seconds through `host.notify()` and `showNotification()` together; a call beyond that rejects. GETSSH puts `[<plugin name>]` before the title. The title can be up to 256 characters and the body up to 4,096. A developer-mode plugin runs in the main process and is not limited.
 
 `safeStorageEncrypt()` was removed in 3.0; use `context.secrets` instead. No API could decrypt what it returned, and on macOS it asked for Keychain access. An older plugin that calls it gets `context.safeStorageEncrypt is not a function`.
 
@@ -518,6 +525,7 @@ From 3.0.0-preview.2, every `getssh-plugin://` response carries a CSP:
 - Bundle libraries, fonts and icons into the plugin folder instead of linking a CDN.
 - For network access, the page calls its own backend with `invokeBackend()`; a backend that declares `net:fetch` reaches public addresses through the GETSSH network gateway (`context.net.fetch()` in section 6).
 - CSP does not cover WebRTC, but WebRTC is not a supported way to go online, and a later version may turn it off.
+- The page `renderer.js` runs in has the same limits.
 
 | API | `renderer.js` bootstrap | Visible HTML panel |
 |---|---:|---:|
@@ -525,7 +533,7 @@ From 3.0.0-preview.2, every `getssh-plugin://` response carries a CSP:
 | `registerPanel` / `openPanel` | Yes | Yes |
 | `showNotification` | Yes | Yes |
 | `getLocale` / `onThemeChange` | Yes | Yes |
-| `invokeBackend` / `onBackendMessage` | No | Yes |
+| `invokeBackend` / `onBackendMessage` | No (`invokeBackend()` rejects at once) | Yes |
 
 ### Sidebar actions
 
@@ -535,7 +543,9 @@ interface RendererContextAPI {
 }
 ```
 
-GETSSH sanitizes the SVG. Store the click callback in `window.__sidebarHandlers` under the same ID:
+The buttons appear in the "Plugins" row at the bottom of the host sidebar, above "New Connection", and are hidden while the sidebar is collapsed. Icons are drawn in one color: GETSSH takes only the shape of the SVG and paints it in the sidebar's text color, so scripts, links and outside resources in the SVG have no effect. Registering the same `id` again replaces that button in place.
+
+The click callback is not an argument. Store it under the same ID in `window.__sidebarHandlers` of the page that registers the action; the click is sent back to that page:
 
 ```javascript
 window.__sidebarHandlers.open = () => window.GETSSH.openPanel('server-dashboard.main');
@@ -551,7 +561,9 @@ interface RendererContextAPI {
 }
 ```
 
-Register before opening and use a package-local URL. The current panel registry uses `panelId` as a global key, so prefix it with the plugin name:
+`renderUrl` must be one of the plugin's own pages, `getssh-plugin://<name>/...` with `<name>` equal to the manifest `name`. Another plugin's page, an `https://` URL, or a relative path is refused, and the panel is not registered. `panelId` is at most 128 characters; a longer title is cut at 128.
+
+Register before opening. The current panel registry uses `panelId` as a global key, so prefix it with the plugin name:
 
 ```javascript
 window.GETSSH.registerPanel(
@@ -573,7 +585,7 @@ interface RendererContextAPI {
 }
 ```
 
-Frontend notifications depend on OS notification permission. `getLocale()` returns the current snapshot and updates after a host language change. `onThemeChange()` currently has no unsubscribe return value, so register a callback once per page.
+Frontend notifications depend on OS notification permission. A plugin's pages, `renderer.js` included, can show 3 notifications in any 30 seconds; more are dropped. GETSSH puts `[<plugin name>]` before the title and cuts the title to 256 characters and the body to 4,096. The backend's notifications are counted separately (see Notifications above). `getLocale()` returns the current snapshot and updates after a host language change. `onThemeChange()` currently has no unsubscribe return value, so register a callback once per page.
 
 ### Backend communication
 
@@ -619,6 +631,8 @@ window.addEventListener('message', (event) => {
 | Host calls from one isolated plugin | 250/second |
 | Isolated protocol traffic | 500 messages/second and 16 MiB/second |
 | Collected backend logs | 64 KiB per run |
+| Sidebar actions | 8 per plugin, icons up to 32 KiB |
+| Panels | 16 per plugin; `openPanel()` at most once a second |
 
 Throttle polling, logs, and event delivery. Paginate large results.
 
@@ -665,7 +679,7 @@ Windows PowerShell:
 Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -Force
 ```
 
-Open **Settings → Plugins**, drop the ZIP into the installer, review its permissions, and install it. A package with the same `name` replaces the existing plugin directory.
+Open **Settings → Plugins**, drop the ZIP into the installer, review its permissions, and install it. A package with the same `name` replaces the existing plugin directory. The plugin list then shows the new version, and the new `renderer.js` runs in place of the old one. If the old version's backend was running, it stops and starts again from the new files under the current plugin mode; a newly installed plugin's backend waits until GETSSH next starts.
 
 Internal TypeScript interfaces live in [`apps/getssh-client/src/types/plugin.d.ts`](../apps/getssh-client/src/types/plugin.d.ts). Third-party plugins should use the signatures in this guide as the authoritative reference.
 
@@ -707,6 +721,13 @@ The backend may be disabled by safe mode, may have failed activation, may lack t
 ### `Method '<method>' not found`
 
 Register the exact name with `context.rpc.registerMethod()` before `activate()` resolves.
+
+### A plugin's sidebar actions do not appear
+
+- The main-process log shows `[PluginManager] renderer.js of plugin '<name>' is not loaded`: the manifest's `renderer` is not a file inside the plugin folder. A development build logs to the terminal that runs `pnpm run dev`.
+- Errors in `renderer.js` itself show in the DevTools console of a development build, with the plugin's iframe selected as the context.
+- Plugin actions are hidden while the sidebar is collapsed.
+- A plugin has at most 8 actions; further ones are not registered.
 
 ### `window.GETSSH` is undefined
 

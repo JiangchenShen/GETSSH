@@ -10,6 +10,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { SessionProfile } from '../store/sessionStore';
 import { AssetFolderNode, buildAssetFolderTree } from '../utils/assetFolderTree';
+import { PluginSidebarActions } from './PluginSidebarActions';
 
 /**
  * 主机侧栏。
@@ -648,6 +649,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
           </button>
         </div>
       )}
+
+      <PluginSidebarActions />
 
       <button
         type="button"

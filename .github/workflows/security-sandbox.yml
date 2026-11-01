@@ -90,6 +90,10 @@ jobs:
         working-directory: apps/getssh-client
         run: npm run test:plugin-page
 
+      - name: Test plugin renderer.js (registration and CSP)
+        working-directory: apps/getssh-client
+        run: npm run test:plugin-renderer
+
       - name: Test Sentinel gateway against the native module
         working-directory: apps/getssh-client
         run: npm run test:sentinel

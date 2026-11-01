@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Plugins with host:clipboard read the clipboard through clipboardTextForPlugin, which hides a
 // password just copied from the reveal window. Both plugin kinds' host API goes through it (a
@@ -80,6 +80,52 @@ describe('plugin clipboard reads', () => {
       expect(mocks.clipboardTextForPlugin).toHaveBeenLastCalledWith('my own text');
     });
   }
+});
+
+describe('plugin notifications', () => {
+  function notify(manager: PluginManager, id: string, method: string, title: string) {
+    const internals = manager as unknown as {
+      runningPlugins: Map<string, unknown>;
+      dispatchPluginHostCall: (id: string, m: unknown, h: unknown, method: string, args: unknown[]) => Promise<unknown>;
+    };
+    if (!internals.runningPlugins.has(id)) internals.runningPlugins.set(id, { host });
+    return internals.dispatchPluginHostCall(id, { ...manifest, name: id }, host, method, [title, 'body']);
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it('lets an isolated plugin show 3 in 30 seconds, through either method, with its name first in the title', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const manager = new PluginManager();
+    await notify(manager, 'clip', 'notification.show', 'one');
+    await notify(manager, 'clip', 'host.notify', 'two');
+    await notify(manager, 'clip', 'host.notify', '');
+    await expect(notify(manager, 'clip', 'notification.show', 'four')).rejects.toThrow(/at most 3 notifications in 30 seconds/);
+    await notify(manager, 'other', 'host.notify', 'elsewhere');
+    expect(mocks.notifications).toEqual([
+      { title: '[clip] one', body: 'body' },
+      { title: '[clip] two', body: 'body' },
+      { title: '[clip]', body: 'body' },
+      { title: '[other] elsewhere', body: 'body' },
+    ]);
+    vi.setSystemTime(5_029_999);
+    await expect(notify(manager, 'clip', 'host.notify', 'too soon')).rejects.toThrow(/at most 3/);
+    vi.setSystemTime(5_030_000);
+    await notify(manager, 'clip', 'host.notify', 'later');
+    expect(mocks.notifications.at(-1)).toEqual({ title: '[clip] later', body: 'body' });
+  });
+
+  it('still shows GETSSH\'s own notice of a clipboard read, and leaves developer mode alone', async () => {
+    const manager = new PluginManager();
+    for (let i = 0; i < 3; i++) await notify(manager, 'clip', 'host.notify', `n${i}`);
+    await isolated(manager).read();
+    expect(mocks.notifications).toHaveLength(4);
+    expect((mocks.notifications.at(-1) as { title: string }).title).toContain('剪贴板');
+    const context = (manager as unknown as { createMainContext: (m: unknown) => any }).createMainContext(manifest);
+    for (let i = 0; i < 5; i++) context.host.notify(`dev ${i}`, 'body');
+    expect(mocks.notifications).toHaveLength(9);
+  });
 });
 
 describe('plugin SSH subscriptions', () => {
