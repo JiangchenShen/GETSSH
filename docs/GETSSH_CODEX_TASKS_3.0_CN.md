@@ -987,7 +987,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - 结果：6 个 iframe 启动，注册了 6 个侧栏按钮和 2 个面板；点 alpha 和 beta 的侧栏按钮，会话 store 里开了两个面板标签页。alpha 把 beta 的页面注册成自己的面板，被拒绝。
   - 13 种外连（fetch、XHR、WebSocket、EventSource、sendBeacon、图片、外部脚本和样式、动态 import、Worker、嵌套 iframe、srcdoc、blob 页面）一个也没到测试服务器；去掉 CSP 再跑一遍，13 个都到了。
   - 对旧的 `PluginBridge.ts` 跑，失败在 "Can only call open() on same-origin documents"。
-  - 已加进 `security-sandbox.yml`，macOS 和 Windows 都会跑，还没在 CI 上跑过。
+  - 已加进 `security-sandbox.yml`，macOS 和 Windows 都会跑。~~还没在 CI 上跑过。~~ 11-01 推送后已跑（运行 41349027821），两边都通过。
 - 整套 vitest：96 个文件，1363 个通过，另 2 个本来就标着 `it.fails`。这个 worktree 原来没有编译原生模块，`OceanSentinel.test.ts` 和 `LlmGateway.metrics.test.ts` 要用真实的 ocean-sentinel，先用 `scripts/build-native.js` 编了 9 个模块（照例还原了两个 `index.d.ts`）再跑。
 - `tsc -b` 通过；`test:plugin-page`（21 种外连被拦下，对照组 27 个请求都到了）、`test:plugin-isolation` 通过。三个冒烟测试都在临时 HOME 和 USERPROFILE 下跑。
 
@@ -996,7 +996,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - 一直不返回的 `renderer.js`：每个插件的沙盒 iframe 在单独的进程里（实验里主窗口和两个插件各一个 PID），主窗口照常响应，别的插件照常注册。但这个 iframe 一直算"加载中"，`webContents.isLoading()` 会一直是 true，`did-stop-loading` 不会再触发。主进程现在只用 `ready-to-show`，不受影响；以后有代码要等页面加载完，要考虑这一点。冒烟测试也因此在页面加载完以后才启动插件，和应用一样：加载完以前加进来的 iframe，页面的 load 要等它们。
 - ~~同名重装（更新插件）时，主进程 `installedPlugins` 里还是旧的 Manifest，重启才更新，这是原有问题。新版本如果换了 `renderer` 路径，按钮会消失到下次启动。~~ 已改（Claude，11-01），见下面"11-01 更新插件后马上换成新版本"。
 - 侧栏收起时不显示插件按钮。
-- Windows 上的冒烟测试要等推送后的 CI。
+- ~~Windows 上的冒烟测试要等推送后的 CI。~~ 已跑（11-01，运行 41349027821），通过。
 
 ## 11-01 更新插件后马上换成新版本（Claude）
 
@@ -1046,7 +1046,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - `tsc -b` 通过；`test:plugin-renderer`、`test:plugin-page`（21 种外连被拦下）、`test:plugin-isolation` 通过。
 
 **还没做的**：
-- Windows：推送后看 Security Sandbox，新的 `test:plugin-renderer` 会第一次在 CI 上跑。
+- ~~Windows：推送后看 Security Sandbox，新的 `test:plugin-renderer` 会第一次在 CI 上跑。~~ 已跑（11-01 推送 `94e77b3` 后的 Security Sandbox，运行 41349027821）：macos-15 和 windows-2022 上 `test:plugin-renderer` 都输出 `{"started":6,"sidebarActions":6,"panelsOpened":2,"blocked":13,"controlReached":13}`，和本机一样；`test:plugin-page`、`test:plugin-isolation` 也通过，windows-2022 上打包后的启动检查通过。Dependency Audit（运行 41349027781）通过。
 - 官网 SDK 指南里的通知规则，和 README、发布说明一起等下次发布时改。
 - 已知的 WebRTC 外连现在启动时就能触发：每个插件的 `renderer.js` 一启动就在隐藏 iframe 里运行，不用用户打开面板。这个 iframe 里拿不到用户数据（`invokeBackend()` 直接 reject，也碰不到主窗口），只能拿来"报到"。见 10-26 和 WebRTC 那个会话。
 - 卸载插件时，它注册的面板和已经打开的面板标签页不会清掉（原有问题）。
