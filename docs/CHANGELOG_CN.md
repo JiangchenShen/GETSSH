@@ -6,6 +6,30 @@
 
 ---
 
+## [3.0.0-preview.2] - 2026-10-29
+
+3.0 预览版 2。发布说明见 [release-notes/v3.0.0-preview.2.md](release-notes/v3.0.0-preview.2.md)。
+
+### 修复
+
+- 安装版的插件页面收不到主窗口发来的消息：`invokeBackend()` 的回复、`onBackendMessage()` 的推送、主题和语言的变化全被丢掉。主窗口是 `file://` 页面，它发的消息 origin 是 `"null"`，桥接脚本却拿 `"file://"` 去比。
+- Windows 的后台更新检查收不到新版本：它走 electron-updater，发布里却没有 electron-updater 要的 `latest.yml`。现在两个平台都查 GitHub 的 `releases/latest`，electron-updater 已删掉。
+- "设置 → 关于"里的检查失败时显示原因，不再说已经是最新版本。
+
+### 安全
+
+- **插件页面不能再直接联网**：`getssh-plugin://` 的每个响应都带一条 CSP。页面只能加载本插件目录里的文件和 `data:`、`blob:` 地址，不能 fetch、开 WebSocket、提交表单或嵌入其他网页。需要联网时，交给后端的 `net:fetch`。
+- 去掉了这个协议的 `bypassCSP`，路径检查收紧到本插件目录。3.0.0-preview 里，插件页面能加载别的插件的脚本，也能读到别的插件目录里的文件。
+- 插件页面的文件读不到时，回复里不再带本机路径。
+- Electron 44.5.1 → 44.10.0：GHSA-jr5w-w6x2-84p9（被盗用的 eMudhra 中间证书）、asar 大小字段和文件长度对不上时的处理，Chromium 152.0.7977.169，Node 24.22.1。
+- Rust：crypto-bigint 0.7.10（RUSTSEC-2026-0387）、ctutils 0.4.6（RUSTSEC-2026-0385），都是本该耗时固定的运算耗时会变，经 `p256`、`aes-gcm` 用在 getssh-keystore 里；tokio 1.53.3（RUSTSEC-2026-0386）。
+- npm：ip-address 10.7.5（GHSA-rxp7-6hxx-x8q5，经 `socks` 进安装包）；undici 6.29.1、7.30.1、8.12.3 和 fast-uri 3.1.9 只在构建和测试时用到。
+
+### 已知问题
+
+- 插件页面仍能经 WebRTC 连到外部的 STUN、TURN 服务器。
+- 插件的 `renderer.js` 不会运行，用它注册的侧栏按钮和面板不会出现。
+
 ## [3.0.0-preview] - 2026-10-21
 
 3.0 预览版，提供 macOS（Apple Silicon、Intel）和 Windows（x64、ARM64）的 FUSION 版本，没有 Linux 版本。发布说明见 [release-notes/v3.0.0-preview.md](release-notes/v3.0.0-preview.md)。

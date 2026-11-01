@@ -1,8 +1,8 @@
 {
   "name": "getssh",
-  "version": "3.0.0-preview",
+  "version": "3.0.0-preview.2",
   "getsshRelease": {
-    "stage": "Preview",
+    "stage": "Preview 2",
     "edition": "FUSION",
     "program": "preview"
   },

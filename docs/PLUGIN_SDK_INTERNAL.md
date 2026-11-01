@@ -144,6 +144,8 @@ Use the full manifest from section 2. `renderer.js` registers the UI, `index.htm
 
 ### `renderer.js`: register the UI
 
+> **Known issue (3.0.0-preview.2)**: `renderer.js` does not run at the moment, so the sidebar actions and panels registered here do not appear. The plugin's page itself opens as before, and it can call `registerSidebarAction` and `registerPanel` too.
+
 The renderer bootstrap runs in a hidden sandboxed iframe. Use it only for host UI registration; backend RPC is not available there.
 
 ```javascript
@@ -508,7 +510,7 @@ GETSSH must load a page through `getssh-plugin://<name>/<file>` for the SDK to e
 
 ### What a page can load
 
-In versions after 3.0.0-preview, every `getssh-plugin://` response carries a CSP:
+From 3.0.0-preview.2, every `getssh-plugin://` response carries a CSP:
 
 - A page loads only files from its own plugin folder, plus `data:` and `blob:` URLs. Inline scripts, inline styles and `eval` are allowed.
 - A page has no direct network. `fetch`, `XMLHttpRequest`, WebSocket, `EventSource` and `sendBeacon` are blocked; outside scripts, styles, images, fonts and media do not load; the page cannot embed outside pages or submit forms.

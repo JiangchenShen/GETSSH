@@ -824,8 +824,8 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - `PluginBridge.bootSandboxedPlugins` 对带 sandbox 的 iframe 调 `doc.open()`，主窗口没有这个权限，会抛 SecurityError。第一个插件就停了，后面的插件也都不跑。
   - SDK 文档却写着 `renderer.js` 可以注册侧栏按钮和面板。
   - 修的时候不要改成 srcdoc，也不要用其他会继承主窗口 CSP 的写法：那样会带上主窗口的 `connect-src`（`localhost:*`、`*.openai.azure.com` 等）。要做成 `getssh-plugin://` 页面，让它也拿到插件页面的 CSP。
-- **README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。
-- **官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。
+- ~~**README 下次发布时改**：README 写的是 3.0.0-preview 的实际情况，所以这次没动。到时要改 `README_CN.md` 和 `README.md` 的第 86 行（"可以直接联网"）、第 97 行（隐私一节里插件页面的说法）和对比表第 392 行。~~ 已改（Claude，10-29），随 3.0.0-preview.2 发布，见下面"10-29 发布 3.0.0-preview.2"。
+- ~~**官网 SDK 文档（Codex）**：照 `docs/PLUGIN_SDK_INTERNAL_CN.md` 第 7 节新加的"页面能加载什么"同步，英文页照 `docs/PLUGIN_SDK_INTERNAL.md`。~~ 已同步（Claude，10-29），另在 `renderer.js` 一节注明它目前不运行。
 
 ## 10-28 依赖升级（Claude）
 
@@ -856,6 +856,99 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - Windows 还没在这次升级上跑过，要等推送后的 Security Sandbox 结果。
 
 **没升的**：
-- postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。
-- `sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。
+- ~~postcss-selector-parser 6.0.10（中危，选择器解析的复杂度问题）。`@tailwindcss/typography` 连最新的 0.5.20 也锁死这个版本，要升只能加 override。它只在构建 CSS 时处理我们自己的样式，不进安装包，这次没加。~~ 已改（Claude，10-29）：加了 override，升到 6.1.5，见下面"10-29 修 #205、Scorecard 的漏洞告警和一条偶发失败的测试"。
+- ~~`sshKeyFiles.test.ts` 那几条墙上时间断言（1000 毫秒）在负载高时会偶发失败，可以改成测"派生函数没被调用"，不测时间。~~ 已改（Claude，10-29），见同一节。
 
+## 10-29 发布 3.0.0-preview.2（Claude）
+
+**版本号**：负责人定 `3.0.0-preview.2`，对外叫"3.0 预览版 2"（Preview 2）。
+- 没用 `3.0.0-beta.2`：已装的 3.0.0-preview 拿自己带的 `compareVersions` 比版本，预发布标记逐段按字母比，`beta` 排在 `preview` 前面，会被当成旧版本。预览版用户收不到提示，"设置 → 关于"里手动检查也会说已是最新。拿标签上的代码实测过：`v3.0.0-preview.2` 比 `3.0.0-preview` 新（1），`v3.0.0-beta.2` 比它旧（-1）。
+- 以后的版本号都要排在上一版后面：`3.0.0-preview.3`、`3.0.0-rc.1`、`3.0.0` 可以，`alpha`、`beta` 不行。
+- 发布要设成 Latest，不能标成预发布：两个平台的检查都只看 GitHub 的 `releases/latest`，它不含草稿和预发布版本。
+
+**改了什么**（`a8df52d`，main 和 v3-next 都快进到这里）：
+- `apps/getssh-client/package.json`：版本号；`getsshRelease.stage` 改成 `Preview 2`，"关于"页标题显示"GETSSH 3.0 Preview 2"。
+- `docs/release-notes/v3.0.0-preview.2.md`（中英文）、两份更新日志。
+- README 两种语言各 16 处：版本、下载、发布说明链接；安全和隐私两节改成插件页面不能直接联网。"3.0 和 2.0 有什么不同"仍是两个标签的对比，这次变了的几行在括号里注明。
+- 内部 SDK 文档：CSP 从 3.0.0-preview.2 起生效；`renderer.js` 一节注明它目前不运行。
+
+**发布**：
+- 标签 `v3.0.0-preview.2`，和上一版一样是附注标签。Release 运行 40923127811：4 个平台的构建、`check-package.cjs` 和打包后的启动检查都通过，生成了草稿。
+- 草稿核对：4 个安装包加 `SHA256SUMS.txt`，文件名都对；`SHA256SUMS.txt` 和 GitHub 记录的 4 个摘要一致；正文就是发布说明文件。
+- 2026-10-29 17:55（UTC）发布为 Latest。`releases/latest` 返回 `v3.0.0-preview.2`，5 个下载链接都返回 200。
+- 推送后的 CI：main 和 v3-next 的 Security Sandbox、Dependency Audit 都通过。
+- Scorecard 在 main 上失败，10-21 起每次都这样：工作流固定用 `gcr.io/openssf/scorecard-action:v2.3.1`，拉镜像时报"requires billing to be enabled"。要把 `ossf/scorecard-action` 升到从 ghcr.io 拉镜像的版本。
+
+**官网**（`8317af2`，推到官网 main，由 Vercel 部署）：
+- 下载页的 `VERSION` 改成 `3.0.0-preview.2`，标记和说明写"FUSION 预览版 2"、2026-10-29；首页 JSON-LD 的 `softwareVersion` 同步。
+- 首页和下载页的 SEO 描述：原来还写着下载 2.0、3.0 预览版"计划"支持 macOS 和 Windows，改成 macOS 和 Windows 下载 3.0 预览版 2，Linux 下载 2.0。
+- 更新日志加 3.0.0-preview.2；SDK 指南同步"页面能加载什么"，加了 `renderer.js` 的说明。
+- `announcements.spec.mjs` 跟着改版本号，另加一条：更新日志要有两个预览版的条目。
+- `npm test` 22 个通过，lint 和 `next build` 通过。
+- 上线后核对（发布后约 5 分钟）：中英文的下载页、更新日志、SDK 指南和首页 JSON-LD 都是新内容，下载页的 4 个链接都指向 `v3.0.0-preview.2`。
+
+**检查**（发布前，本机）：
+- copy-lint：新发布说明和所有改动的行，0 处。
+- vitest：compareVersions、updateCheck、systemHandler、AboutTab、pluginPageProtocol 5 个文件，37 个通过；`tsc -b` 通过。
+
+**还没做的**：
+- WebRTC、`renderer.js`，见 10-26。
+- ~~Scorecard 工作流，见上。~~ 已改（Claude，10-29）：`ossf/scorecard-action` 升到 v2.5.0，镜像改从 `ghcr.io/ossf/scorecard-action` 拉。这个工作流只在 main 上跑，改动进了 main 才生效。
+
+## 10-29 合并 Dependabot #207、#208（Claude）
+
+两个都用合并提交并进 v3-next，保留 Dependabot 原来的提交，推送后 GitHub 会把 PR 标成已合并。
+
+**#207：12 个 Cargo 小版本更新**（只改 Cargo.lock）
+- 加密核心，用在 getssh-keystore、getssh-store、getssh-vault：
+  - sha2 0.11.0 → 0.11.1：只改了 AArch64 后端加载常量的写法，输出不变；
+  - zeroize 1.9.0 → 1.9.1：`Zeroizing` 的 Debug 输出不再显示内容，另修了一处可能读到未初始化内存的问题；
+  - unicode-normalization 0.1.25 → 0.1.26。
+- 插件解压：zip 9.0.5 → 9.1.1，间接带上 typed-path 0.12.3 → 0.13.0。9.1 改的是 `extract()`、`extract_with_options()` 和写入；getssh-unarchive 不用这些，自己逐项检查 `enclosed_name()`、符号链接和大小。typed-path 0.13 对 Windows 路径更严，`\\server\share` 算绝对路径。
+- tokio 1.53.3 → 1.54.1：1.54 起 `BufReader` 或内存管道的容量为 0 会 panic，我们的代码里没有这类调用。
+- napi 3.14.0 → 3.15.0：环境销毁时会等 Tokio 的线程结束。keystore 端到端测试里 Electron 照常退出。
+- 其余：napi-derive、serde_json、cc、uuid、tree-sitter、libc，以及间接的 find-msvc-tools、napi-sys、napi-derive-backend、tree-sitter-language。
+
+**#208：7 个 action 升大版本**
+- checkout 4→7、setup-node 4→7、pnpm/action-setup 3→6、upload-artifact 4→7、download-artifact 4→8、action-gh-release 2→3、CodeQL 3→4，都改用 Node 24 运行。
+- 对照了每个大版本的发布说明，和我们的用法有关的都没问题：
+  - setup-node v5 曾给有 `packageManager` 字段的项目自动开缓存，v6 起只对 npm 开；
+  - pnpm/action-setup v4 起，`packageManager` 和 action 里的版本不一致会报错，我们两处都是 11.2.2；
+  - download-artifact v5 改的是按 ID 下载单个 artifact 的路径，我们按 `pattern` 加 `merge-multiple` 下载；v8 起摘要不符默认报错；
+  - 新版的 action.yml 里，我们用到的参数都还在。
+- PR 上的 Security Sandbox（macOS、Windows）和 Dependency Audit 已经用新的 checkout、setup-node、pnpm/action-setup 跑过，都通过。
+- 还没跑过的：release.yml 里的 upload-artifact v7、download-artifact v8、action-gh-release v3，要等下一个标签（手动运行 release.yml 能先试上传，下载和建草稿只在打标签时跑）；Scorecard 里的 CodeQL v4 和 upload-artifact v7，要等下次推送 main。
+
+**本机检查**（`96f8598`，macOS arm64）：
+- 9 个原生模块用 `scripts/build-native.js` 重新编译，都能加载；两个 `index.d.ts` 照例还原。
+- cargo test：keystore 70 条，其中 4 条 golden 测试，旧版本的恢复码和密钥环照样能打开；store 122 条；vault 5 条，其中 2 条 golden；hardened 那组 80 条；沙箱启动器 1 条。
+- 冒烟测试：插件隔离、插件页面（21 种外连都被拦下）、Sentinel、插件网络网关、插件沙箱、MCP 沙箱、本地语义记忆、keystore 端到端都通过。
+- 整套 vitest：94 个文件，1343 个通过，另 2 个本来就标着 `it.fails`。
+- 打包：`electron-builder --mac --arm64 --dir` 加 `check-package.cjs`（267 项）通过；打包后的启动检查也通过（Electron 44.10.0，11 个原生和运行时模块，getssh-store 用 Secure Enclave）。
+
+## 10-29 修 #205、Scorecard 的漏洞告警和一条偶发失败的测试（Claude）
+
+三个提交，都在 v3-next：`0723e7e`、`37623ab`、`418521c`。
+
+**#205：windows-future 0.3.2 → 0.100.0**（Dependabot，10-21 起在 Windows 上编译失败）
+- 原因：windows-rs 9 月发的 0.100 只有 windows-core、windows-future 这些小 crate，`windows` 本身没发，最新还是 0.62.2。官方说明（microsoft/windows-rs#4867）写的是两个大包还要再测。windows-future 的类型只认构建它的那一版 windows-core，单独升到 0.100 以后，`windows` 0.62.2 返回的 `IAsyncOperation<UserConsentVerificationResult>` 就对不上了，报 5 个编译错误。本机用 `cargo check --target x86_64-pc-windows-msvc` 复现，和 CI 的一样。
+- 改法（`0723e7e`，只动了 getssh-keystore）：去掉对 windows-future 的直接依赖。原来只拿它在 Windows Hello 验证里写出 `RequestVerificationForWindowAsync` 要的接口类型；现在这个调用和 `RequestVerificationAsync` 放在同一个 `match` 里，类型从后者的返回值推断出来。还是同一个类型、同一个接口 ID，调用的顺序也没变。windows-future 改由 `windows` 按它自己的版本带进来，Dependabot 就没有可以单独升的了。`Cargo.toml` 里写了原因。
+- 推送到 v3-next 以后，Dependabot 下次运行时会因为依赖已经不在，自动关掉 #205。
+- 以后 `windows` 发了 0.100，Dependabot 会提 `windows` 本身的 PR，到时再看 API 的变化。
+
+**Scorecard 的 5 条漏洞告警**（`37623ab`）
+- 4 条 js-yaml 不是 pnpm override 引起的误报，我 10-29 早些时候这么猜，猜错了。真正的来源是 getssh-sysprobe、getssh-unarchive、getssh-vault、sftp-stream 四个目录里的旧 `package-lock.json`，锁着 js-yaml 4.1.1。这几个目录早就在 pnpm 工作区里，依赖由根目录的 `pnpm-lock.yaml` 管。这些 npm 锁文件里的 `@napi-rs/cli` 还是 ^2.18 或 ^3.0，跟现在 package.json 里的 ^3.10.5 对不上，也没有脚本在这些目录里用 npm。`rust-core/` 下这样的 6 份都删了，理由和当初删根目录那份一样（见 `docs/dependency-upgrade-plan.md`）。
+- postcss-selector-parser：在 `pnpm-workspace.yaml` 加 override `postcss-selector-parser@^6: ^6.1.5`，修 GHSA-rj75-hqrm-r3gf。改前改后各构建一次，生成的 CSS 逐字节相同，里面有 typography 生成的 514 处 `.prose` 规则。
+- 用 OSV（Scorecard 查的就是它）查了剩下两份锁文件：`pnpm-lock.yaml` 的 736 个包、`Cargo.lock` 的 194 个 crate。改前 1 个漏洞，就是 postcss-selector-parser；改后 0 个。`pnpm audit` 也从 1 个中危变成 0 个。Scorecard 要等推送 main 后才会更新。
+
+**`sshKeyFiles.test.ts` 偶发失败**（`418521c`）
+- 三条测试原来要求"拒绝要在 1000 毫秒内完成"，以此证明没有先跑密钥派生。整套并行跑、机器负载高时会超时。
+- 这个限制其实也抓不到问题：这台机器上 5,000,000 次 PBKDF2 用不了半秒。临时在实现里加一行"先解密、再检查上限"，旧测试 14 条照样全过。
+- 现在改成数调用：监视 `crypto.createPrivateKey` 和 ssh2 的 `parseKey`，带密码的调用才会跑 PBKDF2 或 bcrypt。被拒的文件必须是 0 次；接着读一个正常文件，必须正好 1 次，说明监视确实生效。同样的临时改动，新测试有 2 条失败。
+
+**检查**（本机 macOS arm64）：
+- Windows 目标（`--target x86_64-pc-windows-msvc -p getssh-keystore --all-targets`）：`cargo check` 和 `cargo clippy -- -D warnings` 通过。getssh-store 要编译 SQLite 的 C 代码，需要 Windows SDK，Mac 上没法交叉检查；它的代码没用到 windows-future。
+- macOS：keystore 的 cargo test 70 条通过。
+- `pnpm install --frozen-lockfile`、`tsc -b` 通过；整套 vitest 连跑 3 遍，都是 94 个文件、1343 个通过，另 2 个本来就标着 `it.fails`。
+- 没重新打包：CSS 逐字节相同，JS 依赖和 macOS 上的原生模块都没变。
+- 还没在 Windows 上真跑：要等推送后 Security Sandbox 在 windows-2022 上编译，并跑 keystore 和 store 的测试。Windows Hello 验证这条路径 CI 跑不到；这次只改了类型的写法，调用和类型都没变。

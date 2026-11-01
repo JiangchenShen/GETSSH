@@ -2,7 +2,7 @@
 
 English | [中文](README_CN.md)
 
-[![Version](https://img.shields.io/badge/version-3.0.0--preview-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)
+[![Version](https://img.shields.io/badge/version-3.0.0--preview.2-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview.2)
 [![Electron](https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
@@ -13,23 +13,23 @@ GETSSH is a free, open-source SSH client for macOS and Windows.
 - Servers, passwords and private keys are stored encrypted on your computer.
 - When you want it, AI helps troubleshoot, using your own model key.
 
-The current version is the **3.0 preview** (`3.0.0-preview`, 2026-10-21), the FUSION edition for macOS and Windows. On Linux, please keep using [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S); 2.x is maintained on the [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) branch.
+The current version is the **3.0 Preview 2** (`3.0.0-preview.2`, 2026-10-29), the FUSION edition for macOS and Windows. On Linux, please keep using [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S); 2.x is maintained on the [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) branch.
 
 - Website: <https://getssh.realmcloud.net>
-- Release notes for the 3.0 preview: [docs/release-notes/v3.0.0-preview.md](docs/release-notes/v3.0.0-preview.md)
+- Release notes for the 3.0 Preview 2: [docs/release-notes/v3.0.0-preview.2.md](docs/release-notes/v3.0.0-preview.2.md). Everything 3.0 offers, and how to upgrade from 2.0, is in the [3.0 preview release notes](docs/release-notes/v3.0.0-preview.md)
 - Changelog: [docs/CHANGELOG_EN.md](docs/CHANGELOG_EN.md)
 - How 3.0 differs from 2.0: [What changed since 2.0](#what-changed-since-20) below
 
 ## Download
 
-From the [GitHub release](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview):
+From the [GitHub release](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview.2):
 
 | System | Processor | File |
 |---|---|---|
-| macOS 13 or later | Apple Silicon | `GETSSH-3.0.0-preview-arm64.dmg` |
-| macOS 13 or later | Intel | `GETSSH-3.0.0-preview.dmg` |
-| Windows 10 or later | x64 | `GETSSH-Setup-3.0.0-preview-x64.exe` |
-| Windows 10 or later | ARM64 | `GETSSH-Setup-3.0.0-preview-arm64.exe` |
+| macOS 13 or later | Apple Silicon | `GETSSH-3.0.0-preview.2-arm64.dmg` |
+| macOS 13 or later | Intel | `GETSSH-3.0.0-preview.2.dmg` |
+| Windows 10 or later | x64 | `GETSSH-Setup-3.0.0-preview.2-x64.exe` |
+| Windows 10 or later | ARM64 | `GETSSH-Setup-3.0.0-preview.2-arm64.exe` |
 
 `SHA256SUMS.txt` lists the SHA-256 of these files.
 
@@ -83,7 +83,7 @@ Upgrading from 2.0, the first launch imports the 2.0 servers and plugin data; th
 - A key file a server still reads from disk is only as safe as that disk, and it is not in encrypted backups.
 - Replacing sensitive values only covers what can be recognised; it cannot guarantee that no sensitive text reaches the model.
 - Host fingerprints, connection history, interface settings (including a Google search API key if you enter one), plugins' own storage and terminal recordings are not in the encrypted databases; they are stored on disk unencrypted.
-- Plugin pages, a plugin's own interface, are not confined this way: they run in an iframe that allows scripts and can go online directly.
+- Plugin pages, a plugin's own interface, are not confined this way: they run in an iframe of the main window that allows scripts. Their CSP lets them load only their own plugin's files, but it does not cover WebRTC, so a page can still reach external STUN and TURN servers.
 - HTTP MCP servers do not run in a confined process; the main process connects to the address you enter.
 - In Developer mode, backend plugins run in the main process with the same rights as GETSSH.
 
@@ -91,14 +91,14 @@ Upgrading from 2.0, the first launch imports the 2.0 servers and plugin data; th
 
 GETSSH has no accounts, analytics or telemetry. It goes online only for:
 - the SSH and Telnet connections you open;
-- checking for a new version: at launch, every 12 hours, and when you click Check in Settings → About, from the GitHub releases API. In 3.0.0-preview the Windows background check does not find new versions; use the check in Settings → About;
+- checking for a new version: at launch, every 12 hours, and when you click Check in Settings → About, from the GitHub releases API. In 3.0.0-preview the Windows background check does not find new versions, so use the check in Settings → About; 3.0.0-preview.2 fixes this;
 - the model service you configure, when you use AI;
 - AI web searches (in Approval required and Automatic execution, on by default): queries go to public SearXNG servers (the list comes from searx.space), DuckDuckGo or Bing, or to the Google or SearXNG address you set;
-- plugins and MCP servers: a backend plugin, once it declares it, reaches public addresses only through GETSSH; local MCP servers have no network unless you allow it in their settings; HTTP MCP servers connect to the address you enter; plugin pages can go online directly, without limits.
+- plugins and MCP servers: a backend plugin, once it declares it, reaches public addresses only through GETSSH; local MCP servers have no network unless you allow it in their settings; HTTP MCP servers connect to the address you enter; plugin pages cannot go online directly, except over WebRTC, which is not blocked yet.
 
 ## What changed since 2.0
 
-This compares two release tags: 2.0's `v2.0.0_R7K4S` and the 3.0 preview's `v3.0.0-preview`. Every item was checked against the code at those two tags, not taken from the release notes of the time.
+This compares two release tags: 2.0's `v2.0.0_R7K4S` and the 3.0 preview's `v3.0.0-preview`. Every item was checked against the code at those two tags, not taken from the release notes of the time. 3.0 Preview 2 changes a few of them: plugin pages no longer go online directly, the Windows background update check asks the GitHub API, and Electron is at 44.10.0. The rows concerned say so in brackets.
 
 ### The main changes
 
@@ -389,7 +389,7 @@ Every difference we could find, by area; open a section to see it. Things that d
 | Stopping plugins | Shutdown, reload, lockdowns and network violations all call the plugin's own `deactivate()` in the main process | Reload, uninstall and mode switches run `deactivate()` in the sandbox and kill on timeout; quitting, lockdowns and network violations kill the process and revoke its hooks without running plugin code; MCP servers stop on quit |
 | Plugin identity and path checks | Identity is `manifest.name`; paths checked only with `path.resolve` and a prefix test; the folder name is not compared | The name must match `[A-Za-z0-9._:-]{1,128}` (no @ or /) and equal the folder name; the entry file's realpath must stay inside the plugin folder |
 | ZIP extraction and install preview | zip 2.4.2: blocks Zip Slip, but no entry or size limits, and link entries are written as plain files; the renderer sends the source dir back; failed previews leave temp dirs | zip 9.0.5: ≤50,000 entries and 512 MiB expanded; symlinks rejected, writes only into an empty real dir; the main process keeps the source dir; failed previews are deleted |
-| Plugin pages (iframes) | `getssh-plugin://` pages in a `sandbox=allow-scripts` iframe, no CSP; plugins identified by the ID they claim, so one could take another's panel; no panel, action or RPC limits | The page can go online directly, whatever the plugin declares; Same iframe, still no CSP; HTML ≤4 MiB; plugin identified by the sending iframe; ≤16 panels, ≤8 sidebar actions, RPC ≤32 in flight, 100/s, 256 KiB |
+| Plugin pages (iframes) | `getssh-plugin://` pages in a `sandbox=allow-scripts` iframe, no CSP; plugins identified by the ID they claim, so one could take another's panel; no panel, action or RPC limits | The page can go online directly, whatever the plugin declares; Same iframe, still no CSP (from 3.0.0-preview.2 every response carries a CSP: a page loads only its own plugin's files and cannot go online directly); HTML ≤4 MiB; plugin identified by the sending iframe; ≤16 panels, ≤8 sidebar actions, RPC ≤32 in flight, 100/s, 256 KiB |
 | Local MCP server sandbox | — | macOS: `sandbox-exec` with rules like the plugins', but child programs such as npx may run; Windows: the same AppContainer launcher, network capabilities only when allowed, ≤64 processes, no .bat/.cmd; refused elsewhere |
 | Local MCP launch environment | — | Inherits only PATH, USER, LANG and a few more; refuses `NODE_OPTIONS`, `LD_PRELOAD`, `DYLD_*` and similar; HOME, TMP and XDG_* point to a fresh temp dir; ≤64 read and 64 write paths, absolute and existing |
 | MCP protocol limits | — | Protocol 2024-11-05; messages ≤8 MiB, ≤64 requests in flight; more than 500 messages or 32 MiB per second disconnects; ≤128 tools per server; `tools/call` times out at 60 s; output cut at 200,000 chars |
@@ -410,11 +410,11 @@ Every difference we could find, by area; open a section to see it. Things that d
 | Installers and checksums | DMG, an NSIS installer (choosable folder, installs for all users) and a Linux AppImage; NSIS CRC check off; no checksums | Exactly four: DMGs for Intel and Apple Silicon, `GETSSH-Setup-*.exe` for x64 and ARM64, plus `SHA256SUMS.txt`; installer settings unchanged, CRC check still off |
 | Code signing and notarization | macOS not signed at all (`mac.identity: null`), not notarized; Windows not signed | Ad-hoc signature on macOS, still no Apple Developer ID or notarization; Windows still unsigned |
 | macOS Keychain | Release builds ran with `--use-mock-keychain`: safeStorage skipped the real Keychain and derived its keys from a public constant | safeStorage keys live in the real Keychain; without a Developer ID, macOS asks for Keychain access again after each update |
-| Automatic update check | At launch and every 12 h, notify only; macOS asks the GitHub API, Windows and Linux use electron-updater, but releases carry no `latest.yml` | Same: at launch and every 12 h, notify only; releases still carry no `latest.yml`, so Windows background checks find nothing (main already uses the GitHub API on Windows too, from the next release) |
+| Automatic update check | At launch and every 12 h, notify only; macOS asks the GitHub API, Windows and Linux use electron-updater, but releases carry no `latest.yml` | Same: at launch and every 12 h, notify only; releases still carry no `latest.yml`, so Windows background checks find nothing (from 3.0.0-preview.2 Windows asks the GitHub API too, as macOS does) |
 | Manual update check | Check for Updates in Settings → About asks the GitHub API on every system | Same: still the GitHub API, so it finds new versions on Windows too |
 | Version comparison | Compares x.y.z only and ignores pre-release labels | Ignores a leading `v` and `_build` labels; a pre-release sorts before its release (`3.0.0-preview` &lt; `3.0.0`) |
 | Analytics and telemetry | No analytics, crash reporting or telemetry | Same: no analytics, crash reporting or telemetry |
-| When the app goes online | Only the update check goes online by itself; the rest is your doing: SSH hosts and proxies, the About links | New: the model service you configure, when you use AI; AI web search (on by default) to SearXNG, DuckDuckGo, Bing or Google; backend plugins reach public addresses only through GETSSH; plugin pages can go online directly |
+| When the app goes online | Only the update check goes online by itself; the rest is your doing: SSH hosts and proxies, the About links | New: the model service you configure, when you use AI; AI web search (on by default) to SearXNG, DuckDuckGo, Bing or Google; backend plugins reach public addresses only through GETSSH; plugin pages can go online directly (not from 3.0.0-preview.2) |
 | Layout | Sidebar, tab bar, split panes and an empty page; Settings is a floating modal | Adds a workspace rail, a status bar and a Home page; Settings, AI Center, Plugin Center and Workspace Center open as panes, each failing on its own |
 | App windows | One window, 1024×768, resizable; system title bar on Windows and Linux; "Tear Off (Native Window)" only opened a new tab | Main window fills the screen's work area, not resizable but can go full screen; frameless on Windows with system caption buttons; torn-off sessions get real, resizable windows |
 | Settings tabs | 8 tabs in a floating modal: Appearance, Terminal, Network & SSH, General, Secure Center, Audit Logs, Plugins, About GETSSH | 8 tabs in a pane, in 3 groups: General, Appearance, Terminal, Connections & Transfer, AI & Integrations, Ocean Sentinel, Data & Logs, About |
@@ -432,7 +432,7 @@ Every difference we could find, by area; open a section to see it. Things that d
 
 | Topic | 2.0 | 3.0 preview |
 |---|---|---|
-| Electron and frontend toolchain | Electron 42.3.0 (`^42.3.0`), React 19.2.6, Vite 8.0.14, TypeScript 6.0.3; the app sits at the repo root | Electron 44.5.1 (exact pin), React 19.3.0, Vite 8.3.3, TypeScript 7.0.2; the app moved to `apps/getssh-client`, pnpm pinned to 11.2.2 |
+| Electron and frontend toolchain | Electron 42.3.0 (`^42.3.0`), React 19.2.6, Vite 8.0.14, TypeScript 6.0.3; the app sits at the repo root | Electron 44.5.1 (exact pin; 44.10.0 from 3.0.0-preview.2), React 19.3.0, Vite 8.3.3, TypeScript 7.0.2; the app moved to `apps/getssh-client`, pnpm pinned to 11.2.2 |
 | npm packages in the installer | Six: electron-updater, framer-motion, fuse.js, immer, node-pty, ssh2 | Only electron-updater, node-pty and ssh2, the rest bundled by Vite; node-pty patched so EAGAIN retries back off (up to 250 ms); js-yaml and 3 others pinned for advisories |
 | Rust native modules | Six N-API modules; `nexus-core` pulled in the ssh2 crate with vendored OpenSSL | Nine: `tidal-engine` replaces `nexus-core` without OpenSSL; new `getssh-store`, `ocean-sentinel` and `audit-stream` |
 | Renderer clipboard reads | Not restricted; Electron's default allows it | The main process denies the renderer the `clipboard-read` permission |

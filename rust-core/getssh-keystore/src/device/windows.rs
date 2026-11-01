@@ -50,7 +50,6 @@ use ::windows::Win32::Security::Cryptography::{
 use ::windows::Win32::System::Com::CoIncrementMTAUsage;
 use ::windows::Win32::System::WinRT::{IBufferByteAccess, IUserConsentVerifierInterop};
 use ::windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow};
-use ::windows_future::IAsyncOperation;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -923,26 +922,23 @@ impl Device for PlatformDevice {
         in_mta(move || {
             let message = HSTRING::from(message.as_str());
             let failed = |e: WinError| winrt_error("verifying with Windows Hello", &e);
-            let result = match parent_window() {
+            let mut _raise = None;
+            let operation = match parent_window() {
                 Some(window) => {
                     let interop =
                         factory::<UserConsentVerifier, IUserConsentVerifierInterop>().map_err(failed)?;
                     // SAFETY: `window` is a live window of this process and `message` a valid
-                    // HSTRING; the requested interface is the operation type the method returns.
-                    let operation = unsafe {
-                        interop.RequestVerificationForWindowAsync::<IAsyncOperation<UserConsentVerificationResult>>(
-                            window, &message,
-                        )
-                    }
-                    .map_err(failed)?;
-                    operation.join()
+                    // HSTRING. The requested interface must be the operation type the method
+                    // returns; it is inferred from the other arm, which returns that same type.
+                    // Naming it would need windows-future as a direct dependency (see Cargo.toml).
+                    unsafe { interop.RequestVerificationForWindowAsync(window, &message) }
                 }
                 None => {
-                    let _raise = DialogRaiser::start();
-                    UserConsentVerifier::RequestVerificationAsync(&message).and_then(|op| op.join())
+                    _raise = Some(DialogRaiser::start());
+                    UserConsentVerifier::RequestVerificationAsync(&message)
                 }
-            }
-            .map_err(failed)?;
+            };
+            let result = operation.and_then(|operation| operation.join()).map_err(failed)?;
             consent_result(result)
         })
     }

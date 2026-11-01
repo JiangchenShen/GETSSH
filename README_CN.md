@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[![版本](https://img.shields.io/badge/版本-3.0.0--preview-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)
+[![版本](https://img.shields.io/badge/版本-3.0.0--preview.2-blueviolet?style=flat-square)](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview.2)
 [![Electron](https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white)](https://electronjs.org/)
 [![Rust](https://img.shields.io/badge/Rust-N--API-CE4A00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![许可](https://img.shields.io/badge/许可-Apache%202.0-blue?style=flat-square)](LICENSE)
@@ -13,23 +13,23 @@ GETSSH 是一个免费、开源的 SSH 客户端，支持 macOS 和 Windows。
 - 服务器、密码和私钥加密存放在您的电脑上。
 - 需要时，可以用自己的模型密钥让 AI 帮忙排查问题。
 
-当前版本是 **3.0 预览版**（`3.0.0-preview`，2026-10-21），提供 macOS 和 Windows 的 FUSION 版本。Linux 用户请继续使用 [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S)，2.x 在 [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) 分支上维护。
+当前版本是 **3.0 预览版 2**（`3.0.0-preview.2`，2026-10-29），提供 macOS 和 Windows 的 FUSION 版本。Linux 用户请继续使用 [2.0](https://github.com/JiangchenShen/GETSSH/releases/tag/v2.0.0_R7K4S)，2.x 在 [`V2`](https://github.com/JiangchenShen/GETSSH/tree/V2) 分支上维护。
 
 - 官网：<https://getssh.realmcloud.net>
-- 3.0 预览版的发布说明：[docs/release-notes/v3.0.0-preview.md](docs/release-notes/v3.0.0-preview.md)
+- 3.0 预览版 2 的发布说明：[docs/release-notes/v3.0.0-preview.2.md](docs/release-notes/v3.0.0-preview.2.md)。3.0 的全部功能和从 2.0 升级的办法，见 [3.0 预览版的发布说明](docs/release-notes/v3.0.0-preview.md)
 - 更新日志：[docs/CHANGELOG_CN.md](docs/CHANGELOG_CN.md)
 - 和 2.0 比有什么不同：见下文 [3.0 和 2.0 有什么不同](#30-和-20-有什么不同)
 
 ## 下载
 
-在 [GitHub 发布页](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview)下载：
+在 [GitHub 发布页](https://github.com/JiangchenShen/GETSSH/releases/tag/v3.0.0-preview.2)下载：
 
 | 系统 | 处理器 | 文件 |
 |---|---|---|
-| macOS 13 及以上 | Apple Silicon | `GETSSH-3.0.0-preview-arm64.dmg` |
-| macOS 13 及以上 | Intel | `GETSSH-3.0.0-preview.dmg` |
-| Windows 10 及以上 | x64 | `GETSSH-Setup-3.0.0-preview-x64.exe` |
-| Windows 10 及以上 | ARM64 | `GETSSH-Setup-3.0.0-preview-arm64.exe` |
+| macOS 13 及以上 | Apple Silicon | `GETSSH-3.0.0-preview.2-arm64.dmg` |
+| macOS 13 及以上 | Intel | `GETSSH-3.0.0-preview.2.dmg` |
+| Windows 10 及以上 | x64 | `GETSSH-Setup-3.0.0-preview.2-x64.exe` |
+| Windows 10 及以上 | ARM64 | `GETSSH-Setup-3.0.0-preview.2-arm64.exe` |
 
 `SHA256SUMS.txt` 里是这几个文件的 SHA-256。
 
@@ -83,7 +83,7 @@ GETSSH 是一个免费、开源的 SSH 客户端，支持 macOS 和 Windows。
 - 还在用磁盘上私钥文件的服务器，那个文件的安全取决于它所在的磁盘，它也不在加密备份里。
 - 敏感信息替换只能处理认得出的内容，不能保证发给模型的文字里没有一点敏感信息。
 - 主机指纹、连接记录、界面设置（包括您填的 Google 搜索 API 密钥）、插件自己存的数据和终端录屏，不在加密数据库里，明文存在磁盘上。
-- 插件的界面页面不受上面的限制：它在一个只允许运行脚本的 iframe 里，可以直接联网。
+- 插件的界面页面不在上面的受限进程里：它在主窗口里一个只允许运行脚本的 iframe 中。页面的 CSP 只许加载本插件的文件，但管不到 WebRTC，页面仍能连到外部的 STUN、TURN 服务器。
 - HTTP 类型的 MCP 服务器不在受限进程里，由主进程直接访问您填的地址。
 - "开发者模式"下，后端插件直接在主进程里运行，权限和 GETSSH 一样。
 
@@ -91,14 +91,14 @@ GETSSH 是一个免费、开源的 SSH 客户端，支持 macOS 和 Windows。
 
 GETSSH 没有账号，不做统计，也没有遥测。它只在这些时候联网：
 - 您打开的 SSH 和 Telnet 连接；
-- 检查新版本：启动时一次，之后每 12 小时一次，在"设置 → 关于"里点检查时也会查，访问的是 GitHub 的发布接口。3.0.0-preview 的 Windows 版后台检查收不到新版本，请在"设置 → 关于"里手动检查；
+- 检查新版本：启动时一次，之后每 12 小时一次，在"设置 → 关于"里点检查时也会查，访问的是 GitHub 的发布接口。Windows 上的 3.0.0-preview 后台检查收不到新版本，要在"设置 → 关于"里手动检查，3.0.0-preview.2 起已修好；
 - 您用 AI 时，访问您配置的模型服务；
 - AI 联网搜索（审批执行和自动执行模式下，默认开启）：搜索词发给公共 SearXNG 服务器（列表取自 searx.space）、DuckDuckGo 或 Bing，或者您设置的 Google、SearXNG 地址；
-- 插件和 MCP 服务器：后端插件声明以后，只能经 GETSSH 访问公网地址；本地 MCP 服务器默认不能联网，可以在它的设置里打开；HTTP MCP 服务器访问您填的地址；插件的界面页面可以直接联网，没有限制。
+- 插件和 MCP 服务器：后端插件声明以后，只能经 GETSSH 访问公网地址；本地 MCP 服务器默认不能联网，可以在它的设置里打开；HTTP MCP 服务器访问您填的地址；插件的界面页面不能直接联网，只有 WebRTC 还挡不住。
 
 ## 3.0 和 2.0 有什么不同
 
-下面对比两个发布标签：2.0 的 `v2.0.0_R7K4S` 和 3.0 预览版的 `v3.0.0-preview`。每一条都对照过这两个标签上的代码，没有照搬当时的说明文字。
+下面对比两个发布标签：2.0 的 `v2.0.0_R7K4S` 和 3.0 预览版的 `v3.0.0-preview`。每一条都对照过这两个标签上的代码，没有照搬当时的说明文字。3.0 预览版 2 改了其中几项：插件页面不能再直接联网，Windows 的后台更新检查改查 GitHub 接口，Electron 升到 44.10.0。表里相关的几行在括号里注明了。
 
 ### 主要变化
 
@@ -389,7 +389,7 @@ python3 scripts/code-stats.py v2.0.0_R7K4S v3.0.0-preview
 | 停止插件 | 关闭、重载、安全锁定和网络违规时，都在主进程里调用插件自己的 `deactivate()` | 重载、卸载和切换模式时在沙箱里跑 `deactivate()`，超时就结束进程；退出应用、安全锁定或网络违规直接结束进程，撤销监听和界面扩展，不再运行插件代码；退出时也停掉 MCP 服务 |
 | 插件身份和路径检查 | 以 `manifest.name` 为身份，只用 `path.resolve` 加前缀检查路径，不比对目录名 | 名称须符合 `[A-Za-z0-9._:-]{1,128}`（不能带 @ 和 /），并和目录名一致；入口文件按 realpath 检查，必须在插件目录里 |
 | ZIP 解压和安装预览 | zip 2.4.2：挡住 Zip Slip，但不限文件数和大小，符号链接条目被写成普通文件；源目录由界面传回；预览失败会留下临时目录 | zip 9.0.5：最多 50,000 项、展开后 ≤512 MiB；拒绝符号链接，只写入空的真实目录；源目录由主进程记住；预览失败就删除 |
-| 插件页面（iframe） | `getssh-plugin://` 页面放在 `sandbox=allow-scripts` 的 iframe 里，不带 CSP；按消息里自报的 ID 认插件，能占用别的插件的面板；面板、按钮和 RPC 都不限 | 页面可以直接联网，不受插件声明的限制；同样的 iframe，仍不带 CSP；HTML ≤4 MiB；按发消息的 iframe 认插件；每个插件 ≤16 个面板、≤8 个侧栏按钮，RPC 同时 ≤32 个、每秒 ≤100 次、≤256 KiB |
+| 插件页面（iframe） | `getssh-plugin://` 页面放在 `sandbox=allow-scripts` 的 iframe 里，不带 CSP；按消息里自报的 ID 认插件，能占用别的插件的面板；面板、按钮和 RPC 都不限 | 页面可以直接联网，不受插件声明的限制；同样的 iframe，仍不带 CSP（3.0.0-preview.2 起每个响应都带 CSP，页面只能加载本插件的文件，不能直接联网）；HTML ≤4 MiB；按发消息的 iframe 认插件；每个插件 ≤16 个面板、≤8 个侧栏按钮，RPC 同时 ≤32 个、每秒 ≤100 次、≤256 KiB |
 | 本地 MCP 服务的沙箱 | — | macOS 用 `sandbox-exec`，规则和插件相近，但可以执行子程序（如 npx）；Windows 用同一个启动器，开网络才给网络能力，最多 64 个进程，不支持 .bat/.cmd；其他平台拒绝 |
 | 本地 MCP 服务的启动环境 | — | 只继承 PATH、USER、LANG 等；拒绝 `NODE_OPTIONS`、`LD_PRELOAD`、`DYLD_*` 等注入变量；HOME、TMP、XDG_* 指向新建的临时目录；读、写路径各 ≤64 条，须是已存在的绝对路径 |
 | MCP 协议限额 | — | 协议版本 2024-11-05；消息 ≤8 MiB，同时 ≤64 个请求；每秒超过 500 条或 32 MiB 就断开；每个服务 ≤128 个工具；`tools/call` 60 秒超时；工具输出截到 200,000 字符 |
@@ -410,11 +410,11 @@ python3 scripts/code-stats.py v2.0.0_R7K4S v3.0.0-preview
 | 安装包和校验值 | DMG、NSIS 安装程序（可选目录，装给所有用户）、Linux 的 AppImage；NSIS 关闭了 CRC 自检；不发布校验值 | 固定 4 个：Intel、Apple Silicon 的 DMG，x64、ARM64 的 `GETSSH-Setup-*.exe`，附 `SHA256SUMS.txt`；其余设置不变，CRC 自检仍关闭 |
 | 代码签名和公证 | macOS 完全不签名（`mac.identity: null`），没有公证；Windows 也不签名 | macOS 改为 ad-hoc 签名，仍没有 Apple 开发者签名和公证；Windows 仍不签名 |
 | macOS 钥匙串 | 正式版带 `--use-mock-keychain`，safeStorage 不进真实钥匙串，钥匙由公开常量派生 | safeStorage 的钥匙存进真实钥匙串；因为没有开发者签名，每次更新后系统会再要一次钥匙串权限 |
-| 自动检查更新 | 启动时和每 12 小时一次，只提示不下载；macOS 查 GitHub 接口，Windows、Linux 走 electron-updater，但发布里没有 `latest.yml` | 不变：启动时和每 12 小时，只提示；发布里仍没有 `latest.yml`，Windows 的后台检查收不到新版（main 上已改成和 macOS 一样查 GitHub 接口，下一版生效） |
+| 自动检查更新 | 启动时和每 12 小时一次，只提示不下载；macOS 查 GitHub 接口，Windows、Linux 走 electron-updater，但发布里没有 `latest.yml` | 不变：启动时和每 12 小时，只提示；发布里仍没有 `latest.yml`，Windows 的后台检查收不到新版（3.0.0-preview.2 起改成和 macOS 一样查 GitHub 接口） |
 | 手动检查更新 | "设置 → 关于"里的"检查更新"在各系统上都查 GitHub 接口 | 不变：仍查 GitHub 接口，Windows 上也能查到新版 |
 | 版本号比较 | 只比 x.y.z，忽略预发布标记 | 忽略开头的 `v` 和 `_build` 标记；预发布排在正式版前（`3.0.0-preview` &lt; `3.0.0`） |
 | 统计和遥测 | 没有统计、崩溃上报或遥测 | 不变：仍没有统计、崩溃上报或遥测 |
-| 什么时候联网 | 自己联网的只有更新检查；其余只在您操作时：连 SSH 主机和代理、点"关于"里的链接 | 新增：用 AI 时访问您配置的模型服务；AI 联网搜索（默认开启）发往 SearXNG、DuckDuckGo、Bing 或 Google；后端插件只能经 GETSSH 访问公网地址；插件页面可以直接联网 |
+| 什么时候联网 | 自己联网的只有更新检查；其余只在您操作时：连 SSH 主机和代理、点"关于"里的链接 | 新增：用 AI 时访问您配置的模型服务；AI 联网搜索（默认开启）发往 SearXNG、DuckDuckGo、Bing 或 Google；后端插件只能经 GETSSH 访问公网地址；插件页面可以直接联网（3.0.0-preview.2 起不能） |
 | 界面布局 | 侧栏、标签栏、分屏窗格和空白页；设置是一个浮动窗口 | 加了工作区栏、状态栏和"主页"；设置、AI 中心、插件中心、工作区中心都在窗格里打开，一个窗格出错不影响其他窗格 |
 | 窗口 | 一个窗口，1024×768，可调大小；Windows、Linux 用系统标题栏；"Tear Off (Native Window)"按钮只是新开一个标签 | 主窗口按屏幕可用区域打开，不能调大小，可以全屏；Windows 上无边框，用系统的标题按钮；拆出的会话是可调大小的独立窗口 |
 | 设置的分页 | 浮动窗口里 8 页：外观、终端、网络与连接、通用设置、安全中心、审计日志、插件、关于 GETSSH | 窗格里 8 页，分 3 组：通用、外观、终端、连接与传输、AI 与集成、海洋守护中心、数据与日志、关于 |
@@ -432,7 +432,7 @@ python3 scripts/code-stats.py v2.0.0_R7K4S v3.0.0-preview
 
 | 项目 | 2.0 | 3.0 预览版 |
 |---|---|---|
-| Electron 和前端工具链 | Electron 42.3.0（`^42.3.0`）、React 19.2.6、Vite 8.0.14、TypeScript 6.0.3；应用在仓库根目录 | Electron 44.5.1（固定版本）、React 19.3.0、Vite 8.3.3、TypeScript 7.0.2；应用移到 `apps/getssh-client`，pnpm 固定 11.2.2 |
+| Electron 和前端工具链 | Electron 42.3.0（`^42.3.0`）、React 19.2.6、Vite 8.0.14、TypeScript 6.0.3；应用在仓库根目录 | Electron 44.5.1（固定版本，3.0.0-preview.2 起 44.10.0）、React 19.3.0、Vite 8.3.3、TypeScript 7.0.2；应用移到 `apps/getssh-client`，pnpm 固定 11.2.2 |
 | 打进安装包的 npm 依赖 | 6 个：electron-updater、framer-motion、fuse.js、immer、node-pty、ssh2 | 只剩 electron-updater、node-pty、ssh2，其余由 Vite 打包；node-pty 打补丁，EAGAIN 重试最长退避 250 ms；js-yaml 等 4 个包按安全公告锁版本 |
 | Rust 原生模块 | 6 个 N-API 模块；`nexus-core` 依赖 ssh2 crate 和内置的 OpenSSL | 9 个：`tidal-engine` 取代 `nexus-core`，不再带 OpenSSL；新增 `getssh-store`、`ocean-sentinel`、`audit-stream` |
 | 界面读取剪贴板 | 没有限制，Electron 默认允许 | 主进程拒绝界面的 `clipboard-read` 权限 |
