@@ -151,7 +151,7 @@ Use the full manifest from section 2. `renderer.js` registers the UI, `index.htm
 - `renderer` must be a relative path inside the plugin folder. A path with `..`, an absolute path, a backslash, or a file that resolves outside the folder (symbolic links included) is not loaded.
 - `invokeBackend()` rejects at once here. Call backend RPC from a plugin page.
 - `getLocale()` returns the GETSSH interface language from the start, and `onThemeChange()` callbacks receive the current theme once the page has loaded.
-- A newly installed plugin runs its `renderer.js` right after the install; uninstalling a plugin removes its iframe and its sidebar actions. After an update, the new `renderer.js` runs the next time GETSSH starts.
+- A newly installed plugin runs its `renderer.js` right after the install; uninstalling a plugin removes its iframe and its sidebar actions. Updating a plugin (installing a package with the same `name`) removes the old iframe and the sidebar actions it registered, and runs the new `renderer.js` right away.
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -677,7 +677,7 @@ Windows PowerShell:
 Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -Force
 ```
 
-Open **Settings → Plugins**, drop the ZIP into the installer, review its permissions, and install it. A package with the same `name` replaces the existing plugin directory.
+Open **Settings → Plugins**, drop the ZIP into the installer, review its permissions, and install it. A package with the same `name` replaces the existing plugin directory. The plugin list then shows the new version, and the new `renderer.js` runs in place of the old one. If the old version's backend was running, it stops and starts again from the new files under the current plugin mode; a newly installed plugin's backend waits until GETSSH next starts.
 
 Internal TypeScript interfaces live in [`apps/getssh-client/src/types/plugin.d.ts`](../apps/getssh-client/src/types/plugin.d.ts). Third-party plugins should use the signatures in this guide as the authoritative reference.
 

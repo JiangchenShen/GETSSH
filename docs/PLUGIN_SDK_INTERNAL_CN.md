@@ -153,7 +153,7 @@ hello-getssh/
 - `renderer` 必须是插件目录里的相对路径。带 `..`、绝对路径、反斜杠，或者文件实际落在目录外（包括经符号链接）的，不会加载。
 - `invokeBackend()` 在这里会立刻 reject。后端 RPC 请在插件页面里调用。
 - `getLocale()` 一开始就返回 GETSSH 的界面语言；`onThemeChange()` 的回调在页面加载完时会收到一次当前主题。
-- 新装的插件装好后马上运行 `renderer.js`；卸载插件时，它的 iframe 和侧栏按钮一起移除。更新插件后，新的 `renderer.js` 要到下次启动 GETSSH 才运行。
+- 新装的插件装好后马上运行 `renderer.js`；卸载插件时，它的 iframe 和侧栏按钮一起移除。更新插件（安装同名的新包）时，旧的 iframe 和它注册的侧栏按钮会被移除，新的 `renderer.js` 马上运行。
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -779,7 +779,7 @@ Windows PowerShell：
 Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -Force
 ```
 
-在 GETSSH 中打开“设置 → 插件”，把 ZIP 拖入安装区，检查权限列表后安装。相同 `name` 的新包会替换旧目录。
+在 GETSSH 中打开“设置 → 插件”，把 ZIP 拖入安装区，检查权限列表后安装。相同 `name` 的新包会替换旧目录。替换以后，插件列表马上显示新版本，`renderer.js` 换成新版本重新运行。旧版本的后端如果正在运行，会先停下，再按当前的插件运行模式用新文件启动；新装的插件，后端要到下次启动 GETSSH 才运行。
 
 当前实现的内部类型声明位于 [`apps/getssh-client/src/types/plugin.d.ts`](../apps/getssh-client/src/types/plugin.d.ts)；第三方插件应以本文档中的签名为准。
 

@@ -45,7 +45,7 @@ const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
 const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
 
-/** Marks the hidden frame a plugin's renderer.js runs in (bootSandboxedPlugins). */
+/** On the hidden frame a plugin's renderer.js runs in: the page URL it was started from. */
 const RENDERER_FRAME_ATTR = 'data-plugin-renderer';
 
 function pluginFrames(): HTMLIFrameElement[] {
@@ -215,7 +215,7 @@ export function initPluginBridge() {
   };
 }
 
-/** Drops what a plugin no longer installed registered here: its sidebar actions and its limits. */
+/** Drops what a removed or updated plugin registered here: its sidebar actions and its limits. */
 function forgetPlugin(pluginId: string) {
   usePluginStore.getState().removePluginSidebarActions(pluginId);
   sidebarActionsByPlugin.delete(pluginId);
@@ -230,7 +230,7 @@ function startRenderer(pluginId: string, url: string) {
   const iframe = document.createElement('iframe');
   iframe.setAttribute('sandbox', 'allow-scripts');
   iframe.setAttribute('data-plugin-id', pluginId);
-  iframe.setAttribute(RENDERER_FRAME_ATTR, '');
+  iframe.setAttribute(RENDERER_FRAME_ATTR, url);
   iframe.setAttribute('aria-hidden', 'true');
   iframe.tabIndex = -1;
   iframe.style.display = 'none';
@@ -248,7 +248,8 @@ async function syncRendererFrames() {
   const wanted = new Map(pages.map(page => [page.pluginId, page.url]));
   for (const iframe of rendererFrames()) {
     const pluginId = iframe.getAttribute('data-plugin-id') ?? '';
-    if (wanted.has(pluginId)) continue;
+    // An updated plugin has a new page URL: its frame goes too, and starts again below.
+    if (wanted.get(pluginId) === iframe.getAttribute(RENDERER_FRAME_ATTR)) continue;
     iframe.remove();
     forgetPlugin(pluginId);
   }
@@ -270,7 +271,7 @@ let rendererSync: Promise<void> = Promise.resolve();
  * (opaque origin, no access to this window) and loads the plugin's own getssh-plugin:// page, so
  * the plugin page CSP applies to it too. A script that is missing, does not parse or throws stops
  * only its own frame. Frames already running are kept; the frame of a plugin no longer installed
- * is removed, with its sidebar actions.
+ * is removed with its sidebar actions, and that of an updated plugin is replaced.
  *
  * Calls run one after another, each on a list fetched after the one before it finished: an older
  * list answered late cannot bring back the frame of a plugin uninstalled since.

@@ -152,6 +152,9 @@ describe('createPluginPageHandler', () => {
     expect(text).toContain("invokeBackend() is not available in renderer.js");
     expect(text.indexOf('window.GETSSH = {')).toBeLessThan(text.indexOf('<script src='));
     expect(text.endsWith('<body><script src="/dist/my%20renderer.js"></script></body></html>')).toBe(true);
+    // The install count only tells the window the plugin changed; the page is the same.
+    const reinstalled = await (await get('getssh-plugin://demo/?renderer=dist%2Fmy%20renderer.js&install=3&locale=zh-CN')).text();
+    expect(reinstalled).toBe(text);
     // The script itself comes from the same handler, with the same policy.
     const script = await get('getssh-plugin://demo/dist/my%20renderer.js');
     expect(script.headers.get('content-security-policy')).toBe(pluginPageCsp('demo'));
@@ -247,5 +250,16 @@ describe('pluginRendererPages', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('puts the install count into the page URL of a plugin installed since GETSSH started', async () => {
+    const pages = await pluginRendererPages([
+      { localPath: folder('alpha'), renderer: 'renderer.js' },
+      { localPath: folder('beta'), renderer: 'dist/my renderer.js' },
+    ], new Map([['alpha', 2]]));
+    expect(pages.map(page => page.url)).toEqual([
+      'getssh-plugin://alpha/?renderer=renderer.js&install=2',
+      'getssh-plugin://beta/?renderer=dist%2Fmy%20renderer.js',
+    ]);
   });
 });

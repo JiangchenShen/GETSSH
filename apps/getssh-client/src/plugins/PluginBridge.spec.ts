@@ -169,6 +169,24 @@ describe('renderer.js frames', () => {
     expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('alpha');
   });
 
+  it('replaces the frame of an updated plugin, with what it registered', async () => {
+    installed('alpha', 'beta');
+    await bootSandboxedPlugins();
+    const [alpha, beta] = rendererFrames();
+    // The main process counts the install into the page URL.
+    (window as any).electronAPI.getPluginRenderers = vi.fn(async () => [
+      { pluginId: 'alpha', url: 'getssh-plugin://alpha/?renderer=renderer.js&install=1' }, ...pages('beta'),
+    ]);
+    await bootSandboxedPlugins();
+    expect(alpha.isConnected).toBe(false);
+    expect(rendererFrames()[0]).toBe(beta);
+    expect(rendererFrames().map(iframe => [iframe.getAttribute('data-plugin-id'), iframe.getAttribute('src')])).toEqual([
+      ['beta', 'getssh-plugin://beta/?renderer=renderer.js&locale=zh-CN'],
+      ['alpha', 'getssh-plugin://alpha/?renderer=renderer.js&install=1&locale=zh-CN'],
+    ]);
+    expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('alpha');
+  });
+
   it('applies plugin lists in the order they were asked for', async () => {
     let answerFirst!: (value: unknown) => void;
     (window as any).electronAPI.getPluginRenderers = vi.fn()

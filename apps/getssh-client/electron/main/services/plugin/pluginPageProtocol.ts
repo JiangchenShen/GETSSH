@@ -27,6 +27,9 @@ const DENY_ALL_CSP = "default-src 'none'; form-action 'none'; base-uri 'none'";
  */
 const RENDERER_PARAM = 'renderer';
 const LOCALE_PARAM = 'locale';
+// How many times the plugin was installed since GETSSH started: an update changes the page URL,
+// and the window replaces the plugin's frame. The handler itself ignores it.
+const INSTALL_PARAM = 'install';
 const MAX_RENDERER_PATH = 1024;
 // A language tag such as zh-CN (the app's language, for getLocale()); nothing else reaches the page.
 const LOCALE_TAG = /^[a-z]{2,8}(?:-[a-z0-9]{1,8}){0,4}$/i;
@@ -82,9 +85,13 @@ export interface PluginRendererPage {
 /**
  * The renderer.js page of every plugin that declares one, for the main window to open. A plugin
  * is left out when its folder cannot be a host of the scheme or its renderer is not a file inside
- * its folder (symbolic links resolved); the other plugins are not affected.
+ * its folder (symbolic links resolved); the other plugins are not affected. `installs` counts each
+ * plugin's installs since GETSSH started.
  */
-export async function pluginRendererPages(plugins: ReadonlyArray<{ renderer?: unknown; localPath?: string }>): Promise<PluginRendererPage[]> {
+export async function pluginRendererPages(
+  plugins: ReadonlyArray<{ renderer?: unknown; localPath?: string }>,
+  installs: ReadonlyMap<string, number> = new Map(),
+): Promise<PluginRendererPage[]> {
   const pages = await Promise.all(plugins.map(async ({ renderer, localPath }) => {
     if (renderer === undefined || typeof localPath !== 'string') return null;
     const pluginId = path.basename(localPath);
@@ -100,7 +107,11 @@ export async function pluginRendererPages(plugins: ReadonlyArray<{ renderer?: un
       console.warn(`[PluginManager] renderer.js of plugin '${pluginId}' is not loaded: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
-    return { pluginId, url: `${PLUGIN_PAGE_SCHEME}://${pluginId}/?${RENDERER_PARAM}=${encodeURIComponent(script)}` };
+    const install = installs.get(pluginId);
+    return {
+      pluginId,
+      url: `${PLUGIN_PAGE_SCHEME}://${pluginId}/?${RENDERER_PARAM}=${encodeURIComponent(script)}${install ? `&${INSTALL_PARAM}=${install}` : ''}`,
+    };
   }));
   return pages.filter((page): page is PluginRendererPage => page !== null);
 }

@@ -15,7 +15,9 @@
  * - leaky: tries the ways out it can from renderer.js against a loopback server, which counts
  *   what arrives.
  * - missing, escape, plain: a missing script, a script outside the folder, no renderer.
- * Clicking alpha's and beta's sidebar actions must open their panels in the session store.
+ * Clicking alpha's and beta's sidebar actions must open their panels in the session store. Then
+ * alpha is updated (a new renderer.js, a new install count in its page URL): its new script must
+ * run in a new frame, without its old sidebar actions, and the other plugins' frames must stay.
  *
  * A second run serves the same pages without the plugin page CSP: leaky's probes must reach the
  * server there, or the first run proved nothing.
@@ -166,8 +168,9 @@ function writeHostPage(run, pages) {
 window.__probe = null;
 window.__tidalTabs = [];
 addEventListener('message', event => { if (event.data && event.data.rendererProbe) window.__probe = event.data.rendererProbe; });
+window.__pages = ${JSON.stringify(pages)};
 window.electronAPI = {
-  getPluginRenderers: () => Promise.resolve(${JSON.stringify(pages)}),
+  getPluginRenderers: () => Promise.resolve(window.__pages),
   tidalRegisterTab: (...args) => { window.__tidalTabs.push(args); return Promise.resolve({ success: true }); },
 };
 </script>
@@ -188,6 +191,7 @@ const READ_STATE = `(async () => {
     booted: await window.__booted,
     frames: [...document.querySelectorAll('iframe[data-plugin-renderer]')].map(frame => ({
       id: frame.getAttribute('data-plugin-id'), src: frame.getAttribute('src'), sandbox: frame.getAttribute('sandbox'), hidden: frame.style.display === 'none',
+      kept: frame.dataset.smokeKept === 'yes',
     })),
     actions: Object.fromEntries(sidebarActions.map(action => [action.id, { pluginId: action.pluginId, label: action.label, icon: action.icon.length > 0 }])),
     panels: JSON.parse(JSON.stringify(registeredPanels)),
@@ -214,6 +218,25 @@ async function poll(window, done) {
   return state;
 }
 
+const ALPHA_UPDATE = "window.GETSSH.registerSidebarAction('open', '', 'Alpha updated');";
+
+/** Installs a new alpha: its renderer.js changes on disk and its page URL gets an install count. */
+async function updateAlpha(window) {
+  const file = path.join(pluginsDir, 'alpha', 'renderer.js');
+  const original = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, ALPHA_UPDATE);
+  try {
+    const pages = await pluginRendererPages(installedPlugins(), new Map([['alpha', 1]]));
+    await window.webContents.executeJavaScript(`
+      document.querySelectorAll('iframe[data-plugin-renderer]').forEach(frame => { frame.dataset.smokeKept = 'yes'; });
+      window.__pages = ${JSON.stringify(pages)};
+      window.__booted = window.__smoke.bootSandboxedPlugins().then(() => 'ok', error => 'error:' + error.message);`);
+    return await poll(window, state => state.actions['plugin-alpha-open']?.label === 'Alpha updated');
+  } finally {
+    fs.writeFileSync(file, original);
+  }
+}
+
 async function runPlugins(run, pages) {
   requests = [];
   connections = 0;
@@ -230,9 +253,10 @@ async function runPlugins(run, pages) {
     await window.webContents.executeJavaScript(CLICK);
     const opened = await poll(window, state => state.tabs.length >= 2);
     trace(`${run}: opened ${opened.tabs.length} panels`);
+    const updated = run === 'policy' ? await updateAlpha(window) : null;
     // Late requests (the worker, nested frames) still count.
     await delay(1000);
-    return { registered, opened, requests: [...new Set(requests)].sort(), connections };
+    return { registered, opened, updated, requests: [...new Set(requests)].sort(), connections };
   } finally {
     window.destroy();
   }
@@ -312,6 +336,16 @@ app.whenReady().then(async () => {
 
   const guarded = await runPlugins('policy', pages);
   checkRegistrations('policy', guarded);
+  const { updated } = guarded;
+  if (updated.booted !== 'ok') throw new Error(`update: bootSandboxedPlugins failed: ${updated.booted}`);
+  expectEqual(Object.keys(updated.actions).sort(), ['plugin-alpha-open', 'plugin-beta-open', 'plugin-leaky-probe', 'plugin-throws-before'],
+    'update: sidebar actions (alpha\'s old frame registered theme and backend)');
+  expectEqual(updated.actions['plugin-alpha-open'], { pluginId: 'alpha', label: 'Alpha updated', icon: false }, 'update: the new renderer.js ran');
+  expectEqual(Object.fromEntries(updated.frames.map(frame => [frame.id, frame.kept])), Object.fromEntries(STARTED.map(id => [id, id !== 'alpha'])),
+    'update: only alpha\'s frame was replaced');
+  if (new URL(updated.frames.find(frame => frame.id === 'alpha').src).searchParams.get('install') !== '1') {
+    throw new Error(`update: alpha's new frame is not on its new page: ${JSON.stringify(updated.frames)}`);
+  }
   if (guarded.requests.length || guarded.connections) {
     throw new Error(`renderer.js reached the network: ${JSON.stringify(guarded.requests)} (${guarded.connections} connections)`);
   }

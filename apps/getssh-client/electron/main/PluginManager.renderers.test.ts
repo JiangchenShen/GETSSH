@@ -5,14 +5,16 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // get-plugin-renderers: the renderer.js page of each installed plugin, for the main window to open
 // in hidden frames. It answers once the boot-time plugin scan is over, and only a known window.
+// An update (commit-plugin-install of an installed name) replaces the plugin's manifest and page.
 
 const mocks = vi.hoisted(() => ({
   userData: '',
+  temp: '',
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
 }));
 
 vi.mock('electron', () => ({
-  app: { getPath: () => mocks.userData },
+  app: { getPath: (name: string) => (name === 'temp' ? mocks.temp : mocks.userData) },
   ipcMain: {
     handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => { mocks.handlers.set(channel, handler); },
     on: () => {},
@@ -80,5 +82,70 @@ describe('get-plugin-renderers', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('commit-plugin-install', () => {
+  it('replaces an updated plugin in the list and in its renderer.js page, and restarts a backend it stopped', async () => {
+    const userData = fs.mkdtempSync(path.join(root, 'update-'));
+    mocks.userData = userData;
+    mocks.temp = fs.mkdtempSync(path.join(root, 'temp-'));
+    const write = (dir: string, files: Record<string, string>) => {
+      for (const [file, text] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+        fs.writeFileSync(path.join(dir, file), text);
+      }
+    };
+    const manifest = (name: string, version: string, extra: Record<string, unknown>) => JSON.stringify({ name, version, main: 'index.html', getssh: { type: 'sandbox' }, ...extra });
+    write(path.join(userData, 'plugins'), {
+      'alpha/package.json': manifest('alpha', '1.0.0', { main: 'main.js', renderer: 'renderer.js', getssh: { capabilities: ['lifecycle'] } }),
+      'alpha/renderer.js': '',
+      'beta/package.json': manifest('beta', '1.0.0', { renderer: 'renderer.js' }),
+      'beta/renderer.js': '',
+    });
+    const manager = new PluginManager();
+    manager.setupIPC();
+    await manager.loadPlugins();
+    manager.markInitialLoadDone();
+    const call = (channel: string, ...args: unknown[]) => Promise.resolve(mocks.handlers.get(channel)!({ trusted: true }, ...args));
+    // alpha's backend runs; beta has none.
+    const host = { shutdown: vi.fn(async () => {}), kill: vi.fn() };
+    (manager as unknown as { runningPlugins: Map<string, unknown> }).runningPlugins.set('alpha', { host });
+    const reload = vi.spyOn(manager, 'reloadPlugin').mockResolvedValue(undefined);
+    let previews = 0;
+    const install = (name: string, files: Record<string, string>) => {
+      const tempDir = path.join(mocks.temp, `getssh-plugin-preview-${++previews}`);
+      write(path.join(tempDir, name), files);
+      (manager as unknown as { _previewSourceDirCache: Record<string, string> })._previewSourceDirCache[path.resolve(tempDir)] = path.join(tempDir, name);
+      return call('commit-plugin-install', { tempDir }) as Promise<{ success: boolean; error?: string }>;
+    };
+    const listed = async () => (await call('get-plugin-list') as Array<{ name: string; version: string }>).map(plugin => `${plugin.name}@${plugin.version}`);
+    const pages = async () => Object.fromEntries((await call('get-plugin-renderers') as Array<{ pluginId: string; url: string }>).map(page => [page.pluginId, page.url]));
+
+    const before = await listed();
+    expect(await install('alpha', {
+      'package.json': manifest('alpha', '2.0.0', { main: 'main.js', renderer: 'dist/renderer.js', getssh: { capabilities: ['lifecycle'] } }),
+      'dist/renderer.js': '',
+    })).toMatchObject({ success: true });
+    expect(await listed()).toEqual(before.map(entry => (entry === 'alpha@1.0.0' ? 'alpha@2.0.0' : entry)));
+    expect(await pages()).toEqual({
+      alpha: 'getssh-plugin://alpha/?renderer=dist%2Frenderer.js&install=1',
+      beta: 'getssh-plugin://beta/?renderer=renderer.js',
+    });
+    expect(host.shutdown).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledExactlyOnceWith('alpha');
+
+    // A plugin with no backend running is not started; every install counts up.
+    expect(await install('beta', { 'package.json': manifest('beta', '1.1.0', { renderer: 'renderer.js' }), 'renderer.js': '' })).toMatchObject({ success: true });
+    expect(await install('alpha', {
+      'package.json': manifest('alpha', '2.0.1', { main: 'main.js', renderer: 'dist/renderer.js', getssh: { capabilities: ['lifecycle'] } }),
+      'dist/renderer.js': '',
+    })).toMatchObject({ success: true });
+    expect(await pages()).toEqual({
+      alpha: 'getssh-plugin://alpha/?renderer=dist%2Frenderer.js&install=2',
+      beta: 'getssh-plugin://beta/?renderer=renderer.js&install=1',
+    });
+    expect(await listed()).toEqual(before.map(entry => (entry === 'alpha@1.0.0' ? 'alpha@2.0.1' : 'beta@1.1.0')));
+    expect(reload).toHaveBeenCalledOnce();
   });
 });

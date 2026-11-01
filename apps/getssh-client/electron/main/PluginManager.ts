@@ -90,6 +90,8 @@ export class PluginManager {
   /** An ssh.write approval on screen, per plugin: calls made meanwhile wait for its answer. */
   private pendingSshApprovals = new Map<string, Promise<number>>();
   private runningPlugins: Map<string, RunningPlugin> = new Map();
+  /** Installs of each plugin since GETSSH started; never reset, so a reinstall always counts up. */
+  private installCounts = new Map<string, number>();
 
   private uiExtensions: {
     terminal: Array<{ pluginId: string, actionId: string, label: string, handler: Function }>,
@@ -1211,16 +1213,25 @@ export class PluginManager {
 
         const targetDir = this.getSecurePluginPath(serverManifest.name);
 
-        if (this.runningPlugins.has(serverManifest.name)) {
+        const wasRunning = this.runningPlugins.has(serverManifest.name);
+        if (wasRunning) {
           await this.gracefulDeactivate(serverManifest.name);
         }
 
         await fs.promises.rm(targetDir, { recursive: true, force: true });
         await fs.promises.rename(sourceDir, targetDir);
 
+        // An update replaces the old manifest in place: the plugin list shows the new version,
+        // and get-plugin-renderers gives a new page URL, so the window restarts renderer.js.
         serverManifest.localPath = targetDir;
-        if (!this.installedPlugins.find(p => p.name === serverManifest.name)) {
-          this.installedPlugins.push(serverManifest);
+        const listed = this.installedPlugins.findIndex(p => p.name === serverManifest.name);
+        if (listed < 0) this.installedPlugins.push(serverManifest);
+        else this.installedPlugins[listed] = serverManifest;
+        this.installCounts.set(serverManifest.name, (this.installCounts.get(serverManifest.name) ?? 0) + 1);
+        // A backend the update stopped starts again from the new files, under the current mode
+        // (reloadPlugin skips it in safe mode). A new plugin's backend still waits for a restart.
+        if (wasRunning) {
+          await this.reloadPlugin(serverManifest.name);
         }
 
         return { success: true, manifest: serverManifest };
@@ -1252,7 +1263,7 @@ export class PluginManager {
     ipcMain.handle('get-plugin-renderers', async (event) => {
       if (!isKnownTopLevelSender(event)) return [];
       await this.initialLoad;
-      return pluginRendererPages(this.installedPlugins);
+      return pluginRendererPages(this.installedPlugins, this.installCounts);
     });
   }
 }

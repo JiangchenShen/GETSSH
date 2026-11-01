@@ -994,6 +994,29 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 **还没做的**：
 - README 两种语言对比的是已发布的两个标签，里面没有 `renderer.js` 不运行的说法。对比表"插件页面"一行等下次发布时再补。官网 SDK 指南、`docs/release-notes/v3.0.0-preview.2.md` 和两份更新日志写的是 3.0.0-preview.2 的情况，也等下次发布时改。
 - 一直不返回的 `renderer.js`：每个插件的沙盒 iframe 在单独的进程里（实验里主窗口和两个插件各一个 PID），主窗口照常响应，别的插件照常注册。但这个 iframe 一直算"加载中"，`webContents.isLoading()` 会一直是 true，`did-stop-loading` 不会再触发。主进程现在只用 `ready-to-show`，不受影响；以后有代码要等页面加载完，要考虑这一点。冒烟测试也因此在页面加载完以后才启动插件，和应用一样：加载完以前加进来的 iframe，页面的 load 要等它们。
-- 同名重装（更新插件）时，主进程 `installedPlugins` 里还是旧的 Manifest，重启才更新，这是原有问题。新版本如果换了 `renderer` 路径，按钮会消失到下次启动。
+- ~~同名重装（更新插件）时，主进程 `installedPlugins` 里还是旧的 Manifest，重启才更新，这是原有问题。新版本如果换了 `renderer` 路径，按钮会消失到下次启动。~~ 已改（Claude，11-01），见下面"11-01 更新插件后马上换成新版本"。
 - 侧栏收起时不显示插件按钮。
 - Windows 上的冒烟测试要等推送后的 CI。
+
+## 11-01 更新插件后马上换成新版本（Claude）
+
+**原来的问题**：安装同名的新包（更新插件）时，`commit-plugin-install` 只在列表里没有这个插件时才把它加进去，`installedPlugins` 留着旧的 Manifest，要重启才更新：
+- 设置里的插件列表一直显示旧版本号；
+- `get-plugin-renderers` 用旧的 `renderer` 路径，新版本换了路径的话，侧栏按钮会消失到下次启动；
+- 旧版本的后端被停掉，新版本的后端要重启才运行，这期间插件页面调 `invokeBackend()` 都失败。
+
+**改了什么**：
+- `commit-plugin-install` 在原位置换上新的 Manifest，列表顺序不变。
+- 主进程记下每个插件在这次运行里装了几次，放进 renderer.js 启动页的地址（`&install=<次数>`）。窗口发现某个插件的地址变了，就移除旧的 iframe 和它注册的侧栏按钮，用新地址重新打开，新的 `renderer.js` 马上运行。其他插件的 iframe 不动。
+- 旧版本的后端如果正在运行，换完文件以后调 `reloadPlugin()`，按当前的插件运行模式用新文件启动（安全模式下照旧不启动）。新装的插件不变，后端要到下次启动 GETSSH 才运行。
+- SDK 文档两种语言：第 4 节和第 10 节写明更新以后会怎样。
+
+**测试**：
+- vitest 新增 3 条：`PluginManager.renderers.test.ts`（列表原位替换、地址带上安装次数、在运行的后端重启、没在运行的不启动）、`PluginBridge.spec.ts`、`pluginPageProtocol.test.ts` 各 1 条；已有的启动页测试里另加了一段。
+- 冒烟测试加了一步：改写磁盘上 alpha 的 `renderer.js`，用新的安装次数重新同步。新 iframe 跑的是新脚本，没有用缓存里的旧脚本；alpha 旧的侧栏按钮被移除，其他 5 个插件的 iframe 还是原来那个。
+- 逐一撤掉这次的 5 处改动，每次都有对应的测试失败；撤掉窗口那处时，冒烟测试也失败。
+- 整套 vitest：96 个文件，1366 个通过，另 2 个本来就标着 `it.fails`。`tsc -b` 通过；`test:plugin-renderer`、`test:plugin-page`、`test:plugin-isolation` 在临时 HOME 和 USERPROFILE 下通过。
+
+**还没做的**：
+- 已经打开的旧版本面板标签页不会自动刷新，关掉重开才是新页面。
+- `reload-plugins`（切换插件运行模式时调用）先清空 `installedPlugins` 再重新扫描，扫描期间读到的列表不全。现在没有代码在这时读它，以后加的话要注意。
