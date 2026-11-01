@@ -951,7 +951,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - macOS：keystore 的 cargo test 70 条通过。
 - `pnpm install --frozen-lockfile`、`tsc -b` 通过；整套 vitest 连跑 3 遍，都是 94 个文件、1343 个通过，另 2 个本来就标着 `it.fails`。
 - 没重新打包：CSS 逐字节相同，JS 依赖和 macOS 上的原生模块都没变。
-- 还没在 Windows 上真跑：要等推送后 Security Sandbox 在 windows-2022 上编译，并跑 keystore 和 store 的测试。Windows Hello 验证这条路径 CI 跑不到；这次只改了类型的写法，调用和类型都没变。
+- ~~还没在 Windows 上真跑：要等推送后 Security Sandbox 在 windows-2022 上编译，并跑 keystore 和 store 的测试。Windows Hello 验证这条路径 CI 跑不到；这次只改了类型的写法，调用和类型都没变。~~ 已跑（10-29 推送后的 Security Sandbox，运行 40956774940）：windows-2022 上重新编译了 getssh-keystore，keystore 74 条、store 121 条测试通过。Dependabot 推送后自己关掉了 #205。
 
 ## 11-01 插件的 renderer.js 能运行了（Claude）
 
@@ -1020,3 +1020,34 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 **还没做的**：
 - 已经打开的旧版本面板标签页不会自动刷新，关掉重开才是新页面。
 - `reload-plugins`（切换插件运行模式时调用）先清空 `installedPlugins` 再重新扫描，扫描期间读到的列表不全。现在没有代码在这时读它，以后加的话要注意。
+
+## 11-01 复查并合并 renderer.js 的两个提交，给插件通知加限制（Claude）
+
+`2455843`、`3cbee01` 复查后合进 v3-next，后面接着 `aea0dad`（通知限制）。
+
+**复查看过的地方**：
+- 启动页：`renderer` 路径在列表阶段用 realpath 确认在插件目录里，协议处理函数再按原有规则查一遍；`locale` 只接受语言标签；`<script src>` 逐段编码；响应带插件页面的 CSP。
+- `get-plugin-renderers` 只回答已知窗口。插件目录只来自扫描 `userData/plugins` 和安装时的 `getSecurePluginPath()`，按文件夹名拼出的地址指向的就是这个插件。
+- 窗口：插件身份取自发消息的 iframe，嵌套子页面发来的消息不认；面板只接受本插件的页面；侧栏图标只当 CSS mask，SVG 不进主窗口的 DOM。
+- `PluginPane` 只认自己那个 iframe，插件页面的桥接脚本只认 `window.parent`：隐藏 iframe 调不到后端，也伪造不了发给别的插件页面的消息。
+- `3cbee01`：安装次数按 `name` 记、按文件夹名查，`getSecurePluginPath()` 直接用 `name` 当文件夹名，是同一个值；`reloadPlugin()` 从磁盘读新的清单，照启动时的规则检查 `lifecycle` 和安全模式。
+- 安全模式在界面上写的是"不执行后端插件"。`renderer.js` 是前端代码，和插件页面一样在安全模式下也运行，跟这个说法一致。
+- 在 renderer 会话的 worktree 里，对 `2455843` 重跑了它报告的检查：整套 vitest 96 个文件、1363 个通过；`tsc -b`；三个冒烟测试，`test:plugin-renderer` 输出 `{"started":6,"sidebarActions":6,"panelsOpened":2,"blocked":13,"controlReached":13}`。
+
+**插件通知加了限制**（`aea0dad`）：
+- 原来页面的 `showNotification` 不限频率和长度，后端经 RPC 的 `notification.show`、`host.notify` 也只查长度。`renderer.js` 从启动起就在后台运行以后，插件不用等用户打开任何东西，就能以 GETSSH 的名义随意弹通知。
+- 现在一个插件 30 秒内最多 3 条，标题前加 `[插件 name]`，标题最多 256 个字符、正文最多 4096 个字符。页面（`PluginBridge.ts`）和隔离运行的后端（`PluginManager.ts`）各自计数：页面多出的丢掉并在控制台警告，超长的截掉；后端多出的调用 reject，超长的照旧 reject。
+- 不受限的：开发者模式的插件（在主进程里运行，本来就能直接弹通知），以及插件读剪贴板时 GETSSH 自己弹的提醒。
+- SDK 文档两种语言写明了规则（6.1 和页面那一节）。
+- 新增 4 条测试：`PluginBridge.spec.ts`、`PluginManager.test.ts` 各 2 条。分别撤掉页面的限频、页面的标题前缀、后端 `host.notify` 的限制，每次都有测试失败。
+
+**检查**（本机 macOS arm64，三个提交合在一起）：
+- 整套 vitest：96 个文件，1370 个通过，另 2 个本来就标着 `it.fails`。
+- `tsc -b` 通过；`test:plugin-renderer`、`test:plugin-page`（21 种外连被拦下）、`test:plugin-isolation` 通过。
+
+**还没做的**：
+- Windows：推送后看 Security Sandbox，新的 `test:plugin-renderer` 会第一次在 CI 上跑。
+- 官网 SDK 指南里的通知规则，和 README、发布说明一起等下次发布时改。
+- 已知的 WebRTC 外连现在启动时就能触发：每个插件的 `renderer.js` 一启动就在隐藏 iframe 里运行，不用用户打开面板。这个 iframe 里拿不到用户数据（`invokeBackend()` 直接 reject，也碰不到主窗口），只能拿来"报到"。见 10-26 和 WebRTC 那个会话。
+- 卸载插件时，它注册的面板和已经打开的面板标签页不会清掉（原有问题）。
+- 侧栏收起时不显示插件按钮（见上面 renderer.js 一节）。
