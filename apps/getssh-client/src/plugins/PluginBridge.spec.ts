@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-// A plugin page can register at most 16 panels and 8 sidebar actions, and open a panel at most
-// once a second. Each plugin's renderer.js runs in a hidden sandboxed frame of its own.
+// A plugin page can register at most 16 panels and 8 sidebar actions, open a panel at most once a
+// second, and show at most 3 notifications in 30 seconds. Each plugin's renderer.js runs in a
+// hidden sandboxed frame of its own.
 
 type Listener = (state: unknown, prevState: unknown) => void;
 const store = vi.hoisted(() => ({
@@ -79,6 +80,53 @@ describe('plugin sidebar actions', () => {
     expect(store.registerSidebarAction).toHaveBeenCalledTimes(9);
     send('registerSidebarAction', { id: 'a3', icon: `<svg>${'x'.repeat(40 * 1024)}</svg>`, label: 'big' });
     expect(store.registerSidebarAction).toHaveBeenCalledTimes(9);
+  });
+});
+
+describe('plugin notifications', () => {
+  const shown: Array<{ title: string; body?: string }> = [];
+  let permission = 'granted';
+  beforeAll(() => {
+    vi.stubGlobal('Notification', class {
+      static get permission() { return permission; }
+      constructor(title: string, options?: { body?: string }) { shown.push({ title, body: options?.body }); }
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    shown.length = 0;
+    permission = 'granted';
+  });
+  afterAll(() => vi.unstubAllGlobals());
+
+  it('shows at most 3 in 30 seconds per plugin, with the plugin\'s name first in the title', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    for (let i = 0; i < 5; i++) send('showNotification', { title: `T${i}`, body: 'B' });
+    expect(shown.map(n => n.title)).toEqual(['[busy] T0', '[busy] T1', '[busy] T2']);
+    // Another plugin has its own allowance; the id the message names does not matter.
+    frame.setAttribute('data-plugin-id', 'quiet');
+    send('showNotification', { title: 'Q', body: 'B' });
+    frame.setAttribute('data-plugin-id', 'busy');
+    expect(shown.at(-1)?.title).toBe('[quiet] Q');
+    vi.setSystemTime(2_029_999);
+    send('showNotification', { title: 'still too soon', body: 'B' });
+    expect(shown).toHaveLength(4);
+    vi.setSystemTime(2_030_000);
+    send('showNotification', { title: 'later', body: 'B' });
+    expect(shown.at(-1)?.title).toBe('[busy] later');
+  });
+
+  it('cuts long text, ignores text that is not a string, and shows nothing without permission', () => {
+    frame.setAttribute('data-plugin-id', 'wordy');
+    send('showNotification', { title: 'T'.repeat(300), body: 'b'.repeat(5000) });
+    expect(shown[0]).toEqual({ title: `[wordy] ${'T'.repeat(256)}`, body: 'b'.repeat(4096) });
+    send('showNotification', { title: { toString: () => 'object' }, body: 42 });
+    expect(shown[1]).toEqual({ title: '[wordy]', body: '' });
+    permission = 'denied';
+    send('showNotification', { title: 'T', body: 'B' });
+    expect(shown).toHaveLength(2);
+    frame.setAttribute('data-plugin-id', 'busy');
   });
 });
 

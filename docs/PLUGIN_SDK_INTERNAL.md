@@ -307,6 +307,8 @@ interface MainContextAPI {
 
 `showNotification()` is a compatibility alias; new plugins should use `host.notify()`. Notification appearance is controlled by the operating system.
 
+An isolated plugin can show 3 notifications in any 30 seconds through `host.notify()` and `showNotification()` together; a call beyond that rejects. GETSSH puts `[<plugin name>]` before the title. The title can be up to 256 characters and the body up to 4,096. A developer-mode plugin runs in the main process and is not limited.
+
 `safeStorageEncrypt()` was removed in 3.0; use `context.secrets` instead. No API could decrypt what it returned, and on macOS it asked for Keychain access. An older plugin that calls it gets `context.safeStorageEncrypt is not a function`.
 
 ### Plugin KV storage
@@ -583,7 +585,7 @@ interface RendererContextAPI {
 }
 ```
 
-Frontend notifications depend on OS notification permission. `getLocale()` returns the current snapshot and updates after a host language change. `onThemeChange()` currently has no unsubscribe return value, so register a callback once per page.
+Frontend notifications depend on OS notification permission. A plugin's pages, `renderer.js` included, can show 3 notifications in any 30 seconds; more are dropped. GETSSH puts `[<plugin name>]` before the title and cuts the title to 256 characters and the body to 4,096. The backend's notifications are counted separately (see Notifications above). `getLocale()` returns the current snapshot and updates after a host language change. `onThemeChange()` currently has no unsubscribe return value, so register a callback once per page.
 
 ### Backend communication
 

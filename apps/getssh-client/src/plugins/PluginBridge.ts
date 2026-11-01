@@ -44,6 +44,14 @@ const MAX_SIDEBAR_ACTIONS_PER_PLUGIN = 8;
 const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
 const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
+// Notifications go out in GETSSH's name, and renderer.js runs from startup without the user
+// opening anything: a plugin's pages may show 3 in any 30 seconds, with the plugin's name first
+// in the title. The main process applies the same rule to backends (PluginManager.ts).
+const NOTIFICATION_WINDOW_MS = 30_000;
+const MAX_NOTIFICATIONS_PER_WINDOW = 3;
+const MAX_NOTIFICATION_TITLE_LENGTH = 256;
+const MAX_NOTIFICATION_BODY_LENGTH = 4096;
+const notificationTimes = new Map<string, number[]>();
 
 /** On the hidden frame a plugin's renderer.js runs in: the page URL it was started from. */
 const RENDERER_FRAME_ATTR = 'data-plugin-renderer';
@@ -154,11 +162,21 @@ function handlePluginMessage(event: MessageEvent) {
       break;
     }
 
-    case 'showNotification':
-      if (Notification.permission === 'granted') {
-        new Notification(payload.title || 'GETSSH Plugin', { body: payload.body || '' });
+    case 'showNotification': {
+      if (Notification.permission !== 'granted') break;
+      const now = Date.now();
+      const recent = (notificationTimes.get(pluginId) ?? []).filter(time => now - time < NOTIFICATION_WINDOW_MS);
+      if (recent.length >= MAX_NOTIFICATIONS_PER_WINDOW) {
+        console.warn(`[PluginBridge] Plugin "${pluginId}" already showed ${MAX_NOTIFICATIONS_PER_WINDOW} notifications in ${NOTIFICATION_WINDOW_MS / 1000} seconds; this one was dropped`);
+        break;
       }
+      recent.push(now);
+      notificationTimes.set(pluginId, recent);
+      const title = typeof payload?.title === 'string' ? payload.title.slice(0, MAX_NOTIFICATION_TITLE_LENGTH) : '';
+      const body = typeof payload?.body === 'string' ? payload.body.slice(0, MAX_NOTIFICATION_BODY_LENGTH) : '';
+      new Notification(title ? `[${pluginId}] ${title}` : `[${pluginId}]`, { body });
       break;
+    }
 
     case 'getActiveSessionId':
       // Reply back with session ID (read-only, non-sensitive)
@@ -221,6 +239,7 @@ function forgetPlugin(pluginId: string) {
   sidebarActionsByPlugin.delete(pluginId);
   panelsByPlugin.delete(pluginId);
   lastPanelOpen.delete(pluginId);
+  notificationTimes.delete(pluginId);
 }
 
 function startRenderer(pluginId: string, url: string) {

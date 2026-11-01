@@ -57,6 +57,13 @@ const MAX_UI_RPC_IN_FLIGHT = 32;
 const MAX_UI_RPC_PER_SECOND = 100;
 const MAX_UI_RPC_PAYLOAD = 256 * 1024;
 
+/**
+ * Notifications go out in GETSSH's name: an isolated plugin may show 3 in any 30 seconds, with its
+ * name first in the title. PluginBridge.ts applies the same rule to the plugin's pages.
+ */
+const NOTIFICATION_WINDOW_MS = 30_000;
+const MAX_NOTIFICATIONS_PER_WINDOW = 3;
+
 /** Plugins with a dialog on screen: one at a time each, so a plugin cannot stack dialogs. */
 const pluginsWithDialog = new Set<string>();
 
@@ -92,6 +99,8 @@ export class PluginManager {
   private runningPlugins: Map<string, RunningPlugin> = new Map();
   /** Installs of each plugin since GETSSH started; never reset, so a reinstall always counts up. */
   private installCounts = new Map<string, number>();
+  /** When each isolated plugin showed its recent notifications (showPluginNotification). */
+  private notificationTimes = new Map<string, number[]>();
 
   private uiExtensions: {
     terminal: Array<{ pluginId: string, actionId: string, label: string, handler: Function }>,
@@ -392,6 +401,22 @@ export class PluginManager {
     });
   }
 
+  /**
+   * A notification from an isolated plugin, through notification.show or host.notify. GETSSH's
+   * own notices about a plugin (a clipboard read) do not count. A developer-mode plugin runs in
+   * this process and could show notifications directly, so its context is not limited.
+   */
+  private showPluginNotification(pluginId: string, title: string, body: string): void {
+    const now = Date.now();
+    const recent = (this.notificationTimes.get(pluginId) ?? []).filter(time => now - time < NOTIFICATION_WINDOW_MS);
+    if (recent.length >= MAX_NOTIFICATIONS_PER_WINDOW) {
+      throw new Error(`A plugin can show at most ${MAX_NOTIFICATIONS_PER_WINDOW} notifications in ${NOTIFICATION_WINDOW_MS / 1000} seconds.`);
+    }
+    recent.push(now);
+    this.notificationTimes.set(pluginId, recent);
+    new Notification({ title: title ? `[${pluginId}] ${title}` : `[${pluginId}]`, body }).show();
+  }
+
   private stringArg(args: unknown[], index: number, label: string, maxLength = 65_536): string {
     const value = args[index];
     if (typeof value !== 'string' || value.length > maxLength) {
@@ -477,7 +502,7 @@ export class PluginManager {
       case 'notification.show': {
         const title = this.stringArg(args, 0, 'Notification title', 256);
         const body = this.stringArg(args, 1, 'Notification body', 4_096);
-        new Notification({ title, body }).show();
+        this.showPluginNotification(pluginId, title, body);
         return null;
       }
       case 'storage.get': {
@@ -564,7 +589,7 @@ export class PluginManager {
       case 'host.notify': {
         const title = this.stringArg(args, 0, 'Notification title', 256);
         const body = this.stringArg(args, 1, 'Notification body', 4_096);
-        new Notification({ title, body }).show();
+        this.showPluginNotification(pluginId, title, body);
         return null;
       }
       case 'host.clipboard.writeText': {

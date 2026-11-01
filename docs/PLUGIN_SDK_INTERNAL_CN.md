@@ -319,6 +319,8 @@ interface MainContextAPI {
 
 `showNotification()` 是兼容别名，新插件建议使用 `host.notify()`。`type` 当前用于表达调用意图，桌面通知的最终外观由操作系统决定。
 
+隔离运行的插件，`host.notify()` 和 `showNotification()` 合计 30 秒内最多 3 条，多出的调用会 reject。标题前会加上 `[插件 name]`；标题最多 256 个字符，正文最多 4096 个字符。开发者模式的插件在主进程里运行，不受这个限制。
+
 `safeStorageEncrypt()` 在 3.0 删除了，请改用 `context.secrets`（6.3）。它返回的密文没有任何接口能解开，在 macOS 上还会弹出钥匙串授权。旧插件调用它会报错：`context.safeStorageEncrypt is not a function`。
 
 ### 6.2 插件 KV 存储
@@ -658,6 +660,8 @@ interface RendererContextAPI {
 ```
 
 前端通知使用浏览器 Notification API；系统没有授予通知权限时可能不显示。
+
+一个插件的页面（包括 `renderer.js`）30 秒内最多显示 3 条通知，多出的直接丢掉。标题前会加上 `[插件 name]`；标题超过 256 个字符、正文超过 4096 个字符的部分会被截掉。后端的通知另算，规则见 6.1。
 
 ### `getLocale` 与 `onThemeChange`
 
