@@ -1,5 +1,6 @@
 // @vitest-environment node
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -22,7 +23,10 @@ import {
  * Electron window, and scripts/security/plugin-renderer-smoke.mjs the renderer.js pages.
  */
 
-const GUARD = '<script>delete window.RTCPeerConnection; delete window.webkitRTCPeerConnection;</script>';
+const GUARD_SOURCE = 'delete window.RTCPeerConnection; delete window.webkitRTCPeerConnection;';
+const GUARD = `<script>${GUARD_SOURCE}</script>`;
+// jsdom ships no types; only its HTML parser (parse5, which follows the HTML standard) is used here.
+const { JSDOM } = createRequire(import.meta.url)('jsdom') as { JSDOM: new (html: string) => { window: { document: Document } } };
 
 function directives(csp: string): Map<string, string[]> {
   return new Map(csp.split(';').map(part => part.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]));
@@ -63,6 +67,60 @@ describe('withWebRtcGuard', () => {
   it('skips a byte order mark, white space and comments before the doctype', () => {
     expect(withWebRtcGuard('\uFEFF \n<!-- a --><!--b-->\n<!doctype html><html>')).toBe(`\uFEFF \n<!-- a --><!--b-->\n<!doctype html>${GUARD}<html>`);
   });
+
+  it('puts the guard before a script that follows a comment the HTML parser closes early', () => {
+    // '<!-->' and '<!--->' are whole comments and '--!>' ends one, so the script after them runs.
+    for (const start of ['<!-->', '<!--->', '<!-- a --!>', '<!---->', '<!----!>', '<!-- a --->', '<!-- <!-->']) {
+      expect(withWebRtcGuard(`${start}<script>own()</script><!-- x -->`), start).toBe(`${start}${GUARD}<script>own()</script><!-- x -->`);
+    }
+  });
+
+  it('skips bogus comments such as <?xml ...?> before the doctype', () => {
+    expect(withWebRtcGuard('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html><html>'))
+      .toBe(`<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>${GUARD}<html>`);
+    expect(withWebRtcGuard('<!x></ x></><!doctype html><p>')).toBe(`<!x></ x></><!doctype html>${GUARD}<p>`);
+  });
+
+  it('takes only the HTML parser\'s white space for white space', () => {
+    // A vertical tab or a no-break space is text, and the guard goes before it.
+    expect(withWebRtcGuard(' \t\n\f\r\v<!doctype html>')).toBe(` \t\n\f\r${GUARD}\v<!doctype html>`);
+    expect(withWebRtcGuard(' <p>')).toBe(`${GUARD} <p>`);
+  });
+
+  it('runs before every script of the page as the HTML parser reads it', () => {
+    // Pages made of pieces the parser reads in unusual ways, each ending in a script of the plugin.
+    // Parsed, the guard must be the page's first script and the first element of <head>, the page
+    // must keep its standards or quirks mode, and every script of the page must still be there.
+    const pieces = [
+      ' ', '\n', '\t', '\r', '\f', '\v', ' ', 'text', '<', '<!', '>', '->', '-->', '--!>',
+      '<!---->', '<!-->', '<!--->', '<!-- a -->', '<!-- a --!>', '<!-- a --->', '<!--<!-->', '<!-- <!-- -->',
+      '<!-- -- >', '<!--!>', '<!---!>', '<!--',
+      '<?xml version="1.0"?>', '<?x>', '<!x>', '<!-x>', '<![CDATA[x]]>', '</ x>', '</>', '</p>',
+      '<!doctype html>', '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">', '<!doctype html',
+      '<html>', '<head>', '<body>', '<p>', '<title>x</title>', '<style>p{}</style>', '<textarea>', '</textarea>',
+      '<script>own()</script>', '<script src="own.js"></script>', '<svg><script>own()</script></svg>',
+    ];
+    // mulberry32: the same pages on every run.
+    let seed = 20261102;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    for (let i = 0; i < 400; i++) {
+      let page = '';
+      for (let count = 1 + Math.floor(random() * 6); count > 0; count--) page += pieces[Math.floor(random() * pieces.length)];
+      page += '<script>own()</script>';
+      const original = new JSDOM(page).window.document;
+      const guarded = new JSDOM(withWebRtcGuard(page)).window.document;
+      const first = guarded.querySelector('script');
+      expect(first?.textContent, page).toBe(GUARD_SOURCE);
+      expect(guarded.head.firstElementChild, page).toBe(first);
+      expect(guarded.compatMode, page).toBe(original.compatMode);
+      expect(guarded.querySelectorAll('script').length, page).toBe(original.querySelectorAll('script').length + 1);
+    }
+  }, 30_000);
 
   it('puts the guard first on a page without a doctype', () => {
     expect(withWebRtcGuard('<script>page()</script>')).toBe(`${GUARD}<script>page()</script>`);

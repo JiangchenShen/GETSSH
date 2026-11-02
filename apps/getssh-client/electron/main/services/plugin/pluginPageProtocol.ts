@@ -89,9 +89,12 @@ export const PLUGIN_PAGE_CONNECTION_ALLOWLIST = '(response-origin);webrtc=block'
  */
 const WEBRTC_GUARD = '<script>delete window.RTCPeerConnection; delete window.webkitRTCPeerConnection;</script>';
 
-// What may come before the guard: a byte order mark, white space, comments and the doctype. A
-// script ahead of the doctype would put the page in quirks mode.
-const PAGE_PROLOGUE = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?/i;
+// What may come before the guard, read the way the HTML parser reads it: a byte order mark, then
+// white space (its five characters), comments, bogus comments (<?xml ...?>, <!x>, </ x>) and the
+// doctype, none of which runs anything. '<!-->' and '<!--->' are whole comments, and '--!>' also
+// ends one: a search for the next '-->' would take the plugin's own <script> for part of a comment
+// and put the guard after it. A script ahead of the doctype would put the page in quirks mode.
+const PAGE_PROLOGUE = /^\uFEFF?(?:[\t\n\f\r ]|<!--(?:-?>|[\s\S]*?--!?>)|<!(?!--)[^>]*>|<\?[^>]*>|<\/(?![A-Za-z])[^>]*>)*/;
 
 /** The page with the WebRTC guard ahead of everything the page runs. */
 export function withWebRtcGuard(html: string): string {

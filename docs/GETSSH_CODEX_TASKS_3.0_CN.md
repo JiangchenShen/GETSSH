@@ -1088,6 +1088,21 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - "下载响应不带这个头"只有单元测试管，没在冒烟测试里撤：撤掉会让 Electron 主进程崩溃，macOS 下次启动 Electron（包括负责人的开发版）可能弹"是否重新打开窗口"。
 - 整套 vitest：98 个文件，1391 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build` 通过；`test:plugin-isolation`、`test:plugin-network`、`test:plugin-sandbox`、`test:local-memory`、`test:sentinel`、`test:mcp-sandbox` 通过。原生模块用 `scripts/build-native.js` 编的，两个 `index.d.ts` 已还原。
 
+**复查后修的**（11-02，在 `183d924` 后面的第二个提交）：
+- 页首脚本插的位置。原来的规则一直找到下一个 `-->` 才算注释结束，和 HTML 解析器不一样：`<!-->`、`<!--->` 本身就是完整的空注释，`--!>` 也能结束注释。页面开头用这三种写法，规则就把插件自己的 `<script>` 当成注释的一部分，页首脚本插到它后面，插件的脚本先运行，`RTCPeerConnection` 还在。复查时发现，本机复现了。
+- 现在照 HTML 的规则认：空白只认 HTML 的五个字符；注释按解析器的规则结束；`<?xml ...?>`、`<!x>`、`</ x>` 这类 bogus comment 到第一个 `>` 结束，也跳过。doctype 前面有 `<?xml ...?>` 的页面，页首脚本插在 doctype 后面，不再把页面变成怪异模式。
+- vitest 新增 4 条，这个文件共 24 条：
+  - 三种注释写法各接一个 `<script>`，页首脚本在它前面；
+  - bogus comment 和 HTML 的空白；
+  - 用 jsdom（底层是照 HTML 标准解析的 parse5）读 400 个由各种怪写法拼成、结尾是插件脚本的页面：解析结果里页首脚本必须是第一个脚本、是 `<head>` 的第一个元素，页面的标准或怪异模式不变，插件的脚本一个不少。
+  - 把旧规则放回去，这 4 条都失败。
+- `test:plugin-page` 新加两个插件：
+  - 页面以 `<!-->` 开头，接着是它自己的 WebRTC 探测脚本，`<head>` 在后面（桥接脚本插在那里）。有防护时这个脚本里没有 `RTCPeerConnection`，11 个探测一个都没到；对照组都到了。放回旧规则，SDP 里的 TCP 候选和主机名候选到了，测试失败。
+  - 页面嵌一个没有 src 的子 iframe（about:blank），用 `frame.contentWindow.RTCPeerConnection` 新建。两轮都是 SecurityError：这个子页面和建它的沙盒插件页面不同源，页面拿不到它的构造函数，对照组也一样。输出里照实记下。
+  - 输出：`{"blocked":21,"controlReached":27,"webrtcBlocked":44,"webrtcControlReached":44,"aboutBlank":{"policy":"error: SecurityError","control":"error: SecurityError"}}`。
+- 给第 2 步记下（复查的提示）：独立的 WebContents 有自己的 preload，可以在页面脚本运行之前，在页面的主环境里删掉 `RTCPeerConnection`，不靠解析 HTML；HTML 里的页首脚本留着当第二道。
+- 整套 vitest：98 个文件，1395 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build`、`test:plugin-page`、`test:plugin-renderer`、`test:plugin-isolation` 通过。
+
 **还没做的**：
 - Windows：`security-sandbox.yml` 在 macOS 和 Windows 上跑这两个冒烟测试，要推送后看 CI。不确定的一点：Windows 上 WebRTC 从网卡地址发往 127.0.0.1 的 UDP 能不能到，对照组要收到。到不了的话，UDP 测试端口改成听本机网卡地址。
 - 第 2、3 步。

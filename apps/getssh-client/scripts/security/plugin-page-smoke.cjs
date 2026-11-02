@@ -6,11 +6,13 @@
  * iframe PluginPane uses. The page tries every way out we know of against a loopback server, which
  * counts what arrives. The page must still load its own files and talk to the host.
  *
- * WebRTC (webrtc-probe.cjs) is probed from the page, from an SVG document of the plugin, and from a
- * srcdoc frame of a second plugin: in Chromium 152 a srcdoc frame that creates an RTCPeerConnection
- * under the page's Connection-Allowlist ends its plugin's renderer process, which must not take the
- * probe page with it. Nothing may arrive, and the window's process must survive an iframe on a
- * plugin file that turns into a download (that crashed it when the download had the list too).
+ * WebRTC (webrtc-probe.cjs) is probed from the page, from an SVG document of the plugin, from a
+ * srcdoc frame of a second plugin, from a third plugin's page that starts with '<!-->' and its own
+ * script (the WebRTC guard must still come first), and with the constructor of an about:blank
+ * frame of a fourth plugin. In Chromium 152 a srcdoc frame that creates an RTCPeerConnection under
+ * the page's Connection-Allowlist ends its plugin's renderer process, which must not take the probe
+ * page with it. Nothing may arrive, and the window's process must survive an iframe on a plugin
+ * file that turns into a download (that crashed it when the download had the list too).
  *
  * A second run serves the same pages without the plugin page CSP, the Connection-Allowlist and the
  * WebRTC guard, in a window that may use WebRTC over UDP: the probes must reach the servers there,
@@ -38,8 +40,10 @@ protocol.registerSchemesAsPrivileged([{ scheme: PLUGIN_PAGE_SCHEME, privileges: 
 // As the app does: every window gets WebRTC without UDP (the control window turns it back on).
 disableWebRtcUdp(app);
 const WEBRTC_GUARD = withWebRtcGuard('');
-// Where the WebRTC probes run; the control run must see every probe of each arrive.
-const WEBRTC_TAGS = ['page', 'svg', 'srcdoc'];
+// Where the WebRTC probes run; the control run must see every probe of each arrive. The about:blank
+// frame is cross-origin to the sandboxed plugin page that made it, so the page cannot take its
+// RTCPeerConnection in either run (a SecurityError, recorded in the output).
+const WEBRTC_TAGS = ['page', 'svg', 'srcdoc', 'comment'];
 const WEBRTC_MUST_REACH = WEBRTC_TAGS.flatMap(webrtcLabels);
 // Closing the first probe window must not quit the app (and turn a failure into exit code 0).
 app.on('window-all-closed', () => {});
@@ -87,9 +91,17 @@ function writeProbePlugin(origin, port) {
   const probe = path.join(pluginsDir, 'probe');
   const other = path.join(pluginsDir, 'other');
   const nested = path.join(pluginsDir, 'nested');
-  fs.mkdirSync(probe, { recursive: true });
-  fs.mkdirSync(other, { recursive: true });
-  fs.mkdirSync(nested, { recursive: true });
+  const comment = path.join(pluginsDir, 'comment');
+  const blank = path.join(pluginsDir, 'blank');
+  for (const dir of [probe, other, nested, comment, blank]) fs.mkdirSync(dir, { recursive: true });
+  // '<!-->' is a whole comment, so the script after it is the page's first: the guard must precede
+  // it. The <head> further on is where the bridge goes.
+  fs.writeFileSync(path.join(comment, 'index.html'), `<!--><script>
+${webrtcProbeScript('comment', webrtc.ports.comment)}.then(r => top.postMessage({ webrtcComment: r }, '*'));
+</script><!-- x --><html><head></head><body></body></html>`);
+  fs.writeFileSync(path.join(blank, 'index.html'), `<!doctype html><html><head></head><body><iframe id="child"></iframe><script>
+${webrtcProbeScript('blank', webrtc.ports.blank, "document.getElementById('child').contentWindow.RTCPeerConnection")}.then(r => top.postMessage({ webrtcBlank: r }, '*'));
+</script></body></html>`);
   // The second plugin's page runs the WebRTC probe in a srcdoc frame and reports to the window.
   const srcdoc = `<script>${webrtcProbeScript('srcdoc', webrtc.ports.srcdoc)}.then(r => top.postMessage({ webrtcSrcdoc: r }, '*'))</script>`;
   fs.writeFileSync(path.join(nested, 'index.html'), `<!doctype html><html><head></head><body><script>
@@ -196,6 +208,8 @@ function writeHostPage(run) {
 <iframe id="probe" sandbox="allow-scripts" src="getssh-plugin://probe/index.html?run=${run}"></iframe>
 <iframe sandbox="allow-scripts" src="getssh-plugin://probe/navigate-self.html?run=${run}"></iframe>
 <iframe sandbox="allow-scripts" src="getssh-plugin://nested/index.html?run=${run}"></iframe>
+<iframe sandbox="allow-scripts" src="getssh-plugin://comment/index.html?run=${run}"></iframe>
+<iframe sandbox="allow-scripts" src="getssh-plugin://blank/index.html?run=${run}"></iframe>
 <script>
 window.__probe = null;
 window.__bridge = [];
@@ -207,6 +221,8 @@ addEventListener('message', event => {
   if (data.probeResult) { window.__probe = data.probeResult; return; }
   if (data.webrtcSvg) { window.__webrtc.svg = data.webrtcSvg.result; return; }
   if (data.webrtcSrcdoc) { window.__webrtc.srcdoc = data.webrtcSrcdoc.result; return; }
+  if (data.webrtcComment) { window.__webrtc.comment = data.webrtcComment.result; return; }
+  if (data.webrtcBlank) { window.__webrtc.blank = data.webrtcBlank.result; return; }
   if (data.downloadRan) { window.__downloadRan = true; return; }
   const probe = document.getElementById('probe').contentWindow;
   if (event.source !== probe) return;
@@ -286,7 +302,7 @@ app.whenReady().then(async () => {
     server.listen(0, '127.0.0.1', resolve);
   });
   const { port } = server.address();
-  webrtc = await openWebRtcSinks(WEBRTC_TAGS);
+  webrtc = await openWebRtcSinks([...WEBRTC_TAGS, 'blank']);
   writeProbePlugin(`http://127.0.0.1:${port}`, port);
 
   const handler = createPluginPageHandler(pluginsDir);
@@ -310,6 +326,9 @@ app.whenReady().then(async () => {
     throw new Error(`a plugin page reached the WebRTC test servers: ${guarded.webrtcArrived.join(', ')}`);
   }
   if (probe.webrtc !== 'error: ReferenceError') throw new Error(`the plugin page still has RTCPeerConnection: ${probe.webrtc}`);
+  if (guarded.webrtcResults.comment !== 'error: ReferenceError') {
+    throw new Error(`a page starting with '<!-->' ran its script before the WebRTC guard: ${guarded.webrtcResults.comment}`);
+  }
   if (guarded.downloadRan) throw new Error('a plugin file that is not a page ran as one');
   if (JSON.stringify(probe.themes) !== '["light","dark"]' || probe.locale !== 'en-US') {
     throw new Error(`the plugin page lost the theme or the language: ${JSON.stringify({ themes: probe.themes, locale: probe.locale })}`);
@@ -338,8 +357,14 @@ app.whenReady().then(async () => {
     const results = { page: control.probe.webrtc, ...control.webrtcResults };
     throw new Error(`without the protections these WebRTC probes still did not arrive, so they test nothing: ${webrtcMissed.join(', ')} (${JSON.stringify(results)})`);
   }
-  if (control.probe.webrtc !== 'done' || control.downloadRan) {
-    throw new Error(`control: ${JSON.stringify({ webrtc: control.probe.webrtc, downloadRan: control.downloadRan })}`);
+  if (control.probe.webrtc !== 'done' || control.webrtcResults.comment !== 'done' || control.downloadRan) {
+    throw new Error(`control: ${JSON.stringify({ webrtc: control.probe.webrtc, comment: control.webrtcResults.comment, downloadRan: control.downloadRan })}`);
+  }
+  // The about:blank frame's constructor: if the control run can use it, all its probes must arrive
+  // there (the first run sent nothing, checked above); if it cannot, that is recorded below.
+  const blankLabels = webrtcLabels('blank');
+  if (control.webrtcResults.blank === 'done' && blankLabels.some(label => !control.webrtcArrived.includes(label))) {
+    throw new Error(`control: the about:blank frame's probes ran but did not all arrive: ${JSON.stringify(control.webrtcArrived)}`);
   }
 
   console.log(JSON.stringify({
@@ -347,6 +372,7 @@ app.whenReady().then(async () => {
     controlReached: control.requests.length,
     webrtcBlocked: WEBRTC_MUST_REACH.length,
     webrtcControlReached: control.webrtcArrived.length,
+    aboutBlank: { policy: guarded.webrtcResults.blank ?? 'no report', control: control.webrtcResults.blank ?? 'no report' },
   }));
   finish();
 }).catch(finish);

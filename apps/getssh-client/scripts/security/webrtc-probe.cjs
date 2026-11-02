@@ -75,9 +75,10 @@ async function openWebRtcSinks(tags) {
 /**
  * Script source of an expression that runs every probe against the given ports and resolves to
  * { tag, result }: 'done' after three seconds of ICE, or the error that stopped it (a page
- * without RTCPeerConnection throws a ReferenceError at once).
+ * without RTCPeerConnection throws a ReferenceError at once). `peerConnection` is the expression
+ * for the constructor, such as another frame's.
  */
-function webrtcProbeScript(tag, ports) {
+function webrtcProbeScript(tag, ports, peerConnection = 'RTCPeerConnection') {
   const p = ports;
   const line = text => `${text}\\r\\n`;
   const sdpCandidates = [
@@ -89,7 +90,7 @@ function webrtcProbeScript(tag, ports) {
   return `(async () => {
   const out = { tag: ${JSON.stringify(tag)} };
   try {
-    const pc = new RTCPeerConnection({ iceServers: [
+    const pc = new (${peerConnection})({ iceServers: [
       { urls: 'stun:${HOST}:${p['stun-udp']}' },
       { urls: 'turn:${HOST}:${p['turn-udp']}?transport=udp', username: 'leak', credential: 'leak' },
       { urls: 'turn:${HOST}:${p['turn-tcp']}?transport=tcp', username: 'leak', credential: 'leak' },
