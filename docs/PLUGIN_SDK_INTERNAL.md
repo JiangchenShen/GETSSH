@@ -524,7 +524,10 @@ From 3.0.0-preview.2, every `getssh-plugin://` response carries a CSP:
 - A page cannot load files from another plugin's folder.
 - Bundle libraries, fonts and icons into the plugin folder instead of linking a CDN.
 - For network access, the page calls its own backend with `invokeBackend()`; a backend that declares `net:fetch` reaches public addresses through the GETSSH network gateway (`context.net.fetch()` in section 6).
-- CSP does not cover WebRTC, but WebRTC is not a supported way to go online, and a later version may turn it off.
+- In versions after 3.0.0-preview.2, a page has no WebRTC (CSP does not cover it, so it is turned off separately):
+  - plugin pages have no `RTCPeerConnection`;
+  - creating an `RTCPeerConnection` in a srcdoc frame takes down the plugin's whole page (Chromium ends its renderer process); other plugins and the main window keep running;
+  - SVG files work as images, but an SVG opened as a document in an iframe runs no scripts.
 - The page `renderer.js` runs in has the same limits.
 
 | API | `renderer.js` bootstrap | Visible HTML panel |

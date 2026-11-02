@@ -5,18 +5,24 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   MAX_PLUGIN_PAGE_BYTES,
+  PLUGIN_PAGE_CONNECTION_ALLOWLIST,
   PLUGIN_PAGE_SCHEME_PRIVILEGES,
+  WEBRTC_IP_HANDLING_POLICY,
   createPluginPageHandler,
+  disableWebRtcUdp,
   pluginPageCsp,
   pluginRendererPages,
   rendererScriptPath,
+  withWebRtcGuard,
 } from './pluginPageProtocol';
 
 /*
- * The getssh-plugin:// handler: every response carries a CSP that keeps the page offline.
- * scripts/security/plugin-page-smoke.cjs checks the same policy in a real Electron window, and
- * scripts/security/plugin-renderer-smoke.mjs the renderer.js pages.
+ * The getssh-plugin:// handler: every response carries a CSP that keeps the page offline, and
+ * pages keep WebRTC off as well. scripts/security/plugin-page-smoke.cjs checks the same in a real
+ * Electron window, and scripts/security/plugin-renderer-smoke.mjs the renderer.js pages.
  */
+
+const GUARD = '<script>delete window.RTCPeerConnection; delete window.webkitRTCPeerConnection;</script>';
 
 function directives(csp: string): Map<string, string[]> {
   return new Map(csp.split(';').map(part => part.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]));
@@ -44,6 +50,39 @@ describe('pluginPageCsp', () => {
 
   it('is not paired with bypassCSP on the scheme', () => {
     expect(PLUGIN_PAGE_SCHEME_PRIVILEGES).not.toHaveProperty('bypassCSP');
+  });
+});
+
+describe('withWebRtcGuard', () => {
+  it('puts the guard after the doctype, ahead of every script of the page', () => {
+    expect(withWebRtcGuard('<!doctype html><script>page()</script>')).toBe(`<!doctype html>${GUARD}<script>page()</script>`);
+    expect(withWebRtcGuard('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"><html>'))
+      .toBe(`<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">${GUARD}<html>`);
+  });
+
+  it('skips a byte order mark, white space and comments before the doctype', () => {
+    expect(withWebRtcGuard('\uFEFF \n<!-- a --><!--b-->\n<!doctype html><html>')).toBe(`\uFEFF \n<!-- a --><!--b-->\n<!doctype html>${GUARD}<html>`);
+  });
+
+  it('puts the guard first on a page without a doctype', () => {
+    expect(withWebRtcGuard('<script>page()</script>')).toBe(`${GUARD}<script>page()</script>`);
+    expect(withWebRtcGuard('  <!-- note --><p>x</p>')).toBe(`  <!-- note -->${GUARD}<p>x</p>`);
+    // An unclosed comment would hide the rest of the page anyway; the guard goes before it.
+    expect(withWebRtcGuard('<!-- open <script>page()</script>')).toBe(`${GUARD}<!-- open <script>page()</script>`);
+    expect(withWebRtcGuard('')).toBe(GUARD);
+  });
+});
+
+describe('disableWebRtcUdp', () => {
+  it('gives every WebContents created afterwards the UDP-free WebRTC policy', () => {
+    const listeners: Array<(event: unknown, contents: { setWebRTCIPHandlingPolicy(policy: string): void }) => void> = [];
+    const app = { on: (event: string, listener: (typeof listeners)[number]) => { expect(event).toBe('web-contents-created'); listeners.push(listener); } };
+    disableWebRtcUdp(app as unknown as Electron.App);
+    expect(listeners).toHaveLength(1);
+    const contents = { setWebRTCIPHandlingPolicy: vi.fn() };
+    listeners[0]({}, contents);
+    expect(contents.setWebRTCIPHandlingPolicy).toHaveBeenCalledWith('disable_non_proxied_udp');
+    expect(WEBRTC_IP_HANDLING_POLICY).toBe('disable_non_proxied_udp');
   });
 });
 
@@ -75,36 +114,42 @@ describe('createPluginPageHandler', () => {
 
   afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  it('serves a page with the bridge and the plugin\'s policy', async () => {
+  it('serves a page with the WebRTC guard, the bridge and the plugin\'s policy', async () => {
     const response = await get('getssh-plugin://demo/index.html');
     expect(response.status).toBe(200);
     expect(response.headers.get('content-security-policy')).toBe(pluginPageCsp('demo'));
+    expect(response.headers.get('connection-allowlist')).toBe('(response-origin);webrtc=block');
+    expect(PLUGIN_PAGE_CONNECTION_ALLOWLIST).toBe('(response-origin);webrtc=block');
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     const text = await response.text();
-    expect(text.startsWith('<!doctype html><html><head>\n    <script>')).toBe(true);
+    expect(text.startsWith(`<!doctype html>${GUARD}<html><head>\n    <script>`)).toBe(true);
     expect(text).toContain('var PLUGIN_ID = "demo";');
     expect(text).toContain('window.GETSSH = {');
     expect(text).toContain('<title>t</title></head><body>hi</body>');
   });
 
-  it('puts the bridge first on a page without <head>', async () => {
-    const text = await (await get('getssh-plugin://demo/bare.html')).text();
-    expect(text.trimStart().startsWith('<script>')).toBe(true);
+  it('puts the guard, then the bridge first on a page without <head>', async () => {
+    const response = await get('getssh-plugin://demo/bare.html');
+    expect(response.headers.get('connection-allowlist')).toBe(PLUGIN_PAGE_CONNECTION_ALLOWLIST);
+    const text = await response.text();
+    expect(text.trimStart().startsWith(`${GUARD}<script>\n      (function() {`)).toBe(true);
     expect(text.endsWith('<p>no head</p>')).toBe(true);
   });
 
-  it('gives every other file the same policy', async () => {
-    for (const [file, type] of [
-      ['app.js', 'application/javascript; charset=utf-8'],
-      ['style.css', 'text/css; charset=utf-8'],
-      ['icon.svg', 'image/svg+xml'],
-      ['data.bin', 'application/octet-stream'],
+  it('gives every other file the same policy, SVG without scripts, and no Connection-Allowlist', async () => {
+    for (const [file, type, csp] of [
+      ['app.js', 'application/javascript; charset=utf-8', pluginPageCsp('demo')],
+      ['style.css', 'text/css; charset=utf-8', pluginPageCsp('demo')],
+      ['icon.svg', 'image/svg+xml', `${pluginPageCsp('demo')}; sandbox`],
+      ['data.bin', 'application/octet-stream', pluginPageCsp('demo')],
     ]) {
       const response = await get(`getssh-plugin://demo/${file}`);
       expect(response.status, file).toBe(200);
       expect(response.headers.get('content-type'), file).toBe(type);
-      expect(response.headers.get('content-security-policy'), file).toBe(pluginPageCsp('demo'));
-      await response.arrayBuffer();
+      expect(response.headers.get('content-security-policy'), file).toBe(csp);
+      // A download with this header crashed Electron 44's main process (data.bin in an iframe).
+      expect(response.headers.has('connection-allowlist'), file).toBe(false);
+      expect(Buffer.from(await response.arrayBuffer()).includes('RTCPeerConnection'), file).toBe(false);
     }
   });
 
@@ -118,6 +163,7 @@ describe('createPluginPageHandler', () => {
       const response = await get(url);
       expect(response.status, url).toBe(status);
       expect(response.headers.get('content-security-policy'), url).toBe(pluginPageCsp('demo'));
+      expect(response.headers.has('connection-allowlist'), url).toBe(false);
       expect(await response.text(), url).not.toContain(root);
     }
   });
@@ -141,12 +187,14 @@ describe('createPluginPageHandler', () => {
     expect(directives(response.headers.get('content-security-policy')!).get('default-src')).toEqual(["'none'"]);
   });
 
-  it('serves the renderer.js page: the bridge, then the script from the plugin\'s folder', async () => {
+  it('serves the renderer.js page: the WebRTC guard, the bridge, then the script from the plugin\'s folder', async () => {
     const response = await get('getssh-plugin://demo/?renderer=dist%2Fmy%20renderer.js&locale=zh-CN');
     expect(response.status).toBe(200);
     expect(response.headers.get('content-security-policy')).toBe(pluginPageCsp('demo'));
+    expect(response.headers.get('connection-allowlist')).toBe(PLUGIN_PAGE_CONNECTION_ALLOWLIST);
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     const text = await response.text();
+    expect(text.startsWith(`<!doctype html>${GUARD}<html>`)).toBe(true);
     expect(text).toContain('var PLUGIN_ID = "demo";');
     expect(text).toContain('window.__GETSSH_LOCALE = "zh-CN";');
     expect(text).toContain("invokeBackend() is not available in renderer.js");
@@ -184,6 +232,7 @@ describe('createPluginPageHandler', () => {
       const response = await get(url);
       expect(response.status, url).toBe(status);
       expect(response.headers.get('content-security-policy'), url).toBe(pluginPageCsp('demo'));
+      expect(response.headers.has('connection-allowlist'), url).toBe(false);
       expect(await response.text(), url).not.toMatch(/other plugin|<script/);
     }
   });

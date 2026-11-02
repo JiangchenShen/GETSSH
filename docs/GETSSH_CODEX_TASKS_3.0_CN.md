@@ -770,7 +770,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 **10-22 写 README 的 2.0 / 3.0 对比时，从代码里查到的问题**（都是读代码确认的，没有运行验证；README 里已经如实写了，没有回避）：
 - 主进程（Claude）：
-  - ~~**插件页面可以直接联网**：`getssh-plugin://` 注册时带 `bypassCSP`，返回的 HTML 没有 CSP 头，iframe 只有 `sandbox="allow-scripts"`。插件声明的 `net:fetch` 只管后端。修法：给插件页面的响应加 CSP（`connect-src 'none'` 等），或按来源拦截插件页面的网络请求。~~ 已改（Claude，10-26），见下面"10-26 插件页面的 CSP"；WebRTC 还挡不住。
+  - ~~**插件页面可以直接联网**：`getssh-plugin://` 注册时带 `bypassCSP`，返回的 HTML 没有 CSP 头，iframe 只有 `sandbox="allow-scripts"`。插件声明的 `net:fetch` 只管后端。修法：给插件页面的响应加 CSP（`connect-src 'none'` 等），或按来源拦截插件页面的网络请求。~~ 已改（Claude，10-26），见下面"10-26 插件页面的 CSP"；WebRTC 还挡不住（11-02 已改，见下面"11-02 插件页面不能再用 WebRTC"）。
   - **MCP 反向采样不用您选的服务商**：`setAiConfigProvider` 没有调用方，`resolveAiConfig` 落到 Gemini `gemini-2.5-flash`；"RASP 检查"调用的 `SecureCenter.checkSecurityRisk` 不存在。设置里的说明（"使用您配置的 AI 服务商和额度"）和代码不符。
   - **本地记忆没有排除当前对话**：`aiHandler` 把终端会话 id 当成 `excludeSessionId`，而 `ai_memory_vectors.session_id` 存的是对话 id。
   - **"启用 AI"开关只管浮动窗口和 AI 中心**：指令中心的 AI 和主进程都不检查它。
@@ -815,7 +815,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - 整套 vitest：94 个文件，1343 个通过，另有 2 个本来就标着 `it.fails`。`test:plugin-isolation`、`test:plugin-network`、`test:plugin-sandbox`、`test:mcp-sandbox` 都通过。
 
 **还没解决的**：
-- **WebRTC 挡不住**。页面仍能连到外部的 STUN（UDP）和 TURN（TCP）服务器，并通过 TURN 的用户名之类的字段带出数据。试过的办法都不行：
+- ~~**WebRTC 挡不住**。页面仍能连到外部的 STUN（UDP）和 TURN（TCP）服务器，并通过 TURN 的用户名之类的字段带出数据。~~ 已改（Claude，11-02），见下面"11-02 插件页面不能再用 WebRTC"。当时试过、不行的办法：
   - CSP 管不到 WebRTC，Chromium 没有实现 `webrtc 'block'`；
   - `setWebRTCIPHandlingPolicy('disable_non_proxied_udp')` 只挡住 UDP，TURN 走 TCP 照样能连；
   - 在页面里删掉 `RTCPeerConnection` 也没用：插件嵌一个 srcdoc 子页面，就能拿到新的 `RTCPeerConnection`。
@@ -892,7 +892,7 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 - vitest：compareVersions、updateCheck、systemHandler、AboutTab、pluginPageProtocol 5 个文件，37 个通过；`tsc -b` 通过。
 
 **还没做的**：
-- WebRTC，见 10-26。~~`renderer.js`~~ 已改（Claude，11-01），见下面"11-01 插件的 renderer.js 能运行了"。
+- ~~WebRTC，见 10-26。~~ 已改（Claude，11-02），见下面"11-02 插件页面不能再用 WebRTC"。~~`renderer.js`~~ 已改（Claude，11-01），见下面"11-01 插件的 renderer.js 能运行了"。
 - ~~Scorecard 工作流，见上。~~ 已改（Claude，10-29）：`ossf/scorecard-action` 升到 v2.5.0，镜像改从 `ghcr.io/ossf/scorecard-action` 拉。这个工作流只在 main 上跑，改动进了 main 才生效。
 
 ## 10-29 合并 Dependabot #207、#208（Claude）
@@ -1048,6 +1048,49 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 **还没做的**：
 - ~~Windows：推送后看 Security Sandbox，新的 `test:plugin-renderer` 会第一次在 CI 上跑。~~ 已跑（11-01 推送 `94e77b3` 后的 Security Sandbox，运行 41349027821）：macos-15 和 windows-2022 上 `test:plugin-renderer` 都输出 `{"started":6,"sidebarActions":6,"panelsOpened":2,"blocked":13,"controlReached":13}`，和本机一样；`test:plugin-page`、`test:plugin-isolation` 也通过，windows-2022 上打包后的启动检查通过。Dependency Audit（运行 41349027781）通过。
 - 官网 SDK 指南里的通知规则，和 README、发布说明一起等下次发布时改。
-- 已知的 WebRTC 外连现在启动时就能触发：每个插件的 `renderer.js` 一启动就在隐藏 iframe 里运行，不用用户打开面板。这个 iframe 里拿不到用户数据（`invokeBackend()` 直接 reject，也碰不到主窗口），只能拿来"报到"。见 10-26 和 WebRTC 那个会话。
+- ~~已知的 WebRTC 外连现在启动时就能触发：每个插件的 `renderer.js` 一启动就在隐藏 iframe 里运行，不用用户打开面板。这个 iframe 里拿不到用户数据（`invokeBackend()` 直接 reject，也碰不到主窗口），只能拿来"报到"。见 10-26 和 WebRTC 那个会话。~~ 已改（Claude，11-02），见下面"11-02 插件页面不能再用 WebRTC"。
 - 卸载插件时，它注册的面板和已经打开的面板标签页不会清掉（原有问题）。
 - 侧栏收起时不显示插件按钮（见上面 renderer.js 一节）。
+
+## 11-02 插件页面不能再用 WebRTC（Claude）
+
+负责人 11-02 定了三步，这一节是第 1 步：
+1. 插件页面加防护：响应头、页首脚本、SVG 的 sandbox、关掉 WebRTC 的 UDP（这一节）；
+2. renderer.js 的隐藏 iframe 挪进主进程建的独立 WebContents，每个插件一个 session；
+3. 可见的插件页面也挪出去。界面部分归 Codex。
+
+**实测的现状**（Electron 44.10.0，Chromium 152）：插件页面能用 WebRTC 连到 STUN 和 TURN 服务器（UDP、TCP、TLS），能让远端候选（`addIceCandidate()` 加的，或直接写进 SDP 的）收到 ICE 连通性检查，检查里带着页面自己定的用户名；候选和 TURN 服务器写主机名时还会查 DNS。插件页面本身、它的 srcdoc 子页面、它目录里的 SVG 文档都一样。
+
+**改了什么**（`pluginPageProtocol.ts`、`index.ts`）：
+- 插件的 HTML 页面和 renderer.js 启动页，成功的响应加 `Connection-Allowlist: (response-origin);webrtc=block`（Chrome 152 起支持）。Chromium 去掉页面给的 ICE 服务器，`addIceCandidate()` 不生效，srcdoc 子页面继承这个头。`(response-origin)` 放行插件自己的 `getssh-plugin://<插件目录>`；空列表 `()` 会把插件嵌套自己的页面也挡住。
+- **这个头只加在页面上**。实测：插件页面用 iframe 打开插件目录里一个 `.bin`（按 `application/octet-stream` 返回，变成下载），只要下载响应带了这个头，Electron 44 主进程就 SIGSEGV 崩溃，6 次运行 6 次都崩；下载响应不带就不崩。脚本、样式、图片、下载和出错的回复都不加。没给 Electron 报这个崩溃（负责人还没同意）。
+- 每个 HTML 页面和启动页的最前面（doctype 后面）加一段脚本，删掉 `RTCPeerConnection` 和 `webkitRTCPeerConnection`，比插件自己的任何脚本都先运行。原因：Chromium 152 对带这个头的页面只去掉 ICE 服务器，直接写进 SDP 的远端候选照样收到连通性检查，候选里的主机名照样查 DNS。
+- SVG 响应的 CSP 后面加 `sandbox`。SVG 当图片用不受影响；在 iframe 里当文档打开时不运行脚本，页首脚本管不到它。
+- `index.ts`：`disableWebRtcUdp(app)`，此后创建的每个 WebContents 都用 `disable_non_proxied_udp`，WebRTC 不走 UDP。GETSSH 自己不用 WebRTC。第 2、3 步新建的 WebContents 也会自动带上。
+- srcdoc 子页面能拿到新的 `RTCPeerConnection`，但它继承了这个头。Chromium 152 里它一新建，浏览器就拒绝给它 mDNS 接口，结束这个插件的渲染进程，一个包也没发出去。插件页面和主窗口不在同一个进程，主窗口照常。
+- Chromium 主干 10-08 合入的 change 8485457（M157 起）改成给这种页面接空的 P2P 和 mDNS 实现：不建 socket、不查 DNS，也不再结束进程。Electron 45（Chromium 156）不含，Electron 46（Chromium 160）应该包含，到时只靠这个头就够，升级时重跑冒烟测试。
+
+**影响**：
+- 插件页面和 renderer.js 里用不了 WebRTC。SDK 文档两种语言"页面能加载什么"一节写明了。示例插件 system-monitor 不用 WebRTC。
+- 桥接（`invokeBackend()`、`onBackendMessage()`）、主题和语言同步都走 postMessage，不受影响；PluginPane 布局、renderer.js 的启动和更新后重建都不变。
+- 被结束进程的插件 iframe 会一直算"加载中"，和 11-01 记的"一直不返回的 renderer.js"一样；主进程没有等页面加载完的代码。
+
+**测试**（本机 macOS arm64；HOME、USERPROFILE 指向临时目录，Electron 带 `--use-mock-keychain`）：
+- `pluginPageProtocol.test.ts`：新增 4 条，改了 6 条，共 20 条。查页面和启动页带头、页首脚本在 doctype 后面（有 BOM、注释、没有 doctype 时位置也对）、脚本和样式和下载和出错的回复不带头、SVG 带 `sandbox`、`disableWebRtcUdp`。
+- 新增 `scripts/security/webrtc-probe.cjs`，两个冒烟测试共用：11 种 WebRTC 探测，每种一个本机端口：STUN；TURN 的 UDP、TCP、TLS；用主机名写的 TURN；`addIceCandidate()` 加的 UDP、TCP 候选；SDP 里写的 UDP、TCP 候选和主机名候选。主机名用 `--host-resolver-rules` 指到 127.0.0.1。
+- `test:plugin-page`：在插件页面、插件的 SVG 文档、另一个插件的 srcdoc 子页面里各跑一遍。有防护时 33 个探测一个都没到，插件页面里 `RTCPeerConnection` 不存在；对照组去掉 CSP、这个头、页首脚本和 SVG 的 `sandbox`，窗口改回能用 UDP，33 个都到了。另外新加了几项：主题和语言能收到；打开 `.bin` 下载的 iframe 不崩、也不当网页运行；新窗口带着 WebRTC 策略。原有 21 种外连照样被挡。输出 `{"blocked":21,"controlReached":27,"webrtcBlocked":33,"webrtcControlReached":33}`。
+- `test:plugin-renderer`：leaky 的 renderer.js 加了同样的 11 种探测。输出 `{"started":6,"sidebarActions":6,"panelsOpened":2,"blocked":13,"controlReached":13,"webrtcBlocked":11,"webrtcControlReached":11}`。
+- 逐一撤掉改动：
+  - 撤掉这个头：vitest 3 条失败；`test:plugin-page` 失败，srcdoc 子页面的 6 个 TCP 探测到了。`test:plugin-renderer` 照样通过，它只测启动页本身，由页首脚本管。
+  - 撤掉页首脚本：vitest 6 条失败；两个冒烟测试都失败，SDP 里的 TCP 候选和主机名候选到了。
+  - 撤掉 SVG 的 `sandbox`：vitest 1 条失败；`test:plugin-page` 失败，SVG 文档新建 `RTCPeerConnection` 时 Chromium 结束了插件进程，探测页没能报告。
+  - 撤掉 UDP 策略：vitest 1 条失败；`test:plugin-page` 失败（新窗口的策略检查）。
+  - "下载响应不带这个头"只有单元测试管，没在冒烟测试里撤：撤掉会让 Electron 主进程崩溃，macOS 下次启动 Electron（包括负责人的开发版）可能弹"是否重新打开窗口"。
+- 整套 vitest：98 个文件，1391 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build` 通过；`test:plugin-isolation`、`test:plugin-network`、`test:plugin-sandbox`、`test:local-memory`、`test:sentinel`、`test:mcp-sandbox` 通过。原生模块用 `scripts/build-native.js` 编的，两个 `index.d.ts` 已还原。
+
+**还没做的**：
+- Windows：`security-sandbox.yml` 在 macOS 和 Windows 上跑这两个冒烟测试，要推送后看 CI。不确定的一点：Windows 上 WebRTC 从网卡地址发往 127.0.0.1 的 UDP 能不能到，对照组要收到。到不了的话，UDP 测试端口改成听本机网卡地址。
+- 第 2、3 步。
+- WebRTC 以外的 DNS 查询（比如 `<link rel="dns-prefetch">`）没测。
+- 给 Electron 报下载崩溃，等负责人决定。
+- README 两种语言对比表"插件页面"一行、官网 SDK 指南、发布说明，等下次发布时一起改。

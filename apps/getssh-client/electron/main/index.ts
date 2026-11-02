@@ -10,7 +10,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, net, session, shel
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PluginManager } from './PluginManager'
-import { PLUGIN_PAGE_SCHEME, PLUGIN_PAGE_SCHEME_PRIVILEGES, createPluginPageHandler } from './services/plugin/pluginPageProtocol'
+import { PLUGIN_PAGE_SCHEME, PLUGIN_PAGE_SCHEME_PRIVILEGES, createPluginPageHandler, disableWebRtcUdp } from './services/plugin/pluginPageProtocol'
 import { registerAllIpcHandlers } from './handlers'
 import { getBackendConfig } from './handlers/systemHandler'
 import { getBrowserWindowOptions, bindWindowEvents, denyClipboardRead, setupSecurityPolicies } from './handlers/windowHandler'
@@ -28,6 +28,8 @@ process.env.DIST = join(process.env.DIST_ELECTRON, '../dist')
 protocol.registerSchemesAsPrivileged([
   { scheme: PLUGIN_PAGE_SCHEME, privileges: PLUGIN_PAGE_SCHEME_PRIVILEGES }
 ])
+// Before any window exists: plugin pages in any WebContents get no WebRTC over UDP.
+disableWebRtcUdp(app)
 
 // Prevent background throttling for SSH persistence
 app.commandLine.appendSwitch('disable-renderer-backgrounding')

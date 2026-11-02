@@ -13,14 +13,15 @@
  *   getLocale(), onThemeChange(), invokeBackend() and a panel of another plugin's page.
  * - beta: its script in a subfolder, with a space in the name.
  * - leaky: tries the ways out it can from renderer.js against a loopback server, which counts
- *   what arrives.
+ *   what arrives, and WebRTC against loopback STUN, TURN and candidate ports (webrtc-probe.cjs).
  * - missing, escape, plain: a missing script, a script outside the folder, no renderer.
  * Clicking alpha's and beta's sidebar actions must open their panels in the session store. Then
  * alpha is updated (a new renderer.js, a new install count in its page URL): its new script must
  * run in a new frame, without its old sidebar actions, and the other plugins' frames must stay.
  *
- * A second run serves the same pages without the plugin page CSP: leaky's probes must reach the
- * server there, or the first run proved nothing.
+ * A second run serves the same pages without the plugin page CSP, the Connection-Allowlist and the
+ * WebRTC guard, in a window that may use WebRTC over UDP: leaky's probes must reach the servers
+ * there, or the first run proved nothing.
  */
 
 const fs = require('node:fs');
@@ -34,11 +35,19 @@ const {
   PLUGIN_PAGE_SCHEME,
   PLUGIN_PAGE_SCHEME_PRIVILEGES,
   createPluginPageHandler,
+  disableWebRtcUdp,
   pluginRendererPages,
+  withWebRtcGuard,
 } = require(path.join(workDir, 'protocol.cjs'));
+const { HOST_RESOLVER_RULES, openWebRtcSinks, webrtcLabels, webrtcProbeScript } = require('./webrtc-probe.cjs');
 
 app.commandLine.appendSwitch('use-mock-keychain');
+app.commandLine.appendSwitch('host-resolver-rules', HOST_RESOLVER_RULES);
 protocol.registerSchemesAsPrivileged([{ scheme: PLUGIN_PAGE_SCHEME, privileges: PLUGIN_PAGE_SCHEME_PRIVILEGES }]);
+// As the app does: every window gets WebRTC without UDP (the control window turns it back on).
+disableWebRtcUdp(app);
+const WEBRTC_GUARD = withWebRtcGuard('');
+const WEBRTC_MUST_REACH = webrtcLabels('renderer');
 // Closing the first window must not quit the app (and turn a failure into exit code 0).
 app.on('window-all-closed', () => {});
 
@@ -62,6 +71,7 @@ const startedAt = Date.now();
 const trace = step => { if (process.env.GETSSH_RENDERER_SMOKE_TRACE) console.error(`[${Date.now() - startedAt} ms] ${step}`); };
 
 let server;
+let webrtc;
 let requests = [];
 let connections = 0;
 let stripPolicy = false;
@@ -71,6 +81,7 @@ function finish(error) {
   if (finished) return;
   finished = true;
   server?.close();
+  webrtc?.close();
   if (error) {
     console.error(`plugin renderer smoke failed: ${error.message || error}`);
     app.exit(1);
@@ -143,10 +154,12 @@ attempt('srcdocFrame', () => add('iframe', { srcdoc: "<script>fetch('${origin}/l
 attempt('blobFrame', () => add('iframe', { src: URL.createObjectURL(new Blob(["<img src='${origin}/leak/blob-frame'>"], { type: 'text/html' })) }));
 attempt('parentDocument', () => String(parent.document.title));
 window.GETSSH.registerSidebarAction('probe', '', 'leaky');
-setTimeout(() => {
+const webrtcProbe = ${webrtcProbeScript('renderer', webrtc.ports.renderer)};
+Promise.all([new Promise(resolve => setTimeout(resolve, 2500)), webrtcProbe]).then(([, webrtcResult]) => {
   result.opaqueOrigin = window.origin === 'null';
+  result.webrtc = webrtcResult.result;
   parent.postMessage({ rendererProbe: result }, '*');
-}, 2500);
+});
 ` });
   writePlugin('missing', { renderer: 'renderer.js' }, page);
   writePlugin('escape', { renderer: '../alpha/renderer.js' }, page);
@@ -240,7 +253,9 @@ async function updateAlpha(window) {
 async function runPlugins(run, pages) {
   requests = [];
   connections = 0;
+  webrtc.reset();
   const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  if (stripPolicy) window.webContents.setWebRTCIPHandlingPolicy('default');
   try {
     trace(`${run}: loading the host page`);
     await window.loadFile(writeHostPage(run, pages));
@@ -256,7 +271,7 @@ async function runPlugins(run, pages) {
     const updated = run === 'policy' ? await updateAlpha(window) : null;
     // Late requests (the worker, nested frames) still count.
     await delay(1000);
-    return { registered, opened, updated, requests: [...new Set(requests)].sort(), connections };
+    return { registered, opened, updated, requests: [...new Set(requests)].sort(), connections, webrtcArrived: webrtc.arrived() };
   } finally {
     window.destroy();
   }
@@ -320,6 +335,7 @@ app.whenReady().then(async () => {
     server.listen(0, '127.0.0.1', resolve);
   });
   const { port } = server.address();
+  webrtc = await openWebRtcSinks(['renderer']);
   writePlugins(`http://127.0.0.1:${port}`, port);
 
   const pages = await pluginRendererPages(installedPlugins());
@@ -331,7 +347,10 @@ app.whenReady().then(async () => {
     if (!stripPolicy) return response;
     const headers = new Headers(response.headers);
     headers.delete('content-security-policy');
-    return new Response(response.body, { status: response.status, headers });
+    headers.delete('connection-allowlist');
+    const page = (headers.get('content-type') || '').startsWith('text/html');
+    const body = page ? (await response.text()).replace(WEBRTC_GUARD, '') : response.body;
+    return new Response(body, { status: response.status, headers });
   });
 
   const guarded = await runPlugins('policy', pages);
@@ -349,11 +368,15 @@ app.whenReady().then(async () => {
   if (guarded.requests.length || guarded.connections) {
     throw new Error(`renderer.js reached the network: ${JSON.stringify(guarded.requests)} (${guarded.connections} connections)`);
   }
+  if (guarded.webrtcArrived.length) {
+    throw new Error(`renderer.js reached the WebRTC test servers: ${guarded.webrtcArrived.join(', ')}`);
+  }
   const { probe } = guarded.registered;
   if (probe.ownFetch !== 'ok:true') throw new Error(`renderer.js could not read its own plugin's files: ${JSON.stringify(probe)}`);
   if (!probe.opaqueOrigin || !String(probe.parentDocument).startsWith('error:')) {
     throw new Error(`renderer.js is not in an opaque origin cut off from the window: ${JSON.stringify(probe)}`);
   }
+  if (probe.webrtc !== 'error: ReferenceError') throw new Error(`renderer.js still has RTCPeerConnection: ${probe.webrtc}`);
 
   stripPolicy = true;
   const control = await runPlugins('control', pages);
@@ -362,6 +385,10 @@ app.whenReady().then(async () => {
   if (missed.length) {
     throw new Error(`without the plugin page CSP these probes still did not arrive, so they test nothing: ${missed.join(', ')}`);
   }
+  const webrtcMissed = WEBRTC_MUST_REACH.filter(label => !control.webrtcArrived.includes(label));
+  if (webrtcMissed.length || control.registered.probe.webrtc !== 'done') {
+    throw new Error(`without the protections these WebRTC probes still did not arrive, so they test nothing: ${webrtcMissed.join(', ')} (${control.registered.probe.webrtc})`);
+  }
 
   console.log(JSON.stringify({
     started: guarded.registered.frames.length,
@@ -369,6 +396,8 @@ app.whenReady().then(async () => {
     panelsOpened: guarded.opened.tabs.length,
     blocked: CONTROL_MUST_REACH.length,
     controlReached: control.requests.length,
+    webrtcBlocked: WEBRTC_MUST_REACH.length,
+    webrtcControlReached: control.webrtcArrived.length,
   }));
   finish();
 }).catch(finish);

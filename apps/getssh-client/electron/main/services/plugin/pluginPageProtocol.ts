@@ -44,8 +44,9 @@ const LOCALE_TAG = /^[a-z]{2,8}(?:-[a-z0-9]{1,8}){0,4}$/i;
  * where it can reach, not which of its code runs. Non-HTML files get the policy too, so an SVG
  * opened as a document or a worker script from this scheme is held to it.
  *
- * Not covered: WebRTC. Chromium enforces no CSP directive for it, and a page can still reach a
- * STUN or TURN server.
+ * Not covered: WebRTC, for which Chromium enforces no CSP directive. Pages get a
+ * Connection-Allowlist and the WebRTC guard for it instead, and WebRTC never uses UDP
+ * (PLUGIN_PAGE_CONNECTION_ALLOWLIST, withWebRtcGuard, disableWebRtcUdp).
  */
 export function pluginPageCsp(host: string): string {
   if (!PLUGIN_HOST.test(host)) throw new Error('Invalid plugin host');
@@ -63,6 +64,55 @@ export function pluginPageCsp(host: string): string {
     "form-action 'none'",
     "base-uri 'none'",
   ].join('; ');
+}
+
+/**
+ * Sent with every plugin page and renderer.js page. Chromium then drops the page's ICE servers
+ * (STUN and TURN over UDP, TCP or TLS) and ignores addIceCandidate(); srcdoc frames inside the
+ * page inherit the list. The page's own getssh-plugin://<plugin> stays allowed: an empty list
+ * also blocks the plugin's own frames.
+ *
+ * Pages only. In Electron 44 (Chromium 152) a response that turns into a download with this header
+ * crashed the main process: an iframe on a .bin file of the plugin was enough. Files and error
+ * answers go without it.
+ */
+export const PLUGIN_PAGE_CONNECTION_ALLOWLIST = '(response-origin);webrtc=block';
+
+/**
+ * Chromium 152 still lets a page with the list above start WebRTC: remote candidates written into
+ * the SDP get connectivity checks (over TCP when UDP is off), and their host names DNS lookups.
+ * This script comes first on every page, so the page has no RTCPeerConnection to start it with.
+ * A srcdoc frame gets a fresh one, but it inherits the list, and Chromium 152 ends the plugin's
+ * renderer process when the frame creates one. SVG documents, the other pages of the scheme that
+ * run scripts, run none (svgCsp). From Chromium 157 the browser gives such frames no sockets and
+ * no DNS at all, and the list alone would do.
+ */
+const WEBRTC_GUARD = '<script>delete window.RTCPeerConnection; delete window.webkitRTCPeerConnection;</script>';
+
+// What may come before the guard: a byte order mark, white space, comments and the doctype. A
+// script ahead of the doctype would put the page in quirks mode.
+const PAGE_PROLOGUE = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?/i;
+
+/** The page with the WebRTC guard ahead of everything the page runs. */
+export function withWebRtcGuard(html: string): string {
+  const prologue = PAGE_PROLOGUE.exec(html)?.[0] ?? '';
+  return prologue + WEBRTC_GUARD + html.slice(prologue.length);
+}
+
+/** SVG opened as a document runs no scripts; as an image (<img>, CSS) it never runs any. */
+function svgCsp(csp: string): string {
+  return `${csp}; sandbox`;
+}
+
+/**
+ * WebRTC may use UDP only through a proxy, and Chromium proxies no UDP: with this policy no
+ * WebContents sends STUN, TURN over UDP or UDP connectivity checks. GETSSH itself uses no WebRTC.
+ */
+export const WEBRTC_IP_HANDLING_POLICY = 'disable_non_proxied_udp';
+
+/** Gives every WebContents created from now on (windows, and later plugin views) that policy. */
+export function disableWebRtcUdp(app: Pick<Electron.App, 'on'>): void {
+  app.on('web-contents-created', (_event, contents) => contents.setWebRTCIPHandlingPolicy(WEBRTC_IP_HANDLING_POLICY));
 }
 
 /**
@@ -231,7 +281,7 @@ function rendererPage(pluginId: string, script: string, locale: string | null): 
     locale ? `window.__GETSSH_LOCALE = ${JSON.stringify(locale)};` : '',
     "window.GETSSH.invokeBackend = function () { return Promise.reject(new Error('invokeBackend() is not available in renderer.js; call it from a plugin page.')); };",
   ].join('\n');
-  return `<!doctype html><html><head><meta charset="utf-8">${pluginBridgeScript(pluginId)}<script>${setup}</script></head><body><script src="${src}"></script></body></html>`;
+  return withWebRtcGuard(`<!doctype html><html><head><meta charset="utf-8">${pluginBridgeScript(pluginId)}<script>${setup}</script></head><body><script src="${src}"></script></body></html>`);
 }
 
 /** The protocol.handle handler for getssh-plugin://, serving files under pluginsDir. */
@@ -275,7 +325,10 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
     if (!stats.isFile()) return respond('Not Found', 404);
 
     if (renderer) {
-      return respond(rendererPage(pluginId, renderer.script, renderer.locale), 200, { 'content-type': 'text/html; charset=utf-8' });
+      return respond(rendererPage(pluginId, renderer.script, renderer.locale), 200, {
+        'content-type': 'text/html; charset=utf-8',
+        'connection-allowlist': PLUGIN_PAGE_CONNECTION_ALLOWLIST,
+      });
     }
 
     if (pluginPath.toLowerCase().endsWith('.html') || pluginPath.toLowerCase().endsWith('.htm')) {
@@ -291,12 +344,17 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
       const modifiedText = text.includes('<head>')
         ? text.replace('<head>', '<head>' + injection)
         : injection + text;
-      return respond(modifiedText, 200, { 'content-type': 'text/html; charset=utf-8' });
+      return respond(withWebRtcGuard(modifiedText), 200, {
+        'content-type': 'text/html; charset=utf-8',
+        'connection-allowlist': PLUGIN_PAGE_CONNECTION_ALLOWLIST,
+      });
     }
 
     // For non-HTML files, fetch manually to ensure correct MIME types on macOS. Streamed: a
     // plugin's 400 MB asset requested many times at once must not be read whole each time.
+    const contentType = contentTypeFor(pluginPath);
+    if (contentType === 'image/svg+xml') csp = svgCsp(csp);
     const body = Readable.toWeb(fs.createReadStream(pluginPath)) as unknown as ReadableStream;
-    return respond(body, 200, { 'content-type': contentTypeFor(pluginPath), 'content-length': String(stats.size) });
+    return respond(body, 200, { 'content-type': contentType, 'content-length': String(stats.size) });
   };
 }

@@ -600,7 +600,10 @@ const data = await response.json();
 - 页面不能加载别的插件目录里的文件。
 - 第三方库、字体和图标要打包进插件目录，不要从 CDN 引用。
 - 需要联网时，页面用 `invokeBackend()` 调用自己的后端；后端声明 `net:fetch` 以后，经 GETSSH 的网络网关访问公网（见第 6 节的 `context.net.fetch()`）。
-- WebRTC 不受 CSP 限制，但它不是允许的联网方式，以后的版本可能会关掉它。
+- 3.0.0-preview.2 以后的版本里，页面用不了 WebRTC（CSP 管不到它，另外关掉了）：
+  - 插件页面里没有 `RTCPeerConnection`；
+  - 在 srcdoc 子页面里新建 `RTCPeerConnection`，这个插件的页面会整个崩掉（Chromium 结束它的渲染进程），别的插件和主窗口不受影响；
+  - SVG 文件当图片用照常，在 iframe 里当文档打开时不运行脚本。
 - `renderer.js` 运行的页面受同样的限制。
 
 ### API 可用范围
