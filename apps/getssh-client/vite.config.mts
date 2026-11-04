@@ -78,6 +78,20 @@ export default defineConfig({
           },
         },
       },
+      // The preload of renderer.js pages, a build of its own: a sandboxed preload is one file and
+      // cannot load a chunk it would share with the window's preload.
+      {
+        entry: 'electron/preload/pluginRenderer.ts',
+        // A rebuild applies to renderer.js pages started afterwards; nothing to restart.
+        onstart() {},
+        vite: {
+          build: {
+            minify: true,
+            license: true,
+            outDir: 'dist-electron/plugin-preload',
+          },
+        },
+      },
     ]),
   ],
 })

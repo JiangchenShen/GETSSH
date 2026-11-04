@@ -57,7 +57,7 @@ GETSSH 3.0 的插件 SDK 不是一个需要安装的 npm 包。宿主会在插�
 | `displayName` | 推荐 | 界面显示名称 |
 | `description` | 推荐 | 插件简介 |
 | `author` | 推荐 | 作者信息 |
-| `renderer` | UI 集成时需要 | 插件目录里的相对路径。GETSSH 启动时在隐藏的沙盒 iframe 里运行它，用来注册侧栏按钮和面板（见第 4 节） |
+| `renderer` | UI 集成时需要 | 插件目录里的相对路径。GETSSH 启动时在一个单独的隐藏页面里运行它，用来注册侧栏按钮和面板（见第 4 节） |
 | `getssh.type` | 纯 UI 必填 | 当前唯一有效值为 `"sandbox"`；出现此值时，GETSSH 完全跳过后端加载 |
 | `getssh.capabilities` | 后端必填 | 后端能力声明；必须包含 `"lifecycle"` |
 | `getssh.name` | 可选 | 显示名称，优先级高于 `displayName` |
@@ -146,14 +146,16 @@ hello-getssh/
 
 ### `renderer.js`：注册入口
 
-`renderer.js` 只用来注册宿主 UI：侧栏按钮和面板。GETSSH 解锁并加载完插件以后，给每个声明了 `renderer` 的插件开一个隐藏的沙盒 iframe，地址是 `getssh-plugin://<name>/?renderer=<路径>`。这个页面先放入 `window.GETSSH`，再加载您的脚本。
+`renderer.js` 只用来注册宿主 UI：侧栏按钮和面板。GETSSH 解锁并加载完插件以后，给每个声明了 `renderer` 的插件开一个单独的隐藏页面，地址是 `getssh-plugin://<name>/?renderer=<路径>`。页面先有 `window.GETSSH`，再加载您的脚本。
 
 - 页面和插件的其他页面带同一条 CSP（见第 7 节"页面能加载什么"）：不能直接联网，也不能加载别的插件的文件。
-- 每个插件一个 iframe，源是不透明的，碰不到主窗口。一个插件的 `renderer.js` 找不到、有语法错误、抛出异常或一直不返回，都只影响它自己。
+- 每个插件一个页面，不在主窗口里：主进程单独建它，它有自己的进程和自己的会话。会话只在内存里，GETSSH 退出或插件更新时清空。页面的源是不透明的，`localStorage` 用不了。一个插件的 `renderer.js` 找不到、有语法错误、抛出异常或一直不返回，都只影响它自己。
+- 页面上面没有主窗口：`window.parent` 就是页面自己，发给 `parent` 的 `postMessage` 到不了 GETSSH。和 GETSSH 打交道只用 `window.GETSSH`，用法和以前一样。
+- 页面不能跳到别处，不能开新窗口，没有 `alert` 之类的弹框，下载一律取消。页面跳走了或出错停了，它注册的侧栏按钮会移除，要等插件更新或 GETSSH 重启才再运行。
 - `renderer` 必须是插件目录里的相对路径。带 `..`、绝对路径、反斜杠，或者文件实际落在目录外（包括经符号链接）的，不会加载。
 - `invokeBackend()` 在这里会立刻 reject。后端 RPC 请在插件页面里调用。
 - `getLocale()` 一开始就返回 GETSSH 的界面语言；`onThemeChange()` 的回调在页面加载完时会收到一次当前主题。
-- 新装的插件装好后马上运行 `renderer.js`；卸载插件时，它的 iframe 和侧栏按钮一起移除。更新插件（安装同名的新包）时，旧的 iframe 和它注册的侧栏按钮会被移除，新的 `renderer.js` 马上运行。
+- 新装的插件装好后马上运行 `renderer.js`；卸载插件时，它的页面和侧栏按钮一起移除。更新插件（安装同名的新包）时，旧页面和它注册的侧栏按钮会被移除，新的 `renderer.js` 马上运行。
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -832,7 +834,7 @@ Compress-Archive -Path .\hello-getssh\* -DestinationPath .\hello-getssh.zip -For
 ### 侧栏里没有插件的按钮
 
 - 主进程日志里有 `[PluginManager] renderer.js of plugin '<name>' is not loaded`：Manifest 的 `renderer` 不是插件目录里的文件。开发版的日志在运行 `pnpm run dev` 的终端里。
-- `renderer.js` 自己出错时，错误在开发版开发者工具的控制台里，上下文选这个插件的 iframe。
+- `renderer.js` 自己出错时，前 20 条错误会写进主进程日志，开头是 `[PluginRenderer] <name>:`。页面停掉的原因也在那里。
 - 侧栏收起时不显示插件按钮。
 - 同一个插件最多 8 个按钮，超出的不会注册。
 

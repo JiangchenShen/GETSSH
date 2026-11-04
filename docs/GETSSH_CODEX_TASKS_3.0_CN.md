@@ -1105,7 +1105,73 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
 
 **还没做的**：
 - Windows：`security-sandbox.yml` 在 macOS 和 Windows 上跑这两个冒烟测试，要推送后看 CI。不确定的一点：Windows 上 WebRTC 从网卡地址发往 127.0.0.1 的 UDP 能不能到，对照组要收到。到不了的话，UDP 测试端口改成听本机网卡地址。
-- 第 2、3 步。
+- ~~第 2 步~~ 已做（Claude，11-04），见下面"11-04 renderer.js 挪进主进程建的 WebContents"。第 3 步还没做。
 - WebRTC 以外的 DNS 查询（比如 `<link rel="dns-prefetch">`）没测。
 - 给 Electron 报下载崩溃，等负责人决定。
 - README 两种语言对比表"插件页面"一行、官网 SDK 指南、发布说明，等下次发布时一起改。
+
+## 11-04 renderer.js 挪进主进程建的 WebContents（Claude）
+
+11-02 定的三步里的第 2 步。第 1 步见上面"11-02 插件页面不能再用 WebRTC"。
+
+**改了什么**：
+- 新文件 `electron/main/services/plugin/pluginRendererHost.ts`。每个有 renderer.js 的插件，主进程给它建一个 `WebContentsView`，不放进任何窗口。打开 `sandbox` 和 `contextIsolation`，关掉 `nodeIntegration`，不能用 `<webview>`，`alert()` 之类的对话框不弹。页面还是第 1 步的 renderer.js 启动页，CSP（带 `sandbox allow-scripts`）、`Connection-Allowlist` 和页首脚本都在。
+- 每个插件一个只在内存里的 session（分区名 `getssh-plugin-renderer:<插件>`，不带 `persist:`）：
+  - 代理设成 `http://127.0.0.1:1`，`proxyBypassRules` 是 `<-loopback>`，连本机也要走这个代理；
+  - `webRequest` 只放行 `getssh-plugin:`，别的请求都取消；
+  - 权限请求、权限检查、设备权限都拒绝；
+  - 下载都取消；
+  - 这个 session 的 `getssh-plugin://` 只给这个插件目录里的文件，别的插件的文件返回 404。
+- WebContents 上：`window.open` 都拒绝；主框架的导航在 `will-frame-navigate` 里拦下（Electron 44 对不在窗口里的 WebContentsView 不发 `will-navigate`）。页面要是还是离开了（第二次 `did-navigate`），或者主框架加载失败，主进程就结束这个插件的 renderer.js。第 1 步在 `web-contents-created` 里设的 UDP 策略，这些 WebContents 也带上了，冒烟测试查了。
+- 新的 preload `electron/preload/pluginRenderer.ts`，打包到 `dist-electron/plugin-preload/pluginRenderer.js`（`check-package.cjs` 查它在不在）。页面的脚本运行之前，它就在页面的主环境里删掉 `RTCPeerConnection` 和 `webkitRTCPeerConnection`（`contextBridge.executeInMainWorld`），再给页面一个和原来一样的 `window.GETSSH`。HTML 里的页首脚本留着当第二道。
+- 消息：
+  - 页面只能发 `plugin-renderer:action`。主进程按发消息的 WebContents 认插件，消息里写的插件名不管。
+  - 注册侧边栏按钮、注册面板、打开面板、通知，照主窗口原来的限制先查一遍；面板只能是这个插件自己的页面。
+  - 查过的调用只发给主窗口，主窗口照原来的样子显示。
+  - 点 renderer.js 注册的侧边栏按钮时，主窗口发给主进程，主进程转给这个插件的 WebContents。只认主窗口发来的点击，也只认这个插件注册过的按钮。
+  - 主题和语言由主窗口发给主进程，再转给各个页面。主窗口晚加载时，主进程把各页面已经注册的东西重新给它一遍。
+- `index.ts` 的 IPC 包装：renderer.js 的 WebContents 只能用 `plugin-renderer:action`，别的 `ipcMain.on`、`ipcMain.handle` 通道都拒绝它。
+- 生命周期（`PluginManager.ts`）：
+  - 启动时扫完插件再建；重新加载、装好、卸载插件后对一遍：页面地址变了的（更新后地址里的安装次数变了）换新的，session 先清空；卸载的销毁，侧边栏按钮跟着去掉。
+  - 渲染进程退出（`render-process-gone`）、页面离开或加载失败时，去掉这个插件的按钮，不自动重启。更新这个插件或重启 GETSSH 后才再运行。
+  - 退出 GETSSH 时全部销毁。安全模式只是不加载 Node 插件，renderer.js 照旧运行。
+- 通知：页面和 renderer.js 共用主窗口里的同一个计数，每个插件 30 秒最多 3 条，和原来一样。主进程对 renderer.js 也按这个数先查一遍。
+- 去掉了主窗口里跑 renderer.js 的隐藏 iframe（`bootSandboxedPlugins` 等）和 `get-plugin-renderers` 这个 IPC。界面只换了数据来源，样式没动。
+- renderer.js 的报错，每个页面前 20 条写进主进程日志，开头是 `[PluginRenderer] <插件>:`。
+
+**对插件的影响**（SDK 文档两种语言的 renderer.js 一节写了）：
+- `window.GETSSH` 用法不变，指南里的例子不用改；`invokeBackend()` 照旧直接 reject。
+- renderer.js 在自己的隐藏页面里：`window.parent`、`window.top` 就是它自己，不能给主窗口发 postMessage；不能导航、开窗口、弹对话框；下载会被取消。页面离开或进程退出后，它的侧边栏按钮被去掉。
+- 每个有 renderer.js 的插件多一个渲染进程。示例插件 system-monitor 没有 renderer.js。
+
+**测试**（本机 macOS arm64；HOME、USERPROFILE 指向临时目录，Electron 带 `--use-mock-keychain`）：
+- vitest：
+  - 新增 `pluginRendererHost.test.ts`，15 条：WebContents 的设置、session 的设置、导航和新窗口、页面更新和卸载、进程退出后不重启、离开或加载失败就结束、日志条数、主题和语言、按 WebContents 认插件、各项限制、只认主窗口的点击、IPC 的注册和撤销。
+  - `PluginBridge.spec.ts`：去掉 9 条隐藏 iframe 的，新增 6 条（重放、点击转发、按钮和面板一起计数、通知一起计数、renderer.js 停了以后清掉、不认的调用），共 14 条。
+  - `PluginManager.renderers.test.ts`：改成测加载完、装好或更新后怎么调用宿主，一次只调一个，上一次出错后照样继续，共 4 条。
+  - `pluginPageProtocol.test.ts`：启动页不再带桥接脚本；新增一条"renderer.js 的 session 只给自己插件的文件"，共 25 条。
+- `test:plugin-renderer` 重写，跑三轮：
+  - policy：全部防护打开。
+  - session：去掉页面自己的防护（CSP 和它的 sandbox、`Connection-Allowlist`、页首脚本），只靠 session、WebContents 和 preload。
+  - control：session 的防护也去掉（不设代理、不过滤请求、WebRTC 能走 UDP、文件处理器给所有插件的文件）。leaky 的探测在这一轮都要到，加载别的插件的脚本也要成功，否则前两轮什么也没证明。
+  - 前两轮查：13 种外连、11 种 WebRTC 探测一个都没到；renderer.js 里没有 `RTCPeerConnection`（session 轮页首脚本去掉了，只靠 preload）；消息里冒充 alpha 注册的按钮算 leaky 的；加载不了别的插件的文件；`window.open` 返回 null，也没多出 WebContents；下载被取消，没存下文件；页面导航后还在原地；`window.parent` 是它自己；每个插件的进程号和主窗口、主进程都不一样；没多出窗口。
+  - wanderer 先导航到自己的文件，再导航到外面。policy 轮 Chromium 把去外面的导航变成错误页，主进程结束它的 renderer.js，按钮去掉；另两轮页面留在原地。
+  - 输出 `{"started":6,"sidebarActions":7,"panelsOpened":2,"blocked":13,"controlReached":13,"webrtcBlocked":11,"webrtcControlReached":11,"sessionOnly":{"requests":0,"webrtc":0,"downloadsCancelled":1}}`。
+- 逐一撤掉防护，12 项，每项都有测试失败：
+  - 启动页 CSP 里的 `sandbox allow-scripts`：vitest 1 条失败；冒烟测试失败，leaky 拿到 about:blank 子页面的 `RTCPeerConnection`，一新建 Chromium 就结束了它的渲染进程，没能报告。
+  - preload 删 `RTCPeerConnection`：vitest 照样通过（preload 没有单元测试）；冒烟测试失败，session 轮 renderer.js 有自己的 `RTCPeerConnection`。
+  - 代理：vitest 1 条失败；冒烟测试失败，session 轮 6 个走 TCP 的 WebRTC 探测到了。
+  - `webRequest` 过滤：vitest 1 条失败；冒烟测试照样通过，代理也挡住了这些请求。
+  - 拒绝权限：vitest 1 条失败；冒烟测试不申请权限，测不到（要测得申请摄像头之类，macOS 会弹授权框）。
+  - 取消下载：vitest 1 条失败；冒烟测试失败，session 轮下载没被取消。
+  - 只给本插件的文件：vitest 1 条失败；冒烟测试失败，session 轮 leaky 加载到了 alpha 的脚本。第一次撤的时候冒烟测试照样通过：当时用 `fetch()` 读，跨插件的 `fetch()` 本来就被 CORS 挡住，session 轮也没用宿主装的处理器。改成用 `<script>` 加载、用宿主的处理器以后，撤掉就失败，对照组能加载到。
+  - `will-frame-navigate` 拦导航：vitest 1 条失败；冒烟测试照样通过，页面导航到自己的文件以后被下一道"离开就结束"结束了，结果一样。
+  - 离开或加载失败就结束：vitest 1 条失败；冒烟测试失败，policy 轮 wanderer 停在错误页上没被结束，按钮还在。
+  - 拒绝 `window.open`、不弹对话框、只认主窗口的点击：各 vitest 1 条失败。没在冒烟测试里撤，前两项撤了会在负责人的桌面上开出窗口或对话框，第三项冒烟测试里只有主窗口会点。
+- 整套 vitest：99 个文件，1410 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build`、`test:plugin-isolation` 通过；`test:plugin-page` 通过，输出和第 1 步复查后一样。
+
+**还没做的**：
+- Windows：`security-sandbox.yml` 在 macOS 和 Windows 上跑 `test:plugin-renderer`，要推送后看 CI。
+- 测试没覆盖的：`index.ts` 里拒绝 renderer.js 用别的 IPC 通道的包装，只测了判断函数 `isPluginRendererSender`。
+- `contextBridge.executeInMainWorld` 在 Electron 44 还标着实验性。升级 Electron 时重跑 `test:plugin-renderer`，session 轮会查 preload 是不是还删得掉 `RTCPeerConnection`。
+- 第 3 步：可见的插件页面也挪出去，界面部分归 Codex。

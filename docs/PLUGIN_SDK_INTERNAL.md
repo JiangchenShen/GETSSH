@@ -144,14 +144,16 @@ Use the full manifest from section 2. `renderer.js` registers the UI, `index.htm
 
 ### `renderer.js`: register the UI
 
-`renderer.js` only registers host UI: sidebar actions and panels. Once GETSSH is unlocked and has loaded its plugins, it opens a hidden sandboxed iframe for each plugin that declares `renderer`, at `getssh-plugin://<name>/?renderer=<path>`. That page sets up `window.GETSSH`, then loads your script.
+`renderer.js` only registers host UI: sidebar actions and panels. Once GETSSH is unlocked and has loaded its plugins, it opens a hidden page of its own for each plugin that declares `renderer`, at `getssh-plugin://<name>/?renderer=<path>`. The page has `window.GETSSH` before your script loads.
 
 - The page carries the same CSP as the plugin's other pages (see "What a page can load" in section 7): no direct network, and no files from other plugins.
-- Each plugin gets its own iframe, in an opaque origin with no access to the main window. A `renderer.js` that is missing, fails to parse, throws, or never returns affects only its own plugin.
+- Each plugin gets its own page, outside the main window: the main process creates it, in a process of its own and on a session of its own. The session lives in memory only and is cleared when GETSSH quits or the plugin is updated. The page has an opaque origin, so `localStorage` is unavailable. A `renderer.js` that is missing, fails to parse, throws, or never returns affects only its own plugin.
+- No main window is above the page: `window.parent` is the page itself, and a `postMessage` to `parent` never reaches GETSSH. Talk to GETSSH through `window.GETSSH` only, as before.
+- The page cannot navigate elsewhere or open windows, shows no dialogs such as `alert`, and every download is cancelled. When the page navigates away or stops on an error, its sidebar actions are removed, and it runs again only after the plugin is updated or GETSSH restarts.
 - `renderer` must be a relative path inside the plugin folder. A path with `..`, an absolute path, a backslash, or a file that resolves outside the folder (symbolic links included) is not loaded.
 - `invokeBackend()` rejects at once here. Call backend RPC from a plugin page.
 - `getLocale()` returns the GETSSH interface language from the start, and `onThemeChange()` callbacks receive the current theme once the page has loaded.
-- A newly installed plugin runs its `renderer.js` right after the install; uninstalling a plugin removes its iframe and its sidebar actions. Updating a plugin (installing a package with the same `name`) removes the old iframe and the sidebar actions it registered, and runs the new `renderer.js` right away.
+- A newly installed plugin runs its `renderer.js` right after the install; uninstalling a plugin removes its page and its sidebar actions. Updating a plugin (installing a package with the same `name`) removes the old page and the sidebar actions it registered, and runs the new `renderer.js` right away.
 
 ```javascript
 const panelId = 'hello-getssh.main';
@@ -728,7 +730,7 @@ Register the exact name with `context.rpc.registerMethod()` before `activate()` 
 ### A plugin's sidebar actions do not appear
 
 - The main-process log shows `[PluginManager] renderer.js of plugin '<name>' is not loaded`: the manifest's `renderer` is not a file inside the plugin folder. A development build logs to the terminal that runs `pnpm run dev`.
-- Errors in `renderer.js` itself show in the DevTools console of a development build, with the plugin's iframe selected as the context.
+- The first 20 errors of `renderer.js` itself go to the main-process log, starting with `[PluginRenderer] <name>:`. So does the reason a page stopped.
 - Plugin actions are hidden while the sidebar is collapsed.
 - A plugin has at most 8 actions; further ones are not registered.
 

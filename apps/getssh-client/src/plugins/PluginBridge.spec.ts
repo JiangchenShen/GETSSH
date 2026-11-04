@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-// A plugin page can register at most 16 panels and 8 sidebar actions, open a panel at most once a
-// second, and show at most 3 notifications in 30 seconds. Each plugin's renderer.js runs in a
-// hidden sandboxed frame of its own.
+// A plugin can register at most 16 panels and 8 sidebar actions, open a panel at most once a
+// second, and show at most 3 notifications in 30 seconds, from its pages and its renderer.js
+// together. renderer.js runs in a WebContents of the main process, whose checked calls come in
+// through window.electronAPI.onPluginRendererUi.
 
 type Listener = (state: unknown, prevState: unknown) => void;
 const store = vi.hoisted(() => ({
@@ -11,26 +12,55 @@ const store = vi.hoisted(() => ({
   openPluginPanel: vi.fn(),
   registerSidebarAction: vi.fn(),
   removePluginSidebarActions: vi.fn(),
-  pluginListeners: [] as Array<(state: unknown, prevState: unknown) => void>,
+  appListeners: [] as Array<(state: unknown, prevState: unknown) => void>,
   appConfig: { theme: 'dark', language: 'zh-CN' },
+}));
+// The main process side of renderer.js (preload methods of the main window).
+const host = vi.hoisted(() => ({
+  ui: null as null | ((call: unknown) => void),
+  gone: null as null | ((pluginId: string) => void),
+  state: [] as unknown[],
+  env: vi.fn(),
+  click: vi.fn(),
 }));
 vi.mock('../store/sessionStore', () => ({ useSessionStore: { getState: () => store } }));
 vi.mock('../store/pluginStore', () => ({ usePluginStore: {
   getState: () => ({ registerSidebarAction: store.registerSidebarAction, removePluginSidebarActions: store.removePluginSidebarActions }),
-  subscribe: (listener: Listener) => {
-    store.pluginListeners.push(listener);
-    return () => { store.pluginListeners.splice(store.pluginListeners.indexOf(listener), 1); };
-  },
 } }));
-vi.mock('../store/appStore', () => ({ useAppStore: { subscribe: () => () => {}, getState: () => ({ appConfig: store.appConfig }) } }));
+vi.mock('../store/appStore', () => ({ useAppStore: {
+  subscribe: (listener: Listener) => {
+    store.appListeners.push(listener);
+    return () => { store.appListeners.splice(store.appListeners.indexOf(listener), 1); };
+  },
+  getState: () => ({ appConfig: store.appConfig }),
+} }));
 
-import { bootSandboxedPlugins, initPluginBridge } from './PluginBridge';
+import { initPluginBridge } from './PluginBridge';
 
 let stop: () => void;
 let frame: HTMLIFrameElement;
-beforeAll(() => {
-  (window as any).electronAPI = {};
+// What initPluginBridge replayed and sent at start, before the tests below clear the mocks.
+const atStart = { actions: [] as string[], panels: [] as unknown[][], env: [] as unknown[][] };
+beforeAll(async () => {
+  (window as any).electronAPI = {
+    onPluginRendererUi: (callback: (call: unknown) => void) => { host.ui = callback; return () => { host.ui = null; }; },
+    onPluginRendererGone: (callback: (pluginId: string) => void) => { host.gone = callback; return () => { host.gone = null; }; },
+    getPluginRendererState: async () => host.state,
+    setPluginRendererEnv: host.env,
+    pluginRendererSidebarClick: host.click,
+  };
+  // What renderer.js registered before this window loaded.
+  host.state = [
+    { pluginId: 'early', action: 'registerSidebarAction', payload: { id: 'boot', icon: '', label: 'Boot' } },
+    { pluginId: 'early', action: 'registerPanel', payload: { panelId: 'early.main', title: 'Early', renderUrl: 'getssh-plugin://early/index.html' } },
+  ];
   stop = initPluginBridge();
+  await vi.waitFor(() => expect(store.registerPluginPanel).toHaveBeenCalled());
+  atStart.actions = store.registerSidebarAction.mock.calls.map(call => (call[0] as { id: string }).id);
+  atStart.panels = store.registerPluginPanel.mock.calls;
+  atStart.env = host.env.mock.calls;
+  store.registerSidebarAction.mockClear();
+  store.registerPluginPanel.mockClear();
   frame = document.createElement('iframe');
   frame.setAttribute('data-plugin-id', 'busy');
   document.body.appendChild(frame);
@@ -170,143 +200,105 @@ describe('plugin panel pages', () => {
   });
 });
 
-describe('renderer.js frames', () => {
-  const rendererFrames = () => [...document.querySelectorAll<HTMLIFrameElement>('iframe[data-plugin-renderer]')];
-  const pages = (...ids: string[]) => ids.map(id => ({ pluginId: id, url: `getssh-plugin://${id}/?renderer=renderer.js` }));
-  const installed = (...ids: string[]) => {
-    const list = vi.fn(async () => pages(...ids));
-    (window as any).electronAPI.getPluginRenderers = list;
-    return list;
-  };
+describe('renderer.js, through the main process', () => {
+  const fromRenderer = (pluginId: unknown, action: unknown, payload: unknown) => host.ui?.({ pluginId, action, payload });
 
-  afterEach(async () => {
-    installed();
-    await bootSandboxedPlugins();
-    store.removePluginSidebarActions.mockClear();
+  it('replays what renderer.js registered before the window loaded, and sends the theme and language', () => {
+    expect(atStart.actions).toEqual(['plugin-early-boot']);
+    expect(atStart.panels).toEqual([['early', 'early.main', 'Early', 'getssh-plugin://early/index.html']]);
+    expect(atStart.env).toEqual([[{ theme: 'dark', locale: 'zh-CN' }]]);
+    host.env.mockClear();
+    const before = { appConfig: { ...store.appConfig } };
+    store.appConfig = { theme: 'light', language: 'en-US' };
+    store.appListeners.forEach(listener => listener({ appConfig: store.appConfig }, before));
+    expect(host.env).toHaveBeenCalledExactlyOnceWith({ theme: 'light', locale: 'en-US' });
+    store.appConfig = before.appConfig;
   });
 
-  it('starts each plugin in a hidden, sandboxed frame on its own getssh-plugin:// page', async () => {
-    installed('alpha', 'beta');
-    await bootSandboxedPlugins();
-    expect(rendererFrames().map(iframe => ({
-      id: iframe.getAttribute('data-plugin-id'), sandbox: iframe.getAttribute('sandbox'), src: iframe.getAttribute('src'), display: iframe.style.display,
-    }))).toEqual([
-      { id: 'alpha', sandbox: 'allow-scripts', src: 'getssh-plugin://alpha/?renderer=renderer.js&locale=zh-CN', display: 'none' },
-      { id: 'beta', sandbox: 'allow-scripts', src: 'getssh-plugin://beta/?renderer=renderer.js&locale=zh-CN', display: 'none' },
-    ]);
-  });
-
-  it('does not let a plugin that cannot start stop the others', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    (window as any).electronAPI.getPluginRenderers = vi.fn(async () => [{ pluginId: 'broken', url: 'not a url' }, ...pages('gamma')]);
-    await bootSandboxedPlugins();
-    expect(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id'))).toEqual(['gamma']);
-    expect(error).toHaveBeenCalledOnce();
-    error.mockRestore();
-  });
-
-  it('starts a plugin once however often it is asked, and stops plugins no longer installed', async () => {
-    installed('alpha', 'beta');
-    await Promise.all([bootSandboxedPlugins(), bootSandboxedPlugins(), bootSandboxedPlugins()]);
-    expect(rendererFrames()).toHaveLength(2);
-    const beta = rendererFrames()[1];
-    installed('beta', 'gamma');
-    await bootSandboxedPlugins();
-    expect(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id'))).toEqual(['beta', 'gamma']);
-    expect(rendererFrames()[0]).toBe(beta);
-    expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('alpha');
-  });
-
-  it('replaces the frame of an updated plugin, with what it registered', async () => {
-    installed('alpha', 'beta');
-    await bootSandboxedPlugins();
-    const [alpha, beta] = rendererFrames();
-    // The main process counts the install into the page URL.
-    (window as any).electronAPI.getPluginRenderers = vi.fn(async () => [
-      { pluginId: 'alpha', url: 'getssh-plugin://alpha/?renderer=renderer.js&install=1' }, ...pages('beta'),
-    ]);
-    await bootSandboxedPlugins();
-    expect(alpha.isConnected).toBe(false);
-    expect(rendererFrames()[0]).toBe(beta);
-    expect(rendererFrames().map(iframe => [iframe.getAttribute('data-plugin-id'), iframe.getAttribute('src')])).toEqual([
-      ['beta', 'getssh-plugin://beta/?renderer=renderer.js&locale=zh-CN'],
-      ['alpha', 'getssh-plugin://alpha/?renderer=renderer.js&install=1&locale=zh-CN'],
-    ]);
-    expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('alpha');
-  });
-
-  it('applies plugin lists in the order they were asked for', async () => {
-    let answerFirst!: (value: unknown) => void;
-    (window as any).electronAPI.getPluginRenderers = vi.fn()
-      .mockImplementationOnce(() => new Promise(resolve => { answerFirst = resolve; }))
-      .mockImplementationOnce(async () => []);
-    const first = bootSandboxedPlugins();
-    const second = bootSandboxedPlugins();
-    await Promise.resolve();
-    answerFirst(pages('alpha'));
-    await Promise.all([first, second]);
-    expect(rendererFrames()).toHaveLength(0);
-  });
-
-  it('reports a plugin list that could not be read, and takes the next one', async () => {
-    (window as any).electronAPI.getPluginRenderers = vi.fn()
-      .mockRejectedValueOnce(new Error('no list'))
-      .mockResolvedValueOnce(pages('alpha'));
-    await expect(bootSandboxedPlugins()).rejects.toThrow('no list');
-    await bootSandboxedPlugins();
-    expect(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id'))).toEqual(['alpha']);
-  });
-
-  it('follows installs and uninstalls through the plugin list', async () => {
-    const list = installed('alpha');
-    const plugins = [{ name: 'alpha' }];
-    store.pluginListeners.forEach(listener => listener({ installedPlugins: plugins }, { installedPlugins: plugins }));
-    await bootSandboxedPlugins();
-    expect(list).toHaveBeenCalledOnce();
-    store.pluginListeners.forEach(listener => listener({ installedPlugins: [...plugins] }, { installedPlugins: plugins }));
-    await vi.waitFor(() => expect(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id'))).toEqual(['alpha']));
-    installed();
-    store.pluginListeners.forEach(listener => listener({ installedPlugins: [] }, { installedPlugins: plugins }));
-    await vi.waitFor(() => expect(rendererFrames()).toHaveLength(0));
-    expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('alpha');
-  });
-
-  it('tells a page the theme and language once it has loaded', async () => {
-    installed('alpha');
-    await bootSandboxedPlugins();
-    const [alpha] = rendererFrames();
-    const post = vi.spyOn(alpha.contentWindow!, 'postMessage');
-    alpha.dispatchEvent(new Event('load'));
-    expect(post).toHaveBeenCalledWith({ __getssh_host: true, event: 'envChange', theme: 'dark', locale: 'zh-CN' }, '*');
-  });
-
-  it('sends a sidebar click to the page that registered the action', async () => {
-    installed('delta');
-    await bootSandboxedPlugins();
-    const [renderer] = rendererFrames();
-    // An open panel of the same plugin, earlier in the document than the hidden frame.
+  it('sends a click on an action of renderer.js to the main process, and one of a panel to its frame', () => {
+    store.registerSidebarAction.mockClear();
+    fromRenderer('delta', 'registerSidebarAction', { id: 'open', icon: '', label: 'Open' });
+    const action = store.registerSidebarAction.mock.calls[0][0] as { id: string; pluginId: string; onClick: () => void };
+    expect(action).toMatchObject({ id: 'plugin-delta-open', pluginId: 'delta', label: 'Open' });
+    // An open panel of the same plugin gets no click meant for renderer.js.
     const panel = document.createElement('iframe');
     panel.setAttribute('data-plugin-id', 'delta');
     document.body.prepend(panel);
-    store.registerSidebarAction.mockClear();
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { __getssh_plugin: true, action: 'registerSidebarAction', payload: { id: 'open', icon: '', label: 'Open' } }, source: renderer.contentWindow,
-    }));
-    const action = store.registerSidebarAction.mock.calls[0][0] as { id: string; pluginId: string; onClick: () => void };
-    expect(action).toMatchObject({ id: 'plugin-delta-open', pluginId: 'delta' });
-    const toRenderer = vi.spyOn(renderer.contentWindow!, 'postMessage');
     const toPanel = vi.spyOn(panel.contentWindow!, 'postMessage');
     action.onClick();
-    expect(toRenderer).toHaveBeenCalledExactlyOnceWith({ __getssh_host: true, event: 'sidebarClick', actionId: 'open' }, '*');
+    expect(host.click).toHaveBeenCalledExactlyOnceWith('delta', 'open');
     expect(toPanel).not.toHaveBeenCalled();
     // An action the panel registered goes to the panel.
     window.dispatchEvent(new MessageEvent('message', {
       data: { __getssh_plugin: true, action: 'registerSidebarAction', payload: { id: 'refresh', icon: '', label: 'Refresh' } }, source: panel.contentWindow,
     }));
-    toRenderer.mockClear();
     (store.registerSidebarAction.mock.calls[1][0] as { onClick: () => void }).onClick();
     expect(toPanel).toHaveBeenCalledExactlyOnceWith({ __getssh_host: true, event: 'sidebarClick', actionId: 'refresh' }, '*');
-    expect(toRenderer).not.toHaveBeenCalled();
+    expect(host.click).toHaveBeenCalledOnce();
     panel.remove();
+  });
+
+  it('counts the sidebar actions and panels of renderer.js and of the plugin\'s pages together', () => {
+    store.registerSidebarAction.mockClear();
+    store.registerPluginPanel.mockClear();
+    frame.setAttribute('data-plugin-id', 'both');
+    for (let i = 0; i < 5; i++) send('registerSidebarAction', { id: `page${i}`, icon: '', label: 'P' });
+    for (let i = 0; i < 5; i++) fromRenderer('both', 'registerSidebarAction', { id: `renderer${i}`, icon: '', label: 'R' });
+    expect(store.registerSidebarAction).toHaveBeenCalledTimes(8);
+    for (let i = 0; i < 10; i++) send('registerPanel', { panelId: `both.page${i}`, title: 'P', renderUrl: 'getssh-plugin://both/p.html' });
+    for (let i = 0; i < 10; i++) fromRenderer('both', 'registerPanel', { panelId: `both.renderer${i}`, title: 'R', renderUrl: 'getssh-plugin://both/r.html' });
+    expect(store.registerPluginPanel).toHaveBeenCalledTimes(16);
+    // renderer.js gets the same check of the panel page as a frame does.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    store.registerPluginPanel.mockClear();
+    fromRenderer('fresh', 'registerPanel', { panelId: 'fresh.main', title: 'X', renderUrl: 'getssh-plugin://other/index.html' });
+    expect(store.registerPluginPanel).not.toHaveBeenCalled();
+    warn.mockRestore();
+    frame.setAttribute('data-plugin-id', 'busy');
+  });
+
+  it('counts a plugin\'s notifications from renderer.js and its pages together', () => {
+    const shown: string[] = [];
+    vi.stubGlobal('Notification', class {
+      static get permission() { return 'granted'; }
+      constructor(title: string) { shown.push(title); }
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    frame.setAttribute('data-plugin-id', 'noisy');
+    send('showNotification', { title: 'page 1', body: '' });
+    fromRenderer('noisy', 'showNotification', { title: 'renderer 1', body: '' });
+    send('showNotification', { title: 'page 2', body: '' });
+    fromRenderer('noisy', 'showNotification', { title: 'renderer 2', body: '' });
+    send('showNotification', { title: 'page 3', body: '' });
+    expect(shown).toEqual(['[noisy] page 1', '[noisy] renderer 1', '[noisy] page 2']);
+    frame.setAttribute('data-plugin-id', 'busy');
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('drops what a plugin registered once its renderer.js stops, and its counts with it', () => {
+    store.registerSidebarAction.mockClear();
+    store.removePluginSidebarActions.mockClear();
+    for (let i = 0; i < 8; i++) fromRenderer('stopped', 'registerSidebarAction', { id: `a${i}`, icon: '', label: 'A' });
+    fromRenderer('stopped', 'registerSidebarAction', { id: 'over', icon: '', label: 'A' });
+    expect(store.registerSidebarAction).toHaveBeenCalledTimes(8);
+    host.gone?.('stopped');
+    expect(store.removePluginSidebarActions).toHaveBeenCalledExactlyOnceWith('stopped');
+    fromRenderer('stopped', 'registerSidebarAction', { id: 'again', icon: '', label: 'A' });
+    expect(store.registerSidebarAction).toHaveBeenCalledTimes(9);
+  });
+
+  it('ignores a call without a plugin or an action, an action not allowed, and getActiveSessionId', () => {
+    store.registerSidebarAction.mockClear();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    host.ui?.(null);
+    host.ui?.({ action: 'registerSidebarAction', payload: { id: 'x', icon: '', label: 'x' } });
+    fromRenderer(42, 'registerSidebarAction', { id: 'x', icon: '', label: 'x' });
+    fromRenderer('odd', { toString: () => 'registerSidebarAction' }, { id: 'x', icon: '', label: 'x' });
+    fromRenderer('odd', 'sshWrite', { data: 'rm -rf /' });
+    fromRenderer('odd', 'getActiveSessionId', { requestId: 1 });
+    expect(store.registerSidebarAction).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

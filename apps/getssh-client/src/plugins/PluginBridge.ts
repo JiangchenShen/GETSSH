@@ -4,7 +4,9 @@ import { useSessionStore } from '../store/sessionStore';
 import { sanitizeSVG } from './svgSanitizer';
 
 /**
- * PluginBridge - Secure message router between sandboxed plugin iframes and the host app.
+ * PluginBridge - Secure message router between plugins and the host app. Calls come from the
+ * sandboxed iframes of plugin pages (panels), and from each plugin's renderer.js, which runs in a
+ * WebContents of the main process that checks its calls and passes them on (pluginRendererHost.ts).
  * Only whitelisted API calls are forwarded. Dangerous operations (sshWrite, saveProfiles, etc.) are blocked.
  */
 
@@ -27,9 +29,9 @@ const BLOCKED_ACTIONS = new Set([
 ]);
 
 /**
- * Panels one plugin page may register, and how often it may open one. Each opened panel is a tab
- * with its own iframe; a page that registered and opened new panels on a timer added them without
- * limit.
+ * Panels one plugin may register from its pages and renderer.js together, and how often it may
+ * open one. Each opened panel is a tab with its own iframe; a page that registered and opened new
+ * panels on a timer added them without limit.
  */
 const MAX_PANELS_PER_PLUGIN = 16;
 const OPEN_PANEL_INTERVAL_MS = 1000;
@@ -45,23 +47,21 @@ const MAX_SIDEBAR_ICON_LENGTH = 32 * 1024;
 const sidebarActionsByPlugin = new Map<string, Set<string>>();
 const lastPanelOpen = new Map<string, number>();
 // Notifications go out in GETSSH's name, and renderer.js runs from startup without the user
-// opening anything: a plugin's pages may show 3 in any 30 seconds, with the plugin's name first
-// in the title. The main process applies the same rule to backends (PluginManager.ts).
+// opening anything: a plugin's pages and its renderer.js together may show 3 in any 30 seconds,
+// with the plugin's name first in the title. The main process applies the same rule to backends
+// (PluginManager.ts).
 const NOTIFICATION_WINDOW_MS = 30_000;
 const MAX_NOTIFICATIONS_PER_WINDOW = 3;
 const MAX_NOTIFICATION_TITLE_LENGTH = 256;
 const MAX_NOTIFICATION_BODY_LENGTH = 4096;
 const notificationTimes = new Map<string, number[]>();
 
-/** On the hidden frame a plugin's renderer.js runs in: the page URL it was started from. */
-const RENDERER_FRAME_ATTR = 'data-plugin-renderer';
+/** Where a call came from: an iframe of this window, or the plugin's renderer.js. */
+type CallSource = { frame: MessageEventSource | null } | { renderer: true };
+const RENDERER: CallSource = { renderer: true };
 
 function pluginFrames(): HTMLIFrameElement[] {
   return [...document.querySelectorAll<HTMLIFrameElement>('iframe[data-plugin-id]')];
-}
-
-function rendererFrames(): HTMLIFrameElement[] {
-  return pluginFrames().filter(frame => frame.hasAttribute(RENDERER_FRAME_ATTR));
 }
 
 /** getssh-plugin://<plugin>/…: the host is the plugin folder, compared like a URL host. */
@@ -80,14 +80,23 @@ function handlePluginMessage(event: MessageEvent) {
   const data = event.data;
   if (!data || !data.__getssh_plugin) return;
 
-  const { action, payload } = data;
-
   // The plugin is the one whose frame sent the message, never the id the message names: a
   // page naming other ids (or a CSS selector) would get a fresh limit for each.
   const source = event.source;
   const pluginId = pluginFrames().find(frame => frame.contentWindow === source)?.getAttribute('data-plugin-id');
   if (!pluginId) return;
+  handlePluginCall(pluginId, data.action, data.payload, { frame: source });
+}
 
+/** A call of renderer.js, which the main process tied to its plugin and checked already. */
+function handleRendererCall(call: { pluginId?: unknown; action?: unknown; payload?: unknown } | null | undefined) {
+  if (!call || typeof call.pluginId !== 'string' || typeof call.action !== 'string') return;
+  // getActiveSessionId answers the frame it came from; renderer.js has none here.
+  if (call.action === 'getActiveSessionId') return;
+  handlePluginCall(call.pluginId, call.action, call.payload, RENDERER);
+}
+
+function handlePluginCall(pluginId: string, action: string, payload: any, source: CallSource) {
   if (BLOCKED_ACTIONS.has(action)) {
     console.warn(`[PluginBridge] BLOCKED dangerous action "${action}" from plugin "${pluginId}"`);
     return;
@@ -120,11 +129,13 @@ function handlePluginMessage(event: MessageEvent) {
         label: String(payload.label ?? '').slice(0, 128),
         onClick: () => {
           // The handler (window.__sidebarHandlers) is in the page that registered the action:
-          // renderer.js, or an open panel. Panels come before the hidden renderer.js frames in
-          // the document, so the plugin's first frame is not necessarily that page.
+          // renderer.js, through the main process, or an open panel.
+          if ('renderer' in source) {
+            window.electronAPI.pluginRendererSidebarClick(pluginId, actionId);
+            return;
+          }
           const frames = pluginFrames();
-          const iframe = frames.find(frame => frame.contentWindow === source)
-            ?? frames.find(frame => frame.getAttribute('data-plugin-id') === pluginId && frame.hasAttribute(RENDERER_FRAME_ATTR))
+          const iframe = frames.find(frame => frame.contentWindow === source.frame)
             ?? frames.find(frame => frame.getAttribute('data-plugin-id') === pluginId);
           iframe?.contentWindow?.postMessage({ __getssh_host: true, event: 'sidebarClick', actionId }, '*');
         }
@@ -180,8 +191,8 @@ function handlePluginMessage(event: MessageEvent) {
 
     case 'getActiveSessionId':
       // Reply back with session ID (read-only, non-sensitive)
-      if (event.source) {
-        (event.source as WindowProxy).postMessage({
+      if ('frame' in source && source.frame) {
+        (source.frame as WindowProxy).postMessage({
           __getssh_host: true,
           event: 'sessionId',
           requestId: payload.requestId,
@@ -195,6 +206,19 @@ function handlePluginMessage(event: MessageEvent) {
 export function initPluginBridge() {
   window.addEventListener('message', handlePluginMessage);
 
+  // renderer.js: its calls and its end (uninstalled, updated, or its process gone) come from the
+  // main process, which also keeps what it registered for a window that loads later.
+  const unsubRendererUi = window.electronAPI.onPluginRendererUi?.(handleRendererCall);
+  const unsubRendererGone = window.electronAPI.onPluginRendererGone?.(forgetPlugin);
+  window.electronAPI.getPluginRendererState?.()
+    .then(calls => calls.forEach(handleRendererCall))
+    .catch(e => console.error('[PluginBridge] Failed to load what renderer.js registered:', e));
+  const sendRendererEnv = () => {
+    const { theme, language } = useAppStore.getState().appConfig;
+    window.electronAPI.setPluginRendererEnv?.({ theme, locale: language });
+  };
+  sendRendererEnv();
+
   const unsubUIExtensions = window.electronAPI.onSyncPluginUIExtensions?.((payload) => {
     usePluginStore.getState().setUIExtensions(payload);
   });
@@ -205,6 +229,7 @@ export function initPluginBridge() {
 
   const unsubAppStore = useAppStore.subscribe((state, prevState) => {
     if (state.appConfig.theme !== prevState.appConfig.theme || state.appConfig.language !== prevState.appConfig.language) {
+      sendRendererEnv();
       const iframes = document.querySelectorAll('iframe[data-plugin-id]');
       iframes.forEach((iframe) => {
         (iframe as HTMLIFrameElement).contentWindow?.postMessage({
@@ -217,86 +242,21 @@ export function initPluginBridge() {
     }
   });
 
-  // An install or uninstall changes the plugin list: start or remove renderer.js frames to match.
-  const unsubPlugins = usePluginStore.subscribe((state, prevState) => {
-    if (state.installedPlugins !== prevState.installedPlugins) {
-      bootSandboxedPlugins().catch(e => console.error('[PluginBridge] Failed to update plugin renderers:', e));
-    }
-  });
-
   return () => {
     window.removeEventListener('message', handlePluginMessage);
+    unsubRendererUi?.();
+    unsubRendererGone?.();
     unsubUIExtensions?.();
     unsubSettingsSchemas?.();
     unsubAppStore();
-    unsubPlugins();
   };
 }
 
-/** Drops what a removed or updated plugin registered here: its sidebar actions and its limits. */
+/** Drops what a plugin registered here once its renderer.js stops: its sidebar actions and its limits. */
 function forgetPlugin(pluginId: string) {
   usePluginStore.getState().removePluginSidebarActions(pluginId);
   sidebarActionsByPlugin.delete(pluginId);
   panelsByPlugin.delete(pluginId);
   lastPanelOpen.delete(pluginId);
   notificationTimes.delete(pluginId);
-}
-
-function startRenderer(pluginId: string, url: string) {
-  // getLocale() in renderer.js returns the app's language from the start, not the system's.
-  const src = new URL(url);
-  src.searchParams.set('locale', useAppStore.getState().appConfig.language || navigator.language);
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('sandbox', 'allow-scripts');
-  iframe.setAttribute('data-plugin-id', pluginId);
-  iframe.setAttribute(RENDERER_FRAME_ATTR, url);
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.tabIndex = -1;
-  iframe.style.display = 'none';
-  // The current theme once the page is up, for the callbacks of onThemeChange().
-  iframe.addEventListener('load', () => {
-    const { theme, language } = useAppStore.getState().appConfig;
-    iframe.contentWindow?.postMessage({ __getssh_host: true, event: 'envChange', theme, locale: language }, '*');
-  });
-  iframe.src = src.href;
-  document.body.appendChild(iframe);
-}
-
-async function syncRendererFrames() {
-  const pages = await window.electronAPI.getPluginRenderers();
-  const wanted = new Map(pages.map(page => [page.pluginId, page.url]));
-  for (const iframe of rendererFrames()) {
-    const pluginId = iframe.getAttribute('data-plugin-id') ?? '';
-    // An updated plugin has a new page URL: its frame goes too, and starts again below.
-    if (wanted.get(pluginId) === iframe.getAttribute(RENDERER_FRAME_ATTR)) continue;
-    iframe.remove();
-    forgetPlugin(pluginId);
-  }
-  const running = new Set(rendererFrames().map(iframe => iframe.getAttribute('data-plugin-id')));
-  for (const [pluginId, url] of wanted) {
-    if (running.has(pluginId)) continue;
-    try {
-      startRenderer(pluginId, url);
-    } catch (e) {
-      console.error(`[PluginBridge] renderer.js of plugin "${pluginId}" did not start:`, e);
-    }
-  }
-}
-
-let rendererSync: Promise<void> = Promise.resolve();
-
-/**
- * Runs each plugin's renderer.js in a hidden frame of its own. The frame is sandboxed like a panel
- * (opaque origin, no access to this window) and loads the plugin's own getssh-plugin:// page, so
- * the plugin page CSP applies to it too. A script that is missing, does not parse or throws stops
- * only its own frame. Frames already running are kept; the frame of a plugin no longer installed
- * is removed with its sidebar actions, and that of an updated plugin is replaced.
- *
- * Calls run one after another, each on a list fetched after the one before it finished: an older
- * list answered late cannot bring back the frame of a plugin uninstalled since.
- */
-export function bootSandboxedPlugins(): Promise<void> {
-  const run = rendererSync.then(syncRendererFrames);
-  rendererSync = run.catch(() => {});
-  return run;
 }

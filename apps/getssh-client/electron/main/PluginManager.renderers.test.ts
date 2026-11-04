@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-// get-plugin-renderers: the renderer.js page of each installed plugin, for the main window to open
-// in hidden frames. It answers once the boot-time plugin scan is over, and only a known window.
-// An update (commit-plugin-install of an installed name) replaces the plugin's manifest and page.
+// The renderer.js pages PluginManager asks its runner (pluginRendererHost.ts) to run: the page of
+// each installed plugin once the boot-time scan is over, a new page after an update (a new install
+// count in the URL), none for an uninstalled plugin; calls one after another.
 
 const mocks = vi.hoisted(() => ({
   userData: '',
@@ -40,7 +40,18 @@ vi.mock('./utils/rustCorePath', () => ({ getRustCorePath: () => '' }));
 vi.mock('./services/plugin/PluginProcessHost', () => ({ PluginProcessHost: class {} }));
 vi.mock('./services/plugin/PluginNetworkGateway', () => ({ fetchForPlugin: vi.fn(), isPrivateNetworkAddress: () => false }));
 
-import { PluginManager } from './PluginManager';
+import { PluginManager, type PluginRendererRunner } from './PluginManager';
+import type { PluginRendererPage } from './services/plugin/pluginPageProtocol';
+
+/** A runner that records the pages it was asked to run, by plugin. */
+function runner() {
+  const runs: Array<Record<string, string>> = [];
+  const fake: PluginRendererRunner & { runs: typeof runs } = {
+    runs,
+    sync: vi.fn(async (pages: ReadonlyArray<PluginRendererPage>) => { runs.push(Object.fromEntries(pages.map(page => [page.pluginId, page.url]))); }),
+  };
+  return fake;
+}
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-plugin-renderer-ipc-'));
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -55,8 +66,8 @@ function plugin(name: string, manifest: Record<string, unknown>, files: string[]
   }
 }
 
-describe('get-plugin-renderers', () => {
-  it('lists the renderer.js page of each installed plugin once the plugins are loaded', async () => {
+describe('renderer.js pages', () => {
+  it('runs the page of each installed plugin once the plugins are loaded', async () => {
     mocks.userData = root;
     plugin('alpha', { renderer: 'renderer.js' }, ['renderer.js']);
     plugin('beta', { renderer: 'dist/renderer.js' }, ['dist/renderer.js']);
@@ -64,24 +75,51 @@ describe('get-plugin-renderers', () => {
     plugin('missing', { renderer: 'renderer.js' });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const manager = new PluginManager();
+      const pages = runner();
+      const manager = new PluginManager(pages);
       manager.setupIPC();
-      const handler = mocks.handlers.get('get-plugin-renderers')!;
-      let answered = false;
-      const pending = Promise.resolve(handler({ trusted: true })).then(pages => { answered = true; return pages; });
-      await new Promise(resolve => setTimeout(resolve, 20));
-      expect(answered).toBe(false);
       await manager.loadPlugins();
+      expect(pages.sync).not.toHaveBeenCalled();
       manager.markInitialLoadDone();
-      const pages = await pending as Array<{ pluginId: string; url: string }>;
-      expect([...pages].sort((a, b) => a.pluginId.localeCompare(b.pluginId))).toEqual([
-        { pluginId: 'alpha', url: 'getssh-plugin://alpha/?renderer=renderer.js' },
-        { pluginId: 'beta', url: 'getssh-plugin://beta/?renderer=dist%2Frenderer.js' },
-      ]);
-      expect(await handler({ trusted: false })).toEqual([]);
+      await vi.waitFor(() => expect(pages.sync).toHaveBeenCalledOnce());
+      expect(pages.runs).toEqual([{
+        alpha: 'getssh-plugin://alpha/?renderer=renderer.js',
+        beta: 'getssh-plugin://beta/?renderer=dist%2Frenderer.js',
+      }]);
+      expect(mocks.handlers.has('get-plugin-renderers')).toBe(false);
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('asks the runner one call at a time, each with the list as it is then', async () => {
+    const pages = runner();
+    let finishFirst!: () => void;
+    (pages.sync as ReturnType<typeof vi.fn>).mockImplementationOnce(async (list: ReadonlyArray<{ pluginId: string; url: string }>) => {
+      pages.runs.push(Object.fromEntries(list.map(page => [page.pluginId, page.url])));
+      await new Promise<void>(resolve => { finishFirst = resolve; });
+    });
+    const manager = new PluginManager(pages);
+    const first = manager.syncRenderers();
+    const second = manager.syncRenderers();
+    await vi.waitFor(() => expect(pages.sync).toHaveBeenCalledOnce());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(pages.sync).toHaveBeenCalledOnce();
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(pages.sync).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps going after a failed run', async () => {
+    const pages = runner();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    (pages.sync as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no session'));
+    const manager = new PluginManager(pages);
+    await manager.syncRenderers();
+    await manager.syncRenderers();
+    expect(pages.sync).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledOnce();
+    error.mockRestore();
   });
 });
 
@@ -103,7 +141,8 @@ describe('commit-plugin-install', () => {
       'beta/package.json': manifest('beta', '1.0.0', { renderer: 'renderer.js' }),
       'beta/renderer.js': '',
     });
-    const manager = new PluginManager();
+    const pagesRunner = runner();
+    const manager = new PluginManager(pagesRunner);
     manager.setupIPC();
     await manager.loadPlugins();
     manager.markInitialLoadDone();
@@ -120,7 +159,11 @@ describe('commit-plugin-install', () => {
       return call('commit-plugin-install', { tempDir }) as Promise<{ success: boolean; error?: string }>;
     };
     const listed = async () => (await call('get-plugin-list') as Array<{ name: string; version: string }>).map(plugin => `${plugin.name}@${plugin.version}`);
-    const pages = async () => Object.fromEntries((await call('get-plugin-renderers') as Array<{ pluginId: string; url: string }>).map(page => [page.pluginId, page.url]));
+    // The pages the runner was last asked to run.
+    const pages = async () => {
+      await manager.syncRenderers();
+      return pagesRunner.runs.at(-1);
+    };
 
     const before = await listed();
     expect(await install('alpha', {
@@ -147,5 +190,9 @@ describe('commit-plugin-install', () => {
     });
     expect(await listed()).toEqual(before.map(entry => (entry === 'alpha@1.0.0' ? 'alpha@2.0.1' : 'beta@1.1.0')));
     expect(reload).toHaveBeenCalledOnce();
+
+    // An uninstalled plugin's page stops.
+    expect(await call('uninstall-plugin', 'beta')).toMatchObject({ success: true });
+    expect(pagesRunner.runs.at(-1)).toEqual({ alpha: 'getssh-plugin://alpha/?renderer=dist%2Frenderer.js&install=2' });
   });
 });

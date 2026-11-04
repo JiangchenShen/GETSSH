@@ -1,7 +1,9 @@
-// Plugins' renderer.js in a real Electron window (plugin-renderer-smoke.cjs). This runner bundles
-// the code under test from source and starts Electron with HOME and USERPROFILE in a temporary
-// directory and a mock Keychain, so nothing touches the real ~/.getssh or Keychain items:
-// - the getssh-plugin:// handler and pluginRendererPages, as the main process runs them;
+// Plugins' renderer.js in a real Electron (plugin-renderer-smoke.cjs). This runner bundles the code
+// under test from source and starts Electron with HOME and USERPROFILE in a temporary directory
+// and a mock Keychain, so nothing touches the real ~/.getssh or Keychain items:
+// - the main process side: pluginRendererHost (each plugin's WebContents and session), the
+//   getssh-plugin:// handler, pluginRendererPages and the window registry;
+// - the preloads: the one of renderer.js pages, and the main window's;
 // - the window side: the real PluginBridge, plugin store and session store. Only the app store
 //   (theme and language) and the workspace store (the active workspace) are stand-ins.
 //
@@ -24,19 +26,38 @@ fs.mkdirSync(home);
 
 let status = 1;
 try {
+  const source = file => JSON.stringify(path.join(appDir, file));
   await build({
     cwd: appDir,
-    input: path.join(appDir, 'electron/main/services/plugin/pluginPageProtocol.ts'),
+    input: '\0renderer-smoke-main',
     platform: 'node',
-    output: { file: path.join(workDir, 'protocol.cjs'), format: 'cjs' },
+    external: ['electron'],
+    plugins: [{
+      name: 'renderer-smoke-main',
+      resolveId: id => (id === '\0renderer-smoke-main' ? id : null),
+      load: id => (id === '\0renderer-smoke-main' ? `export * from ${source('electron/main/services/plugin/pluginRendererHost.ts')};
+export * from ${source('electron/main/services/plugin/pluginPageProtocol.ts')};
+export { setMainWindow } from ${source('electron/main/windowRegistry.ts')};` : null),
+    }],
+    output: { file: path.join(workDir, 'main.cjs'), format: 'cjs' },
     logLevel: 'warn',
   });
+  // Sandboxed preloads: one file each, needing nothing but electron.
+  for (const [input, file] of [['electron/preload/pluginRenderer.ts', 'plugin-preload.js'], ['electron/preload/index.ts', 'window-preload.js']]) {
+    await build({
+      cwd: appDir,
+      input: path.join(appDir, input),
+      platform: 'node',
+      external: ['electron'],
+      output: { file: path.join(workDir, file), format: 'cjs' },
+      logLevel: 'warn',
+    });
+  }
 
   const stubs = {
     appStore: "import { create } from 'zustand';\nexport const useAppStore = create(() => ({ appConfig: { theme: 'dark', language: 'zh-CN' } }));",
     workspaceStore: "export const useWorkspaceStore = { getState: () => ({ activeWorkspaceId: 'smoke' }) };",
   };
-  const source = file => JSON.stringify(path.join(appDir, file));
   await build({
     cwd: appDir,
     input: '\0renderer-smoke-entry',
@@ -50,10 +71,10 @@ try {
       },
       load(id) {
         if (id === '\0renderer-smoke-entry') {
-          return `import { bootSandboxedPlugins, initPluginBridge } from ${source('src/plugins/PluginBridge.ts')};
+          return `import { initPluginBridge } from ${source('src/plugins/PluginBridge.ts')};
 import { usePluginStore } from ${source('src/store/pluginStore.ts')};
 import { useSessionStore } from ${source('src/store/sessionStore.ts')};
-window.__smoke = { bootSandboxedPlugins, initPluginBridge, usePluginStore, useSessionStore };`;
+window.__smoke = { initPluginBridge, usePluginStore, useSessionStore };`;
         }
         const stub = /^\0renderer-smoke-(appStore|workspaceStore)$/.exec(id)?.[1];
         return stub ? stubs[stub] : null;
@@ -70,7 +91,7 @@ window.__smoke = { bootSandboxedPlugins, initPluginBridge, usePluginStore, useSe
     cwd: appDir,
     env,
     stdio: 'inherit',
-    timeout: 120_000,
+    timeout: 240_000,
   });
   if (result.error) console.error(`plugin renderer smoke failed: ${result.error.message}`);
   else status = result.status ?? 1;

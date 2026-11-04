@@ -85,8 +85,13 @@ declare global {
       commitPluginInstall: (payload: { sourceDir: string; tempDir: string }) => Promise<{ success: boolean; manifest?: import('./types/plugin').PluginManifest; error?: string }>;
       abortPluginInstall: (tempDir: string) => Promise<{ success: boolean; error?: string }>;
       uninstallPlugin: (pluginName: string) => Promise<{ success: boolean; error?: string }>;
-      /** The page each plugin's renderer.js runs in (pluginPageProtocol.pluginRendererPages). */
-      getPluginRenderers: () => Promise<Array<{ pluginId: string; url: string }>>;
+      /** Each plugin's renderer.js runs in a WebContents of the main process (pluginRendererHost.ts):
+       *  what it registers comes here checked; sidebar clicks, the theme and the language go back. */
+      onPluginRendererUi: (cb: (call: { pluginId: string; action: string; payload: any }) => void) => (() => void);
+      onPluginRendererGone: (cb: (pluginId: string) => void) => (() => void);
+      getPluginRendererState: () => Promise<Array<{ pluginId: string; action: string; payload: any }>>;
+      pluginRendererSidebarClick: (pluginId: string, actionId: string) => void;
+      setPluginRendererEnv: (env: { theme: string; locale: string }) => void;
       reloadPlugins: () => Promise<{ success: boolean; error?: string }>;
       sftpList: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string; list?: import('./components/SFTPManager').SFTPFile[]; truncated?: boolean }>;
       sftpMkdir: (sessionId: string, remotePath: string) => Promise<{ success: boolean; error?: string }>;

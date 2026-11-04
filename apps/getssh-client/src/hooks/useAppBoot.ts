@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
-import { initPluginBridge, bootSandboxedPlugins } from '../plugins/PluginBridge';
+import { initPluginBridge } from '../plugins/PluginBridge';
 import { registerSftpPanel } from '../components/SFTPManager';
 
 export function useAppBoot() {
@@ -40,9 +40,8 @@ export function useAppBoot() {
       });
     }
 
-    // Boot Plugins in Sandbox (secure)
+    // Plugin pages talk to this window; each plugin's renderer.js runs in the main process.
     const cleanupPluginBridge = initPluginBridge();
-    bootSandboxedPlugins().catch(e => console.error('Failed to boot plugins:', e));
 
     // Register core panels in the dynamic panel engine
     registerSftpPanel();

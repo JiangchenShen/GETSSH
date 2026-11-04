@@ -13,7 +13,7 @@ import { broadcastToAllWindows, getMainWindow, isKnownTopLevelSender } from './w
 import { getRustCorePath } from './utils/rustCorePath';
 import { PluginProcessHost } from './services/plugin/PluginProcessHost';
 import { fetchForPlugin, isPrivateNetworkAddress } from './services/plugin/PluginNetworkGateway';
-import { pluginRendererPages } from './services/plugin/pluginPageProtocol';
+import { pluginRendererPages, type PluginRendererPage } from './services/plugin/pluginPageProtocol';
 import {
   clearPasswordSettings,
   deletePluginSecret,
@@ -42,6 +42,11 @@ interface PluginListener {
   event: string;
   callback: (...args: any[]) => void;
   subscriptionId?: string;
+}
+
+/** Where renderer.js pages run (services/plugin/pluginRendererHost.ts). */
+export interface PluginRendererRunner {
+  sync(pages: ReadonlyArray<PluginRendererPage>): Promise<void>;
 }
 
 interface RunningPlugin {
@@ -112,14 +117,33 @@ export class PluginManager {
   /** Settles when the boot-time plugin scan is over; IPC is registered before it so early callers wait. */
   private initialLoad: Promise<void>;
   private finishInitialLoad!: () => void;
+  /** Updates of the renderer.js pages, one after another (syncRenderers). */
+  private rendererSync: Promise<void> = Promise.resolve();
 
-  constructor() {
+  constructor(private renderers?: PluginRendererRunner) {
     this.pluginsPath = path.join(app.getPath('userData'), 'plugins');
     this.initialLoad = new Promise<void>((resolve) => { this.finishInitialLoad = resolve; });
   }
 
   public markInitialLoadDone() {
     this.finishInitialLoad();
+    void this.syncRenderers();
+  }
+
+  /**
+   * Starts, replaces or stops renderer.js pages to match the installed plugins: after the boot
+   * scan, an install or update (a new install count changes the page URL), an uninstall and a
+   * reload. Calls run one after another, each on the list as it is when its turn comes.
+   */
+  public syncRenderers(): Promise<void> {
+    const run = this.rendererSync.then(async () => {
+      if (!this.renderers) return;
+      await this.renderers.sync(await pluginRendererPages(this.installedPlugins, this.installCounts));
+    });
+    this.rendererSync = run.catch((error: unknown) => {
+      console.error('[PluginManager] renderer.js pages could not be updated:', error instanceof Error ? error.message : error);
+    });
+    return this.rendererSync;
   }
 
   private getSecurePluginPath(pluginName: string): string {
@@ -1073,6 +1097,7 @@ export class PluginManager {
       );
       this.installedPlugins = [];
       await this.loadPlugins();
+      await this.syncRenderers();
       return { success: true };
     });
 
@@ -1146,6 +1171,8 @@ export class PluginManager {
           } catch (error) {
             console.warn(`[PluginManager] The secrets of plugin '${pluginName}' could not be removed:`, error instanceof Error ? error.message : error);
           }
+          // Its renderer.js stops, and its sidebar actions leave the main window.
+          await this.syncRenderers();
           return { success: true };
        } catch (err: unknown) {
           return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -1247,7 +1274,7 @@ export class PluginManager {
         await fs.promises.rename(sourceDir, targetDir);
 
         // An update replaces the old manifest in place: the plugin list shows the new version,
-        // and get-plugin-renderers gives a new page URL, so the window restarts renderer.js.
+        // and the renderer.js page gets a new URL, so syncRenderers replaces it.
         serverManifest.localPath = targetDir;
         const listed = this.installedPlugins.findIndex(p => p.name === serverManifest.name);
         if (listed < 0) this.installedPlugins.push(serverManifest);
@@ -1258,6 +1285,7 @@ export class PluginManager {
         if (wasRunning) {
           await this.reloadPlugin(serverManifest.name);
         }
+        await this.syncRenderers();
 
         return { success: true, manifest: serverManifest };
       } catch (err: unknown) {
@@ -1281,14 +1309,6 @@ export class PluginManager {
       } catch (e) {
         return { success: false };
       }
-    });
-
-    // The pages renderer.js runs in, one hidden sandboxed frame each in the main window
-    // (PluginBridge.bootSandboxedPlugins). The window loads the script from getssh-plugin:// itself.
-    ipcMain.handle('get-plugin-renderers', async (event) => {
-      if (!isKnownTopLevelSender(event)) return [];
-      await this.initialLoad;
-      return pluginRendererPages(this.installedPlugins, this.installCounts);
     });
   }
 }

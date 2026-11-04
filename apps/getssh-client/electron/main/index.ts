@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PluginManager } from './PluginManager'
 import { PLUGIN_PAGE_SCHEME, PLUGIN_PAGE_SCHEME_PRIVILEGES, createPluginPageHandler, disableWebRtcUdp } from './services/plugin/pluginPageProtocol'
+import { PLUGIN_RENDERER_ACTION_CHANNEL, PluginRendererHost, isPluginRendererSender } from './services/plugin/pluginRendererHost'
 import { registerAllIpcHandlers } from './handlers'
 import { getBackendConfig } from './handlers/systemHandler'
 import { getBrowserWindowOptions, bindWindowEvents, denyClipboardRead, setupSecurityPolicies } from './handlers/windowHandler'
@@ -47,6 +48,9 @@ app.commandLine.appendSwitch('disable-software-rasterizer')
 // Only allow IPC messages from the top-level frame (the GETSSH UI).
 // If event is null/undefined (e.g., emitted internally by main process), skip this check
 const isSubframeIpcEvent = (event: any) => !!(event && event.senderFrame && event.senderFrame.parent !== null);
+// A plugin's renderer.js page is a top-level frame too, in a WebContents of its own: it may send on
+// its one channel and nothing else, and invoke nothing.
+const isPluginPageIpcEvent = (event: any, channel: string | symbol) => isPluginRendererSender(event) && channel !== PLUGIN_RENDERER_ACTION_CHANNEL;
 
 type IpcListener = (event: any, ...args: any[]) => void;
 // The guard wraps every listener, so keep original listener -> wrappers (per channel) for removeListener/off.
@@ -56,6 +60,10 @@ function wrapIpcListener(kind: string, channel: string | symbol, listener: Funct
   const wrapper: IpcListener = (event, ...args) => {
     if (isSubframeIpcEvent(event)) {
       console.warn(`[Security] Blocked unauthorized IPC '${kind}' message from subframe to channel: ${String(channel)}`);
+      return;
+    }
+    if (isPluginPageIpcEvent(event, channel)) {
+      console.warn(`[Security] Blocked IPC '${kind}' message from a plugin's renderer.js page to channel: ${String(channel)}`);
       return;
     }
     run(event, ...args);
@@ -103,6 +111,10 @@ ipcMain.handle = (channel, listener) => {
       console.warn(`[Security] Blocked unauthorized IPC 'handle' message from subframe to channel: ${channel}`);
       throw new Error('Unauthorized IPC channel access from subframe');
     }
+    if (isPluginRendererSender(event)) {
+      console.warn(`[Security] Blocked IPC 'handle' message from a plugin's renderer.js page to channel: ${channel}`);
+      throw new Error('Unauthorized IPC channel access from a plugin page');
+    }
     return listener(event, ...args);
   });
 };
@@ -123,6 +135,10 @@ ipcMain.handleOnce = (channel, listener) => {
     if (event && event.senderFrame && event.senderFrame.parent !== null) {
       console.warn(`[Security] Blocked unauthorized IPC 'handleOnce' message from subframe to channel: ${channel}`);
       throw new Error('Unauthorized IPC channel access from subframe');
+    }
+    if (isPluginRendererSender(event)) {
+      console.warn(`[Security] Blocked IPC 'handleOnce' message from a plugin's renderer.js page to channel: ${channel}`);
+      throw new Error('Unauthorized IPC channel access from a plugin page');
     }
     return listener(event, ...args);
   });
@@ -161,6 +177,8 @@ process.env.VITE_PUBLIC = process.env.VITE_DEV_SERVER_URL
   : process.env.DIST
 
 const preload = join(__dirname, '../preload/index.js')
+// Set once the app is ready; stopped first when quitting.
+let pluginRendererHost: PluginRendererHost | null = null
 const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
 
@@ -306,7 +324,13 @@ app.whenReady().then(async () => {
   tidalBridge.setupStateBroadcaster();
   TornWindowManager.getInstance().init();
 
-  const pluginManager = new PluginManager();
+  // Each plugin's renderer.js runs in a WebContents of its own, started once the plugins are loaded.
+  pluginRendererHost = new PluginRendererHost({
+    pluginsDir: join(app.getPath('userData'), 'plugins'),
+    preload: join(__dirname, '../plugin-preload/pluginRenderer.js'),
+  });
+  pluginRendererHost.registerIpc();
+  const pluginManager = new PluginManager(pluginRendererHost);
   pluginManager.setupIPC();
   SecureCenter.getInstance().setPluginTeardown(() => pluginManager.forceKillAll());
   // Quit and safe-mode restart also stop the MCP servers (deactivating a plugin does not).
@@ -391,6 +415,7 @@ app.on('before-quit', (e) => {
 })
 
 async function runQuitTeardown() {
+  pluginRendererHost?.destroyAll();
   // A password copied from the reveal dialog less than 30 s ago must not outlive the app.
   await clearCopiedSecret().catch(err => console.warn('[Main] Clipboard cleanup failed:', err));
   // Gracefully deactivate all plugins and release the ocean-sentinel before the process exits

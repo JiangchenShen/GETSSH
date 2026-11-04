@@ -14,6 +14,7 @@ import {
   pluginPageCsp,
   pluginRendererPages,
   rendererScriptPath,
+  withRendererLocale,
   withWebRtcGuard,
 } from './pluginPageProtocol';
 
@@ -245,21 +246,18 @@ describe('createPluginPageHandler', () => {
     expect(directives(response.headers.get('content-security-policy')!).get('default-src')).toEqual(["'none'"]);
   });
 
-  it('serves the renderer.js page: the WebRTC guard, the bridge, then the script from the plugin\'s folder', async () => {
+  it('serves the renderer.js page: the WebRTC guard, then the script from the plugin\'s folder, sandboxed', async () => {
     const response = await get('getssh-plugin://demo/?renderer=dist%2Fmy%20renderer.js&locale=zh-CN');
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-security-policy')).toBe(pluginPageCsp('demo'));
+    // Top-level in its own WebContents, the page keeps the opaque origin of a sandboxed frame.
+    expect(response.headers.get('content-security-policy')).toBe(`${pluginPageCsp('demo')}; sandbox allow-scripts`);
     expect(response.headers.get('connection-allowlist')).toBe(PLUGIN_PAGE_CONNECTION_ALLOWLIST);
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     const text = await response.text();
-    expect(text.startsWith(`<!doctype html>${GUARD}<html>`)).toBe(true);
-    expect(text).toContain('var PLUGIN_ID = "demo";');
-    expect(text).toContain('window.__GETSSH_LOCALE = "zh-CN";');
-    expect(text).toContain("invokeBackend() is not available in renderer.js");
-    expect(text.indexOf('window.GETSSH = {')).toBeLessThan(text.indexOf('<script src='));
-    expect(text.endsWith('<body><script src="/dist/my%20renderer.js"></script></body></html>')).toBe(true);
-    // The install count only tells the window the plugin changed; the page is the same.
-    const reinstalled = await (await get('getssh-plugin://demo/?renderer=dist%2Fmy%20renderer.js&install=3&locale=zh-CN')).text();
+    // window.GETSSH comes from the WebContents' preload, not from the page.
+    expect(text).toBe(`<!doctype html>${GUARD}<html><head><meta charset="utf-8"></head><body><script src="/dist/my%20renderer.js"></script></body></html>`);
+    // The install count and the language only matter to the host and the preload; the page is the same.
+    const reinstalled = await (await get('getssh-plugin://demo/?renderer=dist%2Fmy%20renderer.js&install=3&locale=en-US')).text();
     expect(reinstalled).toBe(text);
     // The script itself comes from the same handler, with the same policy.
     const script = await get('getssh-plugin://demo/dist/my%20renderer.js');
@@ -267,13 +265,22 @@ describe('createPluginPageHandler', () => {
     expect(await script.text()).toContain('registerPanel');
   });
 
-  it('puts only a language tag into the renderer.js page', async () => {
-    for (const locale of ['"};alert(1);//', 'zh CN', '</script><script>alert(1)', 'x'.repeat(60)]) {
-      const response = await get(`getssh-plugin://demo/?renderer=app.js&locale=${encodeURIComponent(locale)}`);
-      expect(response.status, locale).toBe(200);
-      const text = await response.text();
-      expect(text, locale).not.toContain('window.__GETSSH_LOCALE = "');
-      expect(text, locale).not.toContain('alert(1)');
+  it('puts only a language tag into the renderer.js page URL', () => {
+    const url = 'getssh-plugin://demo/?renderer=app.js';
+    expect(withRendererLocale(url, 'zh-CN')).toBe(`${url}&locale=zh-CN`);
+    for (const locale of ['"};alert(1);//', 'zh CN', '</script><script>alert(1)', 'x'.repeat(60), '', null, undefined]) {
+      expect(withRendererLocale(url, locale), String(locale)).toBe(url);
+    }
+  });
+
+  it('serves only its own plugin when it is a plugin\'s renderer.js session', async () => {
+    const own = createPluginPageHandler(pluginsDir, { plugin: 'demo' });
+    expect((await own(new Request('getssh-plugin://demo/app.js'))).status).toBe(200);
+    for (const url of ['getssh-plugin://other/secret.js', 'getssh-plugin://DEMO.evil/app.js', 'getssh-plugin://a;b/x.js']) {
+      const response = await own(new Request(url));
+      expect(response.status, url).toBe(404);
+      expect(directives(response.headers.get('content-security-policy')!).get('default-src'), url).toEqual(["'none'"]);
+      expect(await response.text(), url).not.toContain('other plugin');
     }
   });
 

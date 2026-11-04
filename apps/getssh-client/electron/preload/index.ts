@@ -70,7 +70,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   commitPluginInstall: (payload: any) => ipcRenderer.invoke('commit-plugin-install', payload),
   abortPluginInstall: (tempDir: string) => ipcRenderer.invoke('abort-plugin-install', tempDir),
   uninstallPlugin: (pluginName: string) => ipcRenderer.invoke('uninstall-plugin', pluginName),
-  getPluginRenderers: () => ipcRenderer.invoke('get-plugin-renderers'),
+  // Each plugin's renderer.js runs in a WebContents of the main process, which passes on what it
+  // registers (checked) and takes back sidebar clicks, the theme and the language.
+  onPluginRendererUi: (callback: (call: { pluginId: string, action: string, payload: any }) => void) => {
+    const listener = (_event: IpcRendererEvent, call: { pluginId: string, action: string, payload: any }) => callback(call)
+    ipcRenderer.on('plugin-renderer:ui', listener)
+    return () => ipcRenderer.removeListener('plugin-renderer:ui', listener)
+  },
+  onPluginRendererGone: (callback: (pluginId: string) => void) => {
+    const listener = (_event: IpcRendererEvent, pluginId: string) => callback(pluginId)
+    ipcRenderer.on('plugin-renderer:gone', listener)
+    return () => ipcRenderer.removeListener('plugin-renderer:gone', listener)
+  },
+  getPluginRendererState: () => ipcRenderer.invoke('plugin-renderer:get-state'),
+  pluginRendererSidebarClick: (pluginId: string, actionId: string) => ipcRenderer.send('plugin-renderer:sidebar-click', pluginId, actionId),
+  setPluginRendererEnv: (env: { theme: string, locale: string }) => ipcRenderer.send('plugin-renderer:env', env),
   reloadPlugins: () => ipcRenderer.invoke('reload-plugins'),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   onUpdateAvailable: (callback: (info: { version: string, url: string }) => void) => {

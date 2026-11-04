@@ -22,16 +22,17 @@ const DENY_ALL_CSP = "default-src 'none'; form-action 'none'; base-uri 'none'";
 
 /**
  * renderer.js runs in a page of the plugin's own host, getssh-plugin://<plugin>/?renderer=<path>,
- * so it gets the same policy as the plugin's other pages. A srcdoc or about:blank frame would take
- * the main window's policy instead, whose connect-src reaches localhost and the AI services.
+ * so it gets the same policy as the plugin's other pages, in a WebContents of its own
+ * (pluginRendererHost.ts).
  */
 const RENDERER_PARAM = 'renderer';
+// The app's language for getLocale(), which the page's preload reads from the URL.
 const LOCALE_PARAM = 'locale';
 // How many times the plugin was installed since GETSSH started: an update changes the page URL,
-// and the window replaces the plugin's frame. The handler itself ignores it.
+// and the plugin's WebContents is replaced. The handler itself ignores it.
 const INSTALL_PARAM = 'install';
 const MAX_RENDERER_PATH = 1024;
-// A language tag such as zh-CN (the app's language, for getLocale()); nothing else reaches the page.
+// A language tag such as zh-CN; nothing else goes into the URL.
 const LOCALE_TAG = /^[a-z]{2,8}(?:-[a-z0-9]{1,8}){0,4}$/i;
 
 /**
@@ -130,13 +131,13 @@ export function rendererScriptPath(renderer: unknown): string | null {
 }
 
 export interface PluginRendererPage {
-  /** The plugin folder: the page's host, and the data-plugin-id of the frame it runs in. */
+  /** The plugin folder: the page's host, and the plugin its WebContents speaks for. */
   pluginId: string;
   url: string;
 }
 
 /**
- * The renderer.js page of every plugin that declares one, for the main window to open. A plugin
+ * The renderer.js page of every plugin that declares one, for pluginRendererHost to open. A plugin
  * is left out when its folder cannot be a host of the scheme or its renderer is not a file inside
  * its folder (symbolic links resolved); the other plugins are not affected. `installs` counts each
  * plugin's installs since GETSSH started.
@@ -274,21 +275,34 @@ function pluginBridgeScript(pluginId: string): string {
 }
 
 /**
- * The page renderer.js runs in: the bridge, the app's language for getLocale(), then the script.
- * renderer.js only registers UI, so invokeBackend() fails at once there instead of waiting for an
- * answer nobody sends (only a panel's PluginPane answers it).
+ * The page renderer.js runs in, top-level in a WebContents of its own: the WebRTC guard, then the
+ * script. window.GETSSH comes from the WebContents' preload (electron/preload/pluginRenderer.ts).
  */
-function rendererPage(pluginId: string, script: string, locale: string | null): string {
+function rendererPage(script: string): string {
   const src = '/' + script.split('/').map(encodeURIComponent).join('/');
-  const setup = [
-    locale ? `window.__GETSSH_LOCALE = ${JSON.stringify(locale)};` : '',
-    "window.GETSSH.invokeBackend = function () { return Promise.reject(new Error('invokeBackend() is not available in renderer.js; call it from a plugin page.')); };",
-  ].join('\n');
-  return withWebRtcGuard(`<!doctype html><html><head><meta charset="utf-8">${pluginBridgeScript(pluginId)}<script>${setup}</script></head><body><script src="${src}"></script></body></html>`);
+  return withWebRtcGuard(`<!doctype html><html><head><meta charset="utf-8"></head><body><script src="${src}"></script></body></html>`);
+}
+
+/**
+ * Added to the CSP of the renderer.js page. As a top-level page it would get
+ * getssh-plugin://<plugin> for its origin, and an about:blank frame it made would be same-origin,
+ * that frame's RTCPeerConnection within reach. Sandboxed, the page keeps the opaque origin the
+ * sandboxed iframe in the main window gave it, and gets no dialogs, popups or downloads.
+ */
+export const RENDERER_PAGE_SANDBOX = 'sandbox allow-scripts';
+
+/** A renderer.js page URL with the app's language for getLocale(), if it is a language tag. */
+export function withRendererLocale(url: string, locale: string | null | undefined): string {
+  return locale && LOCALE_TAG.test(locale) ? `${url}&${LOCALE_PARAM}=${encodeURIComponent(locale)}` : url;
+}
+
+export interface PluginPageHandlerOptions {
+  /** The one plugin this handler serves (the session of its renderer.js); other hosts get 404. */
+  plugin?: string;
 }
 
 /** The protocol.handle handler for getssh-plugin://, serving files under pluginsDir. */
-export function createPluginPageHandler(pluginsDir: string): (request: Request) => Promise<Response> {
+export function createPluginPageHandler(pluginsDir: string, options: PluginPageHandlerOptions = {}): (request: Request) => Promise<Response> {
   return async (request) => {
     let csp = DENY_ALL_CSP;
     const respond = (body: BodyInit | null, status: number, headers: Record<string, string> = {}) =>
@@ -296,10 +310,11 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
 
     let pluginId: string;
     let pluginPath: string;
-    let renderer: { script: string; locale: string | null } | null = null;
+    let renderer: { script: string } | null = null;
     try {
       const parsedUrl = new URL(request.url);
       pluginId = parsedUrl.hostname;
+      if (options.plugin !== undefined && pluginId !== options.plugin) return respond('Not Found', 404);
       // Throws for a host it cannot put in a policy; the answer then keeps the deny-all policy.
       csp = pluginPageCsp(pluginId);
       let pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
@@ -307,8 +322,7 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
         // The renderer.js page: the checks below then apply to the script it loads.
         const script = rendererScriptPath(parsedUrl.searchParams.get(RENDERER_PARAM));
         if (!script) return respond('Bad Request: invalid renderer path', 400);
-        const locale = parsedUrl.searchParams.get(LOCALE_PARAM);
-        renderer = { script, locale: locale && LOCALE_TAG.test(locale) ? locale : null };
+        renderer = { script };
         pathname = script;
       }
       const pluginDir = path.join(pluginsDir, pluginId);
@@ -328,7 +342,8 @@ export function createPluginPageHandler(pluginsDir: string): (request: Request) 
     if (!stats.isFile()) return respond('Not Found', 404);
 
     if (renderer) {
-      return respond(rendererPage(pluginId, renderer.script, renderer.locale), 200, {
+      csp = `${csp}; ${RENDERER_PAGE_SANDBOX}`;
+      return respond(rendererPage(renderer.script), 200, {
         'content-type': 'text/html; charset=utf-8',
         'connection-allowlist': PLUGIN_PAGE_CONNECTION_ALLOWLIST,
       });
