@@ -284,6 +284,34 @@ describe('createPluginPageHandler', () => {
     }
   });
 
+  it('serves a plugin with capitals in its name from its own folder, its host in any case', async () => {
+    const folder = path.join(pluginsDir, 'MyTool');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, 'renderer.js'), 'window.GETSSH.registerSidebarAction("open", "", "MyTool");');
+    const own = createPluginPageHandler(pluginsDir, { plugin: 'MyTool' });
+    const stat = vi.spyOn(fs.promises, 'stat');
+    try {
+      // Chromium hands the host over in lower case (getssh-plugin://mytool/).
+      for (const host of ['mytool', 'MyTool', 'MYTOOL']) {
+        stat.mockClear();
+        const page = await own(new Request(`getssh-plugin://${host}/?renderer=renderer.js`));
+        expect(page.status, host).toBe(200);
+        expect(await page.text(), host).toContain('<script src="/renderer.js"></script>');
+        expect(directives(page.headers.get('content-security-policy')!).get('script-src'), host).toContain(`getssh-plugin://${host}`);
+        const script = await own(new Request(`getssh-plugin://${host}/renderer.js`));
+        expect(script.status, host).toBe(200);
+        expect(await script.text(), host).toContain('MyTool');
+        // From the folder as it is named: a disk that tells cases apart has no mytool folder.
+        expect(stat.mock.calls.map(([file]) => path.relative(pluginsDir, String(file))), host).toEqual([path.join('MyTool', 'renderer.js'), path.join('MyTool', 'renderer.js')]);
+      }
+      expect((await own(new Request('getssh-plugin://mytool.evil/renderer.js'))).status).toBe(404);
+      expect((await own(new Request('getssh-plugin://demo/app.js'))).status).toBe(404);
+    } finally {
+      stat.mockRestore();
+    }
+    expect(() => createPluginPageHandler(pluginsDir, { plugin: '../demo' })).toThrow('Invalid plugin folder name');
+  });
+
   it('does not make a renderer.js page of a path outside the plugin\'s folder or of a missing file', async () => {
     for (const [url, status] of [
       ['getssh-plugin://demo/?renderer=..%2Fother%2Fsecret.js', 400],

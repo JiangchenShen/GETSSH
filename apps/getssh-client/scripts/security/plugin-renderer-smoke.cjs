@@ -13,6 +13,8 @@
  * - alpha: the guide's example (a panel, and a sidebar action whose handler opens it), plus
  *   getLocale(), onThemeChange(), invokeBackend() and a panel of another plugin's page.
  * - beta: its script in a subfolder, with a space in the name.
+ * - MyTool: capitals in its name, which Chromium lowers in the page URL's host; its folder keeps
+ *   them. Its own files must still load in its session.
  * - leaky: tries the ways out it can against a loopback server, which counts what arrives, and
  *   WebRTC against loopback STUN, TURN and candidate ports (webrtc-probe.cjs), with the
  *   RTCPeerConnection of an about:blank frame once its own is gone. It also registers an action
@@ -81,9 +83,9 @@ const mainCsp = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'ut
 const WEBRTC_GUARD = withWebRtcGuard('');
 
 // The order renderer.js pages start in: the failing plugins first.
-const PLUGINS = ['hang', 'broken', 'throws', 'alpha', 'beta', 'leaky', 'wanderer', 'missing', 'escape', 'plain'];
+const PLUGINS = ['hang', 'broken', 'throws', 'alpha', 'beta', 'MyTool', 'leaky', 'wanderer', 'missing', 'escape', 'plain'];
 // The plugins whose renderer.js keeps running; wanderer's may end (see above).
-const STARTED = ['hang', 'broken', 'throws', 'alpha', 'beta', 'leaky'];
+const STARTED = ['hang', 'broken', 'throws', 'alpha', 'beta', 'MyTool', 'leaky'];
 // Requests leaky's renderer.js makes that the control run must see arrive.
 const CONTROL_MUST_REACH = [
   '/leak/fetch', '/leak/xhr', 'upgrade /leak/ws', '/leak/es', '/leak/beacon', '/leak/image', '/leak/script.js',
@@ -153,6 +155,10 @@ window.GETSSH.registerPanel('alpha.foreign', 'Foreign', 'getssh-plugin://beta/in
 window.GETSSH.registerPanel('beta.main', 'Beta', 'getssh-plugin://beta/index.html');
 window.__sidebarHandlers.open = () => window.GETSSH.openPanel('beta.main');
 window.GETSSH.registerSidebarAction('open', '', 'Beta');
+` });
+  writePlugin('MyTool', { renderer: 'renderer.js' }, { ...page, 'renderer.js': `
+window.GETSSH.registerPanel('MyTool.main', 'MyTool', 'getssh-plugin://MyTool/index.html');
+window.GETSSH.registerSidebarAction('open', '', 'MyTool');
 ` });
   writePlugin('leaky', { renderer: 'renderer.js' }, { 'own.json': '{"own":true}', 'own.bin': 'download me', 'renderer.js': `
 // Before anything else: the page's own constructor (the preload removed it, so did the page's guard).
@@ -338,7 +344,7 @@ async function runPlugins(run) {
     await window.webContents.executeJavaScript('window.electronAPI.getPluginRendererState()');
     await host.sync(await pluginRendererPages(installedPlugins()));
     trace(`${run}: plugins starting`);
-    const registered = await poll(readWindow(window), state => ['plugin-alpha-theme', 'plugin-alpha-backend', 'plugin-beta-open', 'plugin-leaky-probe'].every(id => state.actions[id]));
+    const registered = await poll(readWindow(window), state => ['plugin-alpha-theme', 'plugin-alpha-backend', 'plugin-beta-open', 'plugin-MyTool-open', 'plugin-leaky-probe'].every(id => state.actions[id]));
     const probe = await poll(() => {
       const contents = host.contentsFor('leaky');
       if (!contents) throw new Error(`${run}: leaky's renderer.js stopped before it reported (the [PluginRenderer] line above says why)`);
@@ -394,7 +400,8 @@ function checkRegistrations(run, { registered, opened, views, windowPid, windows
   for (const id of STARTED) {
     const view = views[id];
     const url = new URL(view.url);
-    if (url.protocol !== 'getssh-plugin:' || url.hostname !== id || url.pathname !== '/' || url.searchParams.get('locale') !== 'zh-CN') {
+    // Chromium lowers the host of a standard scheme (MyTool's page is getssh-plugin://mytool/).
+    if (url.protocol !== 'getssh-plugin:' || url.hostname.toLowerCase() !== id.toLowerCase() || url.pathname !== '/' || url.searchParams.get('locale') !== 'zh-CN') {
       throw new Error(`${run}: renderer.js of ${id} is not on its own page: ${view.url}`);
     }
     if (!(view.pid > 0) || view.pid === windowPid || view.pid === process.pid) {
@@ -413,6 +420,7 @@ function checkRegistrations(run, { registered, opened, views, windowPid, windows
     'plugin-alpha-theme': { pluginId: 'alpha', label: 'theme dark', icon: false },
     'plugin-alpha-backend': { pluginId: 'alpha', label: 'backend: invokeBackend() is not available in renderer.js; call it from a plugin page.', icon: false },
     'plugin-beta-open': { pluginId: 'beta', label: 'Beta', icon: false },
+    'plugin-MyTool-open': { pluginId: 'MyTool', label: 'MyTool', icon: false },
     // Registered with alpha's id in the message: it counts as leaky's.
     'plugin-leaky-forged': { pluginId: 'leaky', label: 'forged', icon: false },
     'plugin-leaky-probe': { pluginId: 'leaky', label: 'leaky', icon: false },
@@ -420,6 +428,7 @@ function checkRegistrations(run, { registered, opened, views, windowPid, windows
   expectEqual(registered.panels, {
     'alpha.main': { pluginId: 'alpha', title: 'Alpha', renderUrl: 'getssh-plugin://alpha/index.html' },
     'beta.main': { pluginId: 'beta', title: 'Beta', renderUrl: 'getssh-plugin://beta/index.html' },
+    'MyTool.main': { pluginId: 'MyTool', title: 'MyTool', renderUrl: 'getssh-plugin://MyTool/index.html' },
   }, `${run}: panels`);
   // The pages run side by side, so the panels open in no fixed order.
   expectEqual([...opened.tabs].sort((a, b) => a.id.localeCompare(b.id)), [
@@ -491,7 +500,7 @@ app.whenReady().then(async () => {
   checkContained('policy', guarded);
   checkWanderer('policy', guarded, true);
   const { updated, probe } = guarded;
-  expectEqual(Object.keys(updated.state.actions).sort(), ['plugin-alpha-open', 'plugin-beta-open', 'plugin-leaky-forged', 'plugin-leaky-probe', 'plugin-throws-before'],
+  expectEqual(Object.keys(updated.state.actions).sort(), ['plugin-MyTool-open', 'plugin-alpha-open', 'plugin-beta-open', 'plugin-leaky-forged', 'plugin-leaky-probe', 'plugin-throws-before'],
     'update: sidebar actions (alpha\'s old page registered theme and backend)');
   expectEqual(updated.state.actions['plugin-alpha-open'], { pluginId: 'alpha', label: 'Alpha updated', icon: false }, 'update: the new renderer.js ran');
   expectEqual(updated.kept, Object.fromEntries(STARTED.map(id => [id, id !== 'alpha'])), 'update: only alpha\'s WebContents was replaced');

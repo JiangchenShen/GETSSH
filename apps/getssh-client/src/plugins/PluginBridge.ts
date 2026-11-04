@@ -88,11 +88,17 @@ function handlePluginMessage(event: MessageEvent) {
   handlePluginCall(pluginId, data.action, data.payload, { frame: source });
 }
 
+// The calls of renderer.js the main process passes on (pluginRendererHost.ts). Nothing else: an
+// action added for plugin pages does not reach renderer.js by being added there.
+const RENDERER_ACTIONS = new Set(['registerSidebarAction', 'registerPanel', 'openPanel', 'showNotification']);
+
 /** A call of renderer.js, which the main process tied to its plugin and checked already. */
 function handleRendererCall(call: { pluginId?: unknown; action?: unknown; payload?: unknown } | null | undefined) {
   if (!call || typeof call.pluginId !== 'string' || typeof call.action !== 'string') return;
-  // getActiveSessionId answers the frame it came from; renderer.js has none here.
-  if (call.action === 'getActiveSessionId') return;
+  if (!RENDERER_ACTIONS.has(call.action)) {
+    console.warn(`[PluginBridge] Ignored "${call.action.slice(0, 64)}" for plugin "${call.pluginId.slice(0, 128)}": not a call the main process passes on from renderer.js`);
+    return;
+  }
   handlePluginCall(call.pluginId, call.action, call.payload, RENDERER);
 }
 

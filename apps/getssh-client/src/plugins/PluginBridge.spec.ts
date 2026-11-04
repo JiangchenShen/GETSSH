@@ -289,15 +289,19 @@ describe('renderer.js, through the main process', () => {
     expect(store.registerSidebarAction).toHaveBeenCalledTimes(9);
   });
 
-  it('ignores a call without a plugin or an action, an action not allowed, and getActiveSessionId', () => {
+  it('takes only the four calls the main process passes on, and nothing without a plugin or an action', () => {
     store.registerSidebarAction.mockClear();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     host.ui?.(null);
     host.ui?.({ action: 'registerSidebarAction', payload: { id: 'x', icon: '', label: 'x' } });
     fromRenderer(42, 'registerSidebarAction', { id: 'x', icon: '', label: 'x' });
     fromRenderer('odd', { toString: () => 'registerSidebarAction' }, { id: 'x', icon: '', label: 'x' });
-    fromRenderer('odd', 'sshWrite', { data: 'rm -rf /' });
-    fromRenderer('odd', 'getActiveSessionId', { requestId: 1 });
+    expect(warn).not.toHaveBeenCalled();
+    // Plugin pages may ask for the active session; renderer.js has no frame to answer. The rest
+    // is not for plugins at all. Either way the call stops before the page rules see it.
+    for (const action of ['getActiveSessionId', 'sshWrite', 'invokeBackend', 'constructor']) fromRenderer('odd', action, { requestId: 1, data: 'rm -rf /' });
+    expect(warn.mock.calls.map(([message]) => message)).toEqual(['getActiveSessionId', 'sshWrite', 'invokeBackend', 'constructor']
+      .map(action => `[PluginBridge] Ignored "${action}" for plugin "odd": not a call the main process passes on from renderer.js`));
     expect(store.registerSidebarAction).not.toHaveBeenCalled();
     warn.mockRestore();
   });

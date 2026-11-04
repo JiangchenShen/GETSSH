@@ -1170,8 +1170,31 @@ R33–R37 要在合进 `v3-next` 之前改，其余的可以一起改，不挡�
   - 拒绝 `window.open`、不弹对话框、只认主窗口的点击：各 vitest 1 条失败。没在冒烟测试里撤，前两项撤了会在负责人的桌面上开出窗口或对话框，第三项冒烟测试里只有主窗口会点。
 - 整套 vitest：99 个文件，1410 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build`、`test:plugin-isolation` 通过；`test:plugin-page` 通过，输出和第 1 步复查后一样。
 
+**复查后修的**（11-04，在 `5023713` 后面的第二个提交）：
+- 名字带大写字母的插件，renderer.js 在自己的 session 里加载不到自己的文件。复查时发现。插件名可以有大写字母（`assertSafeIdentifier`），文件夹名就是插件名；`getssh-plugin` 是标准 scheme，Chromium 把地址里的主机名转成小写，实测处理器收到的是 `getssh-plugin://mytool/?renderer=renderer.js`。这个 session 的处理器按区分大小写的插件名比对，所以对 `MyTool` 自己的启动页和文件都回 404。第 2 步之前主窗口的处理器不做这个比对，在不区分大小写的磁盘上碰巧能用。
+  - 冒烟测试新加插件 `MyTool`，注册一个面板和一个侧栏按钮。修之前 `test:plugin-renderer` 失败，`MyTool` 的按钮没注册上；修之后通过。
+  - 修法：主机名和插件名比对不分大小写；这个 session 读文件用插件的文件夹名，不用小写的主机名，区分大小写的磁盘上也对。处理器建的时候先查文件夹名合不合规。和 `isOwnPluginPage` 一样不分大小写。
+  - vitest 新增一条：`MyTool` 的处理器对 `mytool`、`MyTool`、`MYTOOL` 三种主机名都给出启动页和脚本，读的是 `MyTool` 文件夹（查了 `fs.promises.stat` 收到的路径）；别的主机照样 404。
+- `index.ts` 里拦 IPC 的包装抽成 `electron/main/security/ipcSenderGuard.ts`，行为不变，`index.ts` 只调 `installIpcSenderGuard()`。新增 `ipcSenderGuard.test.ts`，10 条：
+  - renderer.js 的页面发的消息，`on`、`once`、`addListener`、`prependListener`、`prependOnceListener` 都只在 `plugin-renderer:action` 上收得到；被拦的消息不会用掉 once 监听；
+  - `handle`、`handleOnce` 对它一律抛错，它自己的通道也一样（Electron 的 `handleOnce` 内部走 `this.handle`，实测确认，所以被拒的调用也不会用掉它）；
+  - 主窗口照常；子框架照旧被拦；主进程自己发的事件照常；按原来的函数能移除监听；
+  - `index.ts` 在注册任何 IPC 之前装上了它。`index.ts` 在测试里加载不了，这一条是读源码查的。
+- 三处小改：
+  - 隐藏的 WebContents 静音（`setAudioMuted(true)`）。
+  - 写进主进程日志的页面报错和脚本地址，换行、其他控制字符、Unicode 的行分隔符和双向文字控制符都换成空格，页面伪造不了日志行。
+  - 主窗口只接受主进程会转来的四种调用（`registerSidebarAction`、`registerPanel`、`openPanel`、`showNotification`），别的丢掉并在控制台警告，不再只排除 `getActiveSessionId`。
+  - SDK 文档两种语言补了"页面没有声音"和"日志每条一行"。
+- 逐一撤掉这次加的防护，8 项，每项都有测试失败：
+  - 主机名比对改回区分大小写：vitest 1 条失败；冒烟测试失败，`MyTool` 的按钮没注册上。
+  - 读文件改回用小写的主机名：vitest 1 条失败；冒烟测试照样通过，本机磁盘不区分大小写。
+  - 拦截里去掉 renderer.js 页面发消息那条：vitest 5 条失败；去掉调用那条：vitest 1 条失败；`index.ts` 里去掉 `installIpcSenderGuard()`：vitest 1 条失败。
+  - 去掉静音、去掉日志的字符替换、主窗口改回只排除 `getActiveSessionId`：各 vitest 1 条失败。
+- 整套 vitest：100 个文件，1422 个通过，另 2 个本来就标着 `it.fails`。`tsc -b`、`vite build`、`test:plugin-page`、`test:plugin-isolation` 通过；`test:plugin-renderer` 通过，输出 `{"started":7,"sidebarActions":8,"panelsOpened":2,"blocked":13,"controlReached":13,"webrtcBlocked":11,"webrtcControlReached":11,"sessionOnly":{"requests":0,"webrtc":0,"downloadsCancelled":1}}`，比上次多了 `MyTool` 和它的按钮。
+
 **还没做的**：
 - Windows：`security-sandbox.yml` 在 macOS 和 Windows 上跑 `test:plugin-renderer`，要推送后看 CI。
-- 测试没覆盖的：`index.ts` 里拒绝 renderer.js 用别的 IPC 通道的包装，只测了判断函数 `isPluginRendererSender`。
+- ~~测试没覆盖的：`index.ts` 里拒绝 renderer.js 用别的 IPC 通道的包装，只测了判断函数 `isPluginRendererSender`。~~ 已补（复查后），见上面。
+- 主窗口的处理器（可见的插件页面）读文件还是用小写的主机名。GETSSH 只支持 macOS 和 Windows，默认的磁盘不区分大小写，一般没事；用户数据放在区分大小写的 APFS 卷上时，名字带大写字母的插件，它的页面会 404。第 3 步把可见页面挪进各插件自己的 session 时一起改。
 - `contextBridge.executeInMainWorld` 在 Electron 44 还标着实验性。升级 Electron 时重跑 `test:plugin-renderer`，session 轮会查 preload 是不是还删得掉 `RTCPeerConnection`。
 - 第 3 步：可见的插件页面也挪出去，界面部分归 Codex。

@@ -123,6 +123,12 @@ function isOwnPluginPage(url: string, pluginId: string): boolean {
 
 const text = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '');
 
+// Line breaks, other control characters and bidi controls, which a page could use to write log
+// lines of its own or turn the text around.
+const LOG_UNSAFE = /[\p{Cc}\p{Zl}\p{Zp}\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+/** Page text for the main process log: one line, nothing it can pass off as another entry. */
+const logText = (value: unknown, max: number) => String(value).slice(0, max).replace(LOG_UNSAFE, ' ');
+
 export interface PluginRendererHostOptions {
   pluginsDir: string;
   /** The preload of renderer.js pages (dist-electron/plugin-preload/pluginRenderer.js). */
@@ -209,6 +215,8 @@ export class PluginRendererHost {
       },
     });
     const contents = view.webContents;
+    // Nothing to hear from a page nobody sees: a sound would have no source the user could find.
+    contents.setAudioMuted(true);
     const entry: RendererEntry = {
       pluginId, url, view, contents, stopped: false, committed: false, loggedErrors: 0,
       actions: new Map(), panels: new Map(), lastPanelOpen: -Infinity, notifications: [],
@@ -241,7 +249,7 @@ export class PluginRendererHost {
     contents.on('console-message', details => {
       if (details.level !== 'error' || entry.loggedErrors >= MAX_LOGGED_ERRORS) return;
       entry.loggedErrors++;
-      console.warn(`[PluginRenderer] ${pluginId}: ${String(details.message).slice(0, MAX_LOGGED_ERROR_LENGTH)} (${details.sourceId}:${details.lineNumber})`);
+      console.warn(`[PluginRenderer] ${pluginId}: ${logText(details.message, MAX_LOGGED_ERROR_LENGTH)} (${logText(details.sourceId, MAX_PANEL_URL_LENGTH)}:${Number(details.lineNumber)})`);
     });
     contents.on('render-process-gone', (_event, details) => this.end(entry, `its process ended (${details.reason})`));
     contents.loadURL(withRendererLocale(url, this.env.locale)).catch((error: { errno?: number; message?: string }) => {

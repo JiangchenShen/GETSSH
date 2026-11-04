@@ -20,6 +20,7 @@ const fake = vi.hoisted(() => {
     sent: unknown[][] = [];
     listeners = new Map<string, Listener[]>();
     windowOpenHandler: Listener | null = null;
+    audioMuted = false;
     destroyed = false;
     mainFrame = { parent: null };
     loadURL = (url: string) => { this.url = url; return new Promise<void>(() => {}); };
@@ -28,6 +29,7 @@ const fake = vi.hoisted(() => {
     isDestroyed = () => this.destroyed;
     on = (event: string, listener: Listener) => { this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]); return this; };
     setWindowOpenHandler = (handler: Listener) => { this.windowOpenHandler = handler; };
+    setAudioMuted = (muted: boolean) => { this.audioMuted = muted; };
     emit = (event: string, ...args: unknown[]) => (this.listeners.get(event) ?? []).forEach(listener => listener(...args));
   }
   class FakeSession {
@@ -148,6 +150,8 @@ describe('starting renderer.js pages', () => {
     expect([...fake.sessions.keys()]).toEqual(['getssh-plugin-renderer:alpha', 'getssh-plugin-renderer:beta']);
     expect(viewOf(host, 'alpha').url).toBe('getssh-plugin://alpha/?renderer=renderer.js&locale=zh-CN');
     expect(viewOf(host, 'beta').url).toBe('getssh-plugin://beta/?renderer=renderer.js&install=2&locale=zh-CN');
+    // A page nobody sees plays no sound.
+    expect([viewOf(host, 'alpha').audioMuted, viewOf(host, 'beta').audioMuted]).toEqual([true, true]);
     expect(isPluginRendererSender({ sender: viewOf(host, 'alpha') })).toBe(true);
     expect(isPluginRendererSender({ sender: fake.main })).toBe(false);
     host.destroyAll();
@@ -271,6 +275,23 @@ describe('the life of a renderer.js page', () => {
     for (let i = 0; i < 30; i++) alpha.emit('console-message', { level: 'error', message: `boom ${i} ${'x'.repeat(600)}`, sourceId: 'getssh-plugin://alpha/renderer.js', lineNumber: 7 });
     expect(warn).toHaveBeenCalledTimes(20);
     expect(warn.mock.calls[0][0]).toBe(`[PluginRenderer] alpha: ${`boom 0 ${'x'.repeat(600)}`.slice(0, 500)} (getssh-plugin://alpha/renderer.js:7)`);
+    warn.mockRestore();
+    host.destroyAll();
+  });
+
+  it('writes what a page logs on one line, with no control characters to fake entries of its own', async () => {
+    const host = newHost();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await host.sync([page('alpha')]);
+    viewOf(host, 'alpha').emit('console-message', {
+      level: 'error',
+      message: 'boom\n[PluginRenderer] renderer.js of plugin \'beta\' stopped\r\n\u001b[31mred\u2028x\u2029y\u202etxt\u0085z\u0000',
+      sourceId: 'blob:x\nforged\u001b',
+      lineNumber: '3\nforged',
+    });
+    expect(warn.mock.calls).toEqual([[
+      `[PluginRenderer] alpha: boom [PluginRenderer] renderer.js of plugin 'beta' stopped   [31mred x y txt z  (blob:x forged :NaN)`,
+    ]]);
     warn.mockRestore();
     host.destroyAll();
   });

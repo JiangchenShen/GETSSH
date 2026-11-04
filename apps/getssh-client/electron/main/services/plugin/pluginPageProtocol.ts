@@ -297,12 +297,18 @@ export function withRendererLocale(url: string, locale: string | null | undefine
 }
 
 export interface PluginPageHandlerOptions {
-  /** The one plugin this handler serves (the session of its renderer.js); other hosts get 404. */
+  /**
+   * The one plugin this handler serves (the session of its renderer.js), by its folder name; other
+   * hosts get 404. Chromium lowers the host of a standard scheme, so the host matches it in any
+   * case, and the files come from this folder name, which keeps the plugin's capitals.
+   */
   plugin?: string;
 }
 
 /** The protocol.handle handler for getssh-plugin://, serving files under pluginsDir. */
 export function createPluginPageHandler(pluginsDir: string, options: PluginPageHandlerOptions = {}): (request: Request) => Promise<Response> {
+  const plugin = options.plugin;
+  if (plugin !== undefined && !PLUGIN_HOST.test(plugin)) throw new Error('Invalid plugin folder name');
   return async (request) => {
     let csp = DENY_ALL_CSP;
     const respond = (body: BodyInit | null, status: number, headers: Record<string, string> = {}) =>
@@ -313,10 +319,12 @@ export function createPluginPageHandler(pluginsDir: string, options: PluginPageH
     let renderer: { script: string } | null = null;
     try {
       const parsedUrl = new URL(request.url);
-      pluginId = parsedUrl.hostname;
-      if (options.plugin !== undefined && pluginId !== options.plugin) return respond('Not Found', 404);
+      const host = parsedUrl.hostname;
+      // Both are ASCII (PLUGIN_HOST), so lowering them compares letters only.
+      if (plugin !== undefined && host.toLowerCase() !== plugin.toLowerCase()) return respond('Not Found', 404);
+      pluginId = plugin ?? host;
       // Throws for a host it cannot put in a policy; the answer then keeps the deny-all policy.
-      csp = pluginPageCsp(pluginId);
+      csp = pluginPageCsp(host);
       let pathname = decodeURIComponent(parsedUrl.pathname).replace(/^\/+/, '');
       if (!pathname && parsedUrl.searchParams.has(RENDERER_PARAM)) {
         // The renderer.js page: the checks below then apply to the script it loads.
