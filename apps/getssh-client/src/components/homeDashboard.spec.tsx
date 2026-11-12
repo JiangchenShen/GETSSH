@@ -9,6 +9,7 @@ import type { PaneLeaf, PaneNode, SessionProfile, Tab } from '../store/sessionSt
 
 const mocks = vi.hoisted(() => ({
   workspaceId: 'current',
+  profilesWorkspaceId: 'current' as string | null,
   sessions: [] as SessionProfile[],
   tabs: [] as Tab[],
   supervisor: null as OceanSentinelStatus | null,
@@ -46,7 +47,7 @@ vi.mock('../store/cryptoStore', () => ({ useCryptoStore: (select: (state: any) =
 vi.mock('../store/sessionStore', async importOriginal => ({
   ...await importOriginal<typeof import('../store/sessionStore')>(),
   useSessionStore: (select: (state: any) => any) => select({
-    sessions: mocks.sessions, tabs: mocks.tabs, setActiveTabId: mocks.setActiveTabId,
+    sessions: mocks.sessions, profilesWorkspaceId: mocks.profilesWorkspaceId, tabs: mocks.tabs, setActiveTabId: mocks.setActiveTabId,
   }),
 }));
 vi.mock('../lib/workspaceUnlock', () => ({ unlockActiveWorkspaceWithPassword: vi.fn(), unlockActiveWorkspaceWithPresence: vi.fn() }));
@@ -80,6 +81,7 @@ let status: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.workspaceId = 'current';
+  mocks.profilesWorkspaceId = 'current';
   mocks.language = 'en-US';
   mocks.sessions = [];
   mocks.tabs = [];
@@ -166,6 +168,18 @@ describe('time-based home greetings', () => {
   });
 });
 describe('home dashboard data boundaries', () => {
+  it('hides the old workspace inventory while the new workspace profiles load', async () => {
+    mocks.sessions = [{ id: 'old-host', host: 'old.example', username: 'user', alias: 'Previous workspace host' }];
+    await render();
+    expect(container.querySelector('.home-host-row')?.textContent).toContain('Previous workspace host');
+
+    mocks.workspaceId = 'other';
+    await render();
+    expect(container.querySelector('.home-workspace')?.textContent).toBe('Other');
+    expect(container.querySelector('.home-host-row')).toBeNull();
+    expect(container.querySelector('.home-host-map')?.getAttribute('aria-busy')).toBe('true');
+  });
+
   it('counts saved profiles and current-window terminal panes, independently of session IDs', async () => {
     mocks.sessions = [
       { id: 'saved', host: 'host', username: 'user' },

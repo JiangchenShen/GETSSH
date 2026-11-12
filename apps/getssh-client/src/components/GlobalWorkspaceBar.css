@@ -1,0 +1,62 @@
+.workspace-rail-sentinel {
+  --sentinel-tone: var(--v2-ink-2);
+  display: grid;
+  flex: none;
+  justify-items: center;
+  gap: 4px;
+  width: 46px;
+  padding: 4px 0;
+  border-radius: 7px;
+  color: var(--v2-ink-2);
+}
+
+.workspace-rail-sentinel[data-tone='ok'] {
+  --sentinel-tone: var(--v2-ok);
+}
+
+.workspace-rail-sentinel[data-tone='warn'] {
+  --sentinel-tone: var(--v2-warn);
+  color: var(--v2-ink);
+}
+
+.workspace-rail-sentinel:hover {
+  background: var(--v2-surf);
+}
+
+.workspace-rail-sentinel-shield {
+  position: relative;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--sentinel-tone);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--sentinel-tone) 12%, transparent);
+}
+
+.workspace-rail-sentinel[data-tone='ok'] .workspace-rail-sentinel-shield::before {
+  position: absolute;
+  inset: 0;
+  border: 1px solid currentColor;
+  border-radius: inherit;
+  opacity: .35;
+  content: '';
+  pointer-events: none;
+}
+
+.workspace-rail-sentinel-name {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-rail-sentinel[data-tone='ok'] .workspace-rail-sentinel-shield::before {
+    animation: workspace-rail-sentinel-breath 2.4s ease-in-out 2;
+  }
+}
+
+@keyframes workspace-rail-sentinel-breath {
+  50% { opacity: .65; transform: scale(1.22); }
+}

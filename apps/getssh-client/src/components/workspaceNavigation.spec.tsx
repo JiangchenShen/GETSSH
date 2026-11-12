@@ -3,7 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ setIsCommandCenterOpen: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  setIsCommandCenterOpen: vi.fn(),
+  setWorkspaces: vi.fn(),
+  pollSentinelStatus: vi.fn(),
+  sentinelStatusError: null as string | null,
+  phase: 'ready',
+  isVaultLocked: false,
+}));
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
   t: (key: string) => ({
@@ -12,16 +19,30 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({
     'statusBar.workspace': '工作区',
     'statusBar.plugins': '插件',
     'statusBar.settings': '设置',
-    'statusBar.secure': '安全',
-    'statusBar.sentinelOk': 'Ocean Sentinel 正常',
+    'statusBar.secure': '海洋守护中心',
+    'welcome.home.supervisorRunning': '运行正常',
+    'welcome.home.supervisorUnavailable': '无法连接',
+    'welcome.home.unconfirmed': '尚未确认',
   } as Record<string, string>)[key] || key,
 }) }));
 vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any) => select({
   isMac: true,
   setIsCommandCenterOpen: mocks.setIsCommandCenterOpen,
+  setWorkspaces: mocks.setWorkspaces,
   sentinelStatus: { status: 'secure', daemonState: 'running', sentinelDisabled: false },
+  sentinelStatusError: mocks.sentinelStatusError,
+  pollSentinelStatus: mocks.pollSentinelStatus,
+}) }));
+vi.mock('../store/appLockStore', () => ({ useAppLockStore: (select: (state: any) => any) => select({
+  state: { phase: mocks.phase },
+}) }));
+vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => any) => select({
+  workspaces: [],
+  activeWorkspaceId: 'default',
+  isVaultLocked: mocks.isVaultLocked,
 }) }));
 
+import { GlobalWorkspaceBar } from './GlobalWorkspaceBar';
 import { StatusBar } from './StatusBar';
 
 let root: Root;
@@ -33,6 +54,9 @@ const click = async (element: HTMLElement) => act(async () => element.click());
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  mocks.sentinelStatusError = null;
+  mocks.phase = 'ready';
+  mocks.isVaultLocked = false;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement('div');
   document.body.append(container);
@@ -76,7 +100,27 @@ describe('status bar workspace navigation', () => {
   });
 
   it('routes Ocean Sentinel to security settings', async () => {
-    await click(container.querySelector<HTMLButtonElement>('button[aria-label="安全 · Ocean Sentinel 正常"]')!);
+    const control = () => container.querySelector<HTMLButtonElement>('.workspace-rail-sentinel')!;
+    expect(control()).toBeNull();
+    await act(async () => root.render(<GlobalWorkspaceBar />));
+    expect(control().getAttribute('aria-label')).toBe('海洋守护中心 · 运行正常');
+    expect(control().dataset.tone).toBe('ok');
+    expect(mocks.pollSentinelStatus).toHaveBeenCalledTimes(1);
+    await click(control());
     expect(destination).toHaveBeenCalledExactlyOnceWith({ type: 'settings', title: '设置', settingsTab: 'Security' });
+  });
+
+  it('replaces a stale healthy shield when status fails or the workspace locks', async () => {
+    mocks.sentinelStatusError = 'Unavailable';
+    await act(async () => root.render(<GlobalWorkspaceBar />));
+    const control = container.querySelector<HTMLButtonElement>('.workspace-rail-sentinel')!;
+    expect(control.dataset.tone).toBe('warn');
+    expect(control.getAttribute('aria-label')).toBe('海洋守护中心 · 无法连接');
+
+    mocks.isVaultLocked = true;
+    await act(async () => root.render(<GlobalWorkspaceBar />));
+    expect(control.dataset.tone).toBe('neutral');
+    expect(control.getAttribute('aria-label')).toBe('海洋守护中心 · 尚未确认');
+    expect(mocks.pollSentinelStatus).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, CornerDownLeft, Layers3, LockKeyhole, Plus, Server, ShieldAlert, ShieldCheck, SquareTerminal } from 'lucide-react';
+import { ArrowRight, CornerDownLeft, Layers3, Plus, Search, Server, ShieldAlert, SquareTerminal } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -9,6 +9,12 @@ import { useCryptoStore } from '../store/cryptoStore';
 import { isSSHConfig, savedProfiles, useSessionStore, type PaneLeaf, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
 import type { SecurityStatus } from '../types/ipc';
 import { CryptoModal } from './CryptoModal';
+import { HomeHostMap } from './HomeHostMap';
+import { HostOsIcon } from './HostOsIcon';
+import { lookupIpCountry } from '../utils/ipCountry';
+import { getSentinelSupervisorState } from '../utils/sentinelSupervisorState';
+import logo from '../assets/logo.png';
+import './TidalDashboard.css';
 
 interface TidalDashboardProps {
   onConnect?: (session: SessionProfile) => void;
@@ -19,6 +25,13 @@ const terminalPanes = (node: PaneNode): PaneLeaf[] => node.type === 'leaf'
   ? node.paneType === 'terminal' ? [node] : []
   : node.children.flatMap(terminalPanes);
 
+const formatAddress = (profile: SessionProfile, defaultPort: number) => {
+  const host = profile.host.trim();
+  const hostname = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const user = profile.username ? `${profile.username}@` : '';
+  return `${user}${hostname}:${profile.port || (profile.protocol === 'telnet' ? 23 : defaultPort)}`;
+};
+
 /** Workspace overview and work entry points, using current layout and protection metadata. */
 export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resumeTabId }) => {
   const { t, i18n } = useTranslation();
@@ -26,7 +39,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   const sentinelStatus = useAppStore(state => state.sentinelStatus);
   const sentinelStatusError = useAppStore(state => state.sentinelStatusError);
-  const pollSentinelStatus = useAppStore(state => state.pollSentinelStatus);
+  const defaultPort = useAppStore(state => state.appConfig.defaultPort) || 22;
 
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
@@ -38,13 +51,22 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
 
   const sessions = useSessionStore(state => state.sessions);
+  const profilesWorkspaceId = useSessionStore(state => state.profilesWorkspaceId);
   const tabs = useSessionStore(state => state.tabs);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
 
   const [time, setTime] = useState(new Date());
   const [greetingChoice] = useState(() => Math.random());
   const [quickAddress, setQuickAddress] = useState('');
+  const [search, setSearch] = useState('');
+  const [group, setGroup] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [protectionMetadata, setProtectionMetadata] = useState<{ workspaceId: string; status: SecurityStatus | null } | null>(null);
+  const profilesReady = !isVaultLocked && !isSwitching && profilesWorkspaceId === activeWorkspaceId;
+  const savedSessions = useMemo(() => profilesReady
+    ? savedProfiles(sessions).filter(profile => profile.protocol === 'local' || Boolean(profile.host?.trim()))
+    : [], [profilesReady, sessions]);
+  const [countries, setCountries] = useState<{ profiles: SessionProfile[]; codes: Map<string, string | null> } | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 30_000);
@@ -52,11 +74,25 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   }, []);
 
   useEffect(() => {
-    if (isVaultLocked) return;
-    pollSentinelStatus();
-    const timer = setInterval(pollSentinelStatus, 3_000);
-    return () => clearInterval(timer);
-  }, [pollSentinelStatus, isVaultLocked]);
+    setSearch('');
+    setGroup(null);
+    setSelectedId(null);
+    setQuickAddress('');
+  }, [activeWorkspaceId, isVaultLocked]);
+
+  useEffect(() => {
+    let active = true;
+    const hosts = new Set(savedSessions.filter(profile => profile.protocol !== 'local').map(profile => profile.host.trim()));
+    if (hosts.size === 0) {
+      setCountries(null);
+      return;
+    }
+    void Promise.all(Array.from(hosts, async host => [host, await lookupIpCountry(host).catch(() => null)] as const))
+      .then(entries => {
+        if (active) setCountries({ profiles: savedSessions, codes: new Map(entries) });
+      });
+    return () => { active = false; };
+  }, [savedSessions]);
 
   useEffect(() => {
     if (isVaultLocked) return;
@@ -115,30 +151,40 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   }).format(time);
   const workspaceName = activeWorkspace?.name || activeWorkspaceId;
 
-  const savedSessions = savedProfiles(sessions).filter(session => session.protocol === 'local' || Boolean(session.host?.trim()));
-  const visibleHosts = savedSessions.slice(0, 4);
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
   const resumeTab = workspaceTabs.find(tab => tab.id === resumeTabId && tab.paneTree);
   const panes = workspaceTabs.flatMap(tab => tab.paneTree ? terminalPanes(tab.paneTree) : []);
   const disconnectedCount = panes.filter(pane => pane.isDisconnected === true).length;
-  const localCount = panes.filter(pane => isSSHConfig(pane.config) && pane.config.protocol === 'local').length;
-  const remoteCount = panes.length - localCount;
   const scope = protectionMetadata?.workspaceId === activeWorkspaceId
     ? protectionMetadata.status?.scopes.find(item => item.workspaceId === activeWorkspaceId)
     : undefined;
   const protectionLabel = !scope ? 'unconfirmed' : !scope.protected ? 'passwordNotSet'
     : scope.ownPassword ? 'workspacePassword' : 'masterPassword';
-  const supervisorHealthy = sentinelStatus?.daemonState === 'running' && sentinelStatus.status === 'secure'
-    && !sentinelStatus.sentinelDisabled && !sentinelStatusError;
-  const supervisorLabel = sentinelStatusError || sentinelStatus?.daemonState === 'unavailable' ? 'supervisorUnavailable'
-    : !sentinelStatus ? 'checking'
-    : sentinelStatus.sentinelDisabled || sentinelStatus.daemonState === 'disabled' ? 'supervisorDisabled'
-    : sentinelStatus.daemonState === 'starting' ? 'supervisorStarting'
-    : sentinelStatus.status !== 'secure' ? 'needsAttention'
-    : supervisorHealthy ? 'supervisorRunning' : 'unconfirmed';
-  const supervisorWarning = !!sentinelStatusError || (!!sentinelStatus && sentinelStatus.daemonState !== 'starting'
-    && (sentinelStatus.sentinelDisabled || sentinelStatus.daemonState === 'disabled'
-      || sentinelStatus.daemonState === 'unavailable' || sentinelStatus.status !== 'secure'));
+  const supervisor = getSentinelSupervisorState(sentinelStatus, sentinelStatusError);
+  const supervisorWarning = supervisor.tone === 'warn';
+
+  const regionNames = new Intl.DisplayNames(i18n.language || 'en', { type: 'region' });
+  const countryCodes = countries?.profiles === savedSessions ? countries.codes : undefined;
+  const hosts = savedSessions.map((profile, index) => {
+    const local = profile.protocol === 'local';
+    const countryCode = local ? null : countryCodes?.get(profile.host.trim()) ?? null;
+    return {
+      id: profile.id || `profile-${index}`,
+      profile,
+      local,
+      countryCode,
+      country: countryCode ? regionNames.of(countryCode) || countryCode : '',
+      name: profile.alias || profile.host || t('connection.protocol.local'),
+      address: local ? t('connection.systemShell') : formatAddress(profile, defaultPort),
+      group: profile.group?.trim() || '',
+    };
+  });
+  const groups = Array.from(new Set(hosts.map(host => host.group)));
+  const activeGroup = group !== null && groups.includes(group) ? group : null;
+  const query = search.trim().toLocaleLowerCase();
+  const visibleHosts = hosts.filter(host => (activeGroup === null || host.group === activeGroup)
+    && [host.name, host.address, host.group, host.country, host.countryCode].some(value => value?.toLocaleLowerCase().includes(query)));
+  const selection = visibleHosts.find(host => host.id === selectedId) ?? visibleHosts[0];
 
   const createSession = (address = '') => {
     window.dispatchEvent(new CustomEvent('app:create-session', { detail: address.trim() }));
@@ -175,150 +221,128 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
     else setIsCommandCenterOpen(true);
   };
 
+  const groupedHosts = new Map<string, typeof visibleHosts>();
+  for (const host of visibleHosts) {
+    const items = groupedHosts.get(host.group);
+    if (items) items.push(host);
+    else groupedHosts.set(host.group, [host]);
+  }
+  const groupName = (value: string) => value || t('welcome.home.ungrouped');
+  const locating = hosts.some(host => !host.local) && !countryCodes;
+
   return (
-    <main className="home-shell no-drag-region h-full w-full overflow-y-auto overflow-x-hidden text-ink">
+    <main className="home-shell no-drag-region">
+      <header className="home-header">
+        <div className="home-brand"><img src={logo} width="27" height="27" alt="" /><strong>GETSSH</strong></div>
+        <label className="home-search">
+          <Search size={15} aria-hidden="true" />
+          <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+            aria-label={t('welcome.home.hostSearch')} placeholder={t('welcome.home.hostSearch')} />
+        </label>
+        <button type="button" className="home-new" disabled={isSwitching} onClick={() => createSession()}>
+          <Plus size={16} aria-hidden="true" />{t('welcome.home.addHost')}
+        </button>
+        <button type="button" className="home-workspace" onClick={openWorkspace} title={workspaceName}
+          aria-label={`${t('welcome.home.currentWorkspace')} · ${workspaceName}`}>
+          <Layers3 size={16} aria-hidden="true" /><strong>{workspaceName}</strong>
+        </button>
+      </header>
+
       <div className="home-inner">
-        <header className="home-header">
-          <div className="min-w-0">
-            <p className="home-eyebrow">
-              <span className="home-eyebrow-mark" aria-hidden="true" />
-              <span className="home-header-workspace" title={workspaceName}>{workspaceName}</span>
-              <span aria-hidden="true">/</span>
-              <span>{t('welcome.home.overview')}</span>
-            </p>
-            <h1 className="home-greeting">{greeting}</h1>
-            <p className="home-meta">{t('welcome.home.subtitle')}</p>
-          </div>
-          <div className="home-header-side">
-            <div className="home-date"><span>{dateString}</span><strong>{timeString}</strong></div>
-            <button type="button" className="home-new" onClick={() => createSession()}>
-              <Plus size={16} /> {t('welcome.home.newConnection')}
-            </button>
-          </div>
-        </header>
-
-        <dl className="home-summary" aria-label={t('welcome.home.workspaceOverview')}>
-          <div><dt><Server size={15} aria-hidden="true" />{t('welcome.home.savedConnections')}</dt><dd data-testid="home-saved-count">{isSwitching ? '—' : savedSessions.length}</dd><dd className="home-summary-note">{t('welcome.home.currentWorkspace')}</dd></div>
-          <div><dt><SquareTerminal size={15} aria-hidden="true" />{t('welcome.home.terminalPanels')}</dt><dd data-testid="home-terminal-count">{panes.length}</dd><dd className="home-summary-note">{t('welcome.home.thisWindow')}</dd></div>
-          <div><dt><Layers3 size={15} aria-hidden="true" />{t('welcome.home.workspaces')}</dt><dd data-testid="home-workspace-count">{workspaces.length}</dd><dd className="home-summary-note">{t('welcome.home.workspaceSeparation')}</dd></div>
-        </dl>
-
         {(supervisorWarning || scope?.protected === false) && (
           <button type="button" className="home-attention" onClick={openSecurity}>
             <ShieldAlert size={17} aria-hidden="true" />
             <span><strong>{t(supervisorWarning ? 'welcome.home.sentinelIssue' : 'welcome.home.vaultOff')}</strong><small>{supervisorWarning
               ? sentinelStatusError || sentinelStatus?.reason || t('welcome.home.supervisorReviewDetail')
               : t('welcome.home.noPasswordDetail')}</small></span>
-            <span className="home-host-action">{t('welcome.home.reviewSecurity')}<ArrowRight size={14} /></span>
+            <ArrowRight size={15} aria-hidden="true" />
           </button>
         )}
 
         <div className="home-dashboard-grid">
-        <div className="home-primary">
-        <section className="home-connect" aria-labelledby="home-connect-title">
-          <div className="home-connect-head">
-            <div>
-              <h2 id="home-connect-title">{t('welcome.home.quickConnect')}</h2>
-              <p>{t('welcome.home.quickConnectDetail')}</p>
+          <section className="home-hosts" aria-labelledby="home-hosts-title">
+            <div className="home-intro">
+              <h1 id="home-hosts-title">{t('welcome.home.myHosts')}</h1>
+              <p className="home-greeting">{greeting}</p>
+              <p className="home-date">{dateString} · {timeString}</p>
             </div>
-            <SquareTerminal size={23} aria-hidden="true" />
-          </div>
-          <form className="home-connect-input-row" onSubmit={event => {
-            event.preventDefault();
-            if (quickAddress.trim()) createSession(quickAddress);
-          }}>
-            <span className="home-input-prefix" aria-hidden="true">›</span>
-            <input
-              className="home-connect-input"
-              aria-label={t('welcome.home.addressLabel')}
-              value={quickAddress}
-              onChange={event => setQuickAddress(event.target.value)}
-              placeholder="ssh://user@host:22"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-            <button type="submit" className="home-connect-submit" disabled={!quickAddress.trim()}>
-              {t('welcome.home.configureConnect')} <CornerDownLeft size={15} />
-            </button>
-          </form>
-          <p className="home-connect-foot">{t('welcome.home.connectHint')}</p>
-        </section>
 
-        {resumeTab && (
-          <section className="home-section" aria-labelledby="home-resume-title">
-            <div className="home-section-title">
-              <h2 id="home-resume-title">{t('welcome.home.continueWork')}</h2>
+            <div className="home-filters" role="group" aria-label={t('welcome.home.hostGroups')}>
+              <button type="button" aria-pressed={activeGroup === null} onClick={() => setGroup(null)}>
+                {t('welcome.home.allHosts')} <span>{hosts.length}</span>
+              </button>
+              {groups.map(value => (
+                <button type="button" key={value} aria-pressed={activeGroup === value} onClick={() => setGroup(value)}>{groupName(value)}</button>
+              ))}
             </div>
-            <button type="button" className="home-resume" onClick={() => setActiveTabId(resumeTab.id)}>
-              <span className="home-resume-icon">{isSSHConfig(resumeTab.config) ? <SquareTerminal size={19} /> : <Layers3 size={19} />}</span>
-              <span className="home-host-main"><strong>{resumeTab.title}</strong><small>{t('welcome.home.openTab')}</small></span>
-              <span className="home-host-action">{t('welcome.home.returnToTab')} <ArrowRight size={15} /></span>
-            </button>
+
+            {!profilesReady ? <p className="home-empty" role="status">{t('welcome.home.loadingHosts')}</p> : (
+              visibleHosts.length > 0 ? Array.from(groupedHosts, ([name, items]) => (
+                <section key={name} className="home-host-group" aria-label={groupName(name)}>
+                  <h2>{groupName(name)}</h2>
+                  <ul className="home-host-list">
+                    {items.map(host => (
+                      <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id}>
+                        <button type="button" className="home-host-select" aria-pressed={selection?.id === host.id}
+                          onClick={() => setSelectedId(host.id)}>
+                          <HostOsIcon osType={host.profile.osType} />
+                          <span className="home-host-main"><strong title={host.name}>{host.name}</strong><small title={host.address}>{host.address}</small></span>
+                          {!host.local && <small className="home-host-country" title={host.country || undefined}>
+                            {host.country || t(locating ? 'welcome.home.checking' : 'welcome.home.map.unknown')}
+                          </small>}
+                        </button>
+                        <button type="button" className="home-host-open" onClick={() => openHost(host.profile)}>
+                          {t(matchingTab(host.profile) ? 'welcome.home.switchTab' : 'welcome.home.connect')}
+                          <span className="sr-only"> {host.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )) : (
+                <div className="home-empty" role="status">
+                  <Server size={19} aria-hidden="true" />
+                  <span>{t(hosts.length ? 'welcome.home.noMatchingHosts' : 'welcome.home.noHosts')}</span>
+                </div>
+              )
+            )}
+
+            {resumeTab && (
+              <button type="button" className="home-resume" onClick={() => setActiveTabId(resumeTab.id)}>
+                <SquareTerminal size={17} aria-hidden="true" />
+                <span>{t('welcome.home.continueWork')} <strong>{resumeTab.title}</strong></span>
+                <ArrowRight size={15} aria-hidden="true" />
+              </button>
+            )}
+
+            <form className="home-connect" onSubmit={event => {
+              event.preventDefault();
+              if (!isSwitching && quickAddress.trim()) createSession(quickAddress);
+            }}>
+              <label htmlFor="home-quick-address">{t('welcome.home.quickConnect')}</label>
+              <div className="home-connect-input-row">
+                <input id="home-quick-address" className="home-connect-input" value={quickAddress}
+                  onChange={event => setQuickAddress(event.target.value)} placeholder="ssh://user@host:22"
+                  aria-label={t('welcome.home.addressLabel')} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+                <button type="submit" className="home-connect-submit" disabled={isSwitching || !quickAddress.trim()}>
+                  {t('welcome.home.configureConnect')}<CornerDownLeft size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </form>
           </section>
-        )}
 
-        <section className="home-section" aria-labelledby="home-hosts-title">
-          <div className="home-section-title">
-            <div>
-              <h2 id="home-hosts-title">{t('welcome.home.savedHosts')}</h2>
-            </div>
-            <span className="home-host-count">{savedSessions.length}</span>
-          </div>
-          {visibleHosts.length ? (
-            <div className="home-host-list">
-              {visibleHosts.map(session => {
-                const existing = matchingTab(session);
-                const protocol = (session.protocol || 'ssh').toUpperCase();
-                return (
-                  <button type="button" className="home-host-row" key={session.id || `${session.username}@${session.host}`} onClick={() => openHost(session)}>
-                    <span className="home-host-icon"><Server size={18} /></span>
-                    <span className="home-host-main"><strong>{session.alias || session.host || t('connection.protocol.local')}</strong><small>{session.protocol === 'local' ? t('connection.systemShell') : `${session.username ? `${session.username}@` : ''}${session.host}:${session.port || (session.protocol === 'telnet' ? 23 : 22)}`}</small></span>
-                    {session.group && <span className="home-host-group">{session.group}</span>}
-                    <span className="home-host-protocol">{protocol}</span>
-                    <span className="home-host-action">{existing ? t('welcome.home.switchTab') : t('welcome.home.connect')} <ArrowRight size={15} /></span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="home-empty">
-              <Server size={20} aria-hidden="true" />
-              <span><strong>{t('welcome.home.noHosts')}</strong><small>{t('welcome.home.noHostsDetail')}</small></span>
-              <button type="button" className="home-new" onClick={() => createSession()}>{t('welcome.home.addHost')} <ArrowRight size={14} /></button>
-            </div>
-          )}
-          {savedSessions.length > visibleHosts.length && <p className="home-host-more">{t('welcome.home.moreInSidebar', { count: savedSessions.length - visibleHosts.length })}</p>}
-        </section>
+          <HomeHostMap hosts={visibleHosts.filter(host => !host.local)} selectedId={selection?.id ?? null}
+            onSelect={setSelectedId} loading={!profilesReady || locating} />
         </div>
 
-        <aside className="home-context" aria-label={t('welcome.home.workspaceOverview')}>
-          <section className="home-context-section" aria-labelledby="home-workspace-title">
-            <h2 id="home-workspace-title"><Layers3 size={16} aria-hidden="true" />{t('welcome.home.currentWorkspace')}</h2>
-            <strong className="home-workspace-name">{workspaceName}</strong>
-            <p>{t(activeWorkspace?.isMain ? 'welcome.home.mainWorkspace' : 'welcome.home.separateWorkspace')}</p>
-            <button type="button" className="home-context-link" onClick={openWorkspace}>{t('welcome.home.manageWorkspace')}<ArrowRight size={14} /></button>
-          </section>
-
-          <section className="home-context-section" aria-labelledby="home-security-title">
-            <h2 id="home-security-title"><ShieldCheck size={16} aria-hidden="true" />{t('settings.secureCenter')}</h2>
-            <div className="home-status-row"><span>{t('welcome.home.processSupervision')}</span><strong className="home-status-pill" data-testid="home-supervisor-state" data-tone={supervisorHealthy ? 'ok' : supervisorWarning ? 'warn' : 'neutral'}>{t(`welcome.home.${supervisorLabel}`)}</strong></div>
-            <div className="home-status-row"><span><LockKeyhole size={13} aria-hidden="true" />{t('welcome.home.passwordProtection')}</span><strong className="home-status-pill" data-testid="home-protection-state" data-tone={scope?.protected ? 'ok' : scope?.protected === false ? 'warn' : 'neutral'}>{t(`welcome.home.${protectionLabel}`)}</strong></div>
-            <p>{t('welcome.home.securityScope')}</p>
-            <button type="button" className="home-context-link" onClick={openSecurity}>{t('welcome.home.reviewSecurity')}<ArrowRight size={14} /></button>
-          </section>
-
-          <section className="home-context-section" aria-labelledby="home-terminals-title">
-            <h2 id="home-terminals-title"><SquareTerminal size={16} aria-hidden="true" />{t('welcome.home.terminalOverview')}</h2>
-            <p>{t(panes.length ? 'welcome.home.terminalScope' : 'welcome.home.noTerminals')}</p>
-            <dl className="home-terminal-breakdown">
-              <div><dt>{t('welcome.home.remotePanels')}</dt><dd>{remoteCount}</dd></div>
-              <div><dt>{t('welcome.home.localPanels')}</dt><dd>{localCount}</dd></div>
-              <div data-attention={disconnectedCount > 0}><dt>{t('welcome.home.disconnectedPanels')}</dt><dd data-testid="home-disconnected-count">{disconnectedCount}</dd></div>
-            </dl>
-          </section>
-        </aside>
-        </div>
+        <dl className="home-summary" aria-label={t('welcome.home.workspaceOverview')}>
+          <div><dt>{t('welcome.home.savedConnections')}</dt><dd data-testid="home-saved-count">{profilesReady ? hosts.length : '—'}</dd></div>
+          <div><dt>{t('welcome.home.terminalPanels')}</dt><dd data-testid="home-terminal-count">{panes.length}</dd></div>
+          <div><dt>{t('welcome.home.disconnectedPanels')}</dt><dd data-testid="home-disconnected-count">{disconnectedCount}</dd></div>
+          <div><dt>{t('welcome.home.workspaces')}</dt><dd data-testid="home-workspace-count">{workspaces.length}</dd></div>
+          <div><dt>{t('welcome.home.processSupervision')}</dt><dd data-testid="home-supervisor-state" data-tone={supervisor.tone}>{t(`welcome.home.${supervisor.label}`)}</dd></div>
+          <div><dt>{t('welcome.home.passwordProtection')}</dt><dd data-testid="home-protection-state" data-tone={scope?.protected ? 'ok' : scope?.protected === false ? 'warn' : 'neutral'}>{t(`welcome.home.${protectionLabel}`)}</dd></div>
+        </dl>
       </div>
     </main>
   );

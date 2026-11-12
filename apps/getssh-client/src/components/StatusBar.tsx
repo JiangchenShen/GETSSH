@@ -7,10 +7,7 @@ import { useAppStore } from '../store/appStore';
  * 底部状态条。
  *
  * 底栏保留常用目的地，工作区入口直达独立管理页。
- * 左侧导轨切换当前工作区；安全设置归入设置页，Ocean Sentinel 在右侧报告实际状态。
- *
- * 右侧只放真有数据源的东西：Ocean Sentinel 取 appStore.sentinelStatus。
- * 原型里画的「Rust Core 运行中」现在没有对应信号，不编。
+ * 左侧导轨显示工作区和本机进程监护状态。
  */
 
 const openCenter = (type: string, title: string) => {
@@ -47,10 +44,7 @@ export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
   const isMac = useAppStore(state => state.isMac);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
-  const sentinelStatus = useAppStore(state => state.sentinelStatus);
-
   const ico = 'w-3.5 h-3.5';
-  const sentinelOk = !!sentinelStatus && sentinelStatus.status === 'secure' && sentinelStatus.daemonState === 'running' && !sentinelStatus.sentinelDisabled;
 
   return (
     <div
@@ -87,23 +81,6 @@ export const StatusBar: React.FC = () => {
         onClick={() => openCenter('settings', t('statusBar.settings'))}
       />
 
-      <div className="flex-1 min-w-[8px]" />
-
-      {sentinelStatus && (
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
-            detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'Security' },
-          }))}
-          className="flex min-w-0 items-center gap-[7px] max-w-[190px] px-[9px] text-[11.5px] text-ink-3 whitespace-nowrap rounded-md hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-          aria-label={`${t('statusBar.secure')} · ${sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full flex-none ${sentinelOk ? 'bg-ok' : 'bg-warn'}`} />
-          <span className="truncate" title={sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}>
-            {t('statusBar.secure')} · {sentinelOk ? t('statusBar.sentinelOk') : (sentinelStatus.reason || t('statusBar.sentinelBad'))}
-          </span>
-        </button>
-      )}
     </div>
   );
 };
