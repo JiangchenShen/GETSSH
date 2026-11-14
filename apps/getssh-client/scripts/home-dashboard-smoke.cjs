@@ -11,7 +11,7 @@ const english = require('../src/locales/en-US.json').translation;
 const appDir = path.resolve(__dirname, '..');
 const artifacts = process.env.GETSSH_HOME_ARTIFACTS || path.resolve(appDir, '../../docs/screenshots');
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'getssh-home-dashboard-'));
-const userData = path.join(testHome, 'userData');
+const userData = path.join(testHome, 'electron-user-data');
 const bootstrap = path.join(testHome, 'main.cjs');
 fs.mkdirSync(artifacts, { recursive: true });
 fs.writeFileSync(bootstrap, [
@@ -70,11 +70,11 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     const home = () => page.locator('main.home-shell');
     const count = async (name, expected) => expect(home().getByTestId(`home-${name}-count`)).toHaveText(String(expected));
     const assertNoHorizontalOverflow = async () => {
-      await expect.poll(() => home().evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await expect.poll(() => home().locator('.home-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     };
     const screenshot = async (name, atEnd = false) => {
-      await home().evaluate((element, atEnd) => { element.scrollTop = atEnd ? element.scrollHeight : 0; }, atEnd);
+      await home().locator('.home-scroll').evaluate((element, atEnd) => { element.scrollTop = atEnd ? element.scrollHeight : 0; }, atEnd);
       await page.evaluate(async () => { document.activeElement?.blur(); await document.fonts.ready; });
       await page.screenshot({ path: path.join(artifacts, name), animations: 'disabled' });
       console.log(`SCREENSHOT: ${path.join(artifacts, name)}`);
@@ -94,7 +94,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
       await page.getByRole('button', { name: copy.tabs.home, exact: true }).click();
       await expect(home()).toBeVisible();
     };
-    const form = () => page.locator('.dashboard-shell:visible');
+    const form = () => page.locator('form:visible').filter({ has: page.getByRole('button', { name: copy.connection.connectBtn, exact: true }) });
     const savedProfiles = () => page.evaluate(() => window.electronAPI.unlockProfiles(''));
 
     await configure('dark');
@@ -137,6 +137,15 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await count('terminal', 0);
     await expect(home().locator('.home-host-row')).toHaveCount(3);
     for (const profile of testProfiles) await expect(home().locator('.home-host-row').filter({ hasText: profile.alias })).toContainText(`${profile.username}@${profile.host}:${profile.port}`);
+    await expect(page.locator('.workspace-navigation')).toBeHidden();
+    await expect(home().getByRole('navigation', { name: copy.welcome.home.navigation.label })).toBeVisible();
+    const hostsButton = home().getByRole('button', { name: copy.welcome.home.navigation.hosts, exact: true });
+    const assetDrawer = home().locator('.home-asset-drawer');
+    await expect(assetDrawer).toHaveCount(0);
+    await hostsButton.click();
+    await expect(assetDrawer.getByRole('button', { name: copy.assetFolders.newFolder, exact: true })).toBeVisible();
+    await hostsButton.click();
+    await expect(assetDrawer).toHaveCount(0);
     await screenshot('home-dashboard-zh-saved-hosts.png');
     console.log('PASS: three clearly marked test profiles loaded by real IPC and normal app boot; no SSH connection is attempted.');
 
@@ -201,12 +210,12 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await screenshot('home-dashboard-zh-live-terminal-light.png');
 
     await returnHome();
-    await home().getByRole('button', { name: '管理工作区', exact: true }).click();
+    await home().locator('.home-workspace').click();
     await expect(home()).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: copy.workspaceCenter.title, exact: true })).toBeVisible();
     expect(await onlineLocal()).toHaveLength(1);
     await returnHome();
-    await home().getByRole('button', { name: '查看海洋守护中心', exact: true }).first().click();
+    await home().locator('.workspace-rail-sentinel').click();
     await expect(home()).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1, name: copy.settings.secureCenter, exact: true })).toBeVisible();
     expect(await onlineLocal()).toHaveLength(1);
@@ -232,8 +241,8 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await assertNoHorizontalOverflow();
     await screenshot('home-dashboard-en-narrow.png');
     await screenshot('home-dashboard-en-narrow-context.png', true);
-    await expect(home().getByRole('button', { name: english.welcome.home.manageWorkspace, exact: true })).toBeInViewport();
-    await expect(home().locator('.home-context').getByRole('button', { name: english.welcome.home.reviewSecurity, exact: true })).toBeInViewport();
+    await expect(home().locator('.home-workspace')).toBeInViewport();
+    await expect(home().locator('.workspace-rail-sentinel')).toBeInViewport();
     expect(await onlineLocal()).toHaveLength(1);
     expect(pageErrors).toEqual([]);
     expect(ipcErrors).toEqual([]);

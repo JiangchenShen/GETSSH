@@ -372,6 +372,12 @@
         "loadingHosts": "正在读取主机…",
         "noMatchingHosts": "没有匹配的主机",
         "unknownOS": "未识别操作系统",
+        "navigation": {
+          "label": "首页导航",
+          "hosts": "主机",
+          "terminal": "终端",
+          "files": "文件"
+        },
         "map": {
           "title": "主机分布",
           "regions": "{{count}} 个位置",

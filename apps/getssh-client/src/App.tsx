@@ -6,8 +6,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 // Stores
 import { useAppStore } from './store/appStore';
-import { PaneNode, useSessionStore } from './store/sessionStore';
+import { type PaneLeaf, type PaneNode, useSessionStore } from './store/sessionStore';
 import { Runbook, useWorkspaceStore } from './store/workspaceStore';
+import { usePanelStore } from './store/panelStore';
 
 // Hooks
 import { useAppBoot } from './hooks/useAppBoot';
@@ -20,6 +21,7 @@ import { useSessionManager } from './hooks/useSessionManager';
 
 // Components
 import { GlobalWorkspaceBar } from './components/GlobalWorkspaceBar';
+import { HomeNavigation } from './components/HomeNavigation';
 import { ContextSidebar } from './components/ContextSidebar';
 import { TidalDashboard } from './components/TidalDashboard';
 import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
@@ -33,8 +35,9 @@ import { CommandCenter } from './components/CommandCenter';
 import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
 import { StatusBar } from './components/StatusBar';
-import { SplitPane } from './components/SplitPane';
-import { getAvailableSplitDirection } from './utils/paneHelpers';
+import { isSftpCapable, SplitPane } from './components/SplitPane';
+import { SFTP_PANEL_ID } from './components/SFTPManager';
+import { findZoomedPane, getAvailableSplitDirection } from './utils/paneHelpers';
 
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
@@ -47,7 +50,10 @@ import { BackupRestartNotice } from './components/app-overlays/BackupRestartNoti
 import { useAppLockSync } from './hooks/useAppLockSync';
 import { useAppLockStore } from './store/appLockStore';
 
-const DASHBOARD_EASE = [0.33, 1, 0.68, 1] as const;
+function findTerminal(node: PaneNode, accepts: (pane: PaneLeaf) => boolean): PaneLeaf | null {
+  if (node.type === 'leaf') return node.paneType === 'terminal' && accepts(node) ? node : null;
+  return findTerminal(node.children[0], accepts) ?? findTerminal(node.children[1], accepts);
+}
 
 export type { AppConfig } from './store/appStore';
 
@@ -64,12 +70,17 @@ function AppMain() {
   const closeTab = useSessionStore(state => state.closeTab);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const setActivePaneId = useSessionStore(state => state.setActivePaneId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const activePaneId = useSessionStore(state => state.activePaneId);
   const connecting = useSessionStore(state => state.connecting);
   const error = useSessionStore(state => state.error);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
+  const isSwitching = useWorkspaceStore(state => state.isSwitching);
+  const disableSftp = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeWorkspaceId)
+    ?.preferences?.isolationRules?.disableSftp === true);
 
   // App
   const appConfig = useAppStore(state => state.appConfig);
@@ -86,6 +97,7 @@ function AppMain() {
   // Local State
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
   const [lastActiveTab, setLastActiveTab] = useState<{ id: string; workspaceId: string } | null>(null);
+  const [assetsOpenFor, setAssetsOpenFor] = useState<string | null>(null);
   const trackedWorkspaceRef = useRef(activeWorkspaceId);
   const ignoredTabRef = useRef<string | null>(null);
   useEffect(() => {
@@ -108,6 +120,47 @@ function AppMain() {
       : null;
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
   const splitDirection = getAvailableSplitDirection(workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree, activePaneId);
+  const isHomeActive = selectedSessionIndex === null && !activeTabId;
+  const showFullHome = isHomeActive && !isVaultLocked;
+  const assetsOpen = showFullHome && !isSwitching && assetsOpenFor === activeWorkspaceId;
+  const homeTabs = workspaceTabs.filter(tab => tab.id !== 'settings');
+
+  useEffect(() => {
+    if (!showFullHome || isSwitching) setAssetsOpenFor(null);
+  }, [showFullHome, isSwitching]);
+
+  const selectTab = (id: string) => {
+    setSelectedSessionIndex(null);
+    setActiveTabId(id);
+  };
+
+  const createConnection = (address = '') => {
+    window.dispatchEvent(new CustomEvent('app:create-session', { detail: address }));
+  };
+
+  const orderedTabs = [...workspaceTabs].sort((a, b) => Number(b.id === resumeTabId) - Number(a.id === resumeTabId));
+  const terminalTab = orderedTabs.find(tab => tab.paneTree && findTerminal(tab.paneTree, () => true));
+  let fileTarget: { tabId: string; paneId: string } | undefined;
+  if (!disableSftp && !isSwitching) {
+    const eligible = (pane: PaneLeaf) => !pane.isDisconnected && isSftpCapable(pane);
+    for (const tab of orderedTabs) {
+      if (!tab.paneTree) continue;
+      const zoomed = findZoomedPane(tab.paneTree);
+      const pane = zoomed ? (eligible(zoomed) ? zoomed : null) : findTerminal(tab.paneTree, eligible);
+      if (pane) {
+        fileTarget = { tabId: tab.id, paneId: pane.paneId };
+        break;
+      }
+    }
+  }
+
+  const openFiles = () => {
+    if (!fileTarget) return;
+    selectTab(fileTarget.tabId);
+    setActivePaneId(fileTarget.paneId);
+    const panels = usePanelStore.getState();
+    if (panels.activePanelId !== SFTP_PANEL_ID) panels.togglePanel(SFTP_PANEL_ID);
+  };
 
 
 
@@ -118,6 +171,7 @@ function AppMain() {
     }
     setSelectedSessionIndex(null);
     setActiveTabId(null);
+    setAssetsOpenFor(null);
   };
 
   const syncProfilesRef = useRef<any>(null);
@@ -237,10 +291,11 @@ function AppMain() {
 
         {/* ── STANDARD LOCK SCREEN MOVED TO TIDAL DASHBOARD ── */}
         {/* Main application grid */}
-          <div 
+          <div
+            hidden={showFullHome}
             className="w-full h-full bg-transparent"
             style={{
-               display: 'grid',
+               display: showFullHome ? 'none' : 'grid',
                gridTemplateColumns: `var(--rail-width) ${isSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} 1fr`,
                gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} minmax(0, 1fr) 38px`,
                zIndex: 'var(--z-app-chrome)'
@@ -253,11 +308,11 @@ function AppMain() {
             style={{ gridColumn: '1 / 3', gridRow: '1 / 3', zIndex: 'var(--z-region-material)', display: 'grid', gridTemplateColumns: 'var(--rail-width) minmax(0, 1fr)' }}
           >
             <div className="workspace-rail-surface min-h-0 overflow-hidden">
-              <GlobalWorkspaceBar />
+              <GlobalWorkspaceBar poll={!showFullHome} />
             </div>
             <div className="relative min-w-0 min-h-0 flex flex-col overflow-hidden">
               <ContextSidebar 
-                onAddSession={() => window.dispatchEvent(new CustomEvent('app:create-session', { detail: '' }))}
+                onAddSession={createConnection}
                 onToggleAutoStart={toggleAutoStart}
                 onDeleteSession={deleteSession}
               />
@@ -271,13 +326,10 @@ function AppMain() {
             <TabBar
               tabs={workspaceTabs}
               activeTabId={activeTabId}
-              onSelectTab={(id) => {
-                setActiveTabId(id);
-                setSelectedSessionIndex(null);
-              }}
+              onSelectTab={selectTab}
               onCloseTab={closeTab}
               onHomeClick={handleHomeClick}
-              isHomeActive={selectedSessionIndex === null && !activeTabId}
+              isHomeActive={isHomeActive}
               onSplit={() => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
               canSplit={splitDirection !== null}
             />
@@ -304,21 +356,9 @@ function AppMain() {
               ))}
               </SplitPane>
 
-              {/* Welcome Dashboard Overlay */}
-              <AnimatePresence mode="wait">
-                {(selectedSessionIndex === null && !activeTabId) && (
-                  <motion.div 
-                    key="dashboard"
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.98 }}
-                    transition={{ duration: 0.4, ease: DASHBOARD_EASE }}
-                    className="absolute inset-0 z-20 bg-transparent"
-                  >
-                    <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {isHomeActive && isVaultLocked && (
+                <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId} />
+              )}
 
               {/* Connect Form Overlay */}
               <ConnectFormOverlay
@@ -341,6 +381,19 @@ function AppMain() {
             <StatusBar />
           </div>
         </div>
+
+        {showFullHome && (
+          <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId}
+            navigation={<HomeNavigation onHome={handleHomeClick} hostsOpen={assetsOpen}
+              onHosts={() => setAssetsOpenFor(assetsOpen ? null : activeWorkspaceId)}
+              onTerminal={() => terminalTab ? selectTab(terminalTab.id) : createConnection('local')}
+              onFiles={openFiles} canOpenFiles={!!fileTarget} />}
+            notice={<BackupRestartNotice />}
+            sessionTabs={homeTabs.length > 0 && <TabBar tabs={homeTabs} activeTabId={activeTabId}
+              onSelectTab={selectTab} onCloseTab={closeTab} onHomeClick={handleHomeClick} isHomeActive hideHome />}
+            assets={assetsOpen && <ContextSidebar onAddSession={createConnection} onToggleAutoStart={toggleAutoStart}
+              onDeleteSession={deleteSession} onClose={() => setAssetsOpenFor(null)} />} />
+        )}
 
         {/* Overlays / Modals */}
         <CreateWorkspaceModal />

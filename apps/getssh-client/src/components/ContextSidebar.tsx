@@ -27,12 +27,14 @@ interface ContextSidebarProps {
   onAddSession: () => void;
   onToggleAutoStart: (e: React.MouseEvent, targetSession: SessionProfile) => void;
   onDeleteSession: (e: React.MouseEvent, targetSession: SessionProfile) => void;
+  onClose?: () => void;
 }
 
 export const ContextSidebar: React.FC<ContextSidebarProps> = ({
   onAddSession,
   onToggleAutoStart,
   onDeleteSession,
+  onClose,
 }) => {
   const { t } = useTranslation();
   const isMac = useAppStore(state => state.isMac);
@@ -186,7 +188,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     await mutateFolders(() => window.electronAPI.assetFolders.moveProfile(activeWorkspaceId, id, destination));
   };
 
-  const topPad = isFullScreen ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
+  const topPad = isFullScreen || onClose ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
 
   // 开着会话的主机 —— 状态点的唯一真实来源
   const openHostKeys = new Set(
@@ -450,7 +452,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     );
   };
 
-  if (isSidebarCollapsed) {
+  if (isSidebarCollapsed && !onClose) {
     return (
       <div className={`drag-region h-full w-full flex flex-col items-center ${topPad}`}>
         <button
@@ -491,7 +493,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => setIsSidebarCollapsed(true)}
+          onClick={onClose || (() => setIsSidebarCollapsed(true))}
           title={t('sidebar.collapse')}
           aria-label={t('sidebar.collapse')}
           className="flex-none w-[22px] h-[22px] rounded-md grid place-items-center

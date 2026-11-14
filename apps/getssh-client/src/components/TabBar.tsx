@@ -36,12 +36,13 @@ interface TabBarProps {
   onCloseTab: (tabId: string) => void;
   onHomeClick: () => void;
   isHomeActive: boolean;
+  hideHome?: boolean;
   onSplit?: () => void;
   canSplit?: boolean;
 }
 
 export const TabBar: React.FC<TabBarProps> = ({
-  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, onSplit, canSplit,
+  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, hideHome, onSplit, canSplit,
 }) => {
   const { t } = useTranslation();
   const sshTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
@@ -50,7 +51,7 @@ export const TabBar: React.FC<TabBarProps> = ({
     <div className="drag-region flex-none flex items-center gap-0.5 h-[38px] px-2
                     border-b border-line-soft overflow-x-auto">
 
-      <button
+      {!hideHome && <button
         type="button"
         onClick={onHomeClick}
         className={`no-drag-region flex-none flex items-center gap-[7px] h-[27px] px-2.5 rounded-[7px]
@@ -60,7 +61,7 @@ export const TabBar: React.FC<TabBarProps> = ({
       >
         <Home className="w-[13px] h-[13px]" />
         {t('tabs.home')}
-      </button>
+      </button>}
 
       {sshTabs.map((tab) => {
         const isActive = activeTabId === tab.id;

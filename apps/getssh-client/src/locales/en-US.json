@@ -340,6 +340,12 @@
         "loadingHosts": "Loading hosts…",
         "noMatchingHosts": "No matching hosts",
         "unknownOS": "Unknown operating system",
+        "navigation": {
+          "label": "Home navigation",
+          "hosts": "Hosts",
+          "terminal": "Terminal",
+          "files": "Files"
+        },
         "map": {
           "title": "Host locations",
           "regions_one": "{{count}} location",

@@ -1,11 +1,9 @@
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, ShieldAlert, ShieldCheck, ShieldOff, ShieldQuestionMark } from 'lucide-react';
-import { useAppLockStore } from '../store/appLockStore';
+import { Plus } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { getSentinelSupervisorState } from '../utils/sentinelSupervisorState';
-import './GlobalWorkspaceBar.css';
+import { WorkspaceSentinel } from './WorkspaceSentinel';
 
 /**
  * 工作区导轨。
@@ -13,7 +11,7 @@ import './GlobalWorkspaceBar.css';
  * 工作区切换与本机进程监护入口。
  */
 
-export const GlobalWorkspaceBar: React.FC = () => {
+export const GlobalWorkspaceBar: React.FC<{ poll?: boolean }> = ({ poll }) => {
   const { t } = useTranslation();
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const isMac = useAppStore(state => state.isMac);
@@ -22,12 +20,6 @@ export const GlobalWorkspaceBar: React.FC = () => {
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const switchWorkspace = useWorkspaceStore(state => state.switchWorkspace);
   const setIsCreateModalOpen = useWorkspaceStore(state => state.setIsCreateModalOpen);
-  const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
-  const phase = useAppLockStore(state => state.state?.phase);
-  const sentinelStatus = useAppStore(state => state.sentinelStatus);
-  const sentinelStatusError = useAppStore(state => state.sentinelStatusError);
-  const pollSentinelStatus = useAppStore(state => state.pollSentinelStatus);
-  const canPollSentinel = phase === 'ready' && !isVaultLocked;
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -43,13 +35,6 @@ export const GlobalWorkspaceBar: React.FC = () => {
     fetchWorkspaces();
   }, [setWorkspaces]);
 
-  useEffect(() => {
-    if (!canPollSentinel) return;
-    void pollSentinelStatus();
-    const timer = window.setInterval(pollSentinelStatus, 3_000);
-    return () => window.clearInterval(timer);
-  }, [canPollSentinel, pollSentinelStatus]);
-
   const handleWorkspaceSwitch = async (id: string) => {
     if (id === activeWorkspaceId) {
       window.dispatchEvent(new CustomEvent('app:open-center', {
@@ -61,16 +46,6 @@ export const GlobalWorkspaceBar: React.FC = () => {
   };
 
   const topPad = isFullScreen ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
-  const supervisor = canPollSentinel
-    ? getSentinelSupervisorState(sentinelStatus, sentinelStatusError)
-    : { label: 'unconfirmed', tone: 'neutral' };
-  const statusText = t(`welcome.home.${supervisor.label}`);
-  const sentinelLabel = `${t('statusBar.secure')} · ${statusText}`;
-  const sentinelDetail = canPollSentinel && (sentinelStatusError || sentinelStatus?.reason);
-  const SentinelIcon = supervisor.tone === 'ok' ? ShieldCheck
-    : supervisor.label === 'supervisorDisabled' ? ShieldOff
-    : supervisor.tone === 'warn' ? ShieldAlert : ShieldQuestionMark;
-
   return (
     <div className={`drag-region h-full w-full flex flex-col items-center gap-2 pb-3.5 ${topPad}
                      workspace-rail-divider ${isMac && !isFullScreen ? 'workspace-rail-divider-titlebar' : ''}`}>
@@ -128,22 +103,7 @@ export const GlobalWorkspaceBar: React.FC = () => {
         </button>
       </div>
 
-      <button
-        type="button"
-        className="workspace-rail-sentinel no-drag-region focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-        data-tone={supervisor.tone}
-        aria-label={sentinelLabel}
-        title={sentinelDetail ? `${sentinelLabel} · ${sentinelDetail}` : sentinelLabel}
-        onClick={() => window.dispatchEvent(new CustomEvent('app:open-center', {
-          detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'Security' },
-        }))}
-      >
-        <span className="workspace-rail-sentinel-shield" aria-hidden="true">
-          <SentinelIcon size={17} />
-        </span>
-        <span className="workspace-rail-sentinel-name" aria-hidden="true">Ocean<br />Sentinel</span>
-      </button>
-      <span className="sr-only" role="status">{sentinelLabel}</span>
+      <WorkspaceSentinel poll={poll} />
     </div>
   );
 };

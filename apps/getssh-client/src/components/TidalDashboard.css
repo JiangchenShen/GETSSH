@@ -13,7 +13,9 @@
   width: 100%;
   height: 100%;
   min-width: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   container-type: inline-size;
   color: var(--home-ink);
   background: var(--home-canvas);
@@ -37,10 +39,33 @@ html.dark .home-shell {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, max-content);
   align-items: center;
+  flex: none;
   gap: 10px 14px;
   padding: 10px clamp(16px, 3cqw, 32px);
   border-bottom: 1px solid var(--home-line);
   background: var(--home-surface);
+}
+
+.home-shell[data-window-controls='mac'] { --home-caption-start: 96px; }
+.home-shell[data-window-controls='windows'] { --home-caption-end: 145px; }
+.home-header {
+  padding-inline-start: max(clamp(16px, 3cqw, 32px), var(--home-caption-start, 0px));
+  padding-inline-end: max(clamp(16px, 3cqw, 32px), var(--home-caption-end, 0px));
+}
+
+.home-frame { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+.home-frame[data-with-navigation='true'] { grid-template-columns: auto minmax(0, 1fr); }
+.home-content { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; }
+.home-scroll { flex: 1; min-height: 0; overflow: auto; }
+.home-session-tabs { flex: none; background: var(--home-surface); }
+.home-asset-drawer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 5;
+  width: min(300px, 100%);
+  border-inline-end: 1px solid var(--home-line);
+  background: var(--home-surface);
+  box-shadow: 5px 0 18px rgb(0 0 0 / 10%);
 }
 
 .home-brand, .home-workspace, .home-search, .home-new, .home-connect-submit {
@@ -91,8 +116,8 @@ html.dark .home-shell {
 .home-workspace svg { color: var(--home-accent); }
 .home-workspace strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.home-inner { width: min(100%, 1500px); margin-inline: auto; padding: 24px clamp(16px, 3cqw, 32px) 22px; }
-.home-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr); align-items: start; gap: 22px; }
+.home-inner { width: min(100%, 1680px); margin-inline: auto; padding: 27px clamp(16px, 3.1cqw, 44px) 22px; }
+.home-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.07fr); align-items: start; gap: clamp(20px, 2.8cqw, 38px); }
 .home-hosts { min-width: 0; }
 .home-intro h1 { margin: 0; font-size: clamp(25px, 3.6cqw, 35px); font-weight: 720; line-height: 1.15; }
 .home-greeting { margin: 5px 0 0; color: var(--home-muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -157,10 +182,8 @@ html.dark .home-shell {
 .home-connect-input { min-height: 32px; padding-inline: 8px; border: 1px solid var(--home-line); border-radius: 6px; background: var(--home-surface); }
 .home-connect-submit:disabled, .home-new:disabled { opacity: .55; }
 
-.home-attention { display: flex; align-items: center; gap: 9px; width: 100%; margin-bottom: 14px; padding: 8px 10px; border-radius: 7px; color: var(--home-warn); background: var(--home-warn-soft); text-align: start; }
-.home-attention span { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.home-attention strong { font-size: 12px; }
-.home-attention small { font-size: 11px; }
+.home-attention { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 6px 8px; border-radius: 6px; color: var(--home-warn); background: var(--home-warn-soft); font-size: 12px; text-align: start; }
+.home-attention span { min-width: 0; overflow-wrap: anywhere; }
 .home-attention svg { flex: none; }
 .home-summary { display: flex; flex-wrap: wrap; gap: 5px 14px; margin: 17px 0 0; padding-top: 10px; border-top: 1px solid var(--home-line); color: var(--home-muted); font-size: 11px; }
 .home-summary div { display: flex; gap: 5px; }
@@ -177,11 +200,16 @@ html.dark .home-shell {
 }
 
 @container (max-width: 350px) {
-  .home-header { gap: 6px; padding-inline: 10px; }
+  .home-header { gap: 6px; }
   .home-brand { gap: 4px; font-size: 12px; }
   .home-brand img { width: 22px; height: 22px; }
   .home-workspace { max-width: 90px; padding-inline-start: 5px; }
   .home-workspace svg { display: none; }
   .home-host-country { max-width: 23%; }
   .home-connect-submit svg { display: none; }
+}
+
+@container (max-width: 465px) {
+  .home-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .home-workspace { grid-column: 1 / -1; grid-row: 3; justify-self: start; border: 0; padding-inline-start: 0; max-width: 100%; }
 }
