@@ -365,6 +365,8 @@
       "quickAccess": "快速访问",
       "home": {
         "myHosts": "我的主机",
+        "hostEyebrow": "工作区主机",
+        "hostDescription": "管理您的主机，随时开始连接。",
         "hostSearch": "搜索主机、分组或 IP 地址",
         "hostGroups": "主机分组",
         "allHosts": "全部主机",
@@ -380,6 +382,8 @@
         },
         "map": {
           "title": "主机分布",
+          "headline": "点亮每一处连接",
+          "description": "选择亮点，查看对应主机。",
           "regions": "{{count}} 个位置",
           "unknownCount": "{{count}} 台位置未知",
           "unknown": "位置未知",

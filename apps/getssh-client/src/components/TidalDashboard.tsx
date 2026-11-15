@@ -1,33 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, CornerDownLeft, Layers3, Plus, Search, Server, ShieldAlert, SquareTerminal } from 'lucide-react';
+import { Layers3, Plus, Search, Server, Shield } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useCryptoStore } from '../store/cryptoStore';
-import { isSSHConfig, savedProfiles, useSessionStore, type PaneLeaf, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
+import { isSSHConfig, savedProfiles, useSessionStore, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
 import type { SecurityStatus } from '../types/ipc';
 import { CryptoModal } from './CryptoModal';
 import { HomeHostMap } from './HomeHostMap';
 import { HostOsIcon } from './HostOsIcon';
 import { lookupIpCountry } from '../utils/ipCountry';
-import { getSentinelSupervisorState } from '../utils/sentinelSupervisorState';
 import logo from '../assets/logo.png';
 import './TidalDashboard.css';
 
 interface TidalDashboardProps {
   onConnect?: (session: SessionProfile) => void;
-  resumeTabId?: string | null;
   navigation?: React.ReactNode;
   assets?: React.ReactNode;
-  sessionTabs?: React.ReactNode;
   notice?: React.ReactNode;
 }
-
-const terminalPanes = (node: PaneNode): PaneLeaf[] => node.type === 'leaf'
-  ? node.paneType === 'terminal' ? [node] : []
-  : node.children.flatMap(terminalPanes);
 
 const formatAddress = (profile: SessionProfile, defaultPort: number) => {
   const host = profile.host.trim();
@@ -37,14 +30,12 @@ const formatAddress = (profile: SessionProfile, defaultPort: number) => {
 };
 
 /** Workspace overview and work entry points, using current layout and protection metadata. */
-export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resumeTabId, navigation, assets, sessionTabs, notice }) => {
+export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navigation, assets, notice }) => {
   const { t, i18n } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const isMac = useAppStore(state => state.isMac);
   const isFullScreen = useAppStore(state => state.isFullScreen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
-  const sentinelStatus = useAppStore(state => state.sentinelStatus);
-  const sentinelStatusError = useAppStore(state => state.sentinelStatusError);
   const defaultPort = useAppStore(state => state.appConfig.defaultPort) || 22;
 
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -61,9 +52,6 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   const tabs = useSessionStore(state => state.tabs);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
 
-  const [time, setTime] = useState(new Date());
-  const [greetingChoice] = useState(() => Math.random());
-  const [quickAddress, setQuickAddress] = useState('');
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -75,15 +63,9 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
   const [countries, setCountries] = useState<{ profiles: SessionProfile[]; codes: Map<string, string | null> } | null>(null);
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     setSearch('');
     setGroup(null);
     setSelectedId(null);
-    setQuickAddress('');
   }, [activeWorkspaceId, isVaultLocked]);
 
   useEffect(() => {
@@ -144,30 +126,13 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
     );
   }
 
-  const hour = time.getHours();
-  const greetingKey = hour < 5 ? 'midnight' : hour < 9 ? 'morning' : hour < 12 ? 'forenoon'
-    : hour < 14 ? 'noon' : hour < 18 ? 'afternoon' : hour < 22 ? 'evening' : 'lateNight';
-  const greetingValue = t(`welcome.greeting.${greetingKey}`, { returnObjects: true });
-  const greeting = Array.isArray(greetingValue) ? greetingValue[Math.floor(greetingChoice * greetingValue.length)] : greetingValue;
-  const dateString = new Intl.DateTimeFormat(i18n.language || undefined, {
-    weekday: 'long', month: 'long', day: 'numeric',
-  }).format(time);
-  const timeString = new Intl.DateTimeFormat(i18n.language || undefined, {
-    hour: '2-digit', minute: '2-digit',
-  }).format(time);
   const workspaceName = activeWorkspace?.name || activeWorkspaceId;
 
-  const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
-  const resumeTab = workspaceTabs.find(tab => tab.id === resumeTabId && tab.paneTree);
-  const panes = workspaceTabs.flatMap(tab => tab.paneTree ? terminalPanes(tab.paneTree) : []);
-  const disconnectedCount = panes.filter(pane => pane.isDisconnected === true).length;
   const scope = protectionMetadata?.workspaceId === activeWorkspaceId
     ? protectionMetadata.status?.scopes.find(item => item.workspaceId === activeWorkspaceId)
     : undefined;
   const protectionLabel = !scope ? 'unconfirmed' : !scope.protected ? 'passwordNotSet'
     : scope.ownPassword ? 'workspacePassword' : 'masterPassword';
-  const supervisor = getSentinelSupervisorState(sentinelStatus, sentinelStatusError);
-  const supervisorWarning = supervisor.tone === 'warn';
 
   const regionNames = new Intl.DisplayNames(i18n.language || 'en', { type: 'region' });
   const countryCodes = countries?.profiles === savedSessions ? countries.codes : undefined;
@@ -257,15 +222,14 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
       <div className="home-frame" data-with-navigation={!!navigation}>
         {navigation}
         <div className="home-content no-drag-region">
-          {sessionTabs && <div className="home-session-tabs">{sessionTabs}</div>}
           <div className="home-scroll">
             <div className="home-inner">
               <div className="home-dashboard-grid">
                 <section className="home-hosts" aria-labelledby="home-hosts-title">
                   <div className="home-intro">
+                    <p className="home-eyebrow">{t('welcome.home.hostEyebrow')}</p>
                     <h1 id="home-hosts-title">{t('welcome.home.myHosts')}</h1>
-                    <p className="home-greeting">{greeting}</p>
-                    <p className="home-date">{dateString} · {timeString}</p>
+                    <p className="home-description">{t('welcome.home.hostDescription')}</p>
                   </div>
 
                   <div className="home-filters" role="group" aria-label={t('welcome.home.hostGroups')}>
@@ -273,14 +237,16 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
                       {t('welcome.home.allHosts')} <span>{hosts.length}</span>
                     </button>
                     {groups.map(value => (
-                      <button type="button" key={value} aria-pressed={activeGroup === value} onClick={() => setGroup(value)}>{groupName(value)}</button>
+                      <button type="button" key={value} aria-pressed={activeGroup === value} onClick={() => setGroup(value)}>
+                        {groupName(value)} <span>{hosts.filter(host => host.group === value).length}</span>
+                      </button>
                     ))}
                   </div>
 
                   {!profilesReady ? <p className="home-empty" role="status">{t('welcome.home.loadingHosts')}</p> : (
                     visibleHosts.length > 0 ? Array.from(groupedHosts, ([name, items]) => (
                       <section key={name} className="home-host-group" aria-label={groupName(name)}>
-                        <h2>{groupName(name)}</h2>
+                        <h2>{groupName(name)} · {items.length}</h2>
                         <ul className="home-host-list">
                           {items.map(host => (
                             <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id}>
@@ -289,6 +255,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
                                 <HostOsIcon osType={host.profile.osType} />
                                 <span className="home-host-main"><strong title={host.name}>{host.name}</strong><small title={host.address}>{host.address}</small></span>
                                 {!host.local && <small className="home-host-country" title={host.country || undefined}>
+                                  {host.countryCode && <span className="home-country-flag" aria-hidden="true">{Array.from(host.countryCode, character => String.fromCodePoint(127397 + character.charCodeAt(0))).join('')}</span>}
                                   {host.country || t(locating ? 'welcome.home.checking' : 'welcome.home.map.unknown')}
                                 </small>}
                               </button>
@@ -308,51 +275,20 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, resum
                     )
                   )}
 
-                  {resumeTab && (
-                    <button type="button" className="home-resume" onClick={() => setActiveTabId(resumeTab.id)}>
-                      <SquareTerminal size={17} aria-hidden="true" />
-                      <span>{t('welcome.home.continueWork')} <strong>{resumeTab.title}</strong></span>
-                      <ArrowRight size={15} aria-hidden="true" />
-                    </button>
-                  )}
-
-                  <form className="home-connect" onSubmit={event => {
-                    event.preventDefault();
-                    if (!isSwitching && quickAddress.trim()) createSession(quickAddress);
-                  }}>
-                    <label htmlFor="home-quick-address">{t('welcome.home.quickConnect')}</label>
-                    <div className="home-connect-input-row">
-                      <input id="home-quick-address" className="home-connect-input" value={quickAddress}
-                        onChange={event => setQuickAddress(event.target.value)} placeholder="ssh://user@host:22"
-                        aria-label={t('welcome.home.addressLabel')} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
-                      <button type="submit" className="home-connect-submit" disabled={isSwitching || !quickAddress.trim()}>
-                        {t('welcome.home.configureConnect')}<CornerDownLeft size={14} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </form>
+                  <p className="home-host-total">{t('welcome.home.savedConnections')} <span data-testid="home-saved-count">{profilesReady ? hosts.length : '—'}</span></p>
                 </section>
 
                 <HomeHostMap hosts={visibleHosts.filter(host => !host.local)} selectedId={selection?.id ?? null}
                   onSelect={setSelectedId} loading={!profilesReady || locating} />
               </div>
 
-              {(supervisorWarning || scope?.protected === false) && (
-                <button type="button" className="home-attention" onClick={openSecurity}
-                  title={supervisorWarning ? sentinelStatusError || sentinelStatus?.reason || undefined : t('welcome.home.noPasswordDetail')}>
-                  <ShieldAlert size={15} aria-hidden="true" />
-                  <span>{t(supervisorWarning ? 'welcome.home.sentinelIssue' : 'welcome.home.vaultOff')}</span>
-                  <ArrowRight size={14} aria-hidden="true" />
+              <footer className="home-footer">
+                <span>GETSSH / {workspaceName}</span>
+                <button type="button" className="home-protection" onClick={openSecurity}>
+                  <Shield size={14} aria-hidden="true" />
+                  {t('welcome.home.passwordProtection')} · <span data-testid="home-protection-state" data-tone={scope?.protected ? 'ok' : scope?.protected === false ? 'warn' : 'neutral'}>{t(`welcome.home.${protectionLabel}`)}</span>
                 </button>
-              )}
-
-              <dl className="home-summary" aria-label={t('welcome.home.workspaceOverview')}>
-                <div><dt>{t('welcome.home.savedConnections')}</dt><dd data-testid="home-saved-count">{profilesReady ? hosts.length : '—'}</dd></div>
-                <div><dt>{t('welcome.home.terminalPanels')}</dt><dd data-testid="home-terminal-count">{panes.length}</dd></div>
-                <div><dt>{t('welcome.home.disconnectedPanels')}</dt><dd data-testid="home-disconnected-count">{disconnectedCount}</dd></div>
-                <div><dt>{t('welcome.home.workspaces')}</dt><dd data-testid="home-workspace-count">{workspaces.length}</dd></div>
-                <div><dt>{t('welcome.home.processSupervision')}</dt><dd data-testid="home-supervisor-state" data-tone={supervisor.tone}>{t(`welcome.home.${supervisor.label}`)}</dd></div>
-                <div><dt>{t('welcome.home.passwordProtection')}</dt><dd data-testid="home-protection-state" data-tone={scope?.protected ? 'ok' : scope?.protected === false ? 'warn' : 'neutral'}>{t(`welcome.home.${protectionLabel}`)}</dd></div>
-              </dl>
+              </footer>
             </div>
           </div>
           {assets && <aside className="home-asset-drawer" aria-label={t('assetFolders.assets')}>{assets}</aside>}

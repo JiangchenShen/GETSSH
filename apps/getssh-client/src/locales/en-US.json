@@ -333,6 +333,8 @@
       "quickAccess": "Quick Access",
       "home": {
         "myHosts": "My hosts",
+        "hostEyebrow": "YOUR WORKSPACE",
+        "hostDescription": "Your hosts, ready to connect.",
         "hostSearch": "Search hosts, groups, or IP addresses",
         "hostGroups": "Host groups",
         "allHosts": "All hosts",
@@ -348,6 +350,8 @@
         },
         "map": {
           "title": "Host locations",
+          "headline": "Every connection, in view",
+          "description": "Select a point to find its hosts.",
           "regions_one": "{{count}} location",
           "regions_other": "{{count}} locations",
           "unknownCount_one": "{{count}} host with an unknown location",

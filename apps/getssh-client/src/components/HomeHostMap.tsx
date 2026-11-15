@@ -46,8 +46,9 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
   return (
     <section className="home-host-map" aria-labelledby={titleId} aria-busy={loading || undefined}>
       <header className="home-host-map-header">
-        <h2 id={titleId}>{t('welcome.home.map.title')}</h2>
-        {!loading && <span>{t('welcome.home.map.regions', { count: groups.size })}</span>}
+        <p className="home-host-map-eyebrow">{t('welcome.home.map.title')}</p>
+        <h2 id={titleId}>{t('welcome.home.map.headline')}</h2>
+        <p>{t('welcome.home.map.description')}</p>
       </header>
 
       <div className="home-host-map-canvas">
@@ -118,7 +119,10 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
       </div>
 
       <footer className="home-host-map-footer">
-        {!loading && <span>{t('welcome.home.map.unknownCount', { count: unknownCount })}</span>}
+        {!loading && <span className="home-host-map-counts">
+          <span>{t('welcome.home.map.regions', { count: groups.size })}</span>
+          <span>{t('welcome.home.map.unknownCount', { count: unknownCount })}</span>
+        </span>}
         <button type="button" onClick={() => window.electronAPI.openExternal('https://db-ip.com/db/download/ip-to-country-lite')}>
           {t('welcome.home.map.dbipCredit')}
         </button>

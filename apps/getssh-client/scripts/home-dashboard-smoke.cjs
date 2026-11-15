@@ -69,6 +69,11 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
 
     const home = () => page.locator('main.home-shell');
     const count = async (name, expected) => expect(home().getByTestId(`home-${name}-count`)).toHaveText(String(expected));
+    const localHostRow = () => home().locator('.home-host-row').filter({ hasText: '本地终端 · UI 测试' });
+    const assertSimpleHome = async () => {
+      await expect(home().locator('.home-connect, .home-resume, .home-summary, .home-session-tabs, .home-navigation-tools')).toHaveCount(0);
+      await expect(home().locator('.home-navigation-list > button')).toHaveCount(3);
+    };
     const assertNoHorizontalOverflow = async () => {
       await expect.poll(() => home().locator('.home-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -100,41 +105,35 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await configure('dark');
     expect(await savedProfiles()).toHaveLength(0);
     await count('saved', 0);
-    await count('terminal', 0);
-    await count('workspace', (await page.evaluate(() => window.electronAPI.workspace.getWorkspaces())).length);
-    await count('disconnected', 0);
+    await assertSimpleHome();
     await assertNoHorizontalOverflow();
     await screenshot('home-dashboard-zh-empty-dark.png');
     await configure('light');
     await count('saved', 0);
-    await count('terminal', 0);
     await assertNoHorizontalOverflow();
     await screenshot('home-dashboard-zh-empty-light.png');
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(860, 980));
     await assertNoHorizontalOverflow();
     await screenshot('home-dashboard-zh-narrow.png');
-    console.log('PASS: empty workspace truthful zero counts, Chinese dark/light and narrow window without horizontal overflow.');
+    console.log('PASS: empty workspace truthful host count, simplified navigation, Chinese dark/light and narrow window without horizontal overflow.');
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1360, 980));
 
-    // Quick connect configures an address and credentials without opening a network connection.
-    await home().locator('.home-connect-input').fill('ssh://ui-test@quick.example.test:2222');
-    await home().locator('.home-connect-submit').click();
+    // Adding a host opens the normal editor without a network connection or saved profile.
+    await home().locator('.home-new').click();
     await expect(form()).toBeVisible();
-    await expect(form().locator('input[placeholder="ssh://user@host:22"]')).toHaveValue('quick.example.test');
-    await expect(form().locator('input[autocomplete="username"]')).toHaveValue('ui-test');
-    await expect(form().locator('input[type="number"]').first()).toHaveValue('2222');
+    await expect(form().locator('input[placeholder="ssh://user@host:22"]')).toHaveValue('');
     await form().getByRole('button', { name: copy.common.cancel, exact: true }).click();
     await expect(home()).toBeVisible();
     await count('saved', 0);
     expect(await savedProfiles()).toHaveLength(0);
-    console.log('PASS: real Quick Connect opens parsed host/user/port configuration; Cancel leaves no saved profile or network session.');
+    console.log('PASS: Add host opens the real editor; Cancel leaves no saved profile or network session.');
 
     // This is the same production IPC used by the editor, scoped to the isolated default workspace.
     expect(await page.evaluate(profiles => window.electronAPI.saveProfiles({ workspaceId: 'default', payload: profiles }), testProfiles)).toBe(true);
     expect((await savedProfiles()).map(profile => profile.id).sort()).toEqual(testProfiles.map(profile => profile.id).sort());
     await configure('dark');
     await count('saved', 3);
-    await count('terminal', 0);
+    await assertSimpleHome();
     await expect(home().locator('.home-host-row')).toHaveCount(3);
     for (const profile of testProfiles) await expect(home().locator('.home-host-row').filter({ hasText: profile.alias })).toContainText(`${profile.username}@${profile.host}:${profile.port}`);
     await expect(page.locator('.workspace-navigation')).toBeHidden();
@@ -146,6 +145,11 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await expect(assetDrawer.getByRole('button', { name: copy.assetFolders.newFolder, exact: true })).toBeVisible();
     await hostsButton.click();
     await expect(assetDrawer).toHaveCount(0);
+    await home().locator('.home-search input').fill('beta.example.test');
+    await expect(home().locator('.home-host-row')).toHaveCount(1);
+    await expect(home().locator('.home-host-row')).toContainText('UI 测试 · Beta');
+    await home().locator('.home-search input').fill('');
+    await expect(home().locator('.home-host-row')).toHaveCount(3);
     await screenshot('home-dashboard-zh-saved-hosts.png');
     console.log('PASS: three clearly marked test profiles loaded by real IPC and normal app boot; no SSH connection is attempted.');
 
@@ -161,9 +165,9 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
         if (local) window.__homeDashboardLocal = { tabId: snapshot.tabId, sessionId: local.sessionId };
       });
     });
-    // A real quick local connection stays unsaved, leaving the three SSH test profiles intact.
-    await home().locator('.home-connect-input').fill('local');
-    await home().locator('.home-connect-submit').click();
+    // Create one saved local host through the real editor, then use its home row to resume it.
+    await home().locator('.home-new').click();
+    await form().getByRole('button', { name: copy.connection.protocol.local, exact: true }).click();
     await expect(form().getByText(copy.connection.localReady, { exact: true })).toBeVisible();
     await form().getByLabel(copy.connection.alias, { exact: true }).fill('本地终端 · UI 测试');
     await form().getByRole('button', { name: copy.connection.connectBtn, exact: true }).click();
@@ -182,19 +186,18 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     };
     await runMarker('GETSSH_HOME_SMOKE_BEFORE_HOME');
     await returnHome();
-    await count('saved', 3);
-    await count('terminal', 1);
-    await count('disconnected', 0);
+    await count('saved', 4);
+    await assertSimpleHome();
     expect(await onlineLocal()).toHaveLength(1);
-    await expect(home().locator('.home-resume')).toContainText('本地终端 · UI 测试');
+    await expect(localHostRow().locator('.home-host-open')).toContainText(copy.welcome.home.switchTab);
     await screenshot('home-dashboard-zh-live-terminal.png');
-    await home().locator('.home-resume').click();
+    await localHostRow().locator('.home-host-open').click();
     await expect(home()).toHaveCount(0);
     await expect(page.locator('.xterm-helper-textarea:visible')).toHaveCount(1);
     expect(await page.evaluate(() => window.__homeDashboardLocal)).toEqual(local);
     await runMarker('GETSSH_HOME_SMOKE_AFTER_CONTINUE');
     expect(await onlineLocal()).toHaveLength(1);
-    console.log('PASS: one real local PTY counted, Home preserves its backend session, Continue returns to the same session and executes a second marker.');
+    console.log('PASS: Add host saves one local profile; Home preserves its PTY and the host row returns to the same session and executes a second marker.');
 
     // Switch the live workspace through the actual Appearance page; no reload or session reset.
     await page.locator(`button[title="${copy.statusBar.settings}"]`).click();
@@ -203,9 +206,8 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await expect(page.locator('html')).not.toHaveClass(/dark/);
     await page.locator('div[title="本地终端 · UI 测试"][draggable="true"]').click();
     await returnHome();
-    await count('saved', 3);
-    await count('terminal', 1);
-    await expect(home().locator('.home-resume')).toContainText('本地终端 · UI 测试');
+    await count('saved', 4);
+    await expect(localHostRow().locator('.home-host-open')).toContainText(copy.welcome.home.switchTab);
     expect(await onlineLocal()).toHaveLength(1);
     await screenshot('home-dashboard-zh-live-terminal-light.png');
 
@@ -233,8 +235,8 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await page.locator('div[title="本地终端 · UI 测试"][draggable="true"]').click();
     await page.getByRole('button', { name: english.tabs.home, exact: true }).click();
     await expect(home()).toBeVisible();
-    await count('saved', 3);
-    await count('terminal', 1);
+    await count('saved', 4);
+    await assertSimpleHome();
     await assertNoHorizontalOverflow();
     await screenshot('home-dashboard-en-live-terminal.png');
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(860, 980));
@@ -247,7 +249,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     expect(pageErrors).toEqual([]);
     expect(ipcErrors).toEqual([]);
     console.log('PASS: actual settings theme/language controls preserve the live PTY; filled Chinese light and English wide/narrow layouts remain readable without horizontal overflow.');
-    console.log('Home dashboard smoke passed: isolated data, real counts and test profile IPC, Chinese empty/filled dark/light/narrow screenshots, Quick Connect, live local terminal Home/Continue preservation, workspace/security routing, no renderer or IPC errors.');
+    console.log('Home dashboard smoke passed: isolated data, real host count and profile IPC, Chinese empty/filled dark/light/narrow screenshots, Add host, search, local host tab preservation, workspace/security routing, no renderer or IPC errors.');
   } catch (error) {
     if (page && !page.isClosed()) await page.screenshot({ path: path.join(artifacts, 'home-dashboard-failure.png'), animations: 'disabled' }).catch(() => {});
     console.error('Home dashboard smoke failed:', error);

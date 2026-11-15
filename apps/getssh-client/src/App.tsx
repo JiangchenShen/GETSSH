@@ -123,7 +123,6 @@ function AppMain() {
   const isHomeActive = selectedSessionIndex === null && !activeTabId;
   const showFullHome = isHomeActive && !isVaultLocked;
   const assetsOpen = showFullHome && !isSwitching && assetsOpenFor === activeWorkspaceId;
-  const homeTabs = workspaceTabs.filter(tab => tab.id !== 'settings');
 
   useEffect(() => {
     if (!showFullHome || isSwitching) setAssetsOpenFor(null);
@@ -139,7 +138,6 @@ function AppMain() {
   };
 
   const orderedTabs = [...workspaceTabs].sort((a, b) => Number(b.id === resumeTabId) - Number(a.id === resumeTabId));
-  const terminalTab = orderedTabs.find(tab => tab.paneTree && findTerminal(tab.paneTree, () => true));
   let fileTarget: { tabId: string; paneId: string } | undefined;
   if (!disableSftp && !isSwitching) {
     const eligible = (pane: PaneLeaf) => !pane.isDisconnected && isSftpCapable(pane);
@@ -357,7 +355,7 @@ function AppMain() {
               </SplitPane>
 
               {isHomeActive && isVaultLocked && (
-                <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId} />
+                <TidalDashboard onConnect={handleConnect} />
               )}
 
               {/* Connect Form Overlay */}
@@ -383,14 +381,11 @@ function AppMain() {
         </div>
 
         {showFullHome && (
-          <TidalDashboard onConnect={handleConnect} resumeTabId={resumeTabId}
+          <TidalDashboard onConnect={handleConnect}
             navigation={<HomeNavigation onHome={handleHomeClick} hostsOpen={assetsOpen}
               onHosts={() => setAssetsOpenFor(assetsOpen ? null : activeWorkspaceId)}
-              onTerminal={() => terminalTab ? selectTab(terminalTab.id) : createConnection('local')}
               onFiles={openFiles} canOpenFiles={!!fileTarget} />}
             notice={<BackupRestartNotice />}
-            sessionTabs={homeTabs.length > 0 && <TabBar tabs={homeTabs} activeTabId={activeTabId}
-              onSelectTab={selectTab} onCloseTab={closeTab} onHomeClick={handleHomeClick} isHomeActive hideHome />}
             assets={assetsOpen && <ContextSidebar onAddSession={createConnection} onToggleAutoStart={toggleAutoStart}
               onDeleteSession={deleteSession} onClose={() => setAssetsOpenFor(null)} />} />
         )}

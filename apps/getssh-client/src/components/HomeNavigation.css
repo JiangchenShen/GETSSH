@@ -1,7 +1,7 @@
 .home-navigation {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  width: 76px;
+  width: 92px;
   min-height: 0;
   border-inline-end: 1px solid var(--home-line);
   background: var(--home-surface);
@@ -11,11 +11,11 @@
 .home-navigation-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 13px 8px;
+  padding: 20px 9px;
   scrollbar-width: thin;
 }
 
@@ -25,13 +25,13 @@
   flex: none;
   justify-items: center;
   align-content: center;
-  min-height: 50px;
+  min-height: 68px;
   min-width: 0;
   width: 100%;
-  gap: 5px;
+  gap: 9px;
   padding: 4px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.25;
   text-align: center;
   overflow-wrap: anywhere;
@@ -46,7 +46,7 @@
 
 .home-navigation-item[aria-current='page']::before {
   position: absolute;
-  inset-block: 9px;
+  inset-block: 0;
   inset-inline-start: 0;
   width: 2px;
   border-radius: 0 2px 2px 0;
@@ -62,19 +62,8 @@ button.home-navigation-item:not(:disabled):hover {
 
 .home-navigation-item:disabled { opacity: .6; }
 
-.home-navigation-tools {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  margin-top: 4px;
-  padding-top: 9px;
-  border-top: 1px solid var(--home-line);
-}
-
-.home-navigation-tools .home-navigation-item { min-height: 32px; }
-
 .home-navigation-sentinel {
   display: grid;
   justify-items: center;
-  padding: 7px 0 11px;
+  padding: 12px 0 22px;
 }

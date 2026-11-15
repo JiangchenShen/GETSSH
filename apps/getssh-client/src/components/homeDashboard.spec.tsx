@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import en from '../locales/en-US.json';
 import zh from '../locales/zh-CN.json';
-import type { OceanSentinelStatus, SecurityStatus } from '../types/ipc';
+import type { SecurityStatus } from '../types/ipc';
 import type { PaneLeaf, PaneNode, SessionProfile, Tab } from '../store/sessionStore';
 
 const mocks = vi.hoisted(() => ({
@@ -12,10 +12,8 @@ const mocks = vi.hoisted(() => ({
   profilesWorkspaceId: 'current' as string | null,
   sessions: [] as SessionProfile[],
   tabs: [] as Tab[],
-  supervisor: null as OceanSentinelStatus | null,
-  supervisorError: null as string | null,
-  pollSentinelStatus: vi.fn(),
   setActiveTabId: vi.fn(),
+  onConnect: vi.fn(),
   language: 'en-US',
 }));
 
@@ -28,9 +26,6 @@ vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any)
   isConfigLoaded: true,
   appConfig: { pluginSecurityMode: 'safe', privacyMode: false, autoLockTimeout: 0 },
   setIsCommandCenterOpen: vi.fn(),
-  sentinelStatus: mocks.supervisor,
-  sentinelStatusError: mocks.supervisorError,
-  pollSentinelStatus: mocks.pollSentinelStatus,
 }) }));
 vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: any) => any) => select({
   activeWorkspaceId: mocks.workspaceId,
@@ -85,9 +80,6 @@ beforeEach(() => {
   mocks.language = 'en-US';
   mocks.sessions = [];
   mocks.tabs = [];
-  mocks.supervisor = { status: 'secure', daemonState: 'running', sentinelDisabled: false, lastPing: 100 };
-  mocks.supervisorError = null;
-  mocks.pollSentinelStatus.mockResolvedValue(mocks.supervisor);
   status = vi.fn().mockResolvedValue(metadata());
   window.electronAPI = { security: { status } } as unknown as Window['electronAPI'];
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,71 +94,14 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-const render = (resumeTabId?: string) => act(async () => root.render(<TidalDashboard resumeTabId={resumeTabId} />));
+const render = () => act(async () => root.render(<TidalDashboard onConnect={mocks.onConnect} />));
 const text = (testId: string) => {
   const element = container.querySelector(`[data-testid="${testId}"]`);
-  expect(element, `Missing home summary: ${testId}`).not.toBeNull();
+  expect(element, `Missing home state: ${testId}`).not.toBeNull();
   return element!.textContent!.trim();
 };
 const tone = (testId: string) => container.querySelector(`[data-testid="${testId}"]`)!.getAttribute('data-tone');
 
-describe('time-based home greetings', () => {
-  it('keeps all four existing phrases available in both languages', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 9, 5, 10));
-    const random = vi.spyOn(Math, 'random');
-    for (const language of ['en-US', 'zh-CN']) {
-      mocks.language = language;
-      const greetings = (language === 'zh-CN' ? zh : en).translation.welcome.greeting.forenoon;
-      for (let index = 0; index < greetings.length; index++) {
-        random.mockReturnValue((index + 0.5) / greetings.length);
-        await render();
-        expect(container.querySelector('.home-greeting')?.textContent).toBe(greetings[index]);
-        await act(async () => root.unmount());
-        root = createRoot(container);
-      }
-    }
-  });
-
-  it('uses the correct local-time group across every period boundary', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 9, 5, 0));
-    vi.spyOn(Math, 'random').mockReturnValue(0.6);
-    mocks.language = 'zh-CN';
-    await render();
-    const cases = [
-      [0, 'midnight'], [4, 'midnight'], [5, 'morning'], [8, 'morning'],
-      [9, 'forenoon'], [11, 'forenoon'], [12, 'noon'], [13, 'noon'],
-      [14, 'afternoon'], [17, 'afternoon'], [18, 'evening'], [21, 'evening'],
-      [22, 'lateNight'], [23, 'lateNight'],
-    ] as const;
-    for (const [hour, period] of cases) {
-      vi.setSystemTime(new Date(2026, 9, 5, hour));
-      await act(async () => vi.advanceTimersByTime(30_000));
-      expect(container.querySelector('.home-greeting')?.textContent).toBe(zh.translation.welcome.greeting[period][2]);
-    }
-  });
-
-  it('keeps the selection through refreshes and language changes, and chooses again on a new visit', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 9, 5, 10));
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.3);
-    await render();
-    expect(container.querySelector('.home-greeting')?.textContent).toBe(en.translation.welcome.greeting.forenoon[1]);
-    random.mockReturnValue(0.99);
-    mocks.supervisorError = 'IPC unavailable';
-    await render();
-    await act(async () => vi.advanceTimersByTime(30_000));
-    expect(container.querySelector('.home-greeting')?.textContent).toBe(en.translation.welcome.greeting.forenoon[1]);
-    mocks.language = 'zh-CN';
-    await render();
-    expect(container.querySelector('.home-greeting')?.textContent).toBe(zh.translation.welcome.greeting.forenoon[1]);
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    expect(container.querySelector('.home-greeting')?.textContent).toBe(zh.translation.welcome.greeting.forenoon[3]);
-  });
-});
 describe('home dashboard data boundaries', () => {
   it('hides the old workspace inventory while the new workspace profiles load', async () => {
     mocks.sessions = [{ id: 'old-host', host: 'old.example', username: 'user', alias: 'Previous workspace host' }];
@@ -180,7 +115,7 @@ describe('home dashboard data boundaries', () => {
     expect(container.querySelector('.home-host-map')?.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('counts saved profiles and current-window terminal panes, independently of session IDs', async () => {
+  it('counts only saved profiles, excluding drafts, temporary connections, and blank addresses', async () => {
     mocks.sessions = [
       { id: 'saved', host: 'host', username: 'user' },
       { id: 'local', host: '', username: '', protocol: 'local' },
@@ -188,35 +123,45 @@ describe('home dashboard data boundaries', () => {
       { id: 'quick', host: 'quick', username: 'user', isQuickConnect: true },
       { id: 'empty', host: '   ', username: 'user' },
     ];
-    mocks.tabs = [
-      tab('current-tab', 'current', { type: 'vsplit', paneId: 'root', sizes: [50, 50], children: [
-        { type: 'hsplit', paneId: 'terminals', sizes: [50, 50], children: [terminal('one'), terminal('two', true)] },
-        { type: 'hsplit', paneId: 'non-terminals', sizes: [50, 50], children: [
-          { type: 'leaf', paneId: 'center', paneType: 'center', sessionId: 'not-a-terminal', config: { centerType: 'settings' } },
-          { type: 'leaf', paneId: 'welcome', paneType: 'welcome', sessionId: null, config: null },
-        ] },
-      ] }),
-      tab('foreign-tab', 'other', terminal('foreign')),
-      tab('torn-tab', 'current', terminal('torn'), true),
-    ];
     await render();
     expect(text('home-saved-count')).toBe('2');
-    expect(text('home-terminal-count')).toBe('2');
-    expect(text('home-disconnected-count')).toBe('1');
-    expect(text('home-workspace-count')).toBe('2');
+    expect(container.querySelectorAll('.home-host-row')).toHaveLength(2);
   });
 
-  it('offers resume only for a tab in the current workspace and main window', async () => {
-    mocks.tabs = [tab('current-tab', 'current', terminal('current')), tab('foreign-tab', 'other', terminal('foreign')), tab('torn-tab', 'current', terminal('torn'), true)];
-    await render('foreign-tab');
-    expect(container.querySelector('.home-resume')).toBeNull();
-    await render('torn-tab');
-    expect(container.querySelector('.home-resume')).toBeNull();
-    await render('current-tab');
-    const resume = container.querySelector<HTMLButtonElement>('.home-resume');
-    expect(resume).not.toBeNull();
-    await act(async () => resume!.click());
+  it('switches an already-open host only to a tab in the current workspace and main window', async () => {
+    const profile = { id: 'saved', host: 'host', username: 'user' };
+    const pane = { ...terminal('current'), config: { host: 'host', username: 'user', port: 22, profileId: 'saved', workspaceId: 'current' } };
+    mocks.sessions = [profile];
+    mocks.tabs = [tab('foreign-tab', 'other', pane), tab('torn-tab', 'current', pane, true)];
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>('.home-host-open')!.click());
+    expect(mocks.onConnect).toHaveBeenCalledWith(profile);
+    expect(mocks.setActiveTabId).not.toHaveBeenCalled();
+
+    mocks.onConnect.mockClear();
+    mocks.tabs.push(tab('current-tab', 'current', pane));
+    await render();
+    expect(container.querySelector('.home-host-open')?.textContent).toContain('Switch tab');
+    await act(async () => container.querySelector<HTMLButtonElement>('.home-host-open')!.click());
     expect(mocks.setActiveTabId).toHaveBeenCalledWith('current-tab');
+    expect(mocks.onConnect).not.toHaveBeenCalled();
+  });
+
+  it('searches real host names and addresses without opening a connection', async () => {
+    mocks.sessions = [
+      { id: 'alpha', alias: 'Alpha', host: 'alpha.example', username: 'deploy' },
+      { id: 'beta', alias: 'Beta', host: 'beta.example', username: 'ops' },
+    ];
+    await render();
+    const input = container.querySelector<HTMLInputElement>('.home-search input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'ops@beta');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.querySelectorAll('.home-host-row')).toHaveLength(1);
+    expect(container.querySelector('.home-host-row')?.textContent).toContain('Beta');
+    expect(mocks.onConnect).not.toHaveBeenCalled();
+    expect(text('home-saved-count')).toBe('2');
   });
 
   it.each([
@@ -252,40 +197,15 @@ describe('home dashboard data boundaries', () => {
     expect(tone('home-protection-state')).toBe('ok');
   });
 
-  it.each([
-    [{ status: 'secure', daemonState: 'running', sentinelDisabled: false, lastPing: 100 }, null, 'Running normally'],
-    [{ status: 'warning', daemonState: 'running', sentinelDisabled: false, lastPing: 100 }, null, 'Needs attention'],
-    [{ status: 'secure', daemonState: 'running', sentinelDisabled: true, lastPing: 100 }, null, 'Disabled'],
-    [{ status: 'secure', daemonState: 'starting', sentinelDisabled: false, lastPing: 0 }, null, 'Connecting'],
-    [{ status: 'secure', daemonState: 'unavailable', sentinelDisabled: false, lastPing: 100 }, null, 'Unavailable'],
-    [{ status: 'secure', sentinelDisabled: false, lastPing: 100 }, null, 'Not confirmed'],
-    [null, 'IPC unavailable', 'Unavailable'],
-    [{ status: 'secure', daemonState: 'running', sentinelDisabled: false, lastPing: 100 }, 'IPC unavailable', 'Unavailable'],
-  ] as [OceanSentinelStatus | null, string | null, string][])('uses actual supervisor availability: %s', async (supervisor, error, expected) => {
-    mocks.supervisor = supervisor;
-    mocks.supervisorError = error;
-    await render();
-    expect(text('home-supervisor-state')).toBe(expected);
-    if (expected === 'Running normally') expect(tone('home-supervisor-state')).toBe('ok');
-    else expect(tone('home-supervisor-state')).not.toBe('ok');
-  });
-
-  it('keeps quick connect as a trimmed configuration event', async () => {
+  it('opens a new host configuration without starting a connection', async () => {
     const event = vi.fn();
     window.addEventListener('app:create-session', event);
     try {
       await render();
-      const input = container.querySelector<HTMLInputElement>('.home-connect-input')!;
-      const submit = container.querySelector<HTMLButtonElement>('.home-connect-submit')!;
-      expect(submit.disabled).toBe(true);
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '  ssh://user@host:22  ');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-      expect(submit.disabled).toBe(false);
-      await act(async () => submit.click());
+      await act(async () => container.querySelector<HTMLButtonElement>('.home-new')!.click());
       expect(event).toHaveBeenCalledTimes(1);
-      expect((event.mock.calls[0][0] as CustomEvent).detail).toBe('ssh://user@host:22');
+      expect((event.mock.calls[0][0] as CustomEvent).detail).toBe('');
+      expect(mocks.onConnect).not.toHaveBeenCalled();
     } finally { window.removeEventListener('app:create-session', event); }
   });
 });
