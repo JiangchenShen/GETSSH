@@ -1,5 +1,4 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
 import {
   Activity,
   ArrowRight,
@@ -27,6 +26,7 @@ import type { SecretField } from '../types/store';
 import { settingButtonClass } from './settings/SettingsControls';
 import { useAppLockStore } from '../store/appLockStore';
 import { ConnectionPrivateKey } from './ConnectionPrivateKey';
+import './ConnectForm.css';
 
 export type ConnectFormSession = Partial<SessionProfile>;
 
@@ -317,9 +317,9 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
     onConnect(readySession);
   };
 
-  const inputClass = 'w-full h-10 rounded-xl border border-line bg-surf px-3.5 text-[13px] text-ink outline-none transition-all placeholder:text-ink-3 focus:border-primary/70 focus:ring-2 focus:ring-primary/15';
-  const labelClass = 'mb-2 block text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3';
-  const cardClass = 'rounded-[22px] border border-line-soft bg-panel p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]';
+  const inputClass = 'connection-input';
+  const labelClass = 'connection-label';
+  const cardClass = 'connection-section';
   const protocols: { value: DisplayProtocol; label: string }[] = [
     { value: 'auto', label: t('connection.protocol.auto') },
     { value: 'ssh', label: 'SSH' },
@@ -328,81 +328,71 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   ];
 
   return (
-    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="flex h-full w-full flex-col text-ink">
-      <header className="flex flex-none items-center justify-between gap-5 border-b border-line-soft bg-panel px-7 py-4">
+    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="connection-workbench">
+      <header className="connection-header">
         <div className="min-w-0">
-          <div className="mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary-color),0.8)]" />
-            {t('connection.workbench')} <span className="text-ink-3">/</span>
-            <span className="text-ink-3">{session.isDraft ? t('connection.draft') : t('connection.saved')}</span>
-          </div>
-          <h2 className="truncate text-[22px] font-bold tracking-tight">{session.isDraft ? t('connection.newTitle') : (localSession.alias || endpoint)}</h2>
-          <p className="mt-1 text-[12px] text-ink-3">{t('connection.workbenchDesc')}</p>
+          <p className="connection-kicker">{session.isDraft ? t('connection.draft') : t('connection.saved')}</p>
+          <h2>{session.isDraft ? t('connection.newTitle') : (localSession.alias || endpoint)}</h2>
+          <p className="connection-description">{t('connection.workbenchDesc')}</p>
         </div>
-        <div className="flex flex-none items-center gap-2.5">
-          <div className="hidden items-center gap-2 rounded-xl border border-line-soft bg-surf/80 px-3 py-2 font-mono text-[11px] text-ink-2 lg:flex">
-            <span className={`h-1.5 w-1.5 rounded-full ${canConnect ? 'bg-ok' : 'bg-warn'}`} />{endpoint}
-          </div>
+        <div className="connection-actions">
           <button type="button" disabled={saving} onClick={() => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = null; setAutosavePending(false); pendingClearsRef.current = {}; setPendingClears({}); setSaveError('');
             const clean = { ...localSessionRef.current, password: undefined, passphrase: undefined };
             localSessionRef.current = clean; setLocalSession(clean); onCancel();
-          }} className="h-10 rounded-xl border border-line px-4 text-[12px] font-semibold text-ink-2 transition-all hover:bg-surf hover:text-ink active:scale-[0.98]">{t('common.cancel')}</button>
+          }} className="connection-button">{t('common.cancel')}</button>
           {Object.keys(pendingClears).length > 0 && <button type="button" disabled={saving || !profilesReady} onClick={() => void savePending(localSessionRef.current)} className={settingButtonClass}>{saving ? (i18n.language.startsWith('zh') ? '正在保存…' : 'Saving…') : (i18n.language.startsWith('zh') ? '保存更改' : 'Save changes')}</button>}
-          <motion.button whileTap={{ scale: 0.96 }} type="submit" disabled={saving || connecting || !canConnect || !profilesReady} className="flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-[12px] font-bold text-black shadow-[0_10px_28px_rgba(var(--primary-color),0.22)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="submit" disabled={saving || connecting || !canConnect || !profilesReady} className="connection-button connection-button-primary">
             {!profilesReady ? t('connection.loadingProfiles') : connecting ? t('connection.connecting') : t('connection.connectBtn')}<ArrowRight className="h-3.5 w-3.5" />
-          </motion.button>
+          </button>
         </div>
       </header>
 
-      <fieldset disabled={saving} className="relative m-0 min-h-0 min-w-0 flex-1 overflow-y-auto border-0 px-6 py-5">
-        <div className="pointer-events-none absolute inset-0 dashboard-grid" />
-        <div className="relative mx-auto flex w-full max-w-[1320px] flex-col gap-4">
-          {error && <div className="rounded-xl border border-down/35 bg-down/10 px-4 py-3 text-[12px] font-medium text-down">{error}</div>}
+      <fieldset disabled={saving} className="connection-scroll">
+        <div className="connection-inner">
+          {error && <div role="alert" className="rounded-md border-l-2 border-down bg-down/10 px-3 py-2 text-xs text-down">{error}</div>}
           {saveError && <p role="alert" className="rounded-md border-l-2 border-down bg-down/10 px-3 py-2 text-xs text-down">{saveError}</p>}
 
-          <section className={`${cardClass} relative overflow-hidden`}>
-            <div className="pointer-events-none absolute -right-24 -top-24 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
-            <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <section className={cardClass}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 text-[13px] font-semibold">
+                <h3 className="flex items-center gap-2 text-[14px] font-semibold">
                   <Link2 className="h-4 w-4 text-primary" />{t('connection.targetTitle')}
                   <button type="button" onClick={() => setShowProtocolHelp(true)} className="text-ink-3 transition-colors hover:text-ink" aria-label={t('connection.protocol.label')}><Info className="h-3.5 w-3.5" /></button>
-                </div>
+                </h3>
                 <p className="mt-1 text-[11px] text-ink-3">{t('connection.protocol.autoDesc')}</p>
               </div>
-              <div className="flex rounded-xl border border-line bg-surf p-1">
+              <div className="connection-segments" role="group" aria-label={t('connection.protocol.label')}>
                 {protocols.map(protocol => {
                   const active = protocol.value === 'auto'
                     ? !isAutoLocked && displayProtocol === 'auto'
                     : (isAutoLocked || displayProtocol !== 'auto') && displayProtocol === protocol.value;
-                  return <button key={protocol.value} type="button" onClick={() => selectProtocol(protocol.value)} className={`rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-all ${active ? 'bg-primary text-black shadow-sm' : 'text-ink-3 hover:bg-panel hover:text-ink'}`}>{protocol.label}</button>;
+                  return <button key={protocol.value} type="button" aria-pressed={active} onClick={() => selectProtocol(protocol.value)}>{protocol.label}</button>;
                 })}
               </div>
             </div>
             {isLocal ? (
-              <div className="relative mt-4 flex min-h-14 items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4">
+              <div className="mt-4 flex min-h-12 items-center gap-3 rounded-md border border-line bg-surf-2 px-3 py-2">
                 <TerminalSquare className="h-5 w-5 text-primary" />
                 <div><div className="text-[12px] font-semibold">{t('connection.localReady')}</div><div className="mt-0.5 text-[10px] text-ink-3">{t('connection.protocol.localHint')}</div></div>
               </div>
             ) : (
-              <div className="relative mt-4 flex items-center rounded-2xl border border-line bg-surf/80 px-4 transition-all focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
+              <div className="connection-address mt-4 flex items-center rounded-md border border-line bg-surf-2 px-3 focus-within:border-primary">
                 <Server className={`h-5 w-5 flex-none transition-colors ${autoFlash ? 'text-primary' : 'text-ink-3'}`} />
-                <input value={localSession.host || ''} onChange={(event) => handleHostChange(event.target.value)} placeholder="ssh://user@host:22" spellCheck={false} autoFocus={session.isDraft} className="h-14 min-w-0 flex-1 bg-transparent px-3 font-mono text-[14px] text-ink outline-none placeholder:text-ink-3" />
-                <span className="hidden rounded-lg border border-line-soft bg-panel px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ink-3 sm:block">{displayProtocol === 'auto' ? 'AUTO' : displayProtocol}</span>
+                <input value={localSession.host || ''} onChange={(event) => handleHostChange(event.target.value)} aria-label={t('connection.host')} placeholder="ssh://user@host:22" spellCheck={false} autoFocus={session.isDraft} className="h-12 min-w-0 flex-1 bg-transparent px-3 font-mono text-[13px] text-ink outline-none placeholder:text-ink-3" />
+                <span className="shrink-0 font-mono text-[10px] uppercase text-ink-3">{displayProtocol}</span>
               </div>
             )}
           </section>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-            <main className="flex flex-col gap-4 xl:col-span-7">
+          <div className="connection-columns">
+            <div className="connection-stack">
               <section className={cardClass}>
                 <div className="mb-4 flex items-center justify-between">
-                  <div><h3 className="flex items-center gap-2 text-[13px] font-semibold"><FolderTree className="h-4 w-4 text-cyan-400" />{t('connection.identityTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.identityDesc')}</p></div>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">01 / CORE</span>
+                  <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><FolderTree className="h-4 w-4 text-primary" />{t('connection.identityTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.identityDesc')}</p></div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="connection-fields">
                   <label><span className={labelClass}>{t('connection.alias')}</span><input value={localSession.alias || (localSession as { name?: string }).name || ''} onChange={(event) => handleUpdate({ alias: event.target.value })} className={inputClass} placeholder={t('connection.placeholder.alias')} /></label>
                   <label><span className={labelClass}>{t('connection.group')}</span><input value={localSession.group || ''} onChange={(event) => handleUpdate({ group: event.target.value })} onFocus={() => { const workspace = useWorkspaceStore.getState(); if (workspace.isSwitching || workspace.isVaultLocked) return; void window.electronAPI.assetFolders.list(activeWorkspaceId).then(result => { const current = useWorkspaceStore.getState(); if (result.success && current.activeWorkspaceId === activeWorkspaceId && !current.isSwitching && !current.isVaultLocked) setFolders(result.folders || []); }).catch(() => {}); }} className={inputClass} placeholder={t('connection.placeholder.group')} list={folderListId} /><datalist id={folderListId}>{folders.map(folder => <option key={folder} value={folder} />)}</datalist><span className="mt-1.5 block text-[10px] leading-relaxed text-ink-3">{t('connection.folderPathHint')}</span></label>
                   {!isLocal && <>
@@ -414,15 +404,14 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
               <section className={cardClass}>
                 <div className="mb-4 flex items-center justify-between">
-                  <div><h3 className="flex items-center gap-2 text-[13px] font-semibold"><KeyRound className="h-4 w-4 text-emerald-400" />{t('connection.authMethod')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.authDesc')}</p></div>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">02 / AUTH</span>
+                  <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><KeyRound className="h-4 w-4 text-primary" />{t('connection.authMethod')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.authDesc')}</p></div>
                 </div>
                 {isLocal ? (
                   <div className="flex items-center gap-3 rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-[11px] text-ink-2"><Check className="h-4 w-4 text-ok" />{t('connection.localAuthHint')}</div>
                 ) : <>
-                  {!isTelnet && <div className="mb-3 flex w-full max-w-sm rounded-xl border border-line bg-surf p-1">
-                    <button type="button" onClick={() => handleUpdate({ authType: 'password', ...(localSession.keyId ? { keyId: null } : {}) })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${!localSession.authType || localSession.authType === 'password' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.password')}</button>
-                    <button type="button" onClick={() => handleUpdate({ authType: 'key' })} className={`flex-1 rounded-lg py-2 text-[10px] font-semibold transition-all ${localSession.authType === 'key' ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'}`}>{t('connection.privateKey')}</button>
+                  {!isTelnet && <div className="connection-segments mb-3" role="group" aria-label={t('connection.authMethod')}>
+                    <button type="button" aria-pressed={!localSession.authType || localSession.authType === 'password'} onClick={() => handleUpdate({ authType: 'password', ...(localSession.keyId ? { keyId: null } : {}) })}>{t('connection.password')}</button>
+                    <button type="button" aria-pressed={localSession.authType === 'key'} onClick={() => handleUpdate({ authType: 'key' })}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
                     <div><label><span className={labelClass}>{t('connection.password')}</span><input disabled={saving} value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword && !pendingClears.password) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword && !pendingClears.password ? savedSecretHint : t('connection.password')} /></label>
@@ -440,7 +429,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                         // A pending "clear saved password" stays '' (clear); undefined would keep the stored one.
                         handleUpdate({ authType: 'key', keyId, privateKeyPath: null, passphrase: null, password: pendingClearsRef.current.password ? '' : undefined, hasPassphrase: false });
                       }}>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+                    <div className="connection-fields">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ keyId: null, privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => {
                         const requestGeneration = generation.current;
                         const revision = useSessionStore.getState().sessionsRevision;
@@ -459,31 +448,30 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
 
               <section className={cardClass}>
                 <div className="mb-4 flex items-center justify-between">
-                  <div><h3 className="flex items-center gap-2 text-[13px] font-semibold"><TerminalSquare className="h-4 w-4 text-amber-400" />{t('connection.tabAutomation')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.automationDesc')}</p></div>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">03 / BOOT</span>
+                  <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><TerminalSquare className="h-4 w-4 text-primary" />{t('connection.tabAutomation')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.automationDesc')}</p></div>
                 </div>
                 {isSsh ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[0.75fr_1.25fr]">
+                  <div className="connection-fields">
                     <label><span className={labelClass}>{t('connection.initialDir')}</span><input value={localSession.initialDirectory || ''} onChange={(event) => handleUpdate({ initialDirectory: event.target.value })} className={`${inputClass} font-mono`} placeholder="/var/www/html" /></label>
                     <label><span className={labelClass}>{t('connection.postConnectScript')}</span><textarea value={localSession.postConnectScript || ''} onChange={(event) => handleUpdate({ postConnectScript: event.target.value })} className={`${inputClass} min-h-20 resize-y py-2.5 font-mono`} placeholder="uptime && df -h" /></label>
                   </div>
                 ) : <div className="rounded-xl border border-line-soft bg-surf px-4 py-3 text-[11px] text-ink-3">{t('connection.sshOnlyHint')}</div>}
               </section>
-            </main>
+            </div>
 
-            <aside className="flex flex-col gap-4 xl:col-span-5">
+            <aside className="connection-stack">
               <section className={cardClass}>
-                <div className="mb-4 flex items-center justify-between"><h3 className="flex items-center gap-2 text-[13px] font-semibold"><Activity className="h-4 w-4 text-blue-400" />{t('connection.summaryTitle')}</h3><span className={`rounded-full border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] ${canConnect ? 'border-ok/25 bg-ok/10 text-ok' : 'border-warn/25 bg-warn/10 text-warn'}`}>{canConnect ? t('connection.ready') : t('connection.needsInput')}</span></div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-[14px] font-semibold"><Activity className="h-4 w-4 text-primary" />{t('connection.summaryTitle')}</h3><span className={canConnect ? 'text-xs text-ok' : 'text-xs text-warn'}>{canConnect ? t('connection.ready') : t('connection.needsInput')}</span></div>
+                <dl className="connection-facts">
                   {[[t('connection.protocol.label'), effectiveProtocol.toUpperCase()], [t('connection.endpoint'), endpoint], [t('connection.authMethod'), authLabel], [t('connection.route'), routeLabel]].map(([label, value]) => (
-                    <div key={label} className="min-w-0 rounded-xl border border-line-soft bg-surf px-3 py-2.5"><div className="text-[9px] font-bold uppercase tracking-[0.12em] text-ink-3">{label}</div><div className="mt-1 truncate font-mono text-[11px] font-semibold text-ink" title={value}>{value}</div></div>
+                    <div key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>
                   ))}
-                </div>
+                </dl>
               </section>
 
               <section className={cardClass}>
                 <div className="mb-4 flex items-center justify-between">
-                  <div><h3 className="flex items-center gap-2 text-[13px] font-semibold"><ShieldCheck className="h-4 w-4 text-emerald-400" />{t('connection.networkSecurityTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.networkSecurityDesc')}</p></div>
+                  <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><ShieldCheck className="h-4 w-4 text-primary" />{t('connection.networkSecurityTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.networkSecurityDesc')}</p></div>
                   <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('app:open-settings'))} className="grid h-8 w-8 place-items-center rounded-lg border border-line text-ink-3 transition-colors hover:bg-surf hover:text-ink" aria-label={t('connection.configureRoute')}><Settings2 className="h-3.5 w-3.5" /></button>
                 </div>
                 {isTelnet && <div className="mb-3 rounded-xl border border-warn/30 bg-warn/10 px-3 py-2 text-[10px] leading-relaxed text-warn">{t('connection.protocol.telnetHint')}</div>}
@@ -505,16 +493,16 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               </section>
 
               <section className={cardClass}>
-                <div className="mb-4 flex items-center justify-between"><div><h3 className="flex items-center gap-2 text-[13px] font-semibold"><Palette className="h-4 w-4 text-purple-400" />{t('connection.terminalTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.themeOverrideDesc')}</p></div><span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-3">VISUAL</span></div>
-                <label><span className={labelClass}>{t('connection.themeOverride')}</span><select value={localSession.themeOverride || ''} onChange={(event) => handleUpdate({ themeOverride: event.target.value })} className={`${inputClass} appearance-none`}><option value="">{t('connection.themeDefault')}</option>{Object.keys(TERMINAL_THEMES).map(themeName => <option key={themeName} value={themeName}>{themeName.charAt(0).toUpperCase() + themeName.slice(1)}</option>)}{Object.keys(appConfig.customThemes || {}).map(themeName => <option key={themeName} value={themeName}>{themeName.replace('custom_', '')}</option>)}</select></label>
+                <div className="mb-4"><h3 className="flex items-center gap-2 text-[14px] font-semibold"><Palette className="h-4 w-4 text-primary" />{t('connection.terminalTitle')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.themeOverrideDesc')}</p></div>
+                <label><span className={labelClass}>{t('connection.themeOverride')}</span><select value={localSession.themeOverride || ''} onChange={(event) => handleUpdate({ themeOverride: event.target.value })} className={inputClass}><option value="">{t('connection.themeDefault')}</option>{Object.keys(TERMINAL_THEMES).map(themeName => <option key={themeName} value={themeName}>{themeName.charAt(0).toUpperCase() + themeName.slice(1)}</option>)}{Object.keys(appConfig.customThemes || {}).map(themeName => <option key={themeName} value={themeName}>{themeName.replace('custom_', '')}</option>)}</select></label>
               </section>
             </aside>
           </div>
         </div>
       </fieldset>
       {showProtocolHelp && <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-scrim p-5" onClick={() => setShowProtocolHelp(false)}>
-        <div role="dialog" aria-modal="true" aria-label={t('connection.protocol.label')} className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-line bg-panel shadow-2xl" onClick={(event) => event.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-line-soft px-5 py-4"><div className="flex items-center gap-2 text-[13px] font-semibold"><Info className="h-4 w-4 text-primary" />{t('connection.protocol.label')}</div><button type="button" onClick={() => setShowProtocolHelp(false)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-3 hover:bg-surf hover:text-ink"><X className="h-4 w-4" /></button></div>
+        <div role="dialog" aria-modal="true" aria-label={t('connection.protocol.label')} className="max-h-[90vh] w-full max-w-[480px] overflow-auto rounded-xl border border-line bg-surf shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-line-soft px-5 py-4"><div className="flex items-center gap-2 text-[13px] font-semibold"><Info className="h-4 w-4 text-primary" />{t('connection.protocol.label')}</div><button type="button" aria-label={t('common.close')} onClick={() => setShowProtocolHelp(false)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-3 hover:bg-surf-2 hover:text-ink"><X className="h-4 w-4" /></button></div>
           <div className="divide-y divide-line-soft">{[['AUTO', t('connection.protocol.tooltipAuto')], ['SSH', t('connection.protocol.tooltipSsh')], [t('connection.protocol.local'), t('connection.protocol.tooltipLocal')], ['TELNET', t('connection.protocol.tooltipTelnet')]].map(([label, description]) => <div key={label} className="px-5 py-4"><div className="font-mono text-[11px] font-bold text-primary">{label}</div><p className="mt-1.5 text-[11px] leading-relaxed text-ink-3">{description}</p></div>)}</div>
         </div>
       </div>}

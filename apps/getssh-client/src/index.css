@@ -72,18 +72,19 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     /* ── v2 语义令牌 · 浅色（默认） ─────────────────────────────
        深色在下面 html.dark 里成套重定义。任何组件都不该直接写死颜色，
        一律走这里的语义名，否则换主题必然漏。 */
-    --v2-bg:        #f5f6f5;
-    --v2-panel:     #eaeeec;
+    --v2-bg:        #f9fafb;
+    --v2-panel:     #ffffff;
     --v2-surf:      #ffffff;
-    --v2-surf-2:    #eef2ef;
-    --v2-line:      #d9dedc;
-    --v2-line-soft: #e6eae8;
+    --v2-surf-2:    #f3f5f6;
+    --v2-line:      #dce2e5;
+    --v2-line-soft: #e6e9ec;
     --v2-ink:       #202726;
-    --v2-ink-2:     #5f6d6a;
-    --v2-ink-3:     #65736e;
+    --v2-ink-2:     #50605e;
+    --v2-ink-3:     #687570;
     --v2-ok:        #059669;
     --v2-warn:      #b45309;
     --v2-down:      #e11d48;
@@ -91,8 +92,10 @@
     --sidebar-tint: var(--v2-panel);
     --sidebar-divider: var(--v2-line);
 
-    --primary-color: 23 111 96;
+    --primary-color: 36 125 105;
     --primary-ink: #ffffff;
+    --primary-tint: #edf5f1;
+    --warning-tint: #f8f0df;
     
     /* Application layout */
     /* 骨架尺寸对齐原型：导轨 56 / 侧栏 244 */
@@ -110,21 +113,24 @@
 
   /* Fixed workbench palette, shared by chrome and center pages. */
   html.dark {
-    --v2-bg:        #101215;
-    --v2-panel:     #181b1f;
-    --v2-surf:      #20252a;
-    --v2-surf-2:    #262c30;
-    --v2-line:      #343a40;
-    --v2-line-soft: #2a3035;
+    color-scheme: dark;
+    --v2-bg:        #101418;
+    --v2-panel:     #151b20;
+    --v2-surf:      #1a2229;
+    --v2-surf-2:    #202a31;
+    --v2-line:      #384249;
+    --v2-line-soft: #293239;
     --v2-ink:       #e8eceb;
-    --v2-ink-2:     #9da8a7;
-    --v2-ink-3:     #788684;
+    --v2-ink-2:     #bdc7c5;
+    --v2-ink-3:     #a3afac;
     --v2-ok:        #34d399;
     --v2-warn:      #fbbf24;
     --v2-down:      #fb7185;
     --v2-scrim:     #000000a8;
     --primary-color: 138 205 187;
     --primary-ink: #101815;
+    --primary-tint: #1c2c29;
+    --warning-tint: #332c22;
   }
 
   html, body, #root {
@@ -266,6 +272,7 @@ html[data-glass="true"] .sidebar-material {
   .center-side-nav { width: 148px; }
   .center-content { padding-left: 16px; padding-right: 16px; }
   .settings-row { flex-direction: column; align-items: stretch; }
+  .settings-row .settings-row-label { flex: 0 1 auto; }
   .center-hook-row { grid-template-columns: minmax(0, 1fr); }
   .settings-row-control { width: 100%; max-width: none; }
   .settings-row-control > input,

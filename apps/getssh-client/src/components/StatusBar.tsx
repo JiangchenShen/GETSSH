@@ -26,14 +26,12 @@ const BItem: React.FC<{
     onClick={onClick}
     title={title || label}
     aria-label={label}
-    className="group flex-none flex items-center gap-[7px] h-[26px] px-[9px] rounded-md
-               text-xs text-ink-2 whitespace-nowrap transition-colors
-               hover:bg-surf hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+    className="workbench-footer-action"
   >
-    <span className="flex h-4 w-4 flex-none items-center justify-center text-ink-3 transition-colors group-hover:text-primary">{icon}</span>
-    <span className="hidden sm:inline">{label}</span>
+    <span className="workbench-footer-icon" aria-hidden="true">{icon}</span>
+    <span className="workbench-footer-label">{label}</span>
     {hint && (
-      <kbd className="hidden min-[980px]:inline font-mono text-[9.5px] px-[5px] py-px rounded border border-line-soft bg-surf-2 text-ink-3">
+      <kbd className="workbench-footer-key" aria-hidden="true">
         {hint}
       </kbd>
     )}
@@ -47,17 +45,14 @@ export const StatusBar: React.FC = () => {
   const ico = 'w-3.5 h-3.5';
 
   return (
-    <div
-      className="no-drag-region sidebar-material flex-none flex items-center gap-0.5 h-[38px] px-3
-                 border-t border-line-soft overflow-x-auto"
-      style={{ '--sidebar-tint': 'var(--v2-panel)' } as React.CSSProperties}
-    >
+    <div className="workbench-footer no-drag-region">
       <BItem
         icon={<Terminal className={ico} />}
         label={t('statusBar.commandCenter')}
         hint={isMac ? '⌘K' : 'Ctrl K'}
         onClick={() => setIsCommandCenterOpen(true)}
       />
+      <span className="workbench-footer-spacer" aria-hidden="true" />
       <BItem
         icon={<Sparkles className={ico} />}
         label={t('statusBar.ai')}

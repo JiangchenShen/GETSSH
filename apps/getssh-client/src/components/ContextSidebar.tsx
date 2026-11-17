@@ -2,10 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Search, Plus, Edit2, Zap, X, Lock, KeyRound, Folder, FolderOpen,
   FolderPlus, FolderInput, MoreHorizontal, Check, ListChecks,
-  PanelLeftClose, PanelLeftOpen, ChevronRight, ChevronDown,
+  PanelLeftClose, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { SessionProfile } from '../store/sessionStore';
@@ -27,7 +26,7 @@ interface ContextSidebarProps {
   onAddSession: () => void;
   onToggleAutoStart: (e: React.MouseEvent, targetSession: SessionProfile) => void;
   onDeleteSession: (e: React.MouseEvent, targetSession: SessionProfile) => void;
-  onClose?: () => void;
+  onClose: () => void;
 }
 
 export const ContextSidebar: React.FC<ContextSidebarProps> = ({
@@ -37,10 +36,6 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
   onClose,
 }) => {
   const { t } = useTranslation();
-  const isMac = useAppStore(state => state.isMac);
-  const isFullScreen = useAppStore(state => state.isFullScreen);
-  const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
-  const setIsSidebarCollapsed = useAppStore(state => state.setIsSidebarCollapsed);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -188,7 +183,6 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     await mutateFolders(() => window.electronAPI.assetFolders.moveProfile(activeWorkspaceId, id, destination));
   };
 
-  const topPad = isFullScreen || onClose ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
 
   // 开着会话的主机 —— 状态点的唯一真实来源
   const openHostKeys = new Set(
@@ -452,29 +446,11 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     );
   };
 
-  if (isSidebarCollapsed && !onClose) {
-    return (
-      <div className={`drag-region h-full w-full flex flex-col items-center ${topPad}`}>
-        <button
-          type="button"
-          onClick={() => setIsSidebarCollapsed(false)}
-          title={t('sidebar.expand')}
-          aria-label={t('sidebar.expand')}
-          className="no-drag-region w-[30px] h-[30px] rounded-[7px] grid place-items-center
-                     text-ink-3 transition-colors hover:bg-surf hover:text-ink-2"
-        >
-          <PanelLeftOpen className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
   const activeWs = workspaces.find((w: any) => typeof w === 'object' ? w.id === activeWorkspaceId : w === activeWorkspaceId);
   const displayName = activeWs && typeof activeWs === 'object' ? activeWs.name || activeWorkspaceId : activeWorkspaceId;
 
   return (
-    <div className={`drag-region h-full w-full flex flex-col gap-[11px] px-3 pb-3.5 ${topPad}
-                     min-w-0`}>
+    <div className="no-drag-region h-full w-full min-w-0 flex flex-col gap-3 p-3.5">
 
       <div className="no-drag-region flex items-center justify-between gap-2 px-0.5">
         <button
@@ -483,21 +459,21 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
             detail: { type: 'workspace', title: t('statusBar.workspace'), workspacePage: 'all' },
           }))}
           title={`${displayName} · ${t('statusBar.workspace')}`}
-          className="min-w-0 flex items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-surf focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          className="min-w-0 flex items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-surf-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
         >
           <span className="min-w-0">
             <span className="block text-[10px] font-medium text-ink-3">{t('statusBar.workspace')}</span>
-            <span className="block truncate text-[13px] font-semibold text-ink">{displayName}</span>
+            <span className="block truncate text-sm font-semibold text-ink">{displayName}</span>
           </span>
           <ChevronRight className="h-3 w-3 flex-none text-ink-3" />
         </button>
         <button
           type="button"
-          onClick={onClose || (() => setIsSidebarCollapsed(true))}
+          onClick={onClose}
           title={t('sidebar.collapse')}
           aria-label={t('sidebar.collapse')}
-          className="flex-none w-[22px] h-[22px] rounded-md grid place-items-center
-                     text-ink-3 transition-colors hover:bg-surf hover:text-ink-2"
+          className="flex-none size-7 rounded-md grid place-items-center
+                     text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink-2"
         >
           <PanelLeftClose className="w-[15px] h-[15px]" />
         </button>
@@ -518,7 +494,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         />
       </div>
 
-      <div className="no-drag-region flex items-center justify-between px-1">
+      <div className="no-drag-region flex items-center justify-between px-1 border-b border-line-soft pb-1.5">
         <span className="text-[11px] font-medium text-ink-3">{t('assetFolders.assets', '资产')}</span>
         <div className="flex items-center gap-1">
           <button

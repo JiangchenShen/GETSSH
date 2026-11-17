@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useTranslation } from 'react-i18next';
-import { X, Lock, Unlock, Loader2 } from 'lucide-react';
+import { X, Layers3, Lock, Unlock, Loader2 } from 'lucide-react';
 
 const PRESET_COLORS = ['#f43f5e', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6', '#64748b'];
 
 const CINEMATIC_IN = {
-  initial: { opacity: 0, scale: 0.95, y: 20 },
-  animate: { opacity: 1, scale: 1, y: 0 },
-  exit: { opacity: 0, scale: 0.95, y: 20 },
-  transition: { type: 'spring' as const, damping: 25, stiffness: 300, mass: 0.5 }
+  initial: { opacity: 0, y: 5 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 5 },
+  transition: { duration: 0.14 },
 };
 
 export const CreateWorkspaceModal: React.FC = () => {
@@ -25,6 +25,7 @@ export const CreateWorkspaceModal: React.FC = () => {
   const [masterKey, setMasterKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const idField = useId();
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -87,46 +88,48 @@ export const CreateWorkspaceModal: React.FC = () => {
             role="dialog"
             aria-modal="true"
             aria-label={t('workspaceCenter.createTitle')}
-            className="relative max-h-full w-full max-w-[540px] flex flex-col shadow-2xl border border-line rounded-xl bg-panel text-ink overflow-y-auto"
+            className="relative max-h-full w-full max-w-[460px] overflow-y-auto rounded-xl border border-line bg-surf text-ink shadow-2xl"
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-8 pb-4">
-              <h2 className="text-2xl font-black tracking-[0.2em] uppercase text-ink">
+            <div className="flex items-center gap-3 border-b border-line-soft px-5 py-4">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-surf-2 text-primary"><Layers3 size={16} aria-hidden="true" /></span>
+              <h2 className="min-w-0 flex-1 text-lg font-semibold">
                 {t('workspaceCenter.createTitle')}
               </h2>
-              <button 
+              <button type="button" aria-label={t('common.close')}
                 onClick={() => setIsCreateModalOpen(false)}
-                className="text-ink-3 hover:text-ink transition-colors p-2"
+                className="grid size-8 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-surf-2 hover:text-ink"
                 disabled={loading}
               >
-                <X size={24} />
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
 
             {/* Form Content */}
-            <div className="flex flex-col p-8 pt-4 gap-10">
+            <form className="flex flex-col gap-5 p-5" onSubmit={event => { event.preventDefault(); if (!loading) void handleCreate(); }}>
               
               {/* Field 1: Name */}
               <div className="flex flex-col group">
-                <label className="text-xs font-bold tracking-widest text-ink-3 uppercase mb-2 group-focus-within:text-ink transition-colors">
+                <label htmlFor={idField} className="mb-2 text-xs font-medium text-ink-2">
                   {t('workspaceCenter.workspaceIdLabel')}
                 </label>
                 <input 
+                  id={idField}
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder={t('workspaceCenter.workspaceIdPlaceholder')}
-                  className="bg-panel border-b border-line focus:border-primary w-full outline-none py-2 text-2xl font-bold tracking-widest text-ink transition-colors placeholder:text-ink-3"
+                  className="h-10 w-full rounded-md border border-line bg-bg px-3 font-mono text-sm text-ink placeholder:text-ink-3 focus:border-primary"
                   disabled={loading}
                 />
               </div>
 
               {/* Field 2: Color */}
               <div className="flex flex-col">
-                <label className="text-xs font-bold tracking-widest text-ink-3 uppercase mb-4">
+                <label className="mb-3 text-xs font-medium text-ink-2">
                   {t('workspaceCenter.identityColorLabel')}
                 </label>
-                <div className="flex flex-wrap items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
                   {PRESET_COLORS.map(c => (
                     <button
                       key={c}
@@ -134,7 +137,7 @@ export const CreateWorkspaceModal: React.FC = () => {
                       aria-label={`${t('workspaceCenter.identityColorLabel')} ${c}`}
                       aria-pressed={color === c}
                       onClick={() => setColor(c)}
-                      className="w-8 h-8 shrink-0 rounded-full transition-all hover:scale-110"
+                      className="size-6 shrink-0 rounded-full"
                       style={{ 
                         backgroundColor: c,
                         boxShadow: color === c ? `0 0 0 2px var(--v2-panel), 0 0 0 4px ${c}` : 'none'
@@ -146,11 +149,11 @@ export const CreateWorkspaceModal: React.FC = () => {
               </div>
 
               {/* Field 3: Encryption Toggle */}
-              <div className="flex flex-col p-6 bg-surf border border-line">
+              <div className="flex flex-col rounded-md border border-line-soft bg-bg p-3.5">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     {encryption ? <Lock className="shrink-0 text-warn" size={20} /> : <Unlock className="shrink-0 text-ink-3" size={20} />}
-                    <span className="min-w-0 break-words text-sm font-bold tracking-widest uppercase text-ink">
+                    <span className="min-w-0 break-words text-xs font-semibold text-ink">
                       {t('workspaceCenter.vaultEncryptionLabel')}
                     </span>
                   </div>
@@ -191,7 +194,8 @@ export const CreateWorkspaceModal: React.FC = () => {
                         value={masterKey}
                         onChange={e => setMasterKey(e.target.value)}
                         placeholder={t('workspaceCenter.masterKeyPlaceholder')}
-                        className="w-full bg-panel border border-line focus:border-primary outline-none p-3 text-sm font-mono tracking-widest text-ink placeholder:text-ink-3"
+                        aria-label={t('workspaceCenter.masterKeyPlaceholder')}
+                        className="w-full rounded-md border border-line bg-surf p-2.5 font-mono text-sm text-ink placeholder:text-ink-3 focus:border-primary"
                         disabled={loading}
                       />
                     </motion.div>
@@ -200,20 +204,19 @@ export const CreateWorkspaceModal: React.FC = () => {
               </div>
 
               {error && (
-                <div className="text-down text-sm font-bold bg-down/10 p-3 border border-down/20">
+                <div role="alert" className="rounded-md border-l-2 border-down bg-down/10 px-3 py-2 text-xs text-down">
                   {error}
                 </div>
               )}
 
               {/* Action */}
-              <button
-                onClick={handleCreate}
-                disabled={loading}
-                className="w-full bg-primary text-bg font-black tracking-[0.2em] uppercase py-4 mt-2 transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : t('workspaceCenter.initializeWorkspaceBtn')}
-              </button>
-            </div>
+              <div className="flex justify-end gap-2 border-t border-line-soft pt-4">
+                <button type="button" className="rounded-md border border-line px-3 py-2 text-xs hover:bg-surf-2" disabled={loading} onClick={() => setIsCreateModalOpen(false)}>{t('common.cancel')}</button>
+                <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-[var(--primary-ink)] hover:brightness-95 disabled:opacity-50">
+                  {loading && <Loader2 className="motion-safe:animate-spin" size={14} aria-hidden="true" />}{t('workspaceCenter.initializeWorkspaceBtn')}
+                </button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}

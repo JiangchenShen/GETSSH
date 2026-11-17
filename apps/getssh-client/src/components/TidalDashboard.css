@@ -1,15 +1,15 @@
 .home-shell {
-  --home-canvas: #f9fafb;
-  --home-surface: #fff;
-  --home-surface-soft: #f3f5f6;
-  --home-line: #e6e9ec;
-  --home-ink: #202726;
-  --home-muted: #687570;
-  --home-accent: #247d69;
-  --home-accent-ink: #fff;
-  --home-accent-soft: #edf5f1;
-  --home-warn: #80561d;
-  --home-warn-soft: #f8f0df;
+  --home-canvas: var(--v2-bg);
+  --home-surface: var(--v2-panel);
+  --home-surface-soft: var(--v2-surf-2);
+  --home-line: var(--v2-line-soft);
+  --home-ink: var(--v2-ink);
+  --home-muted: var(--v2-ink-3);
+  --home-accent: var(--color-primary);
+  --home-accent-ink: var(--primary-ink);
+  --home-accent-soft: var(--primary-tint);
+  --home-warn: var(--v2-warn);
+  --home-warn-soft: var(--warning-tint);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -19,20 +19,6 @@
   container-type: inline-size;
   color: var(--home-ink);
   background: var(--home-canvas);
-}
-
-html.dark .home-shell {
-  --home-canvas: #101418;
-  --home-surface: #151b20;
-  --home-surface-soft: #192126;
-  --home-line: #293239;
-  --home-ink: #e8eceb;
-  --home-muted: #a3afac;
-  --home-accent: #8acdbb;
-  --home-accent-ink: #11251f;
-  --home-accent-soft: #1c2c29;
-  --home-warn: #e3bd7a;
-  --home-warn-soft: #332c22;
 }
 
 .home-header {
@@ -94,6 +80,7 @@ html.dark .home-shell {
   font-size: 12px;
 }
 .home-search input { border: 0; background: transparent; }
+.home-search:focus-within { border-color: var(--home-accent); }
 .home-shell input::placeholder { color: var(--home-muted); }
 .home-new {
   justify-content: center;

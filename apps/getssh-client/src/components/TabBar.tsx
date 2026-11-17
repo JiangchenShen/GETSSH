@@ -1,8 +1,9 @@
 import React from 'react';
-import { X, Home, Columns2 } from 'lucide-react';
+import { X, Home, Columns2, PanelsTopLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tab, PaneNode } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
+import logo from '../assets/logo.png';
 
 // Private drag type: other apps (Finder, editors, terminals) must not accept a dragged tab as text.
 const TAB_DRAG_MIME = 'application/x-getssh-tab';
@@ -19,15 +20,16 @@ function isOutsideWindow(screenX: number, screenY: number): boolean {
     || screenY < window.screenY || screenY > window.screenY + window.outerHeight;
 }
 
-/**
- * 标签条。
- *
- * 主页是一个标签，不是「没有标签时才出现的状态」—— 连进终端后主页还在，
- * 随时切回来，不用先关掉会话。
- *
- * 原来每个标签是 120–200px 的方块加渐变下划线，四五个标签就占满一行；
- * 现在是 27px 的药丸，选中态只靠 surf 提亮，不投影不描边。
- */
+function sessionStatus(node: PaneNode | undefined): 'connected' | 'disconnected' | undefined {
+  if (!node) return;
+  if (node.type === 'leaf') {
+    if (node.paneType !== 'terminal') return;
+    return node.sessionId && !node.isDisconnected ? 'connected' : 'disconnected';
+  }
+  const left = sessionStatus(node.children[0]);
+  const right = sessionStatus(node.children[1]);
+  return left === 'connected' || right === 'connected' ? 'connected' : left ?? right;
+}
 
 interface TabBarProps {
   tabs: Tab[];
@@ -36,37 +38,35 @@ interface TabBarProps {
   onCloseTab: (tabId: string) => void;
   onHomeClick: () => void;
   isHomeActive: boolean;
-  hideHome?: boolean;
   onSplit?: () => void;
   canSplit?: boolean;
 }
 
 export const TabBar: React.FC<TabBarProps> = ({
-  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, hideHome, onSplit, canSplit,
+  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, onSplit, canSplit,
 }) => {
   const { t } = useTranslation();
-  const sshTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
+  const visibleTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
 
   return (
-    <div className="drag-region flex-none flex items-center gap-0.5 h-[38px] px-2
-                    border-b border-line-soft overflow-x-auto">
-
-      {!hideHome && <button
+    <header className="workbench-header drag-region">
+      <div className="workbench-brand">
+        <img src={logo} width={24} height={24} alt="" />
+        <strong>GETSSH</strong>
+      </div>
+      <button
         type="button"
         onClick={onHomeClick}
-        className={`no-drag-region flex-none flex items-center gap-[7px] h-[27px] px-2.5 rounded-[7px]
-                    text-[12.5px] whitespace-nowrap transition-colors ${
-          isHomeActive ? 'bg-surf text-ink' : 'text-ink-3 hover:bg-surf hover:text-ink-2'
-        }`}
+        className="workbench-home"
+        aria-current={isHomeActive ? 'page' : undefined}
       >
-        <Home className="w-[13px] h-[13px]" />
-        {t('tabs.home')}
-      </button>}
+        <Home size={15} aria-hidden="true" />{t('tabs.home')}
+      </button>
 
-      {sshTabs.map((tab) => {
+      <div className="workbench-tabs">
+      {visibleTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
-        // 中心页（AI / 安全 / 工作区 / 插件 / 设置）不是会话，别给它画「在线」绿点
-        const isCenter = !!tab.config && typeof tab.config === 'object' && 'centerType' in tab.config;
+        const status = sessionStatus(tab.paneTree);
         const canTearOff = !!tab.paneTree && isAllTerminal(tab.paneTree);
         return (
           <div
@@ -96,42 +96,42 @@ export const TabBar: React.FC<TabBarProps> = ({
               });
             }}
             title={tab.title}
-            className={`no-drag-region group flex-none flex items-center gap-[7px] h-[27px] pl-2.5 pr-1.5
-                        rounded-[7px] text-[12.5px] whitespace-nowrap cursor-pointer transition-colors
-                        max-w-[190px] ${
-              isActive ? 'bg-surf text-ink' : 'text-ink-3 hover:bg-surf hover:text-ink-2'
-            }`}
+            className="workbench-tab no-drag-region"
+            data-active={isActive}
           >
-            {!isCenter && <span className="w-[5px] h-[5px] rounded-full bg-ok flex-none" />}
-            <span className="truncate">{tab.title}</span>
+            <button type="button" className="workbench-tab-label" aria-current={isActive ? 'page' : undefined}
+              aria-description={status ? t(status === 'connected' ? 'pane.statusConnected' : 'pane.statusDisconnected') : undefined}
+              onClick={e => { e.stopPropagation(); onSelectTab(tab.id); }}>
+              {status ? <span className="workbench-session-dot" data-status={status} aria-hidden="true" />
+                : <PanelsTopLeft size={13} aria-hidden="true" />}
+              <span>{tab.title}</span>
+            </button>
             <button
               type="button"
               aria-label={t('tabs.close')}
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-              className="flex-none w-[15px] h-[15px] rounded grid place-items-center text-ink-3
-                         opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surf-2 hover:text-ink"
+              className="workbench-tab-close"
             >
               <X className="w-[11px] h-[11px]" />
             </button>
           </div>
         );
       })}
-
-      <div className="flex-1 min-w-[6px]" />
+      </div>
 
       {onSplit && (
         <button
           type="button"
           onClick={onSplit}
           disabled={!canSplit}
-          className="no-drag-region flex-none flex items-center gap-1.5 h-[26px] px-2.5 rounded-[7px]
-                     text-[11.5px] text-ink-3 whitespace-nowrap transition-colors
-                     hover:bg-surf hover:text-ink disabled:opacity-40 disabled:pointer-events-none"
+          aria-label={t('tabs.split')}
+          title={t('tabs.split')}
+          className="workbench-header-split"
         >
           <Columns2 className="w-[13px] h-[13px]" />
-          {t('tabs.split')}
+          <span>{t('tabs.split')}</span>
         </button>
       )}
-    </div>
+    </header>
   );
 };

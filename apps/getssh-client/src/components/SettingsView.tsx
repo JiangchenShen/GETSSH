@@ -10,6 +10,7 @@ import { AuditTab } from './settings/tabs/AuditTab';
 import { AboutTab } from './settings/tabs/AboutTab';
 import { SecurityTab } from './settings/tabs/SecurityTab';
 import { AiIntegrationsTab } from './settings/tabs/AiIntegrationsTab';
+import { ManagementHeader } from './ManagementSurface';
 
 export type SettingsTab = 'System' | 'Appearance' | 'Terminal' | 'SSH' | 'AI' | 'Security' | 'Audit' | 'About';
 
@@ -54,40 +55,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
   const page = nav.find(item => item.id === settingsActiveTab) ?? nav[0];
 
   return (
-    <div className="center-workbench flex h-full min-h-0 w-full min-w-0 bg-bg text-ink" data-glass={glass ? 'true' : 'false'}>
-      <aside className="center-side-nav center-page-nav flex w-[160px] shrink-0 flex-col border-r border-line-soft px-2 py-6 max-[690px]:w-[148px]" aria-label={label('设置导航', 'Settings navigation')}>
+    <div className="center-workbench management-center h-full w-full bg-bg text-ink" data-glass={glass ? 'true' : 'false'}>
+    <div className="management-frame flex h-full min-h-0">
+      <aside className="center-side-nav center-page-nav management-nav" aria-label={label('设置导航', 'Settings navigation')}>
         <h2 className="sr-only">{label('设置', 'Settings')}</h2>
-        <nav className="min-h-0 space-y-0.5 overflow-y-auto" aria-label={label('设置分类', 'Settings categories')}>
+        <nav aria-label={label('设置分类', 'Settings categories')}>
           {nav.map(({ id, title, icon: Icon, group }) => (
             <React.Fragment key={id}>
-              {group && <div className="px-3 pb-1 pt-4 text-[10px] font-medium tracking-wide text-ink-3 first:pt-0">{group}</div>}
+              {group && <div className="management-nav-label">{group}</div>}
               <button
                 type="button"
                 onClick={() => setSettingsActiveTab(id)}
                 aria-current={settingsActiveTab === id ? 'page' : undefined}
-                className={`flex min-h-9 w-full items-center gap-2 rounded-r-md border-l-2 px-2.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${settingsActiveTab === id ? 'border-primary bg-surf-2 font-medium text-ink' : 'border-transparent text-ink-2 hover:bg-surf hover:text-ink'}`}
+                title={title}
+                className="management-nav-item"
               >
-                <Icon className={`h-4 w-4 shrink-0 ${settingsActiveTab === id ? 'text-primary' : 'text-ink-3'}`} aria-hidden="true" />
-                <span className="min-w-0 truncate">{title}</span>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span>{title}</span>
               </button>
             </React.Fragment>
           ))}
         </nav>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto" aria-label={page.title}>
-        <div className="center-content mx-auto w-full max-w-[1060px] px-6 pb-12 pt-6 max-[690px]:px-4">
-          <header className="center-page-header mb-6 flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h1 className="text-[22px] font-semibold tracking-tight text-ink">{page.title}</h1>
-              <p className="mt-1 text-xs leading-relaxed text-ink-2">{page.intro}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <button type="button" onClick={() => navigateHistory(historyIndex - 1)} disabled={historyIndex === 0} aria-label={label('后退', 'Back')} className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
-              <button type="button" onClick={() => navigateHistory(historyIndex + 1)} disabled={historyIndex >= history.current.length - 1} aria-label={label('前进', 'Forward')} className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
-              {onClose && <button type="button" onClick={onClose} aria-label={label('关闭设置', 'Close settings')} className="ml-1 grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surf hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><X className="h-4 w-4" /></button>}
-            </div>
-          </header>
+      <main className="management-main overflow-y-auto" aria-label={page.title}>
+        <div className="management-content">
+          <ManagementHeader context={label('设置', 'Settings')} title={page.title} description={page.intro} actions={<>
+            <button type="button" onClick={() => navigateHistory(historyIndex - 1)} disabled={historyIndex === 0} aria-label={label('后退', 'Back')} className="management-icon-button"><ChevronLeft className="h-4 w-4" /></button>
+            <button type="button" onClick={() => navigateHistory(historyIndex + 1)} disabled={historyIndex >= history.current.length - 1} aria-label={label('前进', 'Forward')} className="management-icon-button"><ChevronRight className="h-4 w-4" /></button>
+            {onClose && <button type="button" onClick={onClose} aria-label={label('关闭设置', 'Close settings')} className="management-icon-button"><X className="h-4 w-4" /></button>}
+          </>} />
 
           {settingsActiveTab === 'System' && <SystemTab />}
           {settingsActiveTab === 'Appearance' && <AppearanceTab />}
@@ -99,6 +96,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
           {settingsActiveTab === 'About' && <AboutTab />}
         </div>
       </main>
+    </div>
     </div>
   );
 };

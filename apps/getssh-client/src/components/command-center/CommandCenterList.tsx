@@ -25,7 +25,7 @@ export const CommandCenterList = React.forwardRef<HTMLDivElement, CommandCenterL
     : { action: 'Action', host: 'Host', plugin: 'Plugin', runbook: 'Runbook' };
 
   return (
-    <div ref={ref} className="min-h-[160px] max-h-[56vh] overflow-y-auto p-2">
+    <div ref={ref} className="command-palette-results min-h-0 max-h-[56vh] overflow-y-auto px-4 py-2">
       {unifiedItems.length === 0 ? (
         <div className="flex min-h-[160px] flex-col items-center justify-center px-4 py-8 text-center">
           <SearchX className="mb-3 h-5 w-5 text-ink-3" aria-hidden="true" />
@@ -42,9 +42,10 @@ export const CommandCenterList = React.forwardRef<HTMLDivElement, CommandCenterL
             key={item.id}
             onClick={() => { setActiveIndex(idx); item.onSelect(); }}
             onMouseEnter={() => setActiveIndex(idx)}
-            className={`group flex min-h-[48px] w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${isActive ? 'bg-primary/10 text-ink' : 'text-ink-2 hover:bg-panel'}`}
+            data-selected={isActive || undefined}
+            className="command-palette-row flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
           >
-            <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line-soft bg-panel [&>svg]:h-3.5 [&>svg]:w-3.5 ${isActive ? 'text-primary [&>svg]:text-primary' : 'text-ink-3'}`} aria-hidden="true">{item.icon}</span>
+            <span className={`grid size-7 shrink-0 place-items-center rounded-md bg-surf-2 [&>svg]:size-3.5 ${isActive ? 'text-primary [&>svg]:text-primary' : 'text-ink-3'}`} aria-hidden="true">{item.icon}</span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-ink">
                 <span className="truncate">{item.title}</span>

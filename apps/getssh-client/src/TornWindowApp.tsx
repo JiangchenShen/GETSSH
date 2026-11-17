@@ -11,6 +11,8 @@ import { PaneNode, useSessionStore } from './store/sessionStore';
 import { usePluginStore } from './store/pluginStore';
 import { useWorkspaceStore } from './store/workspaceStore';
 import type { AppLockState } from './types/ipc';
+import logo from './assets/logo.png';
+import './components/WorkbenchShell.css';
 
 /**
  * Root of a torn-off window (loaded with ?isHollow=true).
@@ -37,7 +39,7 @@ function hasLeaf(node: PaneNode, paneId: string): boolean {
 const noSplit = () => {};
 
 function TornWindowApp() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [status, setStatus] = useState<TornStatus>('loading');
   const [tornTabId, setTornTabId] = useState<string | null>(null);
 
@@ -255,25 +257,27 @@ function TornWindowApp() {
   const isWindows = window.electronAPI?.getEnvInfo?.().platform === 'win32';
 
   const statusText =
-    status === 'missing' ? 'This window is not attached to a tab.'
-    : status === 'closed' ? 'This tab was closed.'
-    : 'Loading…';
+    status === 'missing' ? t('pane.detachedMissing')
+    : status === 'closed' ? t('pane.detachedClosed')
+    : t('common.loading');
 
   return (
     <div
-      className={`w-screen h-screen overflow-hidden flex flex-col font-sans text-ink transition-[filter] duration-200 relative ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`}
+      className={`workbench-detached w-screen h-screen overflow-hidden font-sans text-ink transition-[filter] duration-200 relative ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''}`}
+      data-caption={isFullScreen ? undefined : isMac ? 'mac' : isWindows ? 'windows' : undefined}
       style={{ backgroundColor: 'var(--v2-bg)' }}
     >
       {!isFullScreen && (
-        // Drag title bar; leaves room for the macOS traffic lights / the Windows caption buttons.
-        <div
-          className={`drag-region flex items-center justify-center shrink-0 w-full text-xs font-medium select-none ${isMac ? 'h-10 pl-20' : 'h-8'} ${isWindows ? 'pr-[140px]' : ''}`}
-        >
-          <span className="truncate font-bold tracking-widest text-ink-3">{tab?.title || 'GETSSH'}</span>
-        </div>
+        <header className="workbench-detached-header drag-region">
+          <div className="workbench-brand">
+            <img src={logo} width={24} height={24} alt="" />
+            <strong>GETSSH</strong>
+          </div>
+          {tab?.title && <span className="workbench-detached-title" title={tab.title}>{tab.title}</span>}
+        </header>
       )}
 
-      <div className="flex-1 min-h-0 w-full relative flex flex-col">
+      <div className="workbench-session-frame">
         {status === 'ready' && tab?.paneTree ? (
           // The SFTP panel docks below the torn tab, same as in the main window.
           <SplitPane isDark={isDark} activeTabId={tab.id}>

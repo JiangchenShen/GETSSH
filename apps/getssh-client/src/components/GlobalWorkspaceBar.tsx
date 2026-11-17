@@ -13,8 +13,6 @@ import { WorkspaceSentinel } from './WorkspaceSentinel';
 
 export const GlobalWorkspaceBar: React.FC<{ poll?: boolean }> = ({ poll }) => {
   const { t } = useTranslation();
-  const isFullScreen = useAppStore(state => state.isFullScreen);
-  const isMac = useAppStore(state => state.isMac);
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const setWorkspaces = useAppStore(state => state.setWorkspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
@@ -45,10 +43,8 @@ export const GlobalWorkspaceBar: React.FC<{ poll?: boolean }> = ({ poll }) => {
     await switchWorkspace(id);
   };
 
-  const topPad = isFullScreen ? 'pt-3.5' : (isMac ? 'pt-10' : 'pt-8');
   return (
-    <div className={`drag-region h-full w-full flex flex-col items-center gap-2 pb-3.5 ${topPad}
-                     workspace-rail-divider ${isMac && !isFullScreen ? 'workspace-rail-divider-titlebar' : ''}`}>
+    <div className="flex flex-1 min-h-0 w-full flex-col items-center gap-2 pb-3.5">
 
       {/* 工作区 */}
       <div className="no-drag-region flex-1 min-h-0 w-full flex flex-col items-center gap-2 overflow-y-auto">
@@ -86,7 +82,7 @@ export const GlobalWorkspaceBar: React.FC<{ poll?: boolean }> = ({ poll }) => {
                     : 'border-transparent text-ink-2 hover:bg-surf hover:text-ink'
                 } focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
               >
-                {String(wsId).charAt(0).toUpperCase()}
+                {String(name).charAt(0).toUpperCase()}
               </button>
             </div>
           );
@@ -95,7 +91,7 @@ export const GlobalWorkspaceBar: React.FC<{ poll?: boolean }> = ({ poll }) => {
         <button
           type="button"
           onClick={() => setIsCreateModalOpen(true)}
-          title={t('workspaceCenter.create', '新建工作区')}
+          title={t('workspaceCenter.createTitle')}
           className="w-[34px] h-[34px] rounded-[9px] grid place-items-center border border-dashed
                      border-line text-ink-3 transition-colors hover:border-primary hover:text-primary"
         >

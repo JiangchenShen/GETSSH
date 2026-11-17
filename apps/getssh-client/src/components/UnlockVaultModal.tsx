@@ -1,167 +1,74 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, KeyRound, ArrowRight, ShieldAlert } from 'lucide-react';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useEffect, useId, useState, type FormEvent } from 'react';
+import { KeyRound, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import './TrustDialog.css';
 
-const SPRING_FLUID = { type: 'spring', stiffness: 280, damping: 26, mass: 0.9 } as const;
-
-export const UnlockVaultModal: React.FC = () => {
+export function UnlockVaultModal() {
   const { t } = useTranslation();
   const isUnlockModalOpen = useWorkspaceStore(state => state.isUnlockModalOpen);
   const setIsUnlockModalOpen = useWorkspaceStore(state => state.setIsUnlockModalOpen);
   const unlockVault = useWorkspaceStore(state => state.unlockVault);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
-  const workspaces = useWorkspaceStore(state => state.workspaces);
-
+  const workspaceName = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeWorkspaceId)?.name);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [shake, setShake] = useState(false);
+  const titleId = useId();
+  const descriptionId = useId();
 
-  const activeWs = workspaces.find(w => w.id === activeWorkspaceId);
-
-  // Reset on open
   useEffect(() => {
-    if (isUnlockModalOpen) {
-      setPassword('');
-      setError('');
-      setLoading(false);
-    }
+    if (!isUnlockModalOpen) return;
+    setPassword('');
+    setError('');
+    setLoading(false);
   }, [isUnlockModalOpen]);
 
-  const triggerShake = () => {
-    setShake(true);
-    setTimeout(() => setShake(false), 500);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     if (!password.trim() || loading) return;
     setLoading(true);
     setError('');
-
-    const success = await unlockVault(password);
-    setLoading(false);
-
-    if (!success) {
-      setError(t('security.vaultWrongPassword', 'Incorrect password — vault remains sealed'));
-      triggerShake();
+    try {
+      if (!await unlockVault(password)) setError(t('crypto.invalidPassword'));
+    } catch {
+      setError(t('crypto.requestFailed'));
+    } finally {
+      setLoading(false);
     }
   };
 
+  if (!isUnlockModalOpen) return null;
+
   return (
-    <AnimatePresence>
-      {isUnlockModalOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
-          className="fixed inset-0 z-[99998] flex items-center justify-center bg-scrim"
-        >
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="unlock-vault-title"
-            initial={{ scale: 0.9, y: 32, opacity: 0 }}
-            animate={{ scale: shake ? [1, 1.01, 0.99, 1.01, 1] : 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.9, y: 24, opacity: 0 }}
-            transition={SPRING_FLUID}
-            className="relative w-full max-w-sm flex flex-col overflow-hidden rounded-xl border border-line bg-panel text-ink shadow-2xl"
-          >
-            {/* Top alert stripe */}
-            <div className="h-px bg-gradient-to-r from-transparent via-red-500/60 to-transparent" />
-
-            {/* Header */}
-            <div className="flex flex-col items-center gap-3 px-8 pt-10 pb-6 text-center">
-              <div className="relative">
-                <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-red-500/10 border border-red-500/20">
-                  <Lock className="w-8 h-8 text-red-400" />
-                </div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-xl flex items-center justify-center">
-                  <ShieldAlert className="w-2.5 h-2.5 text-white" />
-                </div>
-              </div>
-
-              <div>
-                <h2 id="unlock-vault-title" className="text-lg font-black tracking-[0.15em] uppercase mb-1">
-                  {t('security.vaultLocked', 'VAULT LOCKED')}
-                </h2>
-                <div className="text-[10px] font-mono tracking-widest uppercase text-ink-3">
-                  {activeWs?.name || activeWorkspaceId}
-                </div>
-              </div>
-
-              <p className="text-xs leading-relaxed text-ink-3">
-                {t('security.vaultEncryptedDesc', 'Assets encrypted with')} <span className="text-red-400 font-mono font-bold">AES-256-GCM</span>
-                <br />
-                {t('security.vaultEnterPassword', 'Enter workspace password to unseal the vault')}
-              </p>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-8 pb-8">
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                  {error}
-                </motion.div>
-              )}
-
-              <div className="flex items-center rounded-xl border border-line bg-surf transition-colors focus-within:border-primary/50">
-                <KeyRound className="w-4 h-4 mx-3 opacity-40 shrink-0" />
-                <input
-                  type="password"
-                  autoFocus
-                  value={password}
-                  onChange={e => { setPassword(e.target.value); setError(''); }}
-                  placeholder={t('security.workspacePassword', 'Workspace Password')}
-                  className="flex-1 py-3 pr-3 bg-surf text-ink text-sm outline-none placeholder:text-ink-3 font-mono tracking-widest"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !password.trim()}
-                className={`flex items-center justify-center gap-2 w-full py-3 font-black text-sm uppercase tracking-[0.2em] transition-all disabled:opacity-30 rounded-xl border ${
-                  loading
-                    ? 'bg-primary/20 border-primary/30 text-primary'
-                    : 'bg-primary border-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20'
-                }`}
-              >
-                {loading ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-xl animate-spin" />
-                    {t('security.decrypting', 'Decrypting...')}
-                  </>
-                ) : (
-                  <>
-                    <KeyRound className="w-4 h-4" />
-                    {t('security.unlockVault', 'Unlock Vault')}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsUnlockModalOpen(false)}
-                className={`text-[10px] font-mono uppercase tracking-widest opacity-30 hover:opacity-60 transition-opacity mt-1`}
-              >
-                {t('security.cancelKeepEncrypted', 'Cancel — keep encrypted')}
-              </button>
-            </form>
-
-            {/* Bottom alert stripe */}
-            <div className="h-px bg-gradient-to-r from-transparent via-red-500/30 to-transparent" />
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div className="trust-layer trust-layer--vault">
+      <div className="trust-card trust-card--compact" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+        <header className="trust-header">
+          <div className="trust-emblem"><Lock size={19} aria-hidden="true" /></div>
+          <div className="trust-heading">
+            <p className="trust-context">{workspaceName || activeWorkspaceId}</p>
+            <h2 id={titleId}>{t('crypto.lockedTitle')}</h2>
+            <p id={descriptionId}>{t('crypto.lockedDesc')}</p>
+          </div>
+        </header>
+        <form className="trust-form" onSubmit={handleSubmit}>
+          <label className="trust-field">
+            <span>{t('crypto.workspacePassword')}</span>
+            <span className="trust-input-wrap">
+              <KeyRound size={16} aria-hidden="true" />
+              <input type="password" value={password} autoFocus autoComplete="current-password"
+                onChange={event => { setPassword(event.target.value); setError(''); }} />
+            </span>
+          </label>
+          {error && <p className="trust-error" role="alert">{error}</p>}
+          <div className="trust-actions">
+            <button type="button" disabled={loading} className="trust-button" onClick={() => setIsUnlockModalOpen(false)}>{t('common.cancel')}</button>
+            <button type="submit" disabled={loading || !password.trim()} className="trust-button trust-button-primary">
+              {t(loading ? 'crypto.processing' : 'crypto.unlock')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
-};
+}

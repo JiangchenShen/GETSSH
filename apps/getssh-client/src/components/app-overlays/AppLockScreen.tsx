@@ -5,13 +5,14 @@ import { useAppLockStore } from '../../store/appLockStore';
 import { useAppStore } from '../../store/appStore';
 import { useBackupRestartStore } from '../../store/backupStore';
 import { BackupRestartNotice } from './BackupRestartNotice';
+import '../TrustDialog.css';
 
 /**
  * Lock screen for the master password (and the recovery code). The main process does all the
  * checking; this screen only collects what the user types and shows the outcome.
  */
 export const AppLockScreen: React.FC = () => {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const state = useAppLockStore(store => store.state);
   const isMac = useAppStore(store => store.isMac);
@@ -51,6 +52,8 @@ export const AppLockScreen: React.FC = () => {
         setPassword('');
         setCode('');
       }
+    } catch {
+      setError(t('crypto.requestFailed'));
     } finally {
       setBusy(false);
     }
@@ -69,67 +72,86 @@ export const AppLockScreen: React.FC = () => {
     if (restartReport) { setPassword(''); setCode(''); setError(''); }
   }, [restartReport]);
 
-  const shell = (children: React.ReactNode) => (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-panel text-ink" role="dialog" aria-modal="true">
-      <div className="w-full max-w-sm px-6">{children}</div>
+  const shell = (label: string, children: React.ReactNode, danger = false) => (
+    <div className="trust-layer trust-layer--app">
+      <div className="trust-card trust-card--compact trust-card--app" role="dialog" aria-modal="true" aria-label={label} data-danger={danger || undefined}>
+        {children}
+      </div>
     </div>
   );
 
   // The replaced store cannot unlock again until restart. Keep that action reachable
   // inside the lock screen without exposing the workbench underneath it.
-  if (restartReport) return shell(<BackupRestartNotice />);
+  if (restartReport) return shell('GETSSH', <BackupRestartNotice />);
 
   if (!state || state.phase === 'starting') {
-    return shell(<div className="flex items-center justify-center gap-2 text-sm text-ink-3"><Loader2 className="h-4 w-4 animate-spin" />{zh ? '正在打开 GETSSH…' : 'Opening GETSSH…'}</div>);
+    const label = zh ? '正在打开 GETSSH…' : 'Opening GETSSH…';
+    return shell(label, <div role="status" className="flex items-center gap-2 text-sm text-ink-2"><Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />{label}</div>);
   }
 
   if (state.phase === 'error') {
-    return shell(<div className="space-y-3 text-center">
-      <ShieldAlert className="mx-auto h-8 w-8 text-down" />
-      <h1 className="text-lg font-semibold">{zh ? 'GETSSH 无法打开加密数据' : 'GETSSH could not open its encrypted data'}</h1>
-      <p className="text-sm text-ink-3">{zh ? '没有做任何修改。请重新启动 GETSSH；问题仍在时请联系支持并附上下面的信息。' : 'Nothing was changed. Restart GETSSH; if the problem stays, contact support with the details below.'}</p>
-      {state.error && <code className="block break-all rounded-md bg-surf-2 px-3 py-2 text-xs text-ink-2">{state.error}</code>}
-    </div>);
+    const label = zh ? 'GETSSH 无法打开加密数据' : 'GETSSH could not open its encrypted data';
+    return shell(label, <>
+      <header className="trust-header">
+        <div className="trust-emblem"><ShieldAlert size={19} aria-hidden="true" /></div>
+        <div className="trust-heading">
+          <h1>{label}</h1>
+          <p>{zh ? '请重新启动 GETSSH。如果问题仍在，请联系支持并附上下方信息。' : 'Restart GETSSH. If the problem persists, contact support with the details below.'}</p>
+        </div>
+      </header>
+      {state.error && <code className="trust-error">{state.error}</code>}
+    </>, true);
   }
 
   const showRecovery = useRecovery || recoveryOnly;
-  return shell(<div className="space-y-5">
-    <div className="space-y-2 text-center">
-      <Lock className="mx-auto h-8 w-8 text-ink-2" />
-      <h1 className="text-lg font-semibold">{zh ? 'GETSSH 已锁定' : 'GETSSH is locked'}</h1>
-      <p className="text-sm text-ink-3">{recoveryOnly
+  const title = zh ? 'GETSSH 已锁定' : 'GETSSH is locked';
+  const fieldName = showRecovery ? (zh ? '恢复码' : 'Recovery code') : t('crypto.masterPassword');
+  return shell(title, <>
+    <header className="trust-header">
+      <div className="trust-emblem"><Lock size={19} aria-hidden="true" /></div>
+      <div className="trust-heading">
+        <h1>{title}</h1>
+        <p>{recoveryOnly
         ? (zh ? '这份数据来自另一台电脑，或这台电脑的安全芯片已重置。输入恢复码以继续。' : 'This data comes from another computer, or this computer’s security chip was reset. Enter your recovery code to continue.')
         : showRecovery
           ? (zh ? '输入恢复码。解锁后请在设置中重新设置主密码。' : 'Enter your recovery code. Set a new master password in Settings afterwards.')
           : (zh ? '输入主密码以打开您的服务器和工作区。' : 'Enter your master password to open your servers and workspaces.')}</p>
-    </div>
+      </div>
+    </header>
 
-    {showRecovery ? (
-      <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (code.trim()) void unlock({ method: 'recovery', code }); }}>
-        <input autoFocus value={code} onChange={event => setCode(event.target.value)} spellCheck={false} autoComplete="off"
-          placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-          className="w-full rounded-md border border-line bg-panel px-3 py-2 font-mono text-sm tracking-wider text-ink outline-none focus:border-primary" />
-        <button type="submit" disabled={busy || !code.trim()} className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}{zh ? '用恢复码解锁' : 'Unlock with recovery code'}
+    <form className="trust-form" onSubmit={event => {
+      event.preventDefault();
+      if (busy) return;
+      if (showRecovery && code.trim()) void unlock({ method: 'recovery', code });
+      else if (!showRecovery && password) void unlock({ method: 'password', password });
+    }}>
+      <label className="trust-field">
+        <span>{fieldName}</span>
+        <span className="trust-input-wrap">
+          <KeyRound size={16} aria-hidden="true" />
+          {showRecovery ? (
+            <input key="recovery" autoFocus value={code} onChange={event => setCode(event.target.value)} spellCheck={false} autoComplete="off"
+              placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" className="font-mono" />
+          ) : (
+            <input key="password" autoFocus type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" />
+          )}
+        </span>
+      </label>
+      {error && <p role="alert" className="trust-error">{error}</p>}
+      <div className="trust-actions">
+        {!showRecovery && state.presenceEnabled && (
+          <button type="button" disabled={busy} className="trust-button" onClick={() => void unlock({ method: 'presence' })}>
+            <Fingerprint size={16} aria-hidden="true" />{zh ? `使用 ${presenceName}` : `Use ${presenceName}`}
+          </button>
+        )}
+        <button type="submit" disabled={busy || (showRecovery ? !code.trim() : !password)} className="trust-button trust-button-primary">
+          {busy && <Loader2 size={16} className="motion-safe:animate-spin" aria-hidden="true" />}
+          {busy ? t('crypto.unlocking') : showRecovery ? (zh ? '用恢复码解锁' : 'Unlock with recovery code') : t('crypto.unlock')}
         </button>
-      </form>
-    ) : (
-      <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (password) void unlock({ method: 'password', password }); }}>
-        <input autoFocus type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password"
-          placeholder={zh ? '主密码' : 'Master password'}
-          className="w-full rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink outline-none focus:border-primary" />
-        <button type="submit" disabled={busy || !password} className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}{zh ? '解锁' : 'Unlock'}
-        </button>
-        {state.presenceEnabled && <button type="button" disabled={busy} onClick={() => void unlock({ method: 'presence' })} className="flex w-full items-center justify-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-ink-2 hover:bg-surf disabled:opacity-50">
-          <Fingerprint className="h-4 w-4" />{zh ? `使用 ${presenceName}` : `Use ${presenceName}`}
-        </button>}
-      </form>
-    )}
-
-    {error && <p role="alert" className="text-center text-sm text-down">{error}</p>}
-    {!recoveryOnly && <button type="button" onClick={() => { setUseRecovery(!useRecovery); setError(''); }} className="block w-full text-center text-xs text-ink-3 underline">
+      </div>
+    </form>
+    {!recoveryOnly && <button type="button" onClick={() => { setUseRecovery(!useRecovery); setError(''); }} className="trust-text-button" disabled={busy}>
       {showRecovery ? (zh ? '改用主密码' : 'Use the master password instead') : (zh ? '忘记主密码？使用恢复码' : 'Forgot the master password? Use the recovery code')}
     </button>}
-  </div>);
+  </>);
 };

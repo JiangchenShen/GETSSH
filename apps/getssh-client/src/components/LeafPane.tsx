@@ -166,107 +166,129 @@ export const LeafPane: React.FC<{
     }
   };
 
-  const zoomClasses = isZoomed
-    ? 'absolute inset-2 z-[100] rounded-[10px] border border-line bg-bg overflow-hidden'
-    : 'relative w-full h-full overflow-hidden';
+  const terminalConfig = node.paneType === 'terminal' && isSSHConfig(node.config) ? node.config : null;
+  const protocol = !terminalConfig || terminalConfig.protocol === 'local' ? null : terminalConfig.protocol === 'telnet' ? 'Telnet' : 'SSH';
+  const host = terminalConfig?.host ?? '';
+  const hostname = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const endpoint = terminalConfig
+    ? protocol
+      ? `${terminalConfig.username ? `${terminalConfig.username}@` : ''}${hostname}${terminalConfig.port ? `:${terminalConfig.port}` : ''}`
+      : t('connection.systemShell')
+    : '';
+  const paneTitle = terminalConfig
+    ? terminalConfig.alias || (protocol ? host : t('connection.protocol.local')) || tabTitle
+    : node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : tabTitle;
+  const connected = node.paneType === 'terminal' && !!node.sessionId && !node.isDisconnected;
+  const statusLabel = t(connected ? 'pane.statusConnected' : 'pane.statusDisconnected');
 
   return (
     <div
       ref={containerRef}
-      className={`group flex flex-col min-w-0 min-h-0 transition-all duration-200 ${zoomClasses}`}
+      className="workbench-pane"
+      data-zoomed={isZoomed || undefined}
       onClick={() => setActivePaneId(node.paneId)}
     >
       {/* Pane header with title and toolbar */}
       <div
-        className={`relative z-10 flex-none flex items-center justify-between gap-2 px-3 h-8 text-xs
-                    select-none border-b border-line-soft bg-panel app-region-no-drag
-                    ${isActive ? (node.paneType === 'center' ? 'shadow-[inset_0_1px_0_var(--color-line)]' : 'shadow-[inset_0_2px_0_var(--color-primary)]') : ''}`}
+        className="workbench-pane-header no-drag-region"
+        data-active={isActive || isZoomed || undefined}
+        data-pane-type={node.paneType}
       >
-        <div className="flex items-center gap-2 min-w-0 text-ink-2">
-           <TerminalSquare className={`w-3.5 h-3.5 flex-none ${isActive && node.paneType === 'center' ? 'text-primary' : 'text-ink-3'}`} />
-           <span className="truncate font-medium text-xs text-ink">
-             {node.paneType === 'welcome' ? t('welcome.selectHost', '选择主机') : (node.paneType === 'plugin' ? (tabTitle || 'Plugin') : (node.paneType === 'center' ? (tabTitle || 'Center') : (isSSHConfig(node.config) ? `${node.config.username || ''}@${node.config.host || ''}` : '')))}
-           </span>
+        <div className="workbench-pane-identity">
+          <span className="workbench-pane-glyph"><TerminalSquare size={16} aria-hidden="true" /></span>
+          <div className="workbench-pane-title">
+            <strong title={paneTitle}>{paneTitle}</strong>
+            {endpoint && <span title={endpoint}>{endpoint}</span>}
+          </div>
         </div>
-        <div className={`flex items-center gap-1 transition-opacity app-region-no-drag relative z-50 ${isActive || isZoomed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        {node.paneType === 'terminal' && (
+          <span className="workbench-pane-status" title={statusLabel}>
+            <span className="workbench-session-dot" data-status={connected ? 'connected' : 'disconnected'} aria-hidden="true" />
+            <span className="workbench-pane-status-label">{statusLabel}</span>
+            {protocol && <span className="workbench-pane-protocol">{protocol}</span>}
+          </span>
+        )}
+        <div className="workbench-pane-tools">
           {!isMaxPanes && !isHollow && (
             <>
               {parentDirection !== 'hsplit' && (
                 <button
+                  type="button"
                   title={t('pane.splitRight', 'Split Right')}
                   disabled={!canSplitRight}
                   onClick={(e) => { e.stopPropagation(); handleSplit('hsplit'); }}
-                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplitRight ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
                   <Columns className="w-3 h-3" />
                 </button>
               )}
               {parentDirection !== 'vsplit' && (
                 <button
-                  title="Split Down"
+                  type="button"
+                  title={t('pane.splitDown', 'Split Down')}
                   disabled={!canSplitDown}
                   onClick={(e) => { e.stopPropagation(); handleSplit('vsplit'); }}
-                  className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${!canSplitDown ? 'opacity-25 cursor-not-allowed text-ink-3' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
                 >
                   <Rows className="w-3 h-3" />
                 </button>
               )}
-              <div className="w-px h-3 mx-1 bg-line"></div>
+              <span className="workbench-toolbar-divider" aria-hidden="true" />
             </>
           )}
           {canOpenSftp && (
             <button
+              type="button"
               title={t('sftp.title', 'SFTP File Manager')}
               onClick={(e) => {
                 e.stopPropagation();
                 usePanelStore.getState().togglePanel(SFTP_PANEL_ID);
               }}
               aria-pressed={sftpPanelOpen}
-              className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${sftpPanelOpen ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
             >
               <HardDrive className="w-3 h-3" />
             </button>
           )}
           <button
-            title={isZoomed ? "Exit Zen Mode" : "Zen Mode"}
+            type="button"
+            title={isZoomed ? t('pane.exitZoom', 'Exit Zen Mode') : t('pane.zoom', 'Zen Mode')}
+            aria-pressed={!!isZoomed}
             onClick={(e) => { 
               e.stopPropagation(); 
               void handlePaneAction(t('pane.zoomFailed', 'Could not change Zen Mode'), window.electronAPI?.tidalToggleZoom?.(node.paneId));
             }}
-            className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${isZoomed ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
           >
             {isZoomed ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />}
           </button>
           {isHollow ? (
             <button
-              title="Attach to Main Window"
+              type="button"
+              title={t('pane.attach', 'Attach to Main Window')}
               onClick={(e) => { 
                 e.stopPropagation(); 
                 void handleTearIn();
               }}
-              className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink"
             >
               <ArrowDownToLine className="w-3 h-3" />
             </button>
           ) : node.paneType === 'terminal' && (
             <button
-              title="Tear Off (Native Window)"
+              type="button"
+              title={t('pane.detach', 'Tear Off (Native Window)')}
               onClick={(e) => { 
                 e.stopPropagation(); 
                 void handleTearOff();
               }}
-              className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-surf-2 hover:text-ink"
             >
               <ExternalLink className="w-3 h-3" />
             </button>
           )}
           <button
-            title="Close Pane"
+            type="button"
+            title={t('pane.close', 'Close Pane')}
             onClick={(e) => { 
               e.stopPropagation(); 
               void closePane();
             }}
-            className="w-[18px] h-[18px] rounded grid place-items-center text-ink-3 transition-colors hover:bg-down/15 hover:text-down"
+            className="workbench-pane-close"
           >
             <X className="w-3 h-3" />
           </button>

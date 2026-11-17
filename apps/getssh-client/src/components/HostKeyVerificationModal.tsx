@@ -1,138 +1,107 @@
-import React, { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { KeyRound, ShieldAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
-import { ShieldAlert, CheckCircle, Clock, XCircle } from 'lucide-react';
-import { useTranslation, Trans } from 'react-i18next';
+import './TrustDialog.css';
 
-export const HostKeyVerificationModal: React.FC = () => {
-  // Prompts are queued; show the oldest one. The next one appears once this is answered.
+export function HostKeyVerificationModal() {
   const securityPrompt = useAppStore(state => state.securityPrompts[0]);
   const pendingCount = useAppStore(state => state.securityPrompts.length);
   const resolveSecurityPrompt = useAppStore(state => state.resolveSecurityPrompt);
-  const isDark = useAppStore(state => state.isDark);
   const { t } = useTranslation();
-  // The MITM acknowledgement belongs to one request; it must not carry over to the next queued prompt.
+  const titleId = useId();
+  const warningId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const rejectRef = useRef<HTMLButtonElement>(null);
   const [acknowledgedRequestId, setAcknowledgedRequestId] = useState<string | null>(null);
+  const requestId = securityPrompt?.requestId;
+
+  useEffect(() => {
+    if (!requestId) return;
+    const previous = document.activeElement;
+    rejectRef.current?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [requestId]);
 
   if (!securityPrompt) return null;
 
-  const mitmAcknowledged = acknowledgedRequestId === securityPrompt.requestId;
-  const isMitm = securityPrompt.isChanged;
-  const canAccept = !isMitm || mitmAcknowledged;
+  const isChanged = !!securityPrompt.isChanged;
+  const acknowledged = acknowledgedRequestId === requestId;
+  const canAccept = !isChanged || acknowledged;
+  const Icon = isChanged ? ShieldAlert : KeyRound;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50"
-      />
-      
-      {/* Modal Content */}
-      <div role="dialog" aria-modal="true" aria-labelledby="host-key-verification-title" className={`relative w-full max-w-lg p-6 rounded-2xl shadow-2xl flex flex-col gap-5 ${
-        isMitm 
-          ? (isDark ? 'bg-red-950/90 text-white/90 border border-red-500/50' : 'bg-red-50 text-red-950 border border-red-500/30') 
-          : (isDark ? 'bg-[#1a1b1e] text-white/90 border border-white/10' : 'bg-white text-black/90 border border-black/10')
-      }`}>
-        <div className={`flex items-center gap-3 ${isMitm ? 'text-red-500' : 'text-amber-500'}`}>
-          <ShieldAlert className="w-8 h-8" />
-          <h2 id="host-key-verification-title" className="text-xl font-bold">
-            {isMitm ? t('hostKey.mitmTitle', 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!') : t('hostKey.title')}
-          </h2>
-          {pendingCount > 1 && (
-            <span className="ml-auto shrink-0 text-xs font-medium opacity-70">1 / {pendingCount}</span>
-          )}
-        </div>
+    <div className="trust-layer">
+      <div
+        ref={dialogRef}
+        className="trust-card"
+        data-danger={isChanged || undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={warningId}
+        onKeyDown={event => {
+          if (event.key !== 'Tab') return;
+          const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])');
+          if (!controls?.length) return;
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (event.shiftKey && event.target === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && event.target === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+      >
+        <header className="trust-header">
+          <div className="trust-emblem"><Icon size={19} aria-hidden="true" /></div>
+          <div className="trust-heading">
+            <h2 id={titleId}>{t(isChanged ? 'hostKey.mitmTitle' : 'hostKey.title')}</h2>
+            <p id={warningId}>{t(isChanged ? 'hostKey.changedDescription' : 'hostKey.verifyDescription')}</p>
+          </div>
+          {pendingCount > 1 && <span className="trust-queue">1 / {pendingCount}</span>}
+        </header>
 
-        <div className="flex flex-col gap-3">
-          {isMitm ? (
-            <>
-              <p className="text-sm font-bold">
-                {t('hostKey.mitmMsg1', 'Someone could be eavesdropping on you right now (man-in-the-middle attack)!')}
-              </p>
-              <p className="text-sm">
-                <Trans i18nKey="hostKey.mitmMsg2" values={{ hostname: securityPrompt.hostname }}>
-                  It is also possible that a host key has just been changed for <strong className={isDark ? 'text-white' : 'text-black'}>{securityPrompt.hostname}</strong>.
-                </Trans>
-              </p>
-              
-              <div className="flex flex-col gap-2 mt-2">
-                <div className={`p-3 rounded-md font-mono text-xs break-all ${isDark ? 'bg-black/60 text-green-400' : 'bg-green-50 text-green-700'}`}>
-                  <div className="font-bold mb-1">{t('hostKey.oldFingerprint', 'Old Fingerprint:')}</div>
-                  {securityPrompt.oldFingerprint}
-                </div>
-                <div className={`p-3 rounded-md font-mono text-xs break-all ${isDark ? 'bg-black/60 text-red-400' : 'bg-red-50 text-red-700'}`}>
-                  <div className="font-bold mb-1">{t('hostKey.newFingerprint', 'New Fingerprint:')}</div>
-                  {securityPrompt.fingerprint}
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="text-sm">
-                <Trans i18nKey="hostKey.msg1" values={{ hostname: securityPrompt.hostname }}>
-                  The authenticity of host <strong className={isDark ? 'text-white' : 'text-black'}>{securityPrompt.hostname}</strong> can't be established.
-                </Trans>
-              </p>
-              <div className={`p-3 rounded-md font-mono text-xs break-all ${isDark ? 'bg-black/40 text-amber-200/80' : 'bg-amber-50 text-amber-900/80'}`}>
-                {t('hostKey.msg2')}<br/>
-                {securityPrompt.fingerprint}
-              </div>
-              <p className="text-sm">
-                {t('hostKey.msg3')}
-              </p>
-            </>
+        <dl className="trust-facts">
+          <div><dt>{t('hostKey.target')}</dt><dd><code dir="ltr">{securityPrompt.hostname}</code></dd></div>
+          {isChanged && securityPrompt.oldFingerprint && (
+            <div><dt>{t('hostKey.oldFingerprint')}</dt><dd><code dir="ltr">{securityPrompt.oldFingerprint}</code></dd></div>
           )}
-        </div>
+          <div data-warning={isChanged || undefined}>
+            <dt>{t(isChanged ? 'hostKey.newFingerprint' : 'hostKey.fingerprint')}</dt>
+            <dd><code dir="ltr">{securityPrompt.fingerprint}</code></dd>
+          </div>
+        </dl>
 
-        {isMitm && (
-          <label className="flex items-start gap-2 mt-2 cursor-pointer p-3 rounded bg-black/10 hover:bg-black/20 transition-colors">
-            <input 
-              type="checkbox" 
-              className="mt-0.5 accent-red-500"
-              checked={mitmAcknowledged}
-              onChange={(e) => setAcknowledgedRequestId(e.target.checked ? securityPrompt.requestId : null)}
+        {isChanged && (
+          <label className="trust-acknowledgement">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={event => setAcknowledgedRequestId(event.target.checked ? securityPrompt.requestId : null)}
             />
-            <span className="text-sm font-medium">
-              {t('hostKey.mitmAck', 'I understand the risks and want to update the known host fingerprint.')}
-            </span>
+            <span>{t('hostKey.mitmAck')}</span>
           </label>
         )}
 
-        <div className="flex flex-col gap-2 mt-2">
-          <button
-            onClick={() => { if (canAccept) resolveSecurityPrompt('accept-save'); }}
-            disabled={!canAccept}
-            className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-medium transition-colors ${
-              canAccept 
-                ? (isMitm ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-primary hover:bg-primary/90 text-white') 
-                : 'bg-black/20 text-white/50 cursor-not-allowed'
-            }`}
-          >
-            <CheckCircle className="w-4 h-4" />
+        <footer className="trust-actions">
+          <button ref={rejectRef} type="button" className="trust-button" onClick={() => resolveSecurityPrompt('reject')}>
+            {t('hostKey.reject')}
+          </button>
+          <button type="button" className="trust-button" disabled={!canAccept}
+            onClick={() => { if (canAccept) resolveSecurityPrompt('accept-once'); }}>
+            {t('hostKey.acceptOnce')}
+          </button>
+          <button type="button" className="trust-button trust-button-primary" disabled={!canAccept}
+            onClick={() => { if (canAccept) resolveSecurityPrompt('accept-save'); }}>
             {t('hostKey.acceptSave')}
           </button>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { if (canAccept) resolveSecurityPrompt('accept-once'); }}
-              disabled={!canAccept}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-medium transition-colors ${
-                canAccept
-                  ? (isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10')
-                  : 'bg-black/10 text-black/30 dark:bg-white/5 dark:text-white/30 cursor-not-allowed'
-              }`}
-            >
-              <Clock className="w-4 h-4" />
-              {t('hostKey.acceptOnce')}
-            </button>
-            <button
-              onClick={() => resolveSecurityPrompt('reject')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-medium transition-colors ${isDark ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-            >
-              <XCircle className="w-4 h-4" />
-              {t('hostKey.reject')}
-            </button>
-          </div>
-        </div>
+        </footer>
       </div>
     </div>
   );
-};
+}

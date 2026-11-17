@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TerminalPaneRenderer } from './components/TerminalPane';
-import { ShieldAlert } from 'lucide-react';
+import { PanelLeft, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -36,6 +36,7 @@ import { IpcManager } from './components/IpcManager';
 import { StatusBar } from './components/StatusBar';
 import { SplitPane } from './components/SplitPane';
 import { getAvailableSplitDirection } from './utils/paneHelpers';
+import './components/WorkbenchShell.css';
 
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
@@ -81,21 +82,43 @@ function AppMain() {
   const isCommandCenterOpen = useAppStore(state => state.isCommandCenterOpen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   const isAiCenterOpen = useAppStore(state => state.isAiCenterOpen);
-  const isSidebarCollapsed = useAppStore(state => state.isSidebarCollapsed);
   const isConfigLoaded = useAppStore(state => state.isConfigLoaded);
   
   // Local State
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
   const [assetsOpenFor, setAssetsOpenFor] = useState<string | null>(null);
+  const [workbenchAssetsFor, setWorkbenchAssetsFor] = useState<string | null>(null);
+  const workbenchAssetsButton = useRef<HTMLButtonElement>(null);
+  const workbenchAssetsDrawer = useRef<HTMLElement>(null);
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
   const splitDirection = getAvailableSplitDirection(workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree, activePaneId);
   const isHomeActive = selectedSessionIndex === null && !activeTabId;
   const showFullHome = isHomeActive && !isVaultLocked;
   const assetsOpen = showFullHome && !isSwitching && assetsOpenFor === activeWorkspaceId;
+  const workbenchAssetsOpen = !showFullHome && !isSwitching && !isVaultLocked && workbenchAssetsFor === activeWorkspaceId;
 
   useEffect(() => {
     if (!showFullHome || isSwitching) setAssetsOpenFor(null);
   }, [showFullHome, isSwitching]);
+
+  useEffect(() => {
+    setWorkbenchAssetsFor(null);
+  }, [showFullHome, isSwitching, isVaultLocked, activeWorkspaceId, activeTabId, selectedSessionIndex]);
+
+  useEffect(() => {
+    if (!workbenchAssetsOpen) return;
+    workbenchAssetsDrawer.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
+    const closeDrawer = (event: KeyboardEvent) => {
+      // Escape remains a terminal key when focus isn't inside the drawer.
+      if (event.key !== 'Escape' || !(event.target instanceof Element)
+        || !workbenchAssetsDrawer.current?.contains(event.target)) return;
+      event.preventDefault();
+      setWorkbenchAssetsFor(null);
+      workbenchAssetsButton.current?.focus();
+    };
+    window.addEventListener('keydown', closeDrawer);
+    return () => window.removeEventListener('keydown', closeDrawer);
+  }, [workbenchAssetsOpen]);
 
   const selectTab = (id: string) => {
     setSelectedSessionIndex(null);
@@ -161,13 +184,6 @@ function AppMain() {
 
   // Torn-off windows never render App: main.tsx mounts TornWindowApp for ?isHollow=true.
 
-  // Keep the work canvas opaque; only navigation exposes the native material.
-  const appBgStyle = {
-    '--titlebar-height': isMac ? '40px' : '32px',
-    backgroundColor: 'var(--v2-bg)',
-  } as React.CSSProperties;
-  const containerClasses = 'text-ink border-none';
-
   /** Types the confirmed high-risk runbook into the active terminal (not executed: no newline). */
   const fillPendingRunbook = () => {
     const runbook = pendingHighRiskRunbook;
@@ -197,8 +213,8 @@ function AppMain() {
     <>
       <IpcManager />
       <div 
-        className={`w-screen h-screen overflow-hidden flex flex-col font-sans transition-[filter] duration-200 ${containerClasses} ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
-        style={isMac ? { ...appBgStyle, backgroundColor: 'transparent' } : appBgStyle}
+        className={`w-screen h-screen overflow-hidden flex flex-col font-sans text-ink transition-[filter] duration-200 ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
+        style={isMac ? undefined : { backgroundColor: 'var(--v2-bg)' }}
       >
         <AnimatePresence>
           {pendingHighRiskRunbook && (
@@ -209,16 +225,17 @@ function AppMain() {
                role="dialog"
                aria-modal="true"
                aria-label="High Risk Operation"
-               className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 pointer-events-auto"
+               className="fixed inset-0 z-[9999] flex items-center justify-center bg-scrim p-5 pointer-events-auto"
             >
-              <div className="bg-[#1a1a1a] border border-red-500/30 p-8 rounded-xl max-w-md w-full shadow-2xl">
-                <h3 className="text-xl font-bold text-red-500 mb-4 flex items-center gap-2">
-                  <ShieldAlert className="w-6 h-6 animate-pulse" /> High Risk Operation
+              <div className="border border-line bg-surf rounded-xl max-w-md w-full p-5 shadow-2xl">
+                <h3 className="text-base font-bold text-ink mb-2 flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-down" aria-hidden="true" /> High Risk Operation
                 </h3>
-                <p className="text-sm text-gray-300 mb-6">You are about to execute a high-risk runbook. Please enter your master password to authorize this action.</p>
+                <p className="text-sm text-ink-2 mb-4">You are about to execute a high-risk runbook. Please enter your master password to authorize this action.</p>
                 <CryptoModal 
                   mode="locked" 
-                  isDark={true}
+                  isDark={isDark}
+                  embedded
                   onSetup={async () => {}}
                   onUnlock={async (pwd) => {
                      // The main process checks the person: Touch ID / Windows Hello first, this
@@ -238,40 +255,10 @@ function AppMain() {
           )}
         </AnimatePresence>
 
-        {/* ── STANDARD LOCK SCREEN MOVED TO TIDAL DASHBOARD ── */}
-        {/* Main application grid */}
-          <div
-            hidden={showFullHome}
-            className="w-full h-full bg-transparent"
-            style={{
-               display: showFullHome ? 'none' : 'grid',
-               gridTemplateColumns: `var(--rail-width) ${isSidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'} 1fr`,
-               gridTemplateRows: `${isFullScreen ? '0px' : 'var(--titlebar-height)'} minmax(0, 1fr) 38px`,
-               zIndex: 'var(--z-app-chrome)'
-            }}
-          >
-          {/* Workspace rail and assets share the persistent navigation surface. */}
-          <aside
-            aria-label={t('statusBar.workspace')}
-            className="workspace-navigation sidebar-material min-w-0 overflow-hidden"
-            style={{ gridColumn: '1 / 3', gridRow: '1 / 3', zIndex: 'var(--z-region-material)', display: 'grid', gridTemplateColumns: 'var(--rail-width) minmax(0, 1fr)' }}
-          >
-            <div className="workspace-rail-surface min-h-0 overflow-hidden">
-              <GlobalWorkspaceBar poll={!showFullHome} />
-            </div>
-            <div className="relative min-w-0 min-h-0 flex flex-col overflow-hidden">
-              {!showFullHome && <ContextSidebar
-                onAddSession={createConnection}
-                onToggleAutoStart={toggleAutoStart}
-                onDeleteSession={deleteSession}
-              />}
-            </div>
-          </aside>
-
-            {/* Main Content Area (L5 Content) */}
-          <div style={{ gridColumn: '3 / 4', gridRow: '1 / 3', zIndex: 'var(--z-content)', backgroundColor: appBgStyle.backgroundColor }} className="flex flex-col min-h-0 overflow-hidden relative">
-            
-            {/* Tab Bar ALWAYS visible if tabs.length > 0 */}
+        {/* Hiding the shell on Home leaves open terminal panes mounted. */}
+        <div className="workbench-shell" hidden={showFullHome}
+          data-caption={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
+          <div className="workbench-top">
             <TabBar
               tabs={workspaceTabs}
               activeTabId={activeTabId}
@@ -282,9 +269,28 @@ function AppMain() {
               onSplit={() => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
               canSplit={splitDirection !== null}
             />
+          </div>
 
+          <aside aria-label={t('statusBar.workspace')} className="workspace-navigation sidebar-material workbench-rail">
+            <button
+              ref={workbenchAssetsButton}
+              type="button"
+              className="workbench-rail-toggle"
+              aria-label={t('assetFolders.assets')}
+              title={t('assetFolders.assets')}
+              aria-expanded={workbenchAssetsOpen}
+              aria-controls={workbenchAssetsOpen ? 'workbench-asset-drawer' : undefined}
+              onClick={() => setWorkbenchAssetsFor(workbenchAssetsOpen ? null : activeWorkspaceId)}
+              disabled={isSwitching || isVaultLocked}
+            >
+              <PanelLeft size={18} aria-hidden="true" />
+            </button>
+            <GlobalWorkspaceBar poll={!showFullHome} />
+          </aside>
+
+          <div className="workbench-content">
             <BackupRestartNotice />
-            <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
+            <div className="workbench-session-frame">
               
               {/* Active Terminal Panes (+ the SFTP panel docked below the active tab) */}
               <SplitPane isDark={isDark} activeTabId={activeTabId}>
@@ -297,7 +303,7 @@ function AppMain() {
                   {tab.paneTree ? (
                     <TerminalPaneRenderer node={tab.paneTree} tabId={tab.id} appConfig={appConfig} isDark={isDark} isTabActive={activeTabId === tab.id} onSplit={(paneId, direction) => splitPane(paneId, direction)} />
                   ) : (
-                    <div className="flex-1 flex items-center justify-center text-white/50">
+                    <div className="flex-1 flex items-center justify-center text-ink-3">
                       Waiting for Tidal Engine...
                     </div>
                   )}
@@ -322,11 +328,18 @@ function AppMain() {
                 syncProfiles={syncProfiles}
                 onCancel={handleHomeClick}
               />
-
             </div>
-
+            {workbenchAssetsOpen && (
+              <aside id="workbench-asset-drawer" ref={workbenchAssetsDrawer} aria-label={t('assetFolders.assets')} className="workbench-asset-drawer">
+                <ContextSidebar onAddSession={createConnection} onToggleAutoStart={toggleAutoStart}
+                  onDeleteSession={deleteSession} onClose={() => {
+                    setWorkbenchAssetsFor(null);
+                    workbenchAssetsButton.current?.focus();
+                  }} />
+              </aside>
+            )}
           </div>
-          <div style={{ gridColumn: '1 / 4', gridRow: '3 / 4', zIndex: 'var(--z-content)' }}>
+          <div className="workbench-bottom">
             <StatusBar />
           </div>
         </div>

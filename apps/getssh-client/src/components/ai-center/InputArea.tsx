@@ -20,6 +20,9 @@ import {
 import { useAppStore } from '../../store/appStore';
 import { useAiStore } from '../../store/aiStore';
 import { AiBridge } from '../../services/aiBridge';
+import { useTranslation } from 'react-i18next';
+import { settingButtonClass, settingFieldClass } from '../settings/SettingsControls';
+import '../ManagementSurface.css';
 import { 
   cleanModelId, 
   isConversationalModel, 
@@ -131,7 +134,8 @@ export const InputArea: React.FC<{
   onSubmit: (e: React.FormEvent) => void;
   formId?: string;
 }> = ({ prompt, setPrompt, isGenerating, onSubmit, formId = 'ai-chat-form' }) => {
-  const isDark = useAppStore(state => state.isDark);
+  const { t, i18n } = useTranslation();
+  const copy = (cn: string, en: string) => i18n.language?.startsWith('zh') ? cn : en;
   const appConfig = useAppStore(state => state.appConfig);
   const updateConfig = useAppStore(state => state.updateConfig);
 
@@ -279,23 +283,23 @@ export const InputArea: React.FC<{
   return (
     <div 
       ref={containerRef} 
-      className="relative p-3.5 border-t border-line bg-panel text-ink shrink-0 flex flex-col gap-2.5 transition-colors"
+      className="ai-composer relative flex shrink-0 flex-col gap-2.5 border-t border-line bg-surf p-3.5 text-ink"
     >
       {/* ── Selection Injection Pill ── */}
       <AnimatePresence>
         {currentTerminalSelection && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute -top-12 left-4 z-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
             <button
+              type="button"
               onClick={handleInjectSelection}
-              className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500 hover:bg-indigo-400 border border-indigo-400 text-white text-[11px] font-bold rounded-full shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+              className={settingButtonClass}
             >
               <ClipboardPaste size={13} />
-              粘贴终端选中文本 ({currentTerminalSelection.length} 字符)
+              {copy('插入终端选中文本', 'Insert terminal selection')} · {currentTerminalSelection.length}
             </button>
           </motion.div>
         )}
@@ -306,21 +310,21 @@ export const InputArea: React.FC<{
         {/* 1. Dynamic Model Selector Popover (Auto-Cleaned & Fuzzy Matched) */}
         {activeMenu === 'model' && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.96 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-16 left-4 z-30 w-80 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-2.5"
+            className="ai-composer-menu"
           >
             {/* Header with active provider badge & refresh button */}
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-1.5">
-                <Cpu size={13} className="text-amber-400" />
-                <span className="text-[11px] font-bold">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <Cpu size={13} className="shrink-0 text-primary" />
+                <span className="text-xs font-medium">
                   {providerMeta.label}
                 </span>
-                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-md border ${providerMeta.color}`}>
-                  {dynamicApiModels.length > 0 ? `${dynamicApiModels.length} 个模型` : '默认模型'}
+                <span className="text-xs font-mono text-ink-3">
+                  {dynamicApiModels.length > 0 ? dynamicApiModels.length : copy('默认模型', 'Default models')}
                 </span>
               </div>
               
@@ -328,20 +332,20 @@ export const InputArea: React.FC<{
                 <button
                   onClick={fetchLiveModels}
                   disabled={isFetchingModels}
-                  className={`p-1 rounded-lg hover:bg-white/10 transition-all ${isFetchingModels ? 'animate-spin text-amber-400' : (isDark ? 'text-white/50' : 'text-slate-500')}`}
-                  title="刷新 API 模型列表"
+                  className="management-icon-button"
+                  aria-label={copy('刷新模型列表', 'Refresh models')}
+                  title={copy('刷新模型列表', 'Refresh models')}
                 >
-                  <RefreshCw size={11} />
+                  <RefreshCw size={13} className={isFetchingModels ? 'animate-spin' : undefined} />
                 </button>
                 <button 
                   onClick={() => {
                     setActiveMenu(null);
-                    window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: '设置', settingsTab: 'AI' } }));
+                    window.dispatchEvent(new CustomEvent('app:open-center', { detail: { type: 'settings', title: t('statusBar.settings'), settingsTab: 'AI' } }));
                   }}
-                  className={`text-[10px] font-semibold flex items-center gap-0.5 ${isDark ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'}`}
-                  title="切换 API Key 或绑定其他提供商"
+                  className={settingButtonClass}
                 >
-                  <span>换厂商</span>
+                  <span>{copy('供应商设置', 'Provider settings')}</span>
                   <ExternalLink size={10} />
                 </button>
               </div>
@@ -349,15 +353,14 @@ export const InputArea: React.FC<{
 
             {/* Search Input (Automatic cleaning of hyphens & fuzzy matching) */}
             <div className="relative">
-              <Search size={13} className={`absolute left-2.5 top-2.5 ${isDark ? 'text-white/30' : 'text-slate-400'}`} />
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-3 text-ink-3" />
               <input
                 type="text"
-                placeholder={`模糊搜索 (如 flash 3.7, 4o, r1)...`}
+                aria-label={copy('搜索模型', 'Search models')}
+                placeholder={copy('搜索模型', 'Search models')}
                 value={modelSearchQuery}
                 onChange={e => setModelSearchQuery(e.target.value)}
-                className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border outline-none ${
-                  isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20' : 'bg-black/5 border-black/5 text-slate-800 placeholder-slate-400'
-                }`}
+                className={`pl-8 ${settingFieldClass}`}
               />
             </div>
 
@@ -370,57 +373,51 @@ export const InputArea: React.FC<{
                     <button
                       key={m.id}
                       onClick={() => handleSelectModel(m.id)}
-                      className={`px-3 py-2 rounded-xl text-left flex items-start justify-between transition-all group ${
-                        isSelected 
-                          ? (isDark ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300' : 'bg-amber-50 border border-amber-400 text-amber-900')
-                          : (isDark ? 'hover:bg-white/5 text-white/80 border border-transparent' : 'hover:bg-slate-100 text-slate-700 border border-transparent')
-                      }`}
+                      className="ai-composer-option"
+                      aria-pressed={isSelected}
                     >
                       <div className="flex flex-col min-w-0 pr-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-xs truncate">{m.name}</span>
                           {m.badge && (
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-md ${
-                              isDark ? 'bg-white/10 text-white/60' : 'bg-slate-200 text-slate-600'
-                            }`}>
+                            <span className="rounded bg-surf-2 px-1.5 py-0.5 font-mono text-[10px] text-ink-3">
                               {m.badge}
                             </span>
                           )}
                         </div>
-                        <span className={`text-[10px] font-mono leading-tight mt-0.5 truncate ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                        <span className="mt-0.5 truncate font-mono text-[10px] leading-tight text-ink-3">
                           {m.id}
                         </span>
                       </div>
-                      {isSelected && <Check size={14} className="text-amber-400 shrink-0 mt-0.5" />}
+                      {isSelected && <Check size={14} className="mt-0.5 shrink-0 text-primary" />}
                     </button>
                   );
                 })
               ) : (
-                <div className={`p-3 text-center text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                  未找到匹配模型，可在下方直接输入
+                <div className="p-3 text-center text-xs text-ink-2">
+                  {copy('没有匹配的模型。可输入模型 ID。', 'No matching models. Enter a model ID below.')}
                 </div>
               )}
             </div>
 
             {/* Custom Model Input */}
-            <div className={`pt-2 border-t flex gap-1.5 ${isDark ? 'border-white/10' : 'border-black/5'}`}>
+            <div className="flex gap-1.5 border-t border-line-soft pt-2">
               <input
                 type="text"
-                placeholder="或自定义输入模型 ID"
+                aria-label={copy('模型 ID', 'Model ID')}
+                placeholder={copy('模型 ID', 'Model ID')}
                 value={customModelInput}
                 onChange={e => setCustomModelInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleApplyCustomModel()}
-                className={`flex-1 px-3 py-1.5 text-xs rounded-xl border outline-none font-mono ${
-                  isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20' : 'bg-black/5 border-black/5 text-slate-800 placeholder-slate-400'
-                }`}
+                className={`min-w-0 flex-1 font-mono ${settingFieldClass}`}
               />
               <button
                 onClick={handleApplyCustomModel}
                 disabled={!customModelInput.trim()}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-30 text-amber-950 font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1 shrink-0"
+                className={`shrink-0 ${settingButtonClass}`}
               >
                 <Plus size={13} />
-                应用
+                {copy('应用', 'Apply')}
               </button>
             </div>
           </motion.div>
@@ -429,16 +426,16 @@ export const InputArea: React.FC<{
         {/* 2. Thinking Effort Popover */}
         {activeMenu === 'thinking' && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.96 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-16 left-28 z-30 w-72 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-1.5"
+            className="ai-composer-menu"
           >
             <div className="flex items-center justify-between px-1 mb-1">
-              <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
-                <Brain size={12} className="text-purple-400" />
-                Thinking 思考深度 (CoT Effort)
+              <span className="flex items-center gap-1.5 text-xs font-medium text-ink-2">
+                <Brain size={13} className="text-primary" />
+                {copy('思考深度', 'Reasoning effort')}
               </span>
             </div>
 
@@ -449,20 +446,16 @@ export const InputArea: React.FC<{
                   <button
                     key={lvl.id}
                     onClick={() => handleSelectThinking(lvl.id)}
-                    className={`px-3 py-2 rounded-xl text-left flex items-center justify-between transition-all group ${
-                      isSelected 
-                        ? (isDark ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300' : 'bg-purple-50 border border-purple-400 text-purple-900')
-                        : (isDark ? 'hover:bg-white/5 text-white/80 border border-transparent' : 'hover:bg-slate-100 text-slate-700 border border-transparent')
-                    }`}
+                    className="ai-composer-option"
+                    aria-pressed={isSelected}
                   >
                     <div className="flex items-center gap-2.5">
-                      <span className="text-base leading-none">{lvl.icon}</span>
                       <div className="flex flex-col">
-                        <span className={`font-bold text-xs ${lvl.color}`}>{lvl.label}</span>
-                        <span className={`text-[10px] leading-tight ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{lvl.desc}</span>
+                        <span className="text-xs font-medium">{lvl.label}</span>
+                        <span className="text-[11px] leading-tight text-ink-2">{lvl.desc}</span>
                       </div>
                     </div>
-                    {isSelected && <Check size={14} className="text-purple-400 shrink-0" />}
+                    {isSelected && <Check size={14} className="shrink-0 text-primary" />}
                   </button>
                 );
               })}
@@ -473,16 +466,16 @@ export const InputArea: React.FC<{
         {/* 3. Agent Mode Popover */}
         {activeMenu === 'mode' && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.96 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-16 left-60 z-30 w-72 p-3 rounded-2xl border border-line bg-panel text-ink shadow-2xl flex flex-col gap-1.5"
+            className="ai-composer-menu"
           >
             <div className="flex items-center justify-between px-1 mb-1">
-              <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
-                <Bot size={12} className="text-amber-400" />
-                AI 权限与模式 (Agent Mode)
+              <span className="flex items-center gap-1.5 text-xs font-medium text-ink-2">
+                <Bot size={13} className="text-primary" />
+                {copy('智能体模式', 'Agent mode')}
               </span>
             </div>
 
@@ -494,20 +487,17 @@ export const InputArea: React.FC<{
                   <button
                     key={m.id}
                     onClick={() => handleSelectMode(m.id)}
-                    className={`px-3 py-2 rounded-xl text-left flex items-center justify-between transition-all group ${
-                      isSelected 
-                        ? (isDark ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300' : 'bg-amber-50 border border-amber-400 text-amber-900')
-                        : (isDark ? 'hover:bg-white/5 text-white/80 border border-transparent' : 'hover:bg-slate-100 text-slate-700 border border-transparent')
-                    }`}
+                    className="ai-composer-option"
+                    aria-pressed={isSelected}
                   >
                     <div className="flex items-center gap-2.5">
-                      <IconComponent size={15} className={isSelected ? 'text-amber-400' : (isDark ? 'text-white/50' : 'text-slate-500')} />
+                      <IconComponent size={15} className={isSelected ? 'text-primary' : 'text-ink-3'} />
                       <div className="flex flex-col">
                         <span className="font-bold text-xs">{m.label}</span>
-                        <span className={`text-[10px] leading-tight ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{m.desc}</span>
+                        <span className="text-[11px] leading-tight text-ink-2">{m.desc}</span>
                       </div>
                     </div>
-                    {isSelected && <Check size={14} className="text-amber-400 shrink-0" />}
+                    {isSelected && <Check size={14} className="shrink-0 text-primary" />}
                   </button>
                 );
               })}
@@ -516,118 +506,52 @@ export const InputArea: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* ── Input Form ── */}
-      <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-2 relative">
+      <form id={formId} onSubmit={onSubmit} className="relative flex flex-col gap-2">
         <textarea
           value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              onSubmit(e as any);
+          onChange={event => setPrompt(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              onSubmit(event);
             }
           }}
           disabled={isGenerating}
-          placeholder={isGenerating ? '正在思考中...' : '输入问题或排障指令... (Enter 发送, Shift+Enter 换行)'}
-          className={`w-full h-[62px] border text-sm p-3.5 outline-none resize-none rounded-2xl transition-colors shadow-inner font-sans ${
-            isDark 
-              ? 'bg-black/40 border-white/10 text-white placeholder-white/25 focus:border-amber-500/50' 
-              : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400 focus:border-amber-500/50 shadow-sm'
-          }`}
+          aria-label={copy('消息', 'Message')}
+          placeholder={isGenerating ? copy('正在生成…', 'Generating…') : copy('输入消息。Shift+Enter 换行。', 'Enter a message. Shift+Enter adds a line.')}
+          className="min-h-16 w-full resize-none rounded-lg border border-line bg-bg p-3 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-primary"
         />
-
-        {/* ── Bottom In-Context Quick Toolbar ── */}
-        <div className="flex items-center justify-between gap-2 px-0.5">
-          {/* Left Quick Pills */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* 1. Model Pill (Auto-Formatted Display Name) */}
-            <button
-              type="button"
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <button type="button" className="ai-composer-tool" aria-expanded={activeMenu === 'model'}
               onClick={() => setActiveMenu(activeMenu === 'model' ? null : 'model')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                activeMenu === 'model'
-                  ? (isDark ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'bg-amber-100 border-amber-400 text-amber-800')
-                  : (isDark ? 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white' : 'bg-white border-black/10 text-slate-600 hover:bg-slate-50')
-              }`}
-              title={`当前厂商: ${providerMeta.label} (点击选择该厂商支持的模型)`}
-            >
-              <Bot size={13} className="text-amber-400" />
+              title={copy('选择模型', 'Choose model') + ' · ' + providerMeta.label}>
+              <Bot size={13} aria-hidden="true" />
               <span className="max-w-[130px] truncate">{formatModelDisplayName(currentModel)}</span>
-              <ChevronDown size={11} className={`transition-transform duration-200 ${activeMenu === 'model' ? 'rotate-180' : ''}`} />
+              <ChevronDown size={11} aria-hidden="true" />
             </button>
-
-            {/* 2. Thinking Effort Pill */}
-            <button
-              type="button"
+            <button type="button" className="ai-composer-tool" aria-expanded={activeMenu === 'thinking'}
               onClick={() => setActiveMenu(activeMenu === 'thinking' ? null : 'thinking')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                activeMenu === 'thinking'
-                  ? (isDark ? 'bg-purple-500/20 border-purple-500/50 text-purple-300' : 'bg-purple-100 border-purple-400 text-purple-800')
-                  : currentThinking !== 'none'
-                    ? (isDark ? 'bg-purple-500/10 border-purple-500/30 text-purple-300' : 'bg-purple-50 border-purple-300 text-purple-700')
-                    : (isDark ? 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white' : 'bg-white border-black/10 text-slate-500 hover:bg-slate-50')
-              }`}
-              title="调节 Chain of Thought 思考深度"
-            >
-              <Brain size={13} className={currentThinking !== 'none' ? 'text-purple-400' : 'text-neutral-400'} />
+              title={copy('思考深度', 'Reasoning effort')}>
+              <Brain size={13} aria-hidden="true" />
               <span>{currentThinkingInfo.label}</span>
-              <ChevronDown size={11} className={`transition-transform duration-200 ${activeMenu === 'thinking' ? 'rotate-180' : ''}`} />
+              <ChevronDown size={11} aria-hidden="true" />
             </button>
-
-            {/* 3. Web Search Toggle Pill */}
-            <button
-              type="button"
-              onClick={handleToggleSearch}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                isSearchOn
-                  ? (isDark ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.15)]' : 'bg-emerald-50 border-emerald-400 text-emerald-700')
-                  : (isDark ? 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70' : 'bg-white border-black/10 text-slate-400 hover:bg-slate-50')
-              }`}
-              title={isSearchOn ? '联网搜索已开启 (点击关闭)' : '联网搜索已关闭 (点击开启)'}
-            >
-              <Globe size={13} className={isSearchOn ? 'text-emerald-400' : 'text-neutral-400'} />
-              <span>{isSearchOn ? '联网开' : '联网关'}</span>
+            <button type="button" className="ai-composer-tool" aria-pressed={isSearchOn} onClick={handleToggleSearch}>
+              <Globe size={13} aria-hidden="true" /><span>{copy('联网搜索', 'Web search')}</span>
             </button>
-
-            {/* 4. Agent Mode Pill */}
-            <button
-              type="button"
+            <button type="button" className="ai-composer-tool" aria-expanded={activeMenu === 'mode'}
               onClick={() => setActiveMenu(activeMenu === 'mode' ? null : 'mode')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                activeMenu === 'mode'
-                  ? (isDark ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-indigo-100 border-indigo-400 text-indigo-800')
-                  : (isDark ? 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white' : 'bg-white border-black/10 text-slate-600 hover:bg-slate-50')
-              }`}
-              title="切换 AI Agent 权限模式"
-            >
-              <currentModeInfo.icon size={13} className="text-indigo-400" />
+              title={copy('智能体权限模式', 'Agent permissions')}>
+              <currentModeInfo.icon size={13} aria-hidden="true" />
               <span>{currentModeInfo.label}</span>
-              <ChevronDown size={11} className={`transition-transform duration-200 ${activeMenu === 'mode' ? 'rotate-180' : ''}`} />
+              <ChevronDown size={11} aria-hidden="true" />
             </button>
           </div>
-
-          {/* Right Action Button */}
-          <button
-            type="submit"
-            disabled={isGenerating || !prompt.trim()}
-            className={`h-9 px-4 disabled:opacity-40 transition-all flex items-center justify-center gap-1.5 rounded-xl font-bold text-xs shadow-md shrink-0 ${
-              (!isGenerating && prompt.trim()) 
-                ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 scale-100 active:scale-95 shadow-amber-500/20' 
-                : (isDark ? 'bg-white/10 text-white/40 shadow-none' : 'bg-slate-100 border border-slate-200 text-slate-400 shadow-none')
-            }`}
-          >
-            {isGenerating ? (
-              <motion.div
-                className={`w-4 h-4 border-2 border-t-transparent rounded-full ${isDark ? 'border-amber-400' : 'border-slate-500'}`}
-                animate={{ rotate: 360 }}
-                transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-              />
-            ) : (
-              <>
-                <span>发送</span>
-                <Send size={13} className="ml-0.5" />
-              </>
-            )}
+          <button type="submit" disabled={isGenerating || !prompt.trim()}
+            className="ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-[var(--primary-ink)] hover:brightness-95 disabled:opacity-45">
+            {isGenerating ? copy('生成中', 'Generating') : copy('发送', 'Send')}
+            <Send size={13} aria-hidden="true" />
           </button>
         </div>
       </form>

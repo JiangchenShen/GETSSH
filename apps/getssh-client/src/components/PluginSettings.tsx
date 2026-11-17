@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Download, PackagePlus, Settings2, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePluginStore } from '../store/pluginStore';
+import { settingButtonClass, settingFieldClass } from './settings/SettingsControls';
 
 type PendingInstall = { manifest: any; tempDir: string; sourceDir: string };
-const buttonClass = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-line bg-panel px-3 text-sm text-ink-2 transition-colors hover:bg-surf-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
+const buttonClass = settingButtonClass;
+const primaryButton = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3.5 text-sm font-medium text-[var(--primary-ink)] hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50';
 
 export const PluginSettings: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -75,26 +77,48 @@ export const PluginSettings: React.FC = () => {
     lifecycle: zh ? '标准生命周期管理' : 'Standard lifecycle management',
   };
 
-  return <div className="space-y-7">
-    <section className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">
-      <div><h2 className="text-sm font-semibold">{t('plugins.installed')}</h2><p className="mt-1 text-xs text-ink-3">{installedPlugins.length} {zh ? '个已安装插件' : 'installed plugins'}</p></div>
-      <button type="button" onClick={() => fileInput.current?.click()} disabled={loading} className={buttonClass}><PackagePlus size={15} />{zh ? '安装本地 ZIP' : 'Install local ZIP'}</button>
-      <input ref={fileInput} type="file" accept=".zip,application/zip" onChange={event => void previewFile(event.target.files?.[0])} className="sr-only" aria-label={zh ? '选择本地插件包' : 'Choose local plugin package'} />
-    </section>
+  return <div className="space-y-6">
+    <div onDrop={event => { event.preventDefault(); void previewFile(event.dataTransfer.files[0]); }}
+      onDragOver={event => event.preventDefault()}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-line bg-surf px-4 py-3.5">
+      <p className="flex min-w-0 items-center gap-2.5 text-xs text-ink-2">
+        <Download size={16} className="shrink-0 text-primary" aria-hidden="true" />
+        {zh ? '将 ZIP 插件包拖到这里' : 'Drop a ZIP plugin package here'}
+      </p>
+      <button type="button" onClick={() => fileInput.current?.click()} disabled={loading} className={primaryButton}>
+        <PackagePlus size={15} aria-hidden="true" />{zh ? '安装本地 ZIP' : 'Install local ZIP'}
+      </button>
+      <input ref={fileInput} type="file" accept=".zip,application/zip" onChange={event => void previewFile(event.target.files?.[0])} className="sr-only" tabIndex={-1}
+        aria-label={zh ? '选择本地插件包' : 'Choose local plugin package'} />
+    </div>
 
     {error && !pendingInstall && <p role="alert" className="border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
 
-    <div onDrop={event => { event.preventDefault(); void previewFile(event.dataTransfer.files[0]); }} onDragOver={event => event.preventDefault()} className="rounded-md border border-dashed border-line px-4 py-5 text-center text-xs text-ink-3"><Download size={16} className="mx-auto mb-2" />{zh ? '也可以把 ZIP 插件包拖到这里' : 'Or drop a ZIP plugin package here'}</div>
-
-    <section className="border-y border-line">
-      {installedPlugins.length === 0 && <p className="py-10 text-center text-sm text-ink-3">{t('plugins.noPlugins')}</p>}
-      {installedPlugins.map(plugin => {
-        const name = (plugin as any).getssh?.name || plugin.displayName || plugin.name;
-        return <div key={plugin.name} className="border-b border-line-soft px-1 py-4 last:border-b-0">
-          <div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-surf-2 text-sm font-medium text-ink-2">{name.charAt(0).toUpperCase()}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-2"><h3 className="text-sm font-medium text-ink">{name}</h3><span className="font-mono text-xs text-ink-3">v{plugin.version}</span></div><p className="mt-1 text-xs leading-relaxed text-ink-3">{plugin.description || (zh ? '暂无说明' : 'No description')}</p></div><button type="button" onClick={() => void uninstall(plugin.name, name)} disabled={loading} title={t('plugins.uninstall')} aria-label={`${t('plugins.uninstall')}: ${name}`} className="rounded-md p-2 text-ink-3 hover:bg-down/10 hover:text-down disabled:opacity-40"><Trash2 size={15} /></button></div>
-          <PluginConfigPanel pluginId={plugin.name} />
-        </div>;
-      })}
+    <section>
+      <h2 className="mb-3 flex items-baseline gap-2 text-sm font-semibold">{t('plugins.installed')}<span className="font-mono text-xs font-normal text-ink-3">{installedPlugins.length}</span></h2>
+      <div className="management-cards">
+        {installedPlugins.length === 0 && <p className="management-empty">{t('plugins.noPlugins')}</p>}
+        {installedPlugins.map(plugin => {
+          const name = (plugin as any).getssh?.name || plugin.displayName || plugin.name;
+          return <article key={plugin.name} className="management-card px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-surf-2 text-sm font-medium text-ink-2" aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-1.5">
+                  <h3 className="max-w-full break-words text-sm font-semibold text-ink">{name}</h3>
+                  <span className="font-mono text-xs text-ink-3">v{plugin.version}</span>
+                </div>
+                {plugin.description && <p className="mt-1 break-words text-xs leading-relaxed text-ink-2">{plugin.description}</p>}
+              </div>
+              <button type="button" onClick={() => void uninstall(plugin.name, name)} disabled={loading} title={t('plugins.uninstall')} aria-label={`${t('plugins.uninstall')}: ${name}`}
+                className="grid size-8 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-down/10 hover:text-down focus-visible:outline-2 focus-visible:outline-down disabled:opacity-40">
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            </div>
+            <PluginConfigPanel pluginId={plugin.name} />
+          </article>;
+        })}
+      </div>
     </section>
 
     {pendingInstall && <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) void cancelInstall(); }}><div role="dialog" aria-modal="true" aria-label={t('plugins.permissionReview', 'Permission review')} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-6 text-ink shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{t('plugins.permissionReview', 'Permission review')}</h2><p className="mt-1 text-sm text-ink-2">{pendingInstall.manifest.getssh?.name || pendingInstall.manifest.displayName || pendingInstall.manifest.name} · v{pendingInstall.manifest.version}</p></div><button type="button" onClick={() => void cancelInstall()} disabled={loading} aria-label={zh ? '取消安装' : 'Cancel installation'} className="rounded-md p-1.5 text-ink-3 hover:bg-surf-2 disabled:opacity-50"><X size={17} /></button></div><p className="mt-4 text-xs leading-relaxed text-ink-2">{zh ? '请检查该插件请求的能力。安装后是否实际运行，还取决于设置中的插件权限模式。' : 'Review requested capabilities. Whether backend code runs also depends on the plugin permission mode in Settings.'}</p><div className="mt-4 border-y border-line">{capabilities.length ? capabilities.map(capability => <div key={capability} className="border-b border-line-soft py-2.5 last:border-b-0"><code className="font-mono text-xs text-ink">{capability}</code><p className="mt-1 text-xs text-ink-3">{riskText[capability] || (zh ? '未识别的能力，请确认来源。' : 'Unrecognized capability; verify the source.')}</p></div>) : <p className="py-3 text-xs text-ink-3">{t('plugins.caps.none', 'No special capabilities requested.')}</p>}</div>{error && <p role="alert" className="mt-4 border-l-2 border-down bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => void cancelInstall()} disabled={loading} className={buttonClass}>{t('common.cancel')}</button><button type="button" onClick={() => void confirmInstall()} disabled={loading} className="min-h-9 rounded-md bg-primary px-3 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50">{loading ? t('common.loading') : t('plugins.confirmInstall', 'Accept & install')}</button></div></div></div>}
@@ -184,16 +208,16 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }
   };
-  return <div className="ml-11 mt-3">
-    <button type="button" onClick={() => setOpen(!open)} disabled={saving} aria-expanded={open} className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"><Settings2 size={13} />{zh ? '配置插件' : 'Configure plugin'}</button>
-    {open && <div className="mt-3 max-w-xl space-y-3 border-t border-line-soft pt-3">
+  return <div className="mt-3 border-t border-line-soft pt-3">
+    <button type="button" onClick={() => setOpen(!open)} disabled={saving} aria-expanded={open} className={buttonClass}><Settings2 size={13} aria-hidden="true" />{zh ? '配置插件' : 'Configure plugin'}</button>
+    {open && <div className="mt-3 max-w-xl space-y-3">
       {schema.map(field => <div key={field.id} className="text-xs text-ink-2">
         <label className="block">
           <span className="font-medium">{field.label}</span>
           {field.description && <span className="mt-0.5 block text-ink-3">{field.description}</span>}
           {field.type === 'boolean'
             ? <input type="checkbox" disabled={saving || configLoading} checked={!!formData[field.id]} onChange={event => setFormData({ ...formData, [field.id]: event.target.checked })} className="mt-2 block h-4 w-4 accent-primary" />
-            : <input type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} disabled={saving || configLoading} value={formData[field.id] ?? ''} placeholder={field.type === 'password' && savedPasswords.includes(field.id) && !clearedPasswords.includes(field.id) ? (zh ? '已保存，留空不修改' : 'Saved. Leave empty to keep it') : undefined} onChange={event => setFormData({ ...formData, [field.id]: field.type === 'number' ? Number(event.target.value) : event.target.value })} className="mt-1.5 block min-h-9 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none focus:border-primary disabled:opacity-50" />}
+            : <input type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} disabled={saving || configLoading} value={formData[field.id] ?? ''} placeholder={field.type === 'password' && savedPasswords.includes(field.id) && !clearedPasswords.includes(field.id) ? (zh ? '已保存，留空不修改' : 'Saved. Leave empty to keep it') : undefined} onChange={event => setFormData({ ...formData, [field.id]: field.type === 'number' ? Number(event.target.value) : event.target.value })} className={`mt-1.5 block ${settingFieldClass}`} />}
         </label>
         {field.type === 'password' && savedPasswords.includes(field.id) && <div className="mt-1.5 flex flex-wrap items-center gap-2">
           {clearedPasswords.includes(field.id) ? <>

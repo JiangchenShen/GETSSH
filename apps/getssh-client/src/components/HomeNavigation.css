@@ -67,3 +67,9 @@ button.home-navigation-item:not(:disabled):hover {
   justify-items: center;
   padding: 12px 0 22px;
 }
+
+@container (max-width: 560px) {
+  .home-navigation { width: 66px; }
+  .home-navigation-list { padding-inline: 6px; }
+  .home-navigation-item { min-height: 56px; gap: 5px; }
+}

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Folder, File, ChevronRight, HardDrive, RefreshCw, Trash2, FilePlus, FolderPlus, Lock, Download, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { ArrowUp, ChevronRight, Download, File, FilePlus, Folder, FolderPlus, HardDrive, Link2, Lock, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useSessionStore, PaneNode } from '../store/sessionStore';
+import { isSSHConfig, useSessionStore, type PaneLeaf, type PaneNode } from '../store/sessionStore';
 import { useAppStore } from '../store/appStore';
 import { usePluginStore } from '../store/pluginStore';
 import { usePanelStore } from '../store/panelStore';
+import './SessionFiles.css';
 
 export interface SFTPFile {
   name: string;
@@ -29,322 +30,323 @@ export function registerSftpPanel() {
   });
 }
 
-export const SFTPManager = ({ sessionId, isDark }: { sessionId: string, isDark: boolean }) => {
-  const { t } = useTranslation();
+function findSession(node: PaneNode, sessionId: string): PaneLeaf | null {
+  if (node.type === 'leaf') return node.paneType === 'terminal' && node.sessionId === sessionId ? node : null;
+  return findSession(node.children[0], sessionId) ?? findSession(node.children[1], sessionId);
+}
+
+function joinPath(directory: string, name: string) {
+  return `${directory.endsWith('/') ? directory : `${directory}/`}${name}`;
+}
+
+function formatSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '–';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  const exponent = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${Number((bytes / 1024 ** exponent).toFixed(1))} ${units[exponent]}`;
+}
+
+export const SFTPManager = ({ sessionId }: { sessionId: string, isDark: boolean }) => {
+  const { t, i18n } = useTranslation();
   const [currentPath, setCurrentPath] = useState('/');
   const [files, setFiles] = useState<SFTPFile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // The main process lists at most 10,000 entries (or what arrived within 20 s).
+  const [loading, setLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
+  const [listingError, setListingError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
-  const [promptData, setPromptData] = useState<{ type: 'file' | 'folder', resolve: (name: string | null) => void } | null>(null);
+  const [createPrompt, setCreatePrompt] = useState<'file' | 'folder' | null>(null);
   const [promptInputValue, setPromptInputValue] = useState('');
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [pathInputValue, setPathInputValue] = useState('');
   const [downloadingItems, setDownloadingItems] = useState<Set<string>>(new Set());
+  const listingRequest = useRef(0);
+  const headingId = useId();
+  const promptId = useId();
 
   const sftpDownloadPath = useAppStore(s => s.appConfig.sftpDownloadPath);
-  const tabs = useSessionStore(s => s.tabs);
-  // A session can live in any pane of any tab (splits, tear-off), so look for its leaf everywhere
-  // instead of assuming the tab id equals the session id.
-  const isDisconnected = React.useMemo(() => {
-    if (!sessionId) return true;
-    let connected = false;
-    const checkTree = (node: PaneNode) => {
-      if (node.type === 'leaf') {
-        if (node.sessionId === sessionId && !node.isDisconnected) connected = true;
-      } else {
-        checkTree(node.children[0]);
-        checkTree(node.children[1]);
-      }
-    };
-    tabs.forEach(tab => { if (tab.paneTree) checkTree(tab.paneTree); });
-    return !connected;
-  }, [tabs, sessionId]);
+  const session = useSessionStore(state => {
+    if (!sessionId) return null;
+    const tree = state.tabs.find(tab => tab.id === state.activeTabId)?.paneTree;
+    return tree ? findSession(tree, sessionId) : null;
+  });
+  const isDisconnected = !session || session.isDisconnected === true;
+  const config = session && isSSHConfig(session.config) ? session.config : null;
+  const host = config?.host?.trim();
+  const server = host && config ? `${config.username ? `${config.username}@` : ''}${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${config.port || 22}` : '';
+  const readError = t('sftp.listFailed');
 
-  const fetchFiles = async (path: string) => {
+  const fetchFiles = useCallback(async (path: string) => {
     if (isDisconnected) return;
+    const request = ++listingRequest.current;
     setLoading(true);
-    setError(null);
+    setListingError(null);
     try {
       const res = await window.electronAPI.sftpList(sessionId, path);
+      if (request !== listingRequest.current) return;
       if (!res.success || !res.list) {
-        setError(res.error || 'Failed to list files');
-        setLoading(false);
+        setListingError(res.error || readError);
         return;
       }
-
       setTruncated(!!res.truncated);
-      setFiles(res.list.sort((a: SFTPFile, b: SFTPFile) => {
-         if (a.type === 'd' && b.type !== 'd') return -1;
-         if (a.type !== 'd' && b.type === 'd') return 1;
-         return a.name.localeCompare(b.name);
-      }));
+      setFiles([...res.list].sort((a, b) => Number(b.type === 'd') - Number(a.type === 'd') || a.name.localeCompare(b.name)));
       setCurrentPath(path);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (request === listingRequest.current) setListingError(err instanceof Error ? err.message : readError);
+    } finally {
+      if (request === listingRequest.current) setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [isDisconnected, readError, sessionId]);
 
   useEffect(() => {
-    fetchFiles('/');
-  }, [sessionId]);
+    void fetchFiles('/');
+    return () => { listingRequest.current += 1; };
+  }, [fetchFiles]);
 
-  const handleNavigate = (folder: string) => {
-    if (folder === '..') {
-      const parts = currentPath.split('/').filter(Boolean);
-      parts.pop();
-      fetchFiles('/' + parts.join('/'));
-    } else {
-      const newPath = currentPath === '/' ? `/${folder}` : `${currentPath}/${folder}`;
-      fetchFiles(newPath);
-    }
-  };
+  const pathSegments = currentPath.split('/').filter(Boolean);
+  const parentPath = `/${pathSegments.slice(0, -1).join('/')}`;
+  const available = !isDisconnected && !loading && !mutating;
+  const dateFormat = new Intl.DateTimeFormat(i18n?.language || undefined, { dateStyle: 'short', timeStyle: 'short' });
 
-  const handleDelete = async (e: React.MouseEvent, f: SFTPFile) => {
-    e.stopPropagation();
-    if (!confirm(t('sftp.confirmDelete', { name: f.name }))) return;
-    setLoading(true);
-    const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
-    const res = await window.electronAPI.sftpDelete(sessionId, p, f.type === 'd');
-    if (!res.success) {
-      setError(res.error || 'Delete failed');
-      setLoading(false);
-    } else {
-      fetchFiles(currentPath);
-    }
-  };
-
-  const handleDownload = async (e: React.MouseEvent, f: SFTPFile) => {
-    e.stopPropagation();
-    if (f.type === 'd') {
-      alert("Downloading directories is not supported yet.");
-      return;
-    }
-    setDownloadingItems(prev => new Set(prev).add(f.name));
+  const handleDelete = async (f: SFTPFile) => {
+    if (!available || !window.confirm(t('sftp.deleteConfirm', { name: f.name }))) return;
+    setActionError(null);
+    setMutating(true);
     try {
-      const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
-      const res = await window.electronAPI.sftpDownloadFile(sessionId, p, sftpDownloadPath);
-      if (!res?.success && res?.canceled !== true) {
-        alert("Download failed: " + res?.error);
-      }
+      const res = await window.electronAPI.sftpDelete(sessionId, joinPath(currentPath, f.name), f.type === 'd');
+      if (res.success) void fetchFiles(currentPath);
+      else setActionError(res.error || t('sftp.deleteError'));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : t('sftp.deleteError'));
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  const handleDownload = async (f: SFTPFile) => {
+    if (!available || f.type === 'd') return;
+    const path = joinPath(currentPath, f.name);
+    setActionError(null);
+    setDownloadingItems(prev => new Set(prev).add(path));
+    try {
+      const res = await window.electronAPI.sftpDownloadFile(sessionId, path, sftpDownloadPath);
+      if (!res?.success && res?.canceled !== true) setActionError(res?.error || t('sftp.downloadError'));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : t('sftp.downloadError'));
     } finally {
       setDownloadingItems(prev => {
         const next = new Set(prev);
-        next.delete(f.name);
+        next.delete(path);
         return next;
       });
     }
   };
 
-  const handleDoubleClick = async (file: SFTPFile) => {
-    if (file.type === 'd') {
-      handleNavigate(file.name);
-      return;
-    }
-    
+  const handleEdit = async (file: SFTPFile) => {
+    if (!available || file.type === 'd') return;
+    setActionError(null);
     try {
-      const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
-      const res = await window.electronAPI.sftpEditSync(sessionId, path);
-      if (res.success) {
-        // Optional: add UI indication or just let it be silent
-      }
+      const res = await window.electronAPI.sftpEditSync(sessionId, joinPath(currentPath, file.name));
+      if (!res.success) setActionError(res.error || t('sftp.editError'));
     } catch (error) {
-      console.error('Failed to start SFTP sync edit:', error);
+      setActionError(error instanceof Error ? error.message : t('sftp.editError'));
     }
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const openCreate = (kind: 'file' | 'folder') => {
+    setPromptInputValue('');
+    setCreatePrompt(kind);
   };
 
-  const handleAddFile = async () => {
-    const name = await new Promise<string | null>((resolve) => {
-      setPromptInputValue('');
-      setPromptData({ type: 'file', resolve });
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = promptInputValue;
+    if (!createPrompt || !name.trim() || !available) return;
+    setCreatePrompt(null);
+    setActionError(null);
+    setMutating(true);
+    const path = joinPath(currentPath, name);
+    try {
+      const res = createPrompt === 'file'
+        ? await window.electronAPI.sftpWriteFile(sessionId, path, '')
+        : await window.electronAPI.sftpMkdir(sessionId, path);
+      if (res.success) void fetchFiles(currentPath);
+      else setActionError(res.error || t('sftp.createError'));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : t('sftp.createError'));
+    } finally {
+      setMutating(false);
+    }
+  };
+
+  const openContextMenu = (event: MouseEvent<HTMLTableRowElement>, file: SFTPFile) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!available) return;
+    const uiExtensions = usePluginStore.getState().uiExtensions;
+    void window.electronAPI.showContextMenu({
+      target: 'sftp',
+      extensions: uiExtensions.sftp,
+      contextData: { sessionId, currentPath: joinPath(currentPath, file.name), selectedFiles: [file.name] },
     });
-    if (!name) return;
-    const path = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
-    const res = await window.electronAPI.sftpWriteFile(sessionId, path, '');
-    if (res.success) {
-      fetchFiles(currentPath);
-    } else {
-      setError('Failed to create file: ' + res.error);
-    }
-  };
-
-  const handleAddFolder = async () => {
-    const name = await new Promise<string | null>((resolve) => {
-      setPromptInputValue('');
-      setPromptData({ type: 'folder', resolve });
-    });
-    if (!name) return;
-    const path = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
-    const res = await window.electronAPI.sftpMkdir(sessionId, path);
-    if (res.success) {
-      fetchFiles(currentPath);
-    } else {
-      setError('Failed to create folder: ' + res.error);
-    }
   };
 
   return (
-    <div className={`flex flex-col h-full border-l shadow-2xl relative ${isDark ? 'bg-[#1e1e1e] border-white/10 text-white' : 'bg-gray-50 border-black/10 text-black'}`}>
-      <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-white/10' : 'border-black/10'}`}>
-        <h2 className="font-bold flex items-center gap-2">
-          <HardDrive className="w-5 h-5 text-primary" />
-          {t('sftp.title')}
-        </h2>
-        <div className="flex gap-1">
-          <button disabled={isDisconnected} onClick={handleAddFile} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New File"}><FilePlus className="w-4 h-4 opacity-80" /></button>
-          <button disabled={isDisconnected} onClick={handleAddFolder} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "New Folder"}><FolderPlus className="w-4 h-4 opacity-80" /></button>
-          <button disabled={isDisconnected} onClick={() => fetchFiles(currentPath)} className={`p-1.5 rounded-md transition-colors ${isDisconnected ? 'opacity-30 cursor-not-allowed' : isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={isDisconnected ? "Not connected" : "Refresh"}><RefreshCw className={`w-4 h-4 opacity-80 ${loading ? 'animate-spin' : ''}`} /></button>
-          <button onClick={() => usePanelStore.getState().togglePanel(SFTP_PANEL_ID)} className={`p-1.5 rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/10'}`} title={t('common.close', 'Close')}><X className="w-4 h-4 opacity-80" /></button>
+    <section className="session-files" aria-labelledby={headingId}>
+      <div className="session-files-body" inert={!!createPrompt}>
+        <header className="session-files-header">
+          <div className="session-files-identity">
+            <HardDrive size={16} aria-hidden="true" />
+            <h2 id={headingId}>{t('sftp.title')}</h2>
+            {server && <span className="session-files-endpoint" title={server} dir="ltr">{server}</span>}
+          </div>
+          <div className="session-files-actions">
+            <button type="button" className="session-files-action" disabled={!available} onClick={() => openCreate('file')} title={t('sftp.newFile')} aria-label={t('sftp.newFile')}>
+              <FilePlus size={15} aria-hidden="true" /><span>{t('sftp.newFile')}</span>
+            </button>
+            <button type="button" className="session-files-action" disabled={!available} onClick={() => openCreate('folder')} title={t('sftp.newFolder')} aria-label={t('sftp.newFolder')}>
+              <FolderPlus size={15} aria-hidden="true" /><span>{t('sftp.newFolder')}</span>
+            </button>
+            <button type="button" className="session-files-icon" disabled={!available} onClick={() => void fetchFiles(currentPath)} title={t('sftp.refresh')} aria-label={t('sftp.refresh')}>
+              <RefreshCw size={15} aria-hidden="true" />
+            </button>
+            <button type="button" className="session-files-icon" onClick={() => usePanelStore.getState().togglePanel(SFTP_PANEL_ID)} title={t('common.close', 'Close')} aria-label={t('common.close', 'Close')}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+
+        <div className="session-files-route">
+          <button type="button" className="session-files-icon" disabled={!available || currentPath === '/'} onClick={() => void fetchFiles(parentPath)} title={t('sftp.parent')} aria-label={t('sftp.parent')}>
+            <ArrowUp size={15} aria-hidden="true" />
+          </button>
+          {isEditingPath ? (
+            <input
+              autoFocus
+              className="session-files-path-input"
+              aria-label={t('sftp.path')}
+              value={pathInputValue}
+              spellCheck={false}
+              dir="ltr"
+              onChange={event => setPathInputValue(event.target.value)}
+              onBlur={() => setIsEditingPath(false)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && available) void fetchFiles(pathInputValue.trim() || '/');
+                if (event.key === 'Enter' || event.key === 'Escape') setIsEditingPath(false);
+              }}
+            />
+          ) : (
+            <>
+              <nav className="session-files-crumbs" aria-label={t('sftp.path')} title={currentPath} dir="ltr">
+                <button type="button" disabled={!available || !pathSegments.length} aria-current={!pathSegments.length ? 'location' : undefined} onClick={() => void fetchFiles('/')}>/</button>
+                {pathSegments.map((part, index) => {
+                  const last = index === pathSegments.length - 1;
+                  return (
+                    <Fragment key={index}>
+                      <ChevronRight size={12} aria-hidden="true" />
+                      <button type="button" disabled={!available || last} aria-current={last ? 'location' : undefined}
+                        onClick={() => void fetchFiles('/' + pathSegments.slice(0, index + 1).join('/'))}><bdi>{part}</bdi></button>
+                    </Fragment>
+                  );
+                })}
+              </nav>
+              <button type="button" className="session-files-icon" disabled={!available} onClick={() => { setPathInputValue(currentPath); setIsEditingPath(true); }} title={t('sftp.editPath')} aria-label={t('sftp.editPath')}>
+                <Pencil size={14} aria-hidden="true" />
+              </button>
+            </>
+          )}
         </div>
-      </div>
-      
-      <div 
-        className={`px-4 py-2 text-xs flex items-center gap-1 font-mono opacity-80 overflow-x-auto whitespace-nowrap border-b-[1.5px] border-t-0 border-l-0 border-r-0 transition-colors min-h-[32px] ${isDisconnected ? 'cursor-not-allowed opacity-40' : 'cursor-text'} ${isDark ? 'bg-black/20 text-white/50 border-white/10 hover:bg-black/40' : 'bg-black/5 text-black/50 border-black/10 hover:bg-black/10'}`}
-        onClick={() => {
-          if (!isEditingPath && !isDisconnected) {
-            setPathInputValue(currentPath);
-            setIsEditingPath(true);
-          }
-        }}
-        title={isDisconnected ? "Not connected" : "Click to edit path"}
-      >
-        {isEditingPath ? (
-          <input 
-            autoFocus
-            value={pathInputValue}
-            onChange={e => setPathInputValue(e.target.value)}
-            onBlur={() => setIsEditingPath(false)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                const targetPath = pathInputValue.trim() || '/';
-                fetchFiles(targetPath);
-                setIsEditingPath(false);
-              } else if (e.key === 'Escape') {
-                setIsEditingPath(false);
-              }
-            }}
-            className="w-full bg-transparent outline-none border-none text-primary"
-          />
-        ) : (
-          <>
-            <button onClick={(e) => { e.stopPropagation(); fetchFiles('/'); }} className="hover:text-primary transition-colors cursor-pointer">{t('sftp.root')}</button>
-            {currentPath.split('/').filter(Boolean).map((part, idx, arr) => (
-               <React.Fragment key={idx}>
-                 <ChevronRight className="w-3 h-3 opacity-50" />
-                 <button onClick={(e) => { e.stopPropagation(); fetchFiles('/' + arr.slice(0, idx + 1).join('/')); }} className="hover:text-primary transition-colors cursor-pointer">{part}</button>
-               </React.Fragment>
-            ))}
-          </>
+
+        {(listingError || actionError) && <p className="session-files-error" role="alert">{listingError || actionError}</p>}
+        {truncated && !isDisconnected && <p className="session-files-notice" role="status">{t('sftp.truncated')}</p>}
+
+        <div className="session-files-list" aria-busy={loading && !isDisconnected}>
+          {isDisconnected ? (
+            <p className="session-files-empty"><Lock size={16} aria-hidden="true" />{t('sftp.disabledHint')}</p>
+          ) : (
+            <table className="session-files-table" aria-label={t('sftp.title')}>
+              <thead>
+                <tr>
+                  <th scope="col">{t('sftp.name')}</th>
+                  <th scope="col" className="session-files-size">{t('sftp.size')}</th>
+                  <th scope="col" className="session-files-modified">{t('sftp.modified')}</th>
+                  <th scope="col" className="session-files-row-actions"><span className="sr-only">{t('sftp.actions')}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {files.map(file => {
+                  const path = joinPath(currentPath, file.name);
+                  const downloading = downloadingItems.has(path);
+                  const kind = file.type === 'd' ? 'folder' : file.type === 'l' ? 'link' : 'file';
+                  const Icon = kind === 'folder' ? Folder : kind === 'link' ? Link2 : File;
+                  const modified = new Date(file.mtime * 1000);
+                  return (
+                    <tr key={file.name} onContextMenu={event => openContextMenu(event, file)}>
+                      <td title={file.name}>
+                        {kind !== 'file' ? (
+                          <button type="button" className="session-files-name" data-kind={kind} disabled={!available} onClick={() => void fetchFiles(path)}>
+                            <Icon size={16} aria-hidden="true" /><bdi>{file.name}</bdi>
+                          </button>
+                        ) : (
+                          <span className="session-files-name" onDoubleClick={() => void handleEdit(file)}>
+                            <Icon size={16} aria-hidden="true" /><bdi>{file.name}</bdi>
+                          </span>
+                        )}
+                      </td>
+                      <td className="session-files-size">{kind === 'folder' ? '–' : formatSize(file.size)}</td>
+                      <td className="session-files-modified">{Number.isNaN(modified.getTime()) ? '–' : dateFormat.format(modified)}</td>
+                      <td className="session-files-row-actions">
+                        <div className="session-files-row-buttons">
+                          {kind !== 'folder' && (
+                            <>
+                              <button type="button" className="session-files-icon" disabled={!available} onClick={() => void handleEdit(file)}
+                                aria-label={t('sftp.editNamed', { name: file.name })} title={t('sftp.edit')}>
+                                <Pencil size={14} aria-hidden="true" />
+                              </button>
+                              <button type="button" className="session-files-icon" disabled={!available || downloading} onClick={() => void handleDownload(file)}
+                                aria-label={t('sftp.downloadNamed', { name: file.name })} title={t('sftp.download')}>
+                                {downloading ? <RefreshCw size={14} aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+                              </button>
+                            </>
+                          )}
+                          <button type="button" className="session-files-icon" data-danger disabled={!available} onClick={() => void handleDelete(file)}
+                            aria-label={t('sftp.deleteNamed', { name: file.name })} title={t('sftp.delete')}>
+                            <Trash2 size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {!isDisconnected && !loading && !listingError && !files.length && (
+            <p className="session-files-empty"><Folder size={16} aria-hidden="true" />{t('sftp.empty')}</p>
+          )}
+        </div>
+        {!isDisconnected && (
+          <footer className="session-files-footer" role="status">
+            <span>{loading ? t('sftp.loading') : mutating ? t('crypto.processing') : listingError && !files.length ? '' : t('sftp.items', { count: files.length })}</span>
+            {downloadingItems.size > 0 && <span>{t('sftp.downloading', { count: downloadingItems.size })}</span>}
+          </footer>
         )}
       </div>
-
-      {promptData && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className={`p-4 rounded-xl shadow-2xl w-3/4 max-w-sm ${isDark ? 'bg-[#2a2a2a] text-white border border-white/10' : 'bg-white text-black border border-black/10'}`}>
-             <h3 className="text-sm font-bold mb-3">{promptData.type === 'file' ? 'New File' : 'New Folder'}</h3>
-             <input
-               autoFocus
-               value={promptInputValue}
-               onChange={e => setPromptInputValue(e.target.value)}
-               onKeyDown={e => {
-                 if (e.key === 'Enter') {
-                   promptData.resolve(promptInputValue);
-                   setPromptData(null);
-                 } else if (e.key === 'Escape') {
-                   promptData.resolve(null);
-                   setPromptData(null);
-                 }
-               }}
-               className={`w-full p-2 text-sm rounded-md outline-none border ${isDark ? 'bg-black/50 border-white/10' : 'bg-gray-100 border-black/10'}`}
-               placeholder={`Enter ${promptData.type} name...`}
-             />
-             <div className="flex justify-end gap-2 mt-4">
-                <button onClick={() => { promptData.resolve(null); setPromptData(null); }} className={`px-3 py-1.5 text-xs rounded-md transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>Cancel</button>
-                <button onClick={() => { promptData.resolve(promptInputValue); setPromptData(null); }} className="px-3 py-1.5 text-xs rounded-md bg-primary hover:bg-primary/80 transition-colors text-white">Create</button>
-             </div>
-          </div>
+      {createPrompt && (
+        <div className="session-files-prompt-shade">
+          <form role="dialog" aria-modal="true" aria-labelledby={promptId} className="session-files-prompt" onSubmit={event => void handleCreate(event)}
+            onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setCreatePrompt(null); } }}>
+            <h3 id={promptId}>{t(createPrompt === 'file' ? 'sftp.newFile' : 'sftp.newFolder')}</h3>
+            <input autoFocus aria-label={t('sftp.name')} placeholder={t('sftp.name')}
+              value={promptInputValue} onChange={event => setPromptInputValue(event.target.value)} />
+            <div className="session-files-actions">
+              <button type="button" className="session-files-action" onClick={() => setCreatePrompt(null)}>{t('common.cancel')}</button>
+              <button type="submit" className="session-files-action" data-primary disabled={!promptInputValue.trim()}>{t('sftp.create')}</button>
+            </div>
+          </form>
         </div>
       )}
-
-      <div className="flex-1 overflow-y-auto p-0 relative">
-        {isDisconnected ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center opacity-50 select-none">
-            <Lock className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-sm font-medium">{t('sftp.notConnected', 'SFTP is disabled')}</p>
-            <p className="text-xs mt-1 opacity-70">Connect to a server to manage files</p>
-          </div>
-        ) : error ? (
-           <div className="p-4 text-red-500 text-sm">{error}</div>
-        ) : (
-           <>
-           {truncated && <div className="px-3 py-1.5 text-xs text-amber-500">{t('sftp.truncated', '这个文件夹的内容没有全部列出：最多显示 10,000 项。')}</div>}
-           <table className="w-full text-sm text-left">
-             <thead className={`text-xs uppercase sticky top-0 z-20 shadow-sm border-b-[1.5px] border-t-0 border-l-0 border-r-0 ${isDark ? 'border-white/10' : 'border-black/10'}`}>
-               <tr>
-                 <th className={`px-2 py-2 font-medium sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.name')}</th>
-                 <th className={`px-2 py-2 font-medium w-24 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.size')}</th>
-                 <th className={`px-2 py-2 font-medium w-32 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}>{t('sftp.modified')}</th>
-                 <th className={`px-2 py-2 font-medium w-10 sticky top-0 ${isDark ? 'bg-[#1e1e1e]' : 'bg-gray-50'}`}></th>
-               </tr>
-             </thead>
-             <tbody>
-               {currentPath !== '/' && (
-                 <tr onClick={() => handleNavigate('..')} className={`cursor-pointer transition-colors ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
-                   <td className="px-2 py-2 flex items-center gap-2"><Folder className="w-4 h-4 text-blue-400" /> ..</td>
-                   <td></td><td></td><td></td>
-                 </tr>
-               )}
-               {files.map(f => (
-                 <tr 
-                   key={f.name} 
-                   onDoubleClick={() => handleDoubleClick(f)} 
-                   onClick={() => (f.type === 'd' || f.type === 'l') && handleNavigate(f.name)} 
-                   onContextMenu={(e) => {
-                     e.preventDefault();
-                     e.stopPropagation();
-                     const p = currentPath.endsWith('/') ? currentPath + f.name : currentPath + '/' + f.name;
-                     const uiExtensions = usePluginStore.getState().uiExtensions;
-                     window.electronAPI.showContextMenu({
-                        target: 'sftp',
-                        extensions: uiExtensions.sftp,
-                        contextData: { sessionId, currentPath: p, selectedFiles: [f.name] }
-                     });
-                   }}
-                   className={`group transition-colors ${f.type === 'd' || f.type === 'l' ? 'cursor-pointer' : 'cursor-pointer'} ${isDark ? 'hover:bg-white/5 border-white/5' : 'hover:bg-black/5 border-black/5'} border-b last:border-0`}
-                 >
-                   <td className="px-2 py-2 flex items-center gap-2 truncate max-w-[200px]" title={f.name}>
-                     {f.type === 'd' ? <Folder className="w-4 h-4 text-blue-400 shrink-0" /> : <File className={`w-4 h-4 shrink-0 ${f.type === 'l' ? 'text-blue-200' : 'opacity-70'}`} />}
-                     <span className="truncate">{f.name}{f.type === 'l' && ' 🔗'}</span>
-                   </td>
-                   <td className="px-2 py-2 opacity-70 font-mono text-xs">{f.type === 'd' ? '--' : formatSize(f.size)}</td>
-                   <td className="px-2 py-2 opacity-50 text-xs">{new Date(f.mtime * 1000).toLocaleDateString()}</td>
-                   <td className="px-2 py-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                     {f.type !== 'd' && (
-                       <button onClick={(e) => handleDownload(e, f)} disabled={downloadingItems.has(f.name)} className={`p-1 rounded transition-all ${downloadingItems.has(f.name) ? 'opacity-50 cursor-wait' : 'hover:text-blue-500 hover:bg-blue-500/20'}`} title="Download">
-                         <Download className="w-3.5 h-3.5" />
-                       </button>
-                     )}
-                     <button onClick={(e) => handleDelete(e, f)} className="p-1 hover:text-red-500 hover:bg-red-500/20 rounded transition-all" title="Delete">
-                       <Trash2 className="w-3.5 h-3.5" />
-                     </button>
-                   </td>
-                 </tr>
-               ))}
-             </tbody>
-           </table>
-           </>
-        )}
-      </div>
-    </div>
+    </section>
   );
 };

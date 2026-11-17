@@ -13,6 +13,7 @@ import Fuse from 'fuse.js';
 import { CommandCenterList } from './command-center/CommandCenterList';
 import { ActionDrawer, ActionDrawerItem } from './command-center/ActionDrawer';
 import { CommandCenterAiChat } from './command-center/CommandCenterAiChat';
+import './ManagementSurface.css';
 
 interface CommandCenterProps {
   isOpen: boolean;
@@ -486,7 +487,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       animate={{ opacity: 1 }}
       exit={reduceMotion ? undefined : { opacity: 0 }}
       transition={{ duration: 0.16 }}
-      className="center-workbench fixed inset-0 z-[9999] flex items-start justify-center bg-scrim pt-[10vh]"
+      className="center-workbench management-overlay fixed inset-0 z-[9999] flex items-start justify-center bg-scrim pt-[min(10vh,80px)]"
       data-glass={appConfig?.enableGlassmorphism ? 'true' : 'false'}
       onClick={handleBackdropClick}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -500,15 +501,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           role="dialog"
           aria-modal="true"
           aria-label={t('statusBar.commandCenter', 'Command Center')}
-          className={`pointer-events-auto relative flex max-h-[82vh] w-[620px] max-w-[calc(100vw-32px)] shrink-0 flex-col overflow-hidden rounded-[14px] border bg-surf text-ink shadow-[0_24px_70px_rgba(0,0,0,0.28)] ${isAiMode ? 'border-primary/60' : 'border-line'}`}
+          className="command-palette pointer-events-auto relative flex max-h-[82vh] w-[640px] max-w-[calc(100vw-32px)] shrink-0 flex-col overflow-hidden rounded-[14px] border border-line bg-surf text-ink shadow-[0_24px_56px_rgba(0,0,0,0.24)]"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between border-b border-line-soft bg-panel/60 px-4 py-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-ink-2">
-              <TerminalIcon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <div className="flex shrink-0 items-center gap-2.5 px-5 pt-3.5 pb-1.5">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
+              <TerminalIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
               {t('statusBar.commandCenter', 'Command Center')}
             </div>
-            <span className="text-[11px] text-ink-3">{isAiMode ? (zh ? 'AI 调度' : 'AI dispatch') : (zh ? '搜索与执行' : 'Search and execute')}</span>
           </div>
 
           {isPolluted && (
@@ -522,13 +522,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
             </div>
           )}
 
-          <div className="relative z-10 flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
+          <div className="command-palette-search relative z-10 mx-4 mt-2 mb-1 flex shrink-0 items-center gap-3 rounded-lg border border-line bg-surf-2 px-3 py-1.5 focus-within:border-primary">
             {isAiMode ? <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />}
             <input
               ref={inputRef}
               type="text"
               aria-label={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
-              className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+              className="min-h-8 min-w-0 flex-1 border-none bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
               placeholder={isAiMode ? t('commandCenter.aiPlaceholder', 'Ask AI to run commands or open servers...') : t('commandCenter.searchPlaceholder', 'Search actions, hosts, plugins...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -537,7 +537,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
             />
             <button
               type="button"
-              className="flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-primary/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surf px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-primary/50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               onClick={() => { setIsAiMode(!isAiMode); setIsActionMenuOpen(false); inputRef.current?.focus(); }}
               aria-label={t('commandCenter.aiModeToggle', 'Toggle AI Mode')}
               aria-pressed={isAiMode}
@@ -565,7 +565,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
             />
           )}
           
-          <div className="flex items-center justify-between gap-3 border-t border-line bg-panel/60 px-4 py-2.5 text-[11px] text-ink-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-line bg-panel px-4 py-2.5 text-[11px] text-ink-3">
             <span>{isAiMode ? (zh ? 'AI 权限遵循智能体模式设置' : 'AI access follows your agent mode') : (zh ? '主机 · 操作 · 插件 · Runbook' : 'Hosts · Actions · Plugins · Runbooks')}</span>
             <div className="flex shrink-0 items-center gap-3">
               {!isAiMode && <span className="hidden items-center gap-1 sm:flex"><kbd className="rounded border border-line px-1 font-mono">↑↓</kbd>{t('commandCenter.navigate', 'Navigate')}</span>}

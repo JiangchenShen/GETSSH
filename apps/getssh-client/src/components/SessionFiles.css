@@ -1,0 +1,168 @@
+.session-files {
+  --files-accent: rgb(var(--primary-color));
+  --files-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  border-top: 1px solid var(--v2-line);
+  color: var(--v2-ink);
+  background: var(--v2-surf);
+  container-type: inline-size;
+}
+
+.session-files-body {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.session-files-header,
+.session-files-route,
+.session-files-footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding-inline: 14px;
+}
+
+.session-files-header {
+  grid-row: 1;
+  min-height: 40px;
+  justify-content: space-between;
+  padding-block: 5px;
+  border-bottom: 1px solid var(--v2-line-soft);
+  background: var(--v2-panel);
+}
+
+.session-files-identity,
+.session-files-actions,
+.session-files-crumbs,
+.session-files-row-buttons {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.session-files-identity { gap: 8px; }
+.session-files-identity svg { flex: none; color: var(--files-accent); }
+.session-files-identity h2 { margin: 0; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.session-files-endpoint {
+  overflow: hidden;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--v2-line);
+  color: var(--v2-ink-2);
+  font: 11px/1.5 var(--files-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.session-files-actions { flex: none; gap: 4px; }
+.session-files :is(.session-files-action, .session-files-icon) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--v2-ink-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.session-files .session-files-action { padding-inline: 8px; border-color: var(--v2-line); background: var(--v2-surf); }
+.session-files-icon { width: 28px; }
+.session-files :is(.session-files-action, .session-files-icon):hover:not(:disabled) { color: var(--v2-ink); background: var(--v2-surf-2); }
+.session-files .session-files-icon[data-danger]:hover:not(:disabled) { color: var(--v2-down); background: color-mix(in srgb, var(--v2-down) 10%, var(--v2-surf)); }
+.session-files :is(button, input):focus-visible { outline: 2px solid var(--files-accent); outline-offset: -2px; }
+.session-files button:disabled { cursor: default; }
+.session-files :is(.session-files-action, .session-files-icon):disabled { opacity: .45; }
+.session-files .session-files-action[data-primary] { border-color: transparent; color: var(--primary-ink); background: var(--files-accent); }
+.session-files .session-files-action[data-primary]:hover:not(:disabled) { color: var(--primary-ink); background: color-mix(in srgb, var(--files-accent) 90%, var(--v2-ink)); }
+
+.session-files-route {
+  grid-row: 2;
+  min-height: 36px;
+  gap: 5px;
+  border-bottom: 1px solid var(--v2-line-soft);
+  background: var(--v2-surf);
+}
+
+.session-files-crumbs {
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  color: var(--v2-ink-2);
+  font: 11px/1.5 var(--files-mono);
+}
+
+.session-files-crumbs svg { flex: none; color: var(--v2-ink-3); }
+.session-files-crumbs button { flex: none; min-height: 24px; padding: 0 3px; border-radius: 4px; white-space: nowrap; }
+.session-files-crumbs button:hover:not(:disabled) { color: var(--files-accent); background: var(--v2-surf-2); }
+.session-files-crumbs button[aria-current] { color: var(--v2-ink); font-weight: 650; }
+.session-files-path-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px 7px;
+  border: 1px solid var(--v2-line);
+  border-radius: 5px;
+  color: var(--v2-ink);
+  background: var(--v2-bg);
+  font: 11px/1.5 var(--files-mono);
+}
+
+.session-files-error,
+.session-files-notice {
+  margin: 0;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--v2-line-soft);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.session-files-error { grid-row: 3; color: var(--v2-down); background: color-mix(in srgb, var(--v2-down) 8%, var(--v2-surf)); }
+.session-files-notice { grid-row: 4; color: var(--v2-warn); background: color-mix(in srgb, var(--v2-warn) 8%, var(--v2-surf)); }
+.session-files-list { grid-row: 5; min-width: 0; min-height: 0; overflow: auto; }
+.session-files-table { width: 100%; min-width: 280px; border-collapse: separate; border-spacing: 0; table-layout: fixed; text-align: start; }
+.session-files-table :is(td, th) { padding: 4px 8px; border-bottom: 1px solid var(--v2-line-soft); }
+.session-files-table :is(td, th):first-child { padding-inline-start: 14px; }
+.session-files-table th { position: sticky; z-index: 1; top: 0; height: 27px; color: var(--v2-ink-2); background: var(--v2-bg); font-size: 11px; font-weight: 550; text-align: start; }
+.session-files-table td { font-size: 11px; }
+.session-files-table tbody tr:is(:hover, :focus-within) { background: color-mix(in srgb, var(--files-accent) 7%, var(--v2-surf)); }
+.session-files-table tbody tr:last-child td { border-bottom-color: transparent; }
+.session-files-size { width: 92px; }
+.session-files-modified { width: 166px; }
+.session-files-table td:is(.session-files-size, .session-files-modified) { color: var(--v2-ink-2); font-family: var(--files-mono); white-space: nowrap; }
+.session-files-table .session-files-row-actions { width: 107px; padding-block: 1px; }
+.session-files-row-buttons { justify-content: flex-end; gap: 1px; }
+.session-files-name { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; min-height: 24px; color: var(--v2-ink); font-family: var(--files-mono); text-align: start; }
+.session-files-name bdi { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-files-name svg { flex: none; color: var(--v2-ink-2); }
+.session-files-name[data-kind] svg, .session-files-name[data-kind]:hover:not(:disabled) { color: var(--files-accent); }
+.session-files-empty { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 16px; color: var(--v2-ink-2); font-size: 12px; }
+.session-files-footer { grid-row: 6; justify-content: space-between; flex-wrap: wrap; min-height: 23px; border-top: 1px solid var(--v2-line-soft); color: var(--v2-ink-2); background: var(--v2-bg); font-size: 10px; }
+
+.session-files-prompt-shade { position: absolute; z-index: 3; inset: 0; display: grid; align-items: center; justify-items: center; padding: 10px; background: var(--v2-scrim); overflow: auto; }
+.session-files-prompt { display: grid; gap: 12px; width: min(100%, 330px); padding: 14px; border: 1px solid var(--v2-line); border-radius: 12px; background: var(--v2-surf); box-shadow: 0 12px 32px rgb(0 0 0 / 18%); }
+.session-files-prompt h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.session-files-prompt input { min-width: 0; width: 100%; min-height: 29px; padding: 4px 7px; border: 1px solid var(--v2-line); border-radius: 6px; color: var(--v2-ink); background: var(--v2-bg); font: 12px/1.5 var(--files-mono); }
+.session-files-prompt .session-files-actions { justify-content: flex-end; }
+
+@container (max-width: 630px) {
+  .session-files-header .session-files-action { width: 28px; padding-inline: 0; }
+  .session-files-header .session-files-action span { display: none; }
+  .session-files-size { width: 73px; }
+  .session-files-modified { width: 133px; }
+}
+
+@container (max-width: 445px) {
+  .session-files-header, .session-files-route, .session-files-footer { padding-inline: 8px; }
+  .session-files-table :is(th, td):first-child { padding-inline-start: 8px; }
+  .session-files-modified { display: none; }
+}
