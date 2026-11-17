@@ -1,22 +1,24 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
-import { Layers3, Plus, Search, Server, Shield } from 'lucide-react';
+import { ChevronDown, Layers3, Plus, Search, Server, Shield } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useCryptoStore } from '../store/cryptoStore';
-import { isSSHConfig, savedProfiles, useSessionStore, type PaneNode, type SessionProfile, type Tab } from '../store/sessionStore';
+import { callTidal, isSSHConfig, savedProfiles, useSessionStore, type PaneLeaf, type PaneNode, type SessionProfile } from '../store/sessionStore';
 import type { SecurityStatus } from '../types/ipc';
 import { CryptoModal } from './CryptoModal';
 import { HomeHostMap } from './HomeHostMap';
 import { HostOsIcon } from './HostOsIcon';
 import { lookupIpCountry } from '../utils/ipCountry';
+import { findZoomedPane, updateLeafInTree } from '../utils/paneHelpers';
 import logo from '../assets/logo.png';
 import './TidalDashboard.css';
 
 interface TidalDashboardProps {
   onConnect?: (session: SessionProfile) => void;
+  onEdit?: (session: SessionProfile) => void;
   navigation?: React.ReactNode;
   assets?: React.ReactNode;
   notice?: React.ReactNode;
@@ -29,8 +31,16 @@ const formatAddress = (profile: SessionProfile, defaultPort: number) => {
   return `${user}${hostname}:${profile.port || (profile.protocol === 'telnet' ? 23 : defaultPort)}`;
 };
 
+function findProfilePane(node: PaneNode, profileId: string, workspaceId: string): PaneLeaf | null {
+  if (node.type !== 'leaf') {
+    return findProfilePane(node.children[0], profileId, workspaceId) ?? findProfilePane(node.children[1], profileId, workspaceId);
+  }
+  return node.paneType === 'terminal' && isSSHConfig(node.config) && node.config.profileId === profileId
+    && node.config.workspaceId === workspaceId ? node : null;
+}
+
 /** Workspace overview and work entry points, using current layout and protection metadata. */
-export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navigation, assets, notice }) => {
+export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdit, navigation, assets, notice }) => {
   const { t, i18n } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
   const isMac = useAppStore(state => state.isMac);
@@ -51,10 +61,19 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
   const profilesWorkspaceId = useSessionStore(state => state.profilesWorkspaceId);
   const tabs = useSessionStore(state => state.tabs);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
+  const setActivePaneId = useSessionStore(state => state.setActivePaneId);
+  const setTabs = useSessionStore(state => state.setTabs);
+  const connecting = useSessionStore(state => state.connecting);
+  const error = useSessionStore(state => state.error);
 
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [attempted, setAttempted] = useState<{ id: string; workspaceId: string } | null>(null);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const workspaceButton = useRef<HTMLButtonElement>(null);
+  const workspaceMenuId = useId();
+  const rows = useRef(new Map<string, HTMLLIElement>());
   const [protectionMetadata, setProtectionMetadata] = useState<{ workspaceId: string; status: SecurityStatus | null } | null>(null);
   const profilesReady = !isVaultLocked && !isSwitching && profilesWorkspaceId === activeWorkspaceId;
   const savedSessions = useMemo(() => profilesReady
@@ -66,6 +85,8 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
     setSearch('');
     setGroup(null);
     setSelectedId(null);
+    setAttempted(null);
+    setWorkspaceMenuOpen(false);
   }, [activeWorkspaceId, isVaultLocked]);
 
   useEffect(() => {
@@ -150,8 +171,9 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
       group: profile.group?.trim() || '',
     };
   });
-  const groups = Array.from(new Set(hosts.map(host => host.group)));
-  const activeGroup = group !== null && groups.includes(group) ? group : null;
+  const groups = new Map<string, number>();
+  for (const host of hosts) groups.set(host.group, (groups.get(host.group) ?? 0) + 1);
+  const activeGroup = group !== null && groups.has(group) ? group : null;
   const query = search.trim().toLocaleLowerCase();
   const visibleHosts = hosts.filter(host => (activeGroup === null || host.group === activeGroup)
     && [host.name, host.address, host.group, host.country, host.countryCode].some(value => value?.toLocaleLowerCase().includes(query)));
@@ -171,25 +193,38 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
     detail: { type: 'workspace', title: t('welcome.dashboard.workspaceCenter'), workspacePage: 'all' },
   }));
 
-  const paneContainsProfile = (node: PaneNode, profileId: string): boolean => node.type === 'leaf'
-    ? isSSHConfig(node.config)
-      && node.config.profileId === profileId
-      && node.config.workspaceId === activeWorkspaceId
-    : paneContainsProfile(node.children[0], profileId) || paneContainsProfile(node.children[1], profileId);
-  const matchingTab = (session: SessionProfile): Tab | undefined => tabs.find(tab => !tab.isTornOff
-    && !!session.id
-    && tab.workspaceId === activeWorkspaceId
-    && !!tab.paneTree
-    && paneContainsProfile(tab.paneTree, session.id));
+  const openTabs = tabs.filter(tab => !tab.isTornOff && tab.workspaceId === activeWorkspaceId && tab.paneTree);
+  const matchingPane = (session: SessionProfile) => {
+    if (!session.id) return;
+    for (const tab of openTabs) {
+      const pane = findProfilePane(tab.paneTree!, session.id, activeWorkspaceId);
+      if (pane) return { tab, pane };
+    }
+  };
 
-  const openHost = (session: SessionProfile) => {
-    const existing = matchingTab(session);
+  const openHost = (host: typeof hosts[number], existing: ReturnType<typeof matchingPane>) => {
     if (existing) {
-      setActiveTabId(existing.id);
+      const { tab, pane } = existing;
+      const zoomed = findZoomedPane(tab.paneTree!);
+      if (zoomed && zoomed.paneId !== pane.paneId) {
+        setTabs(tabs.map(item => item.id === tab.id
+          ? { ...item, paneTree: updateLeafInTree(tab.paneTree!, zoomed.paneId, { isZoomed: false }) }
+          : item));
+        void callTidal('reveal host pane', window.electronAPI.tidalToggleZoom(zoomed.paneId));
+      }
+      setActiveTabId(tab.id);
+      setActivePaneId(pane.paneId);
       return;
     }
-    if (onConnect) onConnect(session);
-    else setIsCommandCenterOpen(true);
+    if (onConnect) {
+      setAttempted({ id: host.id, workspaceId: activeWorkspaceId });
+      onConnect(host.profile);
+    } else setIsCommandCenterOpen(true);
+  };
+
+  const selectOnMap = (id: string) => {
+    setSelectedId(id);
+    rows.current.get(id)?.scrollIntoView({ block: 'nearest' });
   };
 
   const groupedHosts = new Map<string, typeof visibleHosts>();
@@ -200,6 +235,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
   }
   const groupName = (value: string) => value || t('welcome.home.ungrouped');
   const locating = hosts.some(host => !host.local) && !countryCodes;
+  const attemptedHost = attempted?.workspaceId === activeWorkspaceId ? hosts.find(host => host.id === attempted.id) : undefined;
 
   return (
     <main className="home-shell" data-window-controls={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
@@ -213,10 +249,32 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
         <button type="button" className="home-new" disabled={isSwitching} onClick={() => createSession()}>
           <Plus size={16} aria-hidden="true" />{t('welcome.home.addHost')}
         </button>
-        <button type="button" className="home-workspace" onClick={openWorkspace} title={workspaceName}
-          aria-label={`${t('welcome.home.currentWorkspace')} · ${workspaceName}`}>
-          <Layers3 size={16} aria-hidden="true" /><strong>{workspaceName}</strong>
-        </button>
+        <div className="home-workspace-control no-drag-region"
+          onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setWorkspaceMenuOpen(false); }}
+          onKeyDown={event => {
+            if (event.key !== 'Escape' || !workspaceMenuOpen) return;
+            event.stopPropagation();
+            setWorkspaceMenuOpen(false);
+            workspaceButton.current?.focus();
+          }}>
+          <button type="button" ref={workspaceButton} className="home-workspace" title={workspaceName}
+            aria-label={`${t('welcome.home.currentWorkspace')} · ${workspaceName}`}
+            aria-expanded={openTabs.length ? workspaceMenuOpen : undefined}
+            aria-controls={workspaceMenuOpen && openTabs.length ? workspaceMenuId : undefined}
+            disabled={isSwitching} onClick={() => openTabs.length ? setWorkspaceMenuOpen(!workspaceMenuOpen) : openWorkspace()}>
+            <Layers3 size={16} aria-hidden="true" /><strong>{workspaceName}</strong>
+            {openTabs.length > 0 && <ChevronDown size={12} aria-hidden="true" />}
+          </button>
+          {workspaceMenuOpen && openTabs.length > 0 && (
+            <div id={workspaceMenuId} className="home-workspace-menu">
+              <button type="button" onClick={openWorkspace}>{t('welcome.home.manageWorkspace')}</button>
+              <div className="home-open-tabs" role="group" aria-label={t('welcome.home.openTabs')}>
+                <span>{t('welcome.home.openTabs')}</span>
+                {openTabs.map(tab => <button type="button" key={tab.id} title={tab.title} onClick={() => setActiveTabId(tab.id)}>{tab.title}</button>)}
+              </div>
+            </div>
+          )}
+        </div>
       </header>
       {notice}
       <div className="home-frame" data-with-navigation={!!navigation}>
@@ -236,35 +294,51 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
                     <button type="button" aria-pressed={activeGroup === null} onClick={() => setGroup(null)}>
                       {t('welcome.home.allHosts')} <span>{hosts.length}</span>
                     </button>
-                    {groups.map(value => (
+                    {Array.from(groups, ([value, count]) => (
                       <button type="button" key={value} aria-pressed={activeGroup === value} onClick={() => setGroup(value)}>
-                        {groupName(value)} <span>{hosts.filter(host => host.group === value).length}</span>
+                        {groupName(value)} <span>{count}</span>
                       </button>
                     ))}
                   </div>
+                  {attemptedHost && !connecting && error && (
+                    <p className="home-connect-error" role="alert"><strong>{attemptedHost.name}</strong> · {error}</p>
+                  )}
 
                   {!profilesReady ? <p className="home-empty" role="status">{t('welcome.home.loadingHosts')}</p> : (
                     visibleHosts.length > 0 ? Array.from(groupedHosts, ([name, items]) => (
                       <section key={name} className="home-host-group" aria-label={groupName(name)}>
                         <h2>{groupName(name)} · {items.length}</h2>
                         <ul className="home-host-list">
-                          {items.map(host => (
-                            <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id}>
-                              <button type="button" className="home-host-select" aria-pressed={selection?.id === host.id}
-                                onClick={() => setSelectedId(host.id)}>
-                                <HostOsIcon osType={host.profile.osType} />
-                                <span className="home-host-main"><strong title={host.name}>{host.name}</strong><small title={host.address}>{host.address}</small></span>
-                                {!host.local && <small className="home-host-country" title={host.country || undefined}>
-                                  {host.countryCode && <span className="home-country-flag" aria-hidden="true">{Array.from(host.countryCode, character => String.fromCodePoint(127397 + character.charCodeAt(0))).join('')}</span>}
-                                  {host.country || t(locating ? 'welcome.home.checking' : 'welcome.home.map.unknown')}
-                                </small>}
-                              </button>
-                              <button type="button" className="home-host-open" onClick={() => openHost(host.profile)}>
-                                {t(matchingTab(host.profile) ? 'welcome.home.switchTab' : 'welcome.home.connect')}
-                                <span className="sr-only"> {host.name}</span>
-                              </button>
-                            </li>
-                          ))}
+                          {items.map(host => {
+                            const existing = matchingPane(host.profile);
+                            const pending = connecting && attemptedHost?.id === host.id;
+                            return (
+                              <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id}
+                                ref={element => {
+                                  if (element) rows.current.set(host.id, element);
+                                  else rows.current.delete(host.id);
+                                }}>
+                                <button type="button" className="home-host-select" aria-pressed={selection?.id === host.id}
+                                  onClick={() => setSelectedId(host.id)}>
+                                  <HostOsIcon osType={host.profile.osType} />
+                                  <span className="home-host-main"><strong title={host.name}>{host.name}</strong><small title={host.address}>{host.address}</small></span>
+                                  {!host.local && <small className="home-host-country" title={host.country || undefined}>
+                                    {host.countryCode && <span className="home-country-flag" aria-hidden="true">{Array.from(host.countryCode, character => String.fromCodePoint(127397 + character.charCodeAt(0))).join('')}</span>}
+                                    {host.country || t(locating ? 'welcome.home.checking' : 'welcome.home.map.unknown')}
+                                  </small>}
+                                </button>
+                                <button type="button" className="home-host-open" disabled={connecting || isSwitching}
+                                  onClick={() => openHost(host, existing)}>
+                                  {t(pending ? 'connection.connecting' : existing ? 'welcome.home.switchTab' : 'welcome.home.connect')}
+                                  <span className="sr-only"> {host.name}</span>
+                                </button>
+                                {onEdit && <button type="button" className="home-host-edit" disabled={connecting || isSwitching}
+                                  onClick={() => onEdit(host.profile)}>
+                                  {t('welcome.home.editHost')}<span className="sr-only"> {host.name}</span>
+                                </button>}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </section>
                     )) : (
@@ -279,7 +353,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, navig
                 </section>
 
                 <HomeHostMap hosts={visibleHosts.filter(host => !host.local)} selectedId={selection?.id ?? null}
-                  onSelect={setSelectedId} loading={!profilesReady || locating} />
+                  onSelect={selectOnMap} loading={!profilesReady || locating} />
               </div>
 
               <footer className="home-footer">

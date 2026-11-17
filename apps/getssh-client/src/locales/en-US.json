@@ -379,6 +379,8 @@
         "returnToTab": "Return to tab",
         "openTab": "Open tab",
         "switchTab": "Switch tab",
+        "openTabs": "Open tabs",
+        "editHost": "Edit",
         "saved": "Host shortcuts",
         "savedHosts": "Saved hosts",
         "connect": "Connect",
@@ -776,6 +778,7 @@
       "saveAndConnect": "Save & Connect",
       "disconnecting": "Disconnecting...",
       "connecting": "Connecting...",
+      "failed": "Couldn't connect. Try again.",
       "connectBtn": "Connect",
       "loadingProfiles": "Loading saved hosts…",
       "protocol": {

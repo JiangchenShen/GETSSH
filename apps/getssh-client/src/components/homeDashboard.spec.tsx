@@ -12,7 +12,11 @@ const mocks = vi.hoisted(() => ({
   profilesWorkspaceId: 'current' as string | null,
   sessions: [] as SessionProfile[],
   tabs: [] as Tab[],
+  connecting: false,
+  error: null as string | null,
   setActiveTabId: vi.fn(),
+  setActivePaneId: vi.fn(),
+  setTabs: vi.fn(),
   onConnect: vi.fn(),
   language: 'en-US',
 }));
@@ -42,7 +46,9 @@ vi.mock('../store/cryptoStore', () => ({ useCryptoStore: (select: (state: any) =
 vi.mock('../store/sessionStore', async importOriginal => ({
   ...await importOriginal<typeof import('../store/sessionStore')>(),
   useSessionStore: (select: (state: any) => any) => select({
-    sessions: mocks.sessions, profilesWorkspaceId: mocks.profilesWorkspaceId, tabs: mocks.tabs, setActiveTabId: mocks.setActiveTabId,
+    sessions: mocks.sessions, profilesWorkspaceId: mocks.profilesWorkspaceId, tabs: mocks.tabs,
+    connecting: mocks.connecting, error: mocks.error,
+    setActiveTabId: mocks.setActiveTabId, setActivePaneId: mocks.setActivePaneId, setTabs: mocks.setTabs,
   }),
 }));
 vi.mock('../lib/workspaceUnlock', () => ({ unlockActiveWorkspaceWithPassword: vi.fn(), unlockActiveWorkspaceWithPresence: vi.fn() }));
@@ -73,6 +79,7 @@ const tab = (id: string, workspaceId: string, paneTree: PaneNode, isTornOff = fa
 let root: Root;
 let container: HTMLDivElement;
 let status: ReturnType<typeof vi.fn>;
+let toggleZoom: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.workspaceId = 'current';
@@ -80,8 +87,11 @@ beforeEach(() => {
   mocks.language = 'en-US';
   mocks.sessions = [];
   mocks.tabs = [];
+  mocks.connecting = false;
+  mocks.error = null;
   status = vi.fn().mockResolvedValue(metadata());
-  window.electronAPI = { security: { status } } as unknown as Window['electronAPI'];
+  toggleZoom = vi.fn().mockResolvedValue({ success: true });
+  window.electronAPI = { security: { status }, tidalToggleZoom: toggleZoom } as unknown as Window['electronAPI'];
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement('div');
   document.body.append(container);
@@ -139,12 +149,57 @@ describe('home dashboard data boundaries', () => {
     expect(mocks.setActiveTabId).not.toHaveBeenCalled();
 
     mocks.onConnect.mockClear();
-    mocks.tabs.push(tab('current-tab', 'current', pane));
+    const split: PaneNode = {
+      type: 'hsplit', paneId: 'split', sizes: [50, 50],
+      children: [{ ...terminal('other-pane'), isZoomed: true }, pane],
+    };
+    mocks.tabs.push(tab('current-tab', 'current', split));
     await render();
     expect(container.querySelector('.home-host-open')?.textContent).toContain('Switch tab');
     await act(async () => container.querySelector<HTMLButtonElement>('.home-host-open')!.click());
     expect(mocks.setActiveTabId).toHaveBeenCalledWith('current-tab');
+    expect(mocks.setActivePaneId).toHaveBeenCalledWith('current');
+    expect(toggleZoom).toHaveBeenCalledWith('other-pane');
+    expect(mocks.setTabs.mock.lastCall?.[0].at(-1).paneTree.children[0].isZoomed).toBe(false);
     expect(mocks.onConnect).not.toHaveBeenCalled();
+  });
+
+  it('shows a pending state and retryable connection error for the attempted host', async () => {
+    const profile = { id: 'alpha', alias: 'Alpha', host: 'alpha.example', username: 'deploy' };
+    mocks.sessions = [profile, { id: 'beta', alias: 'Beta', host: 'beta.example', username: 'ops' }];
+    await render();
+    const buttons = container.querySelectorAll<HTMLButtonElement>('.home-host-open');
+    await act(async () => buttons[0].click());
+    expect(mocks.onConnect).toHaveBeenCalledWith(profile);
+
+    mocks.connecting = true;
+    await render();
+    expect(buttons[0].textContent).toContain(en.translation.connection.connecting);
+    expect(buttons[1].textContent).not.toContain(en.translation.connection.connecting);
+    expect([...buttons].every(button => button.disabled)).toBe(true);
+
+    mocks.connecting = false;
+    mocks.error = 'Host is unreachable';
+    await render();
+    const message = container.querySelector('.home-connect-error[role="alert"]');
+    expect(message?.textContent).toContain('Alpha');
+    expect(message?.textContent).toContain(mocks.error);
+    expect(buttons[0].disabled).toBe(false);
+  });
+
+  it('offers only current workspace tabs in the workspace menu', async () => {
+    mocks.tabs = [
+      tab('temporary-session', 'current', terminal('temporary-pane')),
+      tab('other-workspace', 'other', terminal('other-pane')),
+      tab('torn-off', 'current', terminal('torn-pane'), true),
+    ];
+    await render();
+    expect(container.querySelector('.home-workspace-menu')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('.home-workspace')!.click());
+    const tabs = container.querySelectorAll<HTMLButtonElement>('.home-workspace-menu .home-open-tabs button');
+    expect([...tabs].map(button => button.textContent)).toEqual(['temporary-session']);
+    await act(async () => tabs[0].click());
+    expect(mocks.setActiveTabId).toHaveBeenCalledWith('temporary-session');
   });
 
   it('searches real host names and addresses without opening a connection', async () => {

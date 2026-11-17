@@ -72,7 +72,8 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     const localHostRow = () => home().locator('.home-host-row').filter({ hasText: '本地终端 · UI 测试' });
     const assertSimpleHome = async () => {
       await expect(home().locator('.home-connect, .home-resume, .home-summary, .home-session-tabs, .home-navigation-tools')).toHaveCount(0);
-      await expect(home().locator('.home-navigation-list > button')).toHaveCount(3);
+      await expect(home().locator('.home-navigation-list > button')).toHaveCount(2);
+      await expect(home().getByRole('button', { name: /^(文件|Files)(管理)?$/i, includeHidden: true })).toHaveCount(0);
     };
     const assertNoHorizontalOverflow = async () => {
       await expect.poll(() => home().locator('.home-scroll').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
@@ -148,10 +149,15 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await home().locator('.home-search input').fill('beta.example.test');
     await expect(home().locator('.home-host-row')).toHaveCount(1);
     await expect(home().locator('.home-host-row')).toContainText('UI 测试 · Beta');
+    await home().locator('.home-host-edit').click();
+    await expect(form()).toBeVisible();
+    await expect(form().locator('input[placeholder="ssh://user@host:22"]')).toHaveValue('beta.example.test');
+    await form().getByRole('button', { name: copy.common.cancel, exact: true }).click();
+    await expect(home()).toBeVisible();
     await home().locator('.home-search input').fill('');
     await expect(home().locator('.home-host-row')).toHaveCount(3);
     await screenshot('home-dashboard-zh-saved-hosts.png');
-    console.log('PASS: three clearly marked test profiles loaded by real IPC and normal app boot; no SSH connection is attempted.');
+    console.log('PASS: three test profiles loaded by real IPC; search and Edit open the matching host, with no SSH connection attempted.');
 
     await page.evaluate(() => {
       window.__homeDashboardLocal = null;
@@ -173,6 +179,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     await form().getByRole('button', { name: copy.connection.connectBtn, exact: true }).click();
     await expect(home()).toHaveCount(0);
     await expect(page.locator('.xterm-helper-textarea:visible')).toHaveCount(1);
+    await expect(page.getByTitle(copy.sftp.title, { exact: true })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => window.__homeDashboardLocal?.sessionId)).toBeTruthy();
     const local = await page.evaluate(() => window.__homeDashboardLocal);
     const onlineLocal = () => page.evaluate(async id => (await window.electronAPI.getConnectionLogs()).filter(log => log.id === id && log.host === 'localhost' && log.disconnectedAt === 'Online'), local.sessionId);
@@ -211,8 +218,16 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     expect(await onlineLocal()).toHaveLength(1);
     await screenshot('home-dashboard-zh-live-terminal-light.png');
 
+    await home().locator('.home-workspace').click();
+    const workspaceMenu = home().locator('.home-workspace-menu');
+    await workspaceMenu.getByRole('button', { name: '本地终端 · UI 测试', exact: true }).click();
+    await expect(home()).toHaveCount(0);
+    await expect(page.locator('.xterm-helper-textarea:visible')).toHaveCount(1);
+    expect(await page.evaluate(() => window.__homeDashboardLocal)).toEqual(local);
+
     await returnHome();
     await home().locator('.home-workspace').click();
+    await workspaceMenu.getByRole('button', { name: copy.welcome.home.manageWorkspace, exact: true }).click();
     await expect(home()).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: copy.workspaceCenter.title, exact: true })).toBeVisible();
     expect(await onlineLocal()).toHaveLength(1);
@@ -224,7 +239,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     const logs = await page.evaluate(() => window.electronAPI.getConnectionLogs());
     expect(logs.filter(log => log.disconnectedAt === 'Online')).toHaveLength(1);
     expect(logs.every(log => log.host === 'localhost')).toBe(true);
-    console.log('PASS: Home workspace and security actions reach their actual pages without closing the local session; no SSH hosts were contacted.');
+    console.log('PASS: The workspace menu reopens the same local session and reaches workspace settings; the security action also works, and no SSH hosts were contacted.');
 
     // Review the longer English copy using the same real profiles and live PTY.
     await page.getByRole('navigation', { name: '设置分类', exact: true }).getByRole('button', { name: '通用', exact: true }).click();

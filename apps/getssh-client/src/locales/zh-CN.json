@@ -408,6 +408,8 @@
         "returnToTab": "返回标签",
         "openTab": "打开标签",
         "switchTab": "切换标签",
+        "openTabs": "已打开的标签",
+        "editHost": "编辑",
         "saved": "主机入口",
         "savedHosts": "已保存主机",
         "connect": "连接",
@@ -905,6 +907,7 @@
       "saveAndConnect": "保存并连接",
       "disconnecting": "正在断开连接...",
       "connecting": "正在连接...",
+      "failed": "无法连接，请重试。",
       "connectBtn": "连接",
       "loadingProfiles": "正在读取已保存主机…",
       "protocol": {

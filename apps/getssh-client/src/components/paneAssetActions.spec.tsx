@@ -17,7 +17,7 @@ vi.mock('../store/appStore', () => ({ useAppStore: Object.assign(
   (select: (state: any) => any) => select({}), { getState: () => ({ addToast: mocks.toast }) },
 ) }));
 vi.mock('../store/panelStore', () => ({ usePanelStore: (select: (state: any) => any) => select({ activePanelId: null }) }));
-vi.mock('./SplitPane', () => ({ isSftpCapable: () => false }));
+vi.mock('./SplitPane', () => ({ useSftpPane: () => null }));
 vi.mock('./SFTPManager', () => ({ SFTP_PANEL_ID: 'sftp' }));
 vi.mock('../registry/paneRegistry', () => ({ paneRegistry: { render: (context: any) => { mocks.paneContext = context; return null; } } }));
 

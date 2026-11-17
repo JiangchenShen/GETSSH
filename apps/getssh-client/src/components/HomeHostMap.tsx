@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import map from '../assets/home-host-map.json';
@@ -19,11 +19,63 @@ interface HomeHostMapProps {
 
 const anchors: Record<string, number[] | undefined> = map.anchors;
 
+interface MarkerGroup {
+  key: string;
+  codes: string[];
+  hosts: HomeHostMapHost[];
+  x: number;
+  y: number;
+}
+
+function groupNearbyMarkers(countries: Map<string, HomeHostMapHost[]>, width: number, height: number): MarkerGroup[] {
+  const markers = Array.from(countries).sort(([a], [b]) => a.localeCompare(b)).map(([code, hosts]) => ({
+    key: code, codes: [code], hosts, x: anchors[code]![0], y: anchors[code]![1],
+  }));
+  if (!width || !height) return markers;
+  // Keep the 24 px button hit areas separated by 4 px. Recheck after each merge,
+  // since moving a cluster to its centre can bring it close to another marker.
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < markers.length && !merged; i++) {
+      for (let j = i + 1; j < markers.length; j++) {
+        const a = markers[i], b = markers[j];
+        if (Math.abs(a.x - b.x) * width / 100 >= 28 || Math.abs(a.y - b.y) * height / 100 >= 28) continue;
+        const codes = [...a.codes, ...b.codes].sort();
+        markers[i] = {
+          key: codes.join(','), codes, hosts: [...a.hosts, ...b.hosts],
+          x: (a.x * a.codes.length + b.x * b.codes.length) / codes.length,
+          y: (a.y * a.codes.length + b.y * b.codes.length) / codes.length,
+        };
+        markers.splice(j, 1);
+        merged = true;
+        break;
+      }
+    }
+  }
+  return markers;
+}
+
 export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMapProps) {
   const { t, i18n } = useTranslation();
   const titleId = useId();
   const choicesId = useId();
-  const [openRegion, setOpenRegion] = useState<{ code: string; selection: string | null }>();
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const [openRegion, setOpenRegion] = useState<{ key: string; selection: string | null }>();
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const measure = ({ width, height }: { width: number; height: number }) => setCanvasSize(previous =>
+      previous.width === width && previous.height === height ? previous : { width, height });
+    measure(canvas.getBoundingClientRect());
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      if (entries[0]) measure(entries[0].contentRect);
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
   const names = new Intl.DisplayNames(i18n.language || 'en', { type: 'region' });
   const groups = new Map<string, HomeHostMapHost[]>();
   for (const host of hosts) {
@@ -33,10 +85,11 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
     else groups.set(host.countryCode, [host]);
   }
 
+  const markers = groupNearbyMarkers(groups, canvasSize.width, canvasSize.height);
+  const regionName = (codes: string[]) => codes.map(code => names.of(code) || code).join(' · ');
   const selected = hosts.find(host => host.id === selectedId);
-  const unknownCount = hosts.filter(host => !host.countryCode).length;
-  const expandedCode = openRegion && openRegion.selection === selectedId ? openRegion.code : undefined;
-  const expandedGroup = expandedCode ? groups.get(expandedCode) : undefined;
+  const unknownCount = hosts.filter(host => !host.countryCode || !anchors[host.countryCode]).length;
+  const expandedGroup = openRegion?.selection === selectedId ? markers.find(marker => marker.key === openRegion.key) : undefined;
   const detail = loading
     ? t('welcome.home.map.loading')
     : selected?.countryCode
@@ -51,37 +104,39 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
         <p>{t('welcome.home.map.description')}</p>
       </header>
 
-      <div className="home-host-map-canvas">
+      <div className="home-host-map-canvas" ref={canvasRef}>
         <svg viewBox={map.viewBox} aria-hidden="true">
           <path d={map.path} fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" />
         </svg>
-        {Array.from(groups, ([code, group]) => {
-          const [x, y] = anchors[code]!;
-          const country = names.of(code) || code;
-          const selectedMarker = selected?.countryCode === code;
-          const expandable = group.length > 1;
-          const expanded = !loading && expandable && expandedCode === code;
+        {markers.map(group => {
+          const { x, y } = group;
+          const country = regionName(group.codes);
+          const selectedMarker = group.hosts.some(host => host.id === selectedId);
+          const expandable = group.hosts.length > 1;
+          const expanded = !loading && expandable && expandedGroup?.key === group.key;
           return (
             <button
-              key={code}
+              key={group.key}
               type="button"
               className="home-host-map-marker"
               disabled={loading}
               style={{ left: `${x}%`, top: `${y}%` }}
               data-label-side={x < 18 ? 'right' : x > 82 ? 'left' : 'center'}
               data-selected={selectedMarker || expanded}
-              aria-label={t('welcome.home.map.marker', { location: country, count: group.length })}
+              data-grouped={expandable}
+              aria-label={t('welcome.home.map.marker', { location: country, count: group.hosts.length })}
               aria-pressed={expandable ? undefined : selectedMarker}
               aria-expanded={expandable ? expanded : undefined}
               aria-controls={expanded ? choicesId : undefined}
               onClick={() => {
-                if (expandable) setOpenRegion(expanded ? undefined : { code, selection: selectedId });
+                if (expandable) setOpenRegion(expanded ? undefined : { key: group.key, selection: selectedId });
                 else {
                   setOpenRegion(undefined);
-                  onSelect(group[0].id);
+                  onSelect(group.hosts[0].id);
                 }
               }}
             >
+              {expandable && <span className="home-host-map-marker-count" aria-hidden="true">{group.hosts.length > 99 ? '99+' : group.hosts.length}</span>}
               <span className="home-host-map-tooltip" aria-hidden="true">{country}</span>
             </button>
           );
@@ -90,22 +145,22 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
 
       <div className="home-host-map-detail">
         <MapPin size={17} aria-hidden="true" />
-        {!loading && expandedCode && expandedGroup && expandedGroup.length > 1 ? (
+        {!loading && expandedGroup && expandedGroup.hosts.length > 1 ? (
           <div className="home-host-map-detail-text" id={choicesId}>
-            <strong>{names.of(expandedCode) || expandedCode}</strong>
+            <strong>{regionName(expandedGroup.codes)}</strong>
             <select
-              key={expandedCode}
+              key={expandedGroup.key}
               autoFocus
               aria-label={t('welcome.home.map.selectHost')}
-              value={expandedGroup.some(host => host.id === selectedId) ? selectedId! : ''}
+              value={expandedGroup.hosts.some(host => host.id === selectedId) ? selectedId! : ''}
               onChange={event => {
                 const id = event.currentTarget.value;
-                setOpenRegion({ code: expandedCode, selection: id });
+                setOpenRegion({ key: expandedGroup.key, selection: id });
                 onSelect(id);
               }}
             >
               <option value="" disabled>{t('welcome.home.map.selectHost')}</option>
-              {expandedGroup.map(host => <option key={host.id} value={host.id}>{host.name}</option>)}
+              {expandedGroup.hosts.map(host => <option key={host.id} value={host.id}>{host.name} · {names.of(host.countryCode!) || host.countryCode}</option>)}
             </select>
           </div>
         ) : (

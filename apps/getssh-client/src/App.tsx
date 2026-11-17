@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -6,9 +6,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 // Stores
 import { useAppStore } from './store/appStore';
-import { type PaneLeaf, type PaneNode, useSessionStore } from './store/sessionStore';
+import { useSessionStore, type PaneNode, type SessionProfile } from './store/sessionStore';
 import { Runbook, useWorkspaceStore } from './store/workspaceStore';
-import { usePanelStore } from './store/panelStore';
 
 // Hooks
 import { useAppBoot } from './hooks/useAppBoot';
@@ -35,9 +34,8 @@ import { CommandCenter } from './components/CommandCenter';
 import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
 import { StatusBar } from './components/StatusBar';
-import { isSftpCapable, SplitPane } from './components/SplitPane';
-import { SFTP_PANEL_ID } from './components/SFTPManager';
-import { findZoomedPane, getAvailableSplitDirection } from './utils/paneHelpers';
+import { SplitPane } from './components/SplitPane';
+import { getAvailableSplitDirection } from './utils/paneHelpers';
 
 // Overlays
 import { UpdateToastOverlay } from './components/app-overlays/UpdateToastOverlay';
@@ -49,11 +47,6 @@ import { MigrationPresenceNotice } from './components/app-overlays/MigrationPres
 import { BackupRestartNotice } from './components/app-overlays/BackupRestartNotice';
 import { useAppLockSync } from './hooks/useAppLockSync';
 import { useAppLockStore } from './store/appLockStore';
-
-function findTerminal(node: PaneNode, accepts: (pane: PaneLeaf) => boolean): PaneLeaf | null {
-  if (node.type === 'leaf') return node.paneType === 'terminal' && accepts(node) ? node : null;
-  return findTerminal(node.children[0], accepts) ?? findTerminal(node.children[1], accepts);
-}
 
 export type { AppConfig } from './store/appStore';
 
@@ -70,7 +63,6 @@ function AppMain() {
   const closeTab = useSessionStore(state => state.closeTab);
   const activeTabId = useSessionStore(state => state.activeTabId);
   const setActiveTabId = useSessionStore(state => state.setActiveTabId);
-  const setActivePaneId = useSessionStore(state => state.setActivePaneId);
   const selectedSessionIndex = useSessionStore(state => state.selectedSessionIndex);
   const setSelectedSessionIndex = useSessionStore(state => state.setSelectedSessionIndex);
   const activePaneId = useSessionStore(state => state.activePaneId);
@@ -79,8 +71,6 @@ function AppMain() {
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const isVaultLocked = useWorkspaceStore(state => state.isVaultLocked);
   const isSwitching = useWorkspaceStore(state => state.isSwitching);
-  const disableSftp = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeWorkspaceId)
-    ?.preferences?.isolationRules?.disableSftp === true);
 
   // App
   const appConfig = useAppStore(state => state.appConfig);
@@ -96,28 +86,7 @@ function AppMain() {
   
   // Local State
   const [pendingHighRiskRunbook, setPendingHighRiskRunbook] = useState<Runbook | null>(null);
-  const [lastActiveTab, setLastActiveTab] = useState<{ id: string; workspaceId: string } | null>(null);
   const [assetsOpenFor, setAssetsOpenFor] = useState<string | null>(null);
-  const trackedWorkspaceRef = useRef(activeWorkspaceId);
-  const ignoredTabRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (trackedWorkspaceRef.current !== activeWorkspaceId) {
-      trackedWorkspaceRef.current = activeWorkspaceId;
-      ignoredTabRef.current = activeTabId;
-      setLastActiveTab(null);
-      return;
-    }
-    if (!activeTabId) {
-      ignoredTabRef.current = null;
-    } else if (activeTabId !== ignoredTabRef.current
-      && tabs.some(tab => tab.id === activeTabId && tab.workspaceId === activeWorkspaceId && !tab.isTornOff && tab.paneTree)) {
-      setLastActiveTab({ id: activeTabId, workspaceId: activeWorkspaceId });
-    }
-  }, [activeWorkspaceId, activeTabId, tabs]);
-  const resumeTabId = lastActiveTab?.workspaceId === activeWorkspaceId
-    && tabs.some(tab => tab.id === lastActiveTab.id && tab.workspaceId === activeWorkspaceId && !tab.isTornOff && tab.paneTree)
-      ? lastActiveTab.id
-      : null;
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
   const splitDirection = getAvailableSplitDirection(workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree, activePaneId);
   const isHomeActive = selectedSessionIndex === null && !activeTabId;
@@ -137,30 +106,16 @@ function AppMain() {
     window.dispatchEvent(new CustomEvent('app:create-session', { detail: address }));
   };
 
-  const orderedTabs = [...workspaceTabs].sort((a, b) => Number(b.id === resumeTabId) - Number(a.id === resumeTabId));
-  let fileTarget: { tabId: string; paneId: string } | undefined;
-  if (!disableSftp && !isSwitching) {
-    const eligible = (pane: PaneLeaf) => !pane.isDisconnected && isSftpCapable(pane);
-    for (const tab of orderedTabs) {
-      if (!tab.paneTree) continue;
-      const zoomed = findZoomedPane(tab.paneTree);
-      const pane = zoomed ? (eligible(zoomed) ? zoomed : null) : findTerminal(tab.paneTree, eligible);
-      if (pane) {
-        fileTarget = { tabId: tab.id, paneId: pane.paneId };
-        break;
-      }
-    }
-  }
-
-  const openFiles = () => {
-    if (!fileTarget) return;
-    selectTab(fileTarget.tabId);
-    setActivePaneId(fileTarget.paneId);
-    const panels = usePanelStore.getState();
-    if (panels.activePanelId !== SFTP_PANEL_ID) panels.togglePanel(SFTP_PANEL_ID);
+  const editHost = (profile: SessionProfile) => {
+    const state = useSessionStore.getState();
+    const workspace = useWorkspaceStore.getState();
+    if (workspace.isSwitching || workspace.isVaultLocked || state.profilesWorkspaceId !== workspace.activeWorkspaceId) return;
+    const index = state.sessions.findIndex(session => session === profile || (profile.id && session.id === profile.id));
+    if (index < 0) return;
+    state.setError(null);
+    setSelectedSessionIndex(index);
+    setActiveTabId(null);
   };
-
-
 
   const handleHomeClick = () => {
     const state = useSessionStore.getState();
@@ -171,8 +126,6 @@ function AppMain() {
     setActiveTabId(null);
     setAssetsOpenFor(null);
   };
-
-  const syncProfilesRef = useRef<any>(null);
 
   // Crypto Boot Check
   useCryptoBoot();
@@ -203,8 +156,6 @@ function AppMain() {
     handleOpenPlugin,
     splitPane
   } = useSessionManager();
-
-  syncProfilesRef.current = syncProfiles;
 
   useCoreAppEvents(setPendingHighRiskRunbook, syncProfiles, handleConnect);
 
@@ -309,11 +260,11 @@ function AppMain() {
               <GlobalWorkspaceBar poll={!showFullHome} />
             </div>
             <div className="relative min-w-0 min-h-0 flex flex-col overflow-hidden">
-              <ContextSidebar 
+              {!showFullHome && <ContextSidebar
                 onAddSession={createConnection}
                 onToggleAutoStart={toggleAutoStart}
                 onDeleteSession={deleteSession}
-              />
+              />}
             </div>
           </aside>
 
@@ -381,10 +332,9 @@ function AppMain() {
         </div>
 
         {showFullHome && (
-          <TidalDashboard onConnect={handleConnect}
+          <TidalDashboard onConnect={handleConnect} onEdit={editHost}
             navigation={<HomeNavigation onHome={handleHomeClick} hostsOpen={assetsOpen}
-              onHosts={() => setAssetsOpenFor(assetsOpen ? null : activeWorkspaceId)}
-              onFiles={openFiles} canOpenFiles={!!fileTarget} />}
+              onHosts={() => setAssetsOpenFor(assetsOpen ? null : activeWorkspaceId)} />}
             notice={<BackupRestartNotice />}
             assets={assetsOpen && <ContextSidebar onAddSession={createConnection} onToggleAutoStart={toggleAutoStart}
               onDeleteSession={deleteSession} onClose={() => setAssetsOpenFor(null)} />} />

@@ -5,9 +5,12 @@ import { HostKeyVerificationModal } from './components/HostKeyVerificationModal'
 import { ToastProvider } from './components/ToastProvider';
 import { SplitPane } from './components/SplitPane';
 import { registerSftpPanel } from './components/SFTPManager';
+import { useAppLockStore } from './store/appLockStore';
 import { useAppStore } from './store/appStore';
 import { PaneNode, useSessionStore } from './store/sessionStore';
 import { usePluginStore } from './store/pluginStore';
+import { useWorkspaceStore } from './store/workspaceStore';
+import type { AppLockState } from './types/ipc';
 
 /**
  * Root of a torn-off window (loaded with ?isHollow=true).
@@ -39,6 +42,7 @@ function TornWindowApp() {
   const [tornTabId, setTornTabId] = useState<string | null>(null);
 
   const tab = useSessionStore(state => (tornTabId ? state.tabs.find(t => t.id === tornTabId) : undefined));
+  const workspaceId = tab ? tab.workspaceId ?? 'default' : null;
   const appConfig = useAppStore(state => state.appConfig);
   const isDark = useAppStore(state => state.isDark);
   const isMac = useAppStore(state => state.isMac);
@@ -48,6 +52,62 @@ function TornWindowApp() {
   // Read-only config, theme, privacy blur, fullscreen state and host-key prompts.
   // This window has its own panel host; the SFTP panel follows the active pane of the torn tab.
   useEffect(() => { registerSftpPanel(); }, []);
+
+  // Read only this tab's policy. The normal workspace initializer can switch the main window.
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!workspaceId || !api?.workspace || !api.appLock) return;
+    let generation = 0;
+    let receivedLockEvent = false;
+    let disposed = false;
+    const clearWorkspace = () => useWorkspaceStore.getState().setWorkspaces([]);
+    const refreshPolicy = async () => {
+      const callGeneration = ++generation;
+      if (useAppLockStore.getState().state?.phase !== 'ready') {
+        clearWorkspace();
+        return;
+      }
+      try {
+        const workspaces = await api.workspace.getWorkspaces();
+        if (callGeneration !== generation) return;
+        const match = workspaces.find(item => item?.id === workspaceId);
+        const preferences = match?.visualMeta?.preferences ?? match?.preferences;
+        if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
+          clearWorkspace();
+          return;
+        }
+        useWorkspaceStore.getState().setWorkspaces([{
+          id: workspaceId,
+          name: match.visualMeta?.name ?? match.name ?? workspaceId,
+          themeColor: match.visualMeta?.themeColor ?? match.themeColor ?? '',
+          preferences,
+        }]);
+      } catch {
+        if (callGeneration === generation) clearWorkspace();
+      }
+    };
+    const applyLock = (state: AppLockState | null) => {
+      if (disposed) return;
+      useAppLockStore.getState().setState(state);
+      void refreshPolicy();
+    };
+    const unsubscribe = api.appLock.onChanged(state => {
+      receivedLockEvent = true;
+      applyLock(state);
+    });
+    void api.appLock.getState().then(state => {
+      if (!disposed && !receivedLockEvent) applyLock(state);
+    }).catch(() => {});
+    window.addEventListener('focus', refreshPolicy);
+    return () => {
+      disposed = true;
+      generation += 1;
+      clearWorkspace();
+      useAppLockStore.getState().setState(null);
+      unsubscribe();
+      window.removeEventListener('focus', refreshPolicy);
+    };
+  }, [workspaceId]);
 
   useEffect(() => {
     const app = useAppStore.getState();

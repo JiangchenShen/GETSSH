@@ -6,7 +6,7 @@ import { Columns, Rows, X, TerminalSquare, Maximize, Minimize, ExternalLink, Arr
 import { useTranslation } from 'react-i18next';
 import { paneRegistry } from '../registry/paneRegistry';
 import { usePanelStore } from '../store/panelStore';
-import { isSftpCapable } from './SplitPane';
+import { useSftpPane } from './SplitPane';
 import { SFTP_PANEL_ID } from './SFTPManager';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { buildConnectionConfig, stripConnectionSecrets } from '../utils/connectionProfile';
@@ -67,15 +67,12 @@ export const LeafPane: React.FC<{
     }
   }, [node.paneType]);
 
-  const { tabTitle, paneTree, tabWorkspaceId } = useSessionStore(useShallow(state => {
+  const { tabTitle, paneTree } = useSessionStore(useShallow(state => {
     const tab = state.tabs.find(t => t.id === tabId);
-    return { tabTitle: tab?.title, paneTree: tab?.paneTree, tabWorkspaceId: tab?.workspaceId };
+    return { tabTitle: tab?.title, paneTree: tab?.paneTree };
   }));
-  // Secure Center → Isolation Rules → "Disable SFTP" hides the entry (main enforces it as well).
-  const sftpDisabled = useWorkspaceStore(state => {
-    const ws = state.workspaces.find(w => w.id === (tabWorkspaceId ?? state.activeWorkspaceId));
-    return ws?.preferences?.isolationRules?.disableSftp === true;
-  });
+  const sftpPane = useSftpPane(tabId);
+  const canOpenSftp = isTabActive && sftpPane?.paneId === node.paneId;
   const sftpPanelOpen = usePanelStore(state => state.activePanelId === SFTP_PANEL_ID);
   
   const totalPanes = countLeaves(paneTree as PaneNode);
@@ -217,17 +214,15 @@ export const LeafPane: React.FC<{
               <div className="w-px h-3 mx-1 bg-line"></div>
             </>
           )}
-          {isSftpCapable(node) && !sftpDisabled && (
+          {canOpenSftp && (
             <button
               title={t('sftp.title', 'SFTP File Manager')}
               onClick={(e) => {
                 e.stopPropagation();
-                setActivePaneId(node.paneId);
-                // The panel follows the active pane: open it, close it from its own pane, or just switch panes.
-                const panels = usePanelStore.getState();
-                if (panels.activePanelId !== SFTP_PANEL_ID || isActive) panels.togglePanel(SFTP_PANEL_ID);
+                usePanelStore.getState().togglePanel(SFTP_PANEL_ID);
               }}
-              className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${sftpPanelOpen && isActive ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
+              aria-pressed={sftpPanelOpen}
+              className={`w-[18px] h-[18px] rounded grid place-items-center transition-colors ${sftpPanelOpen ? 'text-primary bg-primary/10' : 'text-ink-3 hover:bg-surf-2 hover:text-ink'}`}
             >
               <HardDrive className="w-3 h-3" />
             </button>

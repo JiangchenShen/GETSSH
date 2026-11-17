@@ -1,6 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { usePanelStore } from '../store/panelStore';
-import { useSessionStore, PaneNode, PaneLeaf, isSSHConfig } from '../store/sessionStore';
+import { useSessionStore, type PaneLeaf, isSSHConfig } from '../store/sessionStore';
+import { useAppLockStore } from '../store/appLockStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { findLeaf, findZoomedPane } from '../utils/paneHelpers';
+import { SFTP_PANEL_ID } from './SFTPManager';
 
 /**
  * SplitPane - A dynamic, resizable split panel engine.
@@ -13,8 +17,28 @@ import { useSessionStore, PaneNode, PaneLeaf, isSSHConfig } from '../store/sessi
  */
 /** SFTP runs over the SSH connection, so local shells and telnet panes have none. */
 export function isSftpCapable(node: PaneLeaf): boolean {
-  if (node.paneType !== 'terminal' || !node.sessionId || !isSSHConfig(node.config)) return false;
+  if (node.paneType !== 'terminal' || !node.sessionId || node.isDisconnected || !isSSHConfig(node.config)) return false;
   return node.config.protocol !== 'local' && node.config.protocol !== 'telnet';
+}
+
+/** The dock and its toolbar must agree on which terminal is visible and eligible. */
+export function useSftpPane(tabId: string | null): PaneLeaf | null {
+  const isHollow = new URLSearchParams(window.location.search).get('isHollow') === 'true';
+  const phase = useAppLockStore(state => state.state?.phase);
+  const tab = useSessionStore(state => state.activeTabId === tabId && state.selectedSessionIndex === null
+    ? state.tabs.find(candidate => candidate.id === tabId && (isHollow || !candidate.isTornOff))
+    : undefined);
+  const activePaneId = useSessionStore(state => state.activePaneId);
+  const allowed = useWorkspaceStore(state => {
+    const workspaceId = tab?.workspaceId ?? state.activeWorkspaceId;
+    if (state.isSwitching || state.isVaultLocked || (!isHollow && workspaceId !== state.activeWorkspaceId)) return false;
+    const workspace = state.workspaces.find(item => item.id === workspaceId);
+    if (isHollow && !workspace) return false;
+    return workspace?.preferences?.isolationRules?.disableSftp !== true;
+  });
+  if (!tab?.paneTree || !allowed || (isHollow ? phase !== 'ready' : phase && phase !== 'ready')) return null;
+  const pane = findZoomedPane(tab.paneTree) ?? (activePaneId ? findLeaf(tab.paneTree, activePaneId) : null);
+  return pane && isSftpCapable(pane) ? pane : null;
 }
 
 interface SplitPaneProps {
@@ -29,31 +53,13 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
   const panelSizes = usePanelStore(s => s.panelSizes);
   const setPanelSize = usePanelStore(s => s.setPanelSize);
 
-  // Session of the active pane when it is an SSH terminal ('' otherwise). Tab ids are not session ids.
-  const activeSessionId = useSessionStore(
-    React.useCallback(
-      (s) => {
-        if (!activeTabId || activeTabId === 'settings') return '';
-        const tab = s.tabs.find(t => t.id === activeTabId);
-        if (!tab || !tab.paneTree) return '';
-
-        let foundSessionId = '';
-        const findPane = (node: PaneNode) => {
-          if (node.type === 'leaf') {
-            if (node.paneId === s.activePaneId && node.paneType === 'terminal' && isSftpCapable(node)) {
-              foundSessionId = node.sessionId || '';
-            }
-          } else {
-            findPane(node.children[0]);
-            findPane(node.children[1]);
-          }
-        };
-        findPane(tab.paneTree);
-        return foundSessionId;
-      },
-      [activeTabId]
-    )
-  );
+  const activeSessionId = useSftpPane(activeTabId)?.sessionId;
+  const isSftp = activePanelId === SFTP_PANEL_ID;
+  useEffect(() => {
+    if (!isSftp || activeSessionId) return;
+    const state = usePanelStore.getState();
+    if (state.activePanelId === SFTP_PANEL_ID) state.togglePanel(SFTP_PANEL_ID);
+  }, [isSftp, activeSessionId]);
 
   const activePanel = panels.find(p => p.id === activePanelId) ?? null;
   const currentSize = activePanelId ? (panelSizes[activePanelId] ?? 320) : 0;
@@ -93,56 +99,28 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
   }, [activePanelId, activePanel, currentSize, setPanelSize]);
 
   const PanelComponent = activePanel?.component;
-  const showPanel = activePanelId && PanelComponent && activeTabId && activeTabId !== 'settings';
-  const isBottom = activePanel?.position === 'bottom';
+  const showPanel = PanelComponent && activeTabId && activeTabId !== 'settings' && (!isSftp || activeSessionId);
+  const isBottom = showPanel && activePanel?.position === 'bottom';
 
-  if (isBottom && showPanel) {
-    // Vertical layout: terminal on top, panel on bottom
-    return (
-      <div className="flex flex-col w-full h-full min-h-0">
-        {/* Main content */}
-        <div className="flex-1 relative min-w-0 min-h-0 overflow-hidden">
-          {children}
-        </div>
-
-        {/* Bottom panel */}
-        <div
-          className={`shrink-0 relative flex flex-col shadow-[inset_0_1px_0_var(--color-line-soft)]`}
-          style={{ height: currentSize }}
-        >
-          {/* Resizer handle — top edge */}
-          <div
-            className={`absolute top-0 left-0 right-0 h-[1px] hover:h-[4px] -translate-y-1/2 cursor-row-resize z-50 transition-all duration-200 hover:bg-primary/70`}
-            onMouseDown={handleMouseDown}
-          />
-          <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />
-        </div>
-      </div>
-    );
-  }
-
-  // Default: horizontal layout (right-side panel)
   return (
-    <>
-      {/* Main Content - takes remaining space */}
-      <div className="flex-1 relative min-w-0">
+    <div className={`flex w-full h-full min-h-0 ${isBottom ? 'flex-col' : ''}`}>
+      <div className="flex-1 relative min-w-0 min-h-0 overflow-hidden">
         {children}
       </div>
-
-      {/* Right Dynamic Panel */}
       {showPanel && (
         <div
-          className={`shrink-0 relative flex flex-col shadow-[inset_1px_0_0_var(--color-line-soft)]`}
-          style={{ width: currentSize }}
+          className={`shrink-0 relative flex flex-col ${isBottom ? 'shadow-[inset_0_1px_0_var(--color-line-soft)]' : 'shadow-[inset_1px_0_0_var(--color-line-soft)]'}`}
+          style={isBottom ? { height: currentSize } : { width: currentSize }}
         >
-          {/* Resizer Handle */}
           <div
-            className={`absolute left-0 top-0 bottom-0 w-[1px] hover:w-[4px] -translate-x-1/2 cursor-col-resize z-50 transition-all duration-200 hover:bg-primary/70`}
+            className={`absolute top-0 left-0 z-50 transition-all duration-200 hover:bg-primary/70 ${isBottom
+              ? 'right-0 h-px hover:h-1 -translate-y-1/2 cursor-row-resize'
+              : 'bottom-0 w-px hover:w-1 -translate-x-1/2 cursor-col-resize'}`}
             onMouseDown={handleMouseDown}
           />
-          <PanelComponent sessionId={activeSessionId || ''} isDark={isDark} />
+          <PanelComponent key={isSftp ? activeSessionId : activePanelId} sessionId={activeSessionId || ''} isDark={isDark} />
         </div>
       )}
-    </>
+    </div>
   );
 };

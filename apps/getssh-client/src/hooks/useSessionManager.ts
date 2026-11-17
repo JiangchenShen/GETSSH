@@ -71,6 +71,8 @@ export const useSessionManager = () => {
   };
 
   const handleConnect = async (targetSession: any) => {
+    // Read synchronously: a second click can arrive before React renders the disabled state.
+    if (useSessionStore.getState().connecting) return;
     setError(null);
     setConnecting(true);
 
@@ -82,8 +84,17 @@ export const useSessionManager = () => {
     };
     
     const payload = { ...config, enableAuditLogging: appConfig.enableAuditLogging };
-    const res = await window.electronAPI.sshConnect(payload);
-    setConnecting(false);
+    let res: Awaited<ReturnType<Window['electronAPI']['sshConnect']>>;
+    try {
+      res = await window.electronAPI.sshConnect(payload);
+    } catch (error) {
+      if (useWorkspaceStore.getState().activeWorkspaceId === connectionWorkspaceId) {
+        setError(error instanceof Error && error.message ? error.message : t('connection.failed'));
+      }
+      return;
+    } finally {
+      setConnecting(false);
+    }
 
     if (res.success && res.sessionId) {
       const stayedInWorkspace = useWorkspaceStore.getState().activeWorkspaceId === connectionWorkspaceId;
@@ -146,9 +157,9 @@ export const useSessionManager = () => {
       }
     } else if (useWorkspaceStore.getState().activeWorkspaceId === connectionWorkspaceId) {
       if (res.error === 'Host denied (verification failed)') {
-        setError(t('connect.hostDenied'));
+        setError(t('connection.hostDenied'));
       } else {
-        setError(res.error || t('connect.failed'));
+        setError(res.error || t('connection.failed'));
       }
     }
   };
