@@ -10,6 +10,16 @@
   overflow: hidden;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .workbench-session-frame .management-center {
+    animation: management-enter 170ms ease-out;
+  }
+}
+
+@keyframes management-enter {
+  from { opacity: .55; }
+}
+
 .management-center .management-main {
   flex: 1;
   min-width: 0;

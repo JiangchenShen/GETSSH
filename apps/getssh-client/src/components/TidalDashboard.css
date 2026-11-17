@@ -197,6 +197,25 @@
 .home-shell :is(button, input):focus-visible { outline: 2px solid var(--home-accent); outline-offset: 1px; }
 .home-shell .home-filters button:focus-visible { outline-offset: -3px; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .home-inner, .home-workspace-menu {
+    animation: home-enter 170ms ease-out;
+  }
+
+  .home-asset-drawer {
+    --home-enter-offset: -10px 0;
+    animation: home-enter 170ms ease-out;
+  }
+
+  .home-shell :is(.home-filters button, .home-host-row, .home-host-select, .home-host-edit, .home-host-open, .home-new, .home-workspace, .home-workspace-menu button) {
+    transition: background-color 130ms ease-out, border-color 130ms ease-out, color 130ms ease-out;
+  }
+}
+
+@keyframes home-enter {
+  from { opacity: .55; translate: var(--home-enter-offset, 0 -5px); }
+}
+
 @container (max-width: 900px) {
   .home-dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; }
   .home-inner { padding-top: 30px; }

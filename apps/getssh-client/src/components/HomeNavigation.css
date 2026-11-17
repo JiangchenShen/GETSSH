@@ -70,6 +70,12 @@ button.home-navigation-item:not(:disabled):hover {
 
 .home-navigation-item:disabled { opacity: .6; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .home-navigation-item {
+    transition: background-color 130ms ease-out, color 130ms ease-out;
+  }
+}
+
 .home-navigation-sentinel {
   display: grid;
   justify-items: center;
