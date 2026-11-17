@@ -19,6 +19,14 @@
   scrollbar-width: thin;
 }
 
+.home-navigation-tools {
+  display: grid;
+  gap: inherit;
+  flex: none;
+  padding-top: 10px;
+  border-top: 1px solid var(--home-line);
+}
+
 .home-navigation-item {
   position: relative;
   display: grid;

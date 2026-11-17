@@ -71,8 +71,9 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     const count = async (name, expected) => expect(home().getByTestId(`home-${name}-count`)).toHaveText(String(expected));
     const localHostRow = () => home().locator('.home-host-row').filter({ hasText: '本地终端 · UI 测试' });
     const assertSimpleHome = async () => {
-      await expect(home().locator('.home-connect, .home-resume, .home-summary, .home-session-tabs, .home-navigation-tools')).toHaveCount(0);
+      await expect(home().locator('.home-connect, .home-resume, .home-summary, .home-session-tabs')).toHaveCount(0);
       await expect(home().locator('.home-navigation-list > button')).toHaveCount(2);
+      await expect(home().locator('.home-navigation-tools > button')).toHaveCount(4);
       await expect(home().getByRole('button', { name: /^(文件|Files)(管理)?$/i, includeHidden: true })).toHaveCount(0);
     };
     const assertNoHorizontalOverflow = async () => {
