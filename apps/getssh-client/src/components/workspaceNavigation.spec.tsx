@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   setIsCommandCenterOpen: vi.fn(),
-  setWorkspaces: vi.fn(),
   pollSentinelStatus: vi.fn(),
   sentinelStatusError: null as string | null,
   phase: 'ready',
@@ -28,7 +27,6 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({
 vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any) => select({
   isMac: true,
   setIsCommandCenterOpen: mocks.setIsCommandCenterOpen,
-  setWorkspaces: mocks.setWorkspaces,
   sentinelStatus: { status: 'secure', daemonState: 'running', sentinelDisabled: false },
   sentinelStatusError: mocks.sentinelStatusError,
   pollSentinelStatus: mocks.pollSentinelStatus,
@@ -42,7 +40,6 @@ vi.mock('../store/workspaceStore', () => ({ useWorkspaceStore: (select: (state: 
   isVaultLocked: mocks.isVaultLocked,
 }) }));
 
-import { GlobalWorkspaceBar } from './GlobalWorkspaceBar';
 import { StatusBar } from './StatusBar';
 
 let root: Root;
@@ -101,8 +98,6 @@ describe('status bar workspace navigation', () => {
 
   it('routes Ocean Sentinel to security settings', async () => {
     const control = () => container.querySelector<HTMLButtonElement>('.workspace-rail-sentinel')!;
-    expect(control()).toBeNull();
-    await act(async () => root.render(<GlobalWorkspaceBar />));
     expect(control().getAttribute('aria-label')).toBe('海洋守护中心 · 运行正常');
     expect(control().dataset.tone).toBe('ok');
     expect(mocks.pollSentinelStatus).toHaveBeenCalledTimes(1);
@@ -112,13 +107,13 @@ describe('status bar workspace navigation', () => {
 
   it('replaces a stale healthy shield when status fails or the workspace locks', async () => {
     mocks.sentinelStatusError = 'Unavailable';
-    await act(async () => root.render(<GlobalWorkspaceBar />));
+    await act(async () => root.render(<StatusBar />));
     const control = container.querySelector<HTMLButtonElement>('.workspace-rail-sentinel')!;
     expect(control.dataset.tone).toBe('warn');
     expect(control.getAttribute('aria-label')).toBe('海洋守护中心 · 无法连接');
 
     mocks.isVaultLocked = true;
-    await act(async () => root.render(<GlobalWorkspaceBar />));
+    await act(async () => root.render(<StatusBar />));
     expect(control.dataset.tone).toBe('neutral');
     expect(control.getAttribute('aria-label')).toBe('海洋守护中心 · 尚未确认');
     expect(mocks.pollSentinelStatus).toHaveBeenCalledTimes(1);

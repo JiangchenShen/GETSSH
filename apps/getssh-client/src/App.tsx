@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { TerminalPaneRenderer } from './components/TerminalPane';
-import { PanelLeft, ShieldAlert } from 'lucide-react';
+import { FolderClosed, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -19,7 +19,6 @@ import { useSessionManager } from './hooks/useSessionManager';
 
 
 // Components
-import { GlobalWorkspaceBar } from './components/GlobalWorkspaceBar';
 import { HomeNavigation } from './components/HomeNavigation';
 import { ContextSidebar } from './components/ContextSidebar';
 import { TidalDashboard } from './components/TidalDashboard';
@@ -258,7 +257,7 @@ function AppMain() {
         {/* Hiding the shell on Home leaves open terminal panes mounted. */}
         <div className="workbench-shell" hidden={showFullHome}
           data-caption={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
-          <div className="workbench-top">
+          <div className="workbench-top sidebar-material">
             <TabBar
               tabs={workspaceTabs}
               activeTabId={activeTabId}
@@ -266,27 +265,26 @@ function AppMain() {
               onCloseTab={closeTab}
               onHomeClick={handleHomeClick}
               isHomeActive={isHomeActive}
+              actions={(
+                <button
+                  ref={workbenchAssetsButton}
+                  type="button"
+                  className="workbench-header-action"
+                  aria-label={t('assetFolders.assets')}
+                  title={t('assetFolders.assets')}
+                  aria-expanded={workbenchAssetsOpen}
+                  aria-controls={workbenchAssetsOpen ? 'workbench-asset-drawer' : undefined}
+                  onClick={() => setWorkbenchAssetsFor(workbenchAssetsOpen ? null : activeWorkspaceId)}
+                  disabled={isSwitching || isVaultLocked}
+                >
+                  <FolderClosed size={14} aria-hidden="true" />
+                  <span>{t('assetFolders.assets')}</span>
+                </button>
+              )}
               onSplit={() => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
               canSplit={splitDirection !== null}
             />
           </div>
-
-          <aside aria-label={t('statusBar.workspace')} className="workspace-navigation sidebar-material workbench-rail">
-            <button
-              ref={workbenchAssetsButton}
-              type="button"
-              className="workbench-rail-toggle"
-              aria-label={t('assetFolders.assets')}
-              title={t('assetFolders.assets')}
-              aria-expanded={workbenchAssetsOpen}
-              aria-controls={workbenchAssetsOpen ? 'workbench-asset-drawer' : undefined}
-              onClick={() => setWorkbenchAssetsFor(workbenchAssetsOpen ? null : activeWorkspaceId)}
-              disabled={isSwitching || isVaultLocked}
-            >
-              <PanelLeft size={18} aria-hidden="true" />
-            </button>
-            <GlobalWorkspaceBar poll={!showFullHome} />
-          </aside>
 
           <div className="workbench-content">
             <BackupRestartNotice />
@@ -340,7 +338,7 @@ function AppMain() {
             )}
           </div>
           <div className="workbench-bottom">
-            <StatusBar />
+            <StatusBar pollSentinel={!showFullHome} />
           </div>
         </div>
 

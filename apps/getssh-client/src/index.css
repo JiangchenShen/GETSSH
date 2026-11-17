@@ -90,20 +90,12 @@
     --v2-down:      #e11d48;
     --v2-scrim:     #27272a5c;   /* 遮罩：浅色下压暗一档就够 */
     --sidebar-tint: var(--v2-panel);
-    --sidebar-divider: var(--v2-line);
 
     --primary-color: 36 125 105;
     --primary-ink: #ffffff;
     --primary-tint: #edf5f1;
     --warning-tint: #f8f0df;
     
-    /* Application layout */
-    /* 骨架尺寸对齐原型：导轨 56 / 侧栏 244 */
-    --rail-width: 56px;
-    --sidebar-width: 244px;
-    --sidebar-width-collapsed: 44px;
-    --titlebar-height: 40px; /* Mac traffic lights usually 28px, but our original header was h-10 (40px) */
-
     /* Application layers */
     --z-app-chrome: 20;
     --z-region-material: 30;
@@ -202,33 +194,6 @@ html[data-glass="true"] .sidebar-material {
   background: color-mix(in srgb, var(--sidebar-tint) var(--sidebar-opacity, 80%), transparent);
   -webkit-backdrop-filter: blur(28px) saturate(125%);
   backdrop-filter: blur(28px) saturate(125%);
-}
-
-.workspace-navigation {
-  border-right: 1px solid var(--sidebar-divider);
-}
-
-.workspace-rail-surface {
-  background: color-mix(in srgb, var(--v2-ink) 3%, transparent);
-}
-
-.workspace-rail-divider {
-  position: relative;
-}
-
-.workspace-rail-divider::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--sidebar-divider);
-  pointer-events: none;
-}
-
-.workspace-rail-divider-titlebar::after {
-  top: var(--titlebar-height);
 }
 
 @media (prefers-reduced-transparency: reduce) {

@@ -5,7 +5,7 @@ import { useAppLockStore } from '../store/appLockStore';
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { getSentinelSupervisorState } from '../utils/sentinelSupervisorState';
-import './GlobalWorkspaceBar.css';
+import './WorkspaceSentinel.css';
 
 export function WorkspaceSentinel({ poll = true }: { poll?: boolean }) {
   const { t } = useTranslation();

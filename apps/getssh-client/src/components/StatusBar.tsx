@@ -2,12 +2,13 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Terminal, Sparkles, Layers, Blocks, Settings } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import { WorkspaceSentinel } from './WorkspaceSentinel';
 
 /**
  * 底部状态条。
  *
  * 底栏保留常用目的地，工作区入口直达独立管理页。
- * 左侧导轨显示工作区和本机进程监护状态。
+ * Ocean Sentinel 指示当前监护状态。
  */
 
 const openCenter = (type: string, title: string) => {
@@ -38,7 +39,7 @@ const BItem: React.FC<{
   </button>
 );
 
-export const StatusBar: React.FC = () => {
+export const StatusBar: React.FC<{ pollSentinel?: boolean }> = ({ pollSentinel }) => {
   const { t } = useTranslation();
   const isMac = useAppStore(state => state.isMac);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
@@ -75,6 +76,7 @@ export const StatusBar: React.FC = () => {
         label={t('statusBar.settings')}
         onClick={() => openCenter('settings', t('statusBar.settings'))}
       />
+      <WorkspaceSentinel poll={pollSentinel} />
 
     </div>
   );

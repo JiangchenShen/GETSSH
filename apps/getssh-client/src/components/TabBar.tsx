@@ -38,12 +38,13 @@ interface TabBarProps {
   onCloseTab: (tabId: string) => void;
   onHomeClick: () => void;
   isHomeActive: boolean;
+  actions?: React.ReactNode;
   onSplit?: () => void;
   canSplit?: boolean;
 }
 
 export const TabBar: React.FC<TabBarProps> = ({
-  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, onSplit, canSplit,
+  tabs, activeTabId, onSelectTab, onCloseTab, onHomeClick, isHomeActive, actions, onSplit, canSplit,
 }) => {
   const { t } = useTranslation();
   const visibleTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
@@ -119,6 +120,7 @@ export const TabBar: React.FC<TabBarProps> = ({
       })}
       </div>
 
+      {actions}
       {onSplit && (
         <button
           type="button"
@@ -126,7 +128,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           disabled={!canSplit}
           aria-label={t('tabs.split')}
           title={t('tabs.split')}
-          className="workbench-header-split"
+          className="workbench-header-action"
         >
           <Columns2 className="w-[13px] h-[13px]" />
           <span>{t('tabs.split')}</span>
