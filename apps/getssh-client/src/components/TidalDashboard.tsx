@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Layers3, Plus, Search, Server, Shield } from 'lucide-react';
+import { ChevronDown, Layers3, LoaderCircle, Plus, Search, Server, Shield } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -37,6 +37,37 @@ function findProfilePane(node: PaneNode, profileId: string, workspaceId: string)
   }
   return node.paneType === 'terminal' && isSSHConfig(node.config) && node.config.profileId === profileId
     && node.config.workspaceId === workspaceId ? node : null;
+}
+
+function HomeGreeting() {
+  const { t, i18n } = useTranslation();
+  const [time, setTime] = useState(() => new Date());
+  const [greetingChoice] = useState(() => Math.random());
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function tick() {
+      const now = new Date();
+      setTime(now);
+      timer = setTimeout(tick, 60_000 - (now.getTime() % 60_000));
+    }
+    tick();
+    return () => clearTimeout(timer);
+  }, []);
+
+  const hour = time.getHours();
+  const greetingKey = hour < 5 ? 'midnight' : hour < 9 ? 'morning' : hour < 12 ? 'forenoon'
+    : hour < 14 ? 'noon' : hour < 18 ? 'afternoon' : hour < 22 ? 'evening' : 'lateNight';
+  const greetings = t(`welcome.greeting.${greetingKey}`, { returnObjects: true });
+  const greeting = Array.isArray(greetings) ? greetings[Math.floor(greetingChoice * greetings.length)] : greetings;
+  const locale = i18n.language || undefined;
+  const dateString = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric' }).format(time);
+  const timeString = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(time);
+
+  return <>
+    <p className="home-description">{greeting}</p>
+    <time className="home-date" dateTime={time.toISOString()}>{dateString} · {timeString}</time>
+  </>;
 }
 
 /** Workspace overview and work entry points, using current layout and protection metadata. */
@@ -217,6 +248,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
       return;
     }
     if (onConnect) {
+      setSelectedId(host.id);
       setAttempted({ id: host.id, workspaceId: activeWorkspaceId });
       onConnect(host.profile);
     } else setIsCommandCenterOpen(true);
@@ -287,7 +319,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                   <div className="home-intro">
                     <p className="home-eyebrow">{t('welcome.home.hostEyebrow')}</p>
                     <h1 id="home-hosts-title">{t('welcome.home.myHosts')}</h1>
-                    <p className="home-description">{t('welcome.home.hostDescription')}</p>
+                    <HomeGreeting />
                   </div>
 
                   <div className="home-filters" role="group" aria-label={t('welcome.home.hostGroups')}>
@@ -303,6 +335,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                   {attemptedHost && !connecting && error && (
                     <p className="home-connect-error" role="alert"><strong>{attemptedHost.name}</strong> · {error}</p>
                   )}
+                  <span className="sr-only" role="status">{attemptedHost && connecting ? `${t('connection.connecting')} ${attemptedHost.name}` : ''}</span>
 
                   {!profilesReady ? <p className="home-empty" role="status">{t('welcome.home.loadingHosts')}</p> : (
                     <div className="ui-section-enter" key={JSON.stringify([activeWorkspaceId, activeGroup])}>
@@ -314,7 +347,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                             const existing = matchingPane(host.profile);
                             const pending = connecting && attemptedHost?.id === host.id;
                             return (
-                              <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id}
+                              <li key={host.id} className="home-host-row" data-selected={selection?.id === host.id} data-connecting={pending || undefined}
                                 ref={element => {
                                   if (element) rows.current.set(host.id, element);
                                   else rows.current.delete(host.id);
@@ -329,7 +362,9 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                                   </small>}
                                 </button>
                                 <button type="button" className="home-host-open" disabled={connecting || isSwitching}
+                                  aria-busy={pending || undefined}
                                   onClick={() => openHost(host, existing)}>
+                                  {pending && <LoaderCircle size={13} className="home-connect-spinner" aria-hidden="true" />}
                                   {t(pending ? 'connection.connecting' : existing ? 'welcome.home.switchTab' : 'welcome.home.connect')}
                                   <span className="sr-only"> {host.name}</span>
                                 </button>

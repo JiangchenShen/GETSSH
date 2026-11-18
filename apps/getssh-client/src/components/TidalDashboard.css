@@ -129,6 +129,7 @@
 .home-eyebrow { margin: 0 0 12px; color: var(--home-muted); font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: 1.6px; }
 .home-intro h1 { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.25; letter-spacing: -.6px; }
 .home-description { margin: 10px 0 0; color: var(--home-muted); font-size: 12px; line-height: 1.6; }
+.home-date { display: block; margin-block-start: 4px; color: var(--home-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .home-filters { display: flex; gap: 18px; overflow-x: auto; margin-top: 30px; border-bottom: 1px solid var(--home-line); }
 .home-filters button {
@@ -161,6 +162,10 @@
 .home-host-row[data-selected='true'] {
   border-color: color-mix(in srgb, var(--home-accent) 32%, var(--home-line));
 }
+.home-host-row[data-connecting='true'] {
+  border-color: color-mix(in srgb, var(--home-accent) 52%, var(--home-line));
+  background: color-mix(in srgb, var(--home-accent) 8%, var(--home-surface));
+}
 .home-host-select { display: flex; flex: 1; align-items: center; gap: 11px; min-width: 0; min-height: 72px; padding: 12px; border-radius: 7px; text-align: start; }
 .home-host-select:hover, .home-host-open:hover, .home-workspace:hover { background: var(--home-accent-soft); }
 .home-host-main { display: grid; flex: 1; min-width: 0; gap: 4px; }
@@ -170,6 +175,10 @@
 .home-host-country { display: inline-flex; align-items: center; justify-content: end; gap: 6px; max-width: 29%; color: var(--home-muted); font-size: 11px; text-align: end; overflow-wrap: anywhere; }
 .home-country-flag { font-size: 17px; line-height: 1; }
 .home-host-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   flex: none;
   min-height: 32px;
   padding: 4px 9px;
@@ -182,6 +191,8 @@
 .home-host-edit { flex: none; min-height: 32px; padding: 4px 5px; color: var(--home-muted); font-size: 11px; border-radius: 6px; }
 .home-host-edit:hover { background: var(--home-accent-soft); color: var(--home-ink); }
 .home-shell :is(.home-host-edit, .home-host-open, .home-workspace):disabled { opacity: .6; }
+.home-shell .home-host-open[aria-busy='true']:disabled { color: var(--home-accent); opacity: 1; }
+.home-connect-spinner { flex: none; }
 .home-connect-error { margin: 12px 0 0; padding: 8px 10px; border-inline-start: 2px solid var(--home-warn); color: var(--home-ink); background: var(--home-warn-soft); font-size: 12px; overflow-wrap: anywhere; }
 .home-empty { display: flex; align-items: center; gap: 9px; margin: 24px 0; padding: 24px 12px; color: var(--home-muted); font-size: 12px; }
 .home-new:disabled { opacity: .55; }
@@ -196,6 +207,8 @@
 .home-shell .home-filters button:focus-visible { outline-offset: -3px; }
 
 @media (prefers-reduced-motion: no-preference) {
+  .home-connect-spinner { animation: spin .8s linear infinite; }
+
   .home-inner, .home-workspace-menu {
     --ui-surface-enter-offset: 0 -5px;
     animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);

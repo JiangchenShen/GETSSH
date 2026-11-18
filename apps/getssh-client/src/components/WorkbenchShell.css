@@ -294,6 +294,18 @@
     animation: ui-section-in var(--ui-motion-page) var(--ui-motion-ease);
   }
 
+  .workbench-tab-view:has(.workbench-pane-header[data-pane-type='terminal']) {
+    animation: workbench-terminal-in 220ms var(--ui-motion-ease);
+  }
+
+  .workbench-shell[data-terminal-active='true'] > :is(.workbench-top, .workbench-bottom) {
+    transition: opacity 220ms var(--ui-motion-ease);
+  }
+
+  @starting-style {
+    .workbench-shell[data-terminal-active='true'] > :is(.workbench-top, .workbench-bottom) { opacity: .26; }
+  }
+
   .workbench-asset-drawer {
     animation: workbench-drawer-in var(--ui-motion-page) var(--ui-motion-ease);
   }
@@ -312,6 +324,10 @@
   .workbench-pane-tools button[aria-pressed] > svg, .workbench-split-grip {
     animation: ui-section-in var(--ui-motion-fast) var(--ui-motion-ease);
   }
+}
+
+@keyframes workbench-terminal-in {
+  from { opacity: .24; }
 }
 
 @keyframes workbench-drawer-in {

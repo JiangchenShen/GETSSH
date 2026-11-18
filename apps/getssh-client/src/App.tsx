@@ -34,7 +34,7 @@ import { ToastProvider } from './components/ToastProvider';
 import { IpcManager } from './components/IpcManager';
 import { StatusBar } from './components/StatusBar';
 import { SplitPane } from './components/SplitPane';
-import { getAvailableSplitDirection } from './utils/paneHelpers';
+import { findLeaf, getAvailableSplitDirection } from './utils/paneHelpers';
 import './components/WorkbenchShell.css';
 
 // Overlays
@@ -90,7 +90,11 @@ function AppMain() {
   const workbenchAssetsButton = useRef<HTMLButtonElement>(null);
   const workbenchAssetsDrawer = useRef<HTMLElement>(null);
   const workspaceTabs = tabs.filter(tab => !tab.isTornOff && (tab.workspaceId ?? activeWorkspaceId) === activeWorkspaceId);
-  const splitDirection = getAvailableSplitDirection(workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree, activePaneId);
+  const activeTabTree = workspaceTabs.find(tab => tab.id === activeTabId)?.paneTree;
+  const splitDirection = getAvailableSplitDirection(activeTabTree, activePaneId);
+  const activeLeaf = activeTabTree?.type === 'leaf' ? activeTabTree
+    : activeTabTree && activePaneId ? findLeaf(activeTabTree, activePaneId) : null;
+  const showTerminal = selectedSessionIndex === null && activeLeaf?.paneType === 'terminal' && !isVaultLocked && !isSwitching;
   const isHomeActive = selectedSessionIndex === null && !activeTabId;
   const showFullHome = isHomeActive && !isVaultLocked;
   const assetsOpen = showFullHome && !isSwitching && assetsOpenFor === activeWorkspaceId;
@@ -245,7 +249,7 @@ function AppMain() {
         )}
 
         {/* Hiding the shell on Home leaves open terminal panes mounted. */}
-        <div className="workbench-shell" hidden={showFullHome}
+        <div className="workbench-shell" hidden={showFullHome} data-terminal-active={showTerminal || undefined}
           data-caption={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
           <div className="workbench-top sidebar-material">
             <TabBar
