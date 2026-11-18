@@ -1,7 +1,7 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { unlockActiveWorkspaceWithPassword, unlockActiveWorkspaceWithPresence } from '../lib/workspaceUnlock';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Layers3, LoaderCircle, Plus, Search, Server, Shield } from 'lucide-react';
+import { Layers3, LoaderCircle, Plus, Search, Server, Shield } from 'lucide-react';
 
 import { useAppStore } from '../store/appStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -13,7 +13,6 @@ import { HomeHostMap } from './HomeHostMap';
 import { HostOsIcon } from './HostOsIcon';
 import { lookupIpCountry } from '../utils/ipCountry';
 import { findZoomedPane, updateLeafInTree } from '../utils/paneHelpers';
-import logo from '../assets/logo.png';
 import './TidalDashboard.css';
 
 interface TidalDashboardProps {
@@ -74,8 +73,6 @@ function HomeGreeting() {
 export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdit, navigation, assets, notice }) => {
   const { t, i18n } = useTranslation();
   const isDark = useAppStore(state => state.isDark);
-  const isMac = useAppStore(state => state.isMac);
-  const isFullScreen = useAppStore(state => state.isFullScreen);
   const setIsCommandCenterOpen = useAppStore(state => state.setIsCommandCenterOpen);
   const defaultPort = useAppStore(state => state.appConfig.defaultPort) || 22;
 
@@ -101,9 +98,6 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
   const [group, setGroup] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [attempted, setAttempted] = useState<{ id: string; workspaceId: string } | null>(null);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const workspaceButton = useRef<HTMLButtonElement>(null);
-  const workspaceMenuId = useId();
   const rows = useRef(new Map<string, HTMLLIElement>());
   const [protectionMetadata, setProtectionMetadata] = useState<{ workspaceId: string; status: SecurityStatus | null } | null>(null);
   const profilesReady = !isVaultLocked && !isSwitching && profilesWorkspaceId === activeWorkspaceId;
@@ -117,7 +111,6 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
     setGroup(null);
     setSelectedId(null);
     setAttempted(null);
-    setWorkspaceMenuOpen(false);
   }, [activeWorkspaceId, isVaultLocked]);
 
   useEffect(() => {
@@ -270,49 +263,28 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
   const attemptedHost = attempted?.workspaceId === activeWorkspaceId ? hosts.find(host => host.id === attempted.id) : undefined;
 
   return (
-    <main className="home-shell" data-window-controls={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
-      <header className="home-header drag-region">
-        <div className="home-brand"><img src={logo} width="27" height="27" alt="" /><strong>GETSSH</strong></div>
-        <label className="home-search no-drag-region">
-          <Search size={15} aria-hidden="true" />
-          <input type="search" value={search} onChange={event => setSearch(event.target.value)}
-            aria-label={t('welcome.home.hostSearch')} placeholder={t('welcome.home.hostSearch')} />
-        </label>
-        <button type="button" className="home-new" disabled={isSwitching} onClick={() => createSession()}>
-          <Plus size={16} aria-hidden="true" />{t('welcome.home.addHost')}
-        </button>
-        <div className="home-workspace-control no-drag-region"
-          onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setWorkspaceMenuOpen(false); }}
-          onKeyDown={event => {
-            if (event.key !== 'Escape' || !workspaceMenuOpen) return;
-            event.stopPropagation();
-            setWorkspaceMenuOpen(false);
-            workspaceButton.current?.focus();
-          }}>
-          <button type="button" ref={workspaceButton} className="home-workspace" title={workspaceName}
-            aria-label={`${t('welcome.home.currentWorkspace')} · ${workspaceName}`}
-            aria-expanded={openTabs.length ? workspaceMenuOpen : undefined}
-            aria-controls={workspaceMenuOpen && openTabs.length ? workspaceMenuId : undefined}
-            disabled={isSwitching} onClick={() => openTabs.length ? setWorkspaceMenuOpen(!workspaceMenuOpen) : openWorkspace()}>
-            <Layers3 size={16} aria-hidden="true" /><strong className="ui-section-enter" key={activeWorkspaceId}>{workspaceName}</strong>
-            {openTabs.length > 0 && <ChevronDown size={12} aria-hidden="true" />}
-          </button>
-          {workspaceMenuOpen && openTabs.length > 0 && (
-            <div id={workspaceMenuId} className="home-workspace-menu">
-              <button type="button" onClick={openWorkspace}>{t('welcome.home.manageWorkspace')}</button>
-              <div className="home-open-tabs" role="group" aria-label={t('welcome.home.openTabs')}>
-                <span>{t('welcome.home.openTabs')}</span>
-                {openTabs.map(tab => <button type="button" key={tab.id} title={tab.title} onClick={() => setActiveTabId(tab.id)}>{tab.title}</button>)}
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
+    <main className="home-shell">
       {notice}
       <div className="home-frame" data-with-navigation={!!navigation}>
         {navigation}
         <div className="home-content no-drag-region">
-          <div className="home-scroll">
+          <header className="home-header">
+            <label className="home-search">
+              <Search size={15} aria-hidden="true" />
+              <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+                aria-label={t('welcome.home.hostSearch')} placeholder={t('welcome.home.hostSearch')} />
+            </label>
+            <button type="button" className="home-new" disabled={isSwitching} onClick={() => createSession()}>
+              <Plus size={16} aria-hidden="true" />{t('welcome.home.addHost')}
+            </button>
+            <button type="button" className="home-workspace" title={`${t('welcome.home.manageWorkspace')} · ${workspaceName}`}
+              aria-label={`${t('welcome.home.currentWorkspace')} · ${workspaceName}`}
+              disabled={isSwitching} onClick={openWorkspace}>
+              <Layers3 size={16} aria-hidden="true" /><strong className="ui-section-enter" key={activeWorkspaceId}>{workspaceName}</strong>
+            </button>
+          </header>
+          <div className="home-body">
+            <div className="home-scroll">
             <div className="home-inner">
               <div className="home-dashboard-grid">
                 <section className="home-hosts" aria-labelledby="home-hosts-title">
@@ -401,8 +373,9 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                 </button>
               </footer>
             </div>
+            </div>
+            {assets && <aside className="home-asset-drawer" aria-label={t('assetFolders.assets')}>{assets}</aside>}
           </div>
-          {assets && <aside className="home-asset-drawer" aria-label={t('assetFolders.assets')}>{assets}</aside>}
         </div>
       </div>
     </main>

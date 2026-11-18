@@ -98,7 +98,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
       else await expect(page.locator('html')).not.toHaveClass(/dark/);
     };
     const returnHome = async () => {
-      await page.getByRole('button', { name: copy.tabs.home, exact: true }).click();
+      await page.locator('.workbench-home').click();
       await expect(home()).toBeVisible();
     };
     const form = () => page.locator('form:visible').filter({ has: page.getByRole('button', { name: copy.connection.connectBtn, exact: true }) });
@@ -219,16 +219,17 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     expect(await onlineLocal()).toHaveLength(1);
     await screenshot('home-dashboard-zh-live-terminal-light.png');
 
-    await home().locator('.home-workspace').click();
-    const workspaceMenu = home().locator('.home-workspace-menu');
-    await workspaceMenu.getByRole('button', { name: '本地终端 · UI 测试', exact: true }).click();
+    const terminalTab = page.locator('.workbench-tabs').getByRole('button', { name: '本地终端 · UI 测试', exact: true });
+    await expect(terminalTab).toBeVisible();
+    await expect(page.locator('.workbench-home')).toHaveAttribute('aria-current', 'page');
+    await terminalTab.click();
     await expect(home()).toHaveCount(0);
     await expect(page.locator('.xterm-helper-textarea:visible')).toHaveCount(1);
+    await expect(terminalTab).toHaveAttribute('aria-current', 'page');
     expect(await page.evaluate(() => window.__homeDashboardLocal)).toEqual(local);
 
     await returnHome();
     await home().locator('.home-workspace').click();
-    await workspaceMenu.getByRole('button', { name: copy.welcome.home.manageWorkspace, exact: true }).click();
     await expect(home()).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: copy.workspaceCenter.title, exact: true })).toBeVisible();
     expect(await onlineLocal()).toHaveLength(1);
@@ -240,7 +241,7 @@ const testProfiles = ['Alpha', 'Beta', 'Gamma'].map((name, index) => ({
     const logs = await page.evaluate(() => window.electronAPI.getConnectionLogs());
     expect(logs.filter(log => log.disconnectedAt === 'Online')).toHaveLength(1);
     expect(logs.every(log => log.host === 'localhost')).toBe(true);
-    console.log('PASS: The workspace menu reopens the same local session and reaches workspace settings; the security action also works, and no SSH hosts were contacted.');
+    console.log('PASS: The persistent tab reopens the same local session; the workspace and security buttons reach their destinations, and no SSH hosts were contacted.');
 
     // Review the longer English copy using the same real profiles and live PTY.
     await page.getByRole('navigation', { name: '设置分类', exact: true }).getByRole('button', { name: '通用', exact: true }).click();

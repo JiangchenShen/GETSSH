@@ -9,9 +9,10 @@
   --home-accent-soft: var(--primary-tint);
   --home-warn: var(--v2-warn);
   --home-warn-soft: var(--warning-tint);
+  flex: 1;
   width: 100%;
-  height: 100%;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -22,26 +23,25 @@
 
 .home-header {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, max-content);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, max-content);
   align-items: center;
-  flex: none;
-  min-height: 78px;
-  gap: 12px 24px;
-  padding: 14px 28px;
+  gap: 8px 16px;
+  padding: 10px var(--home-content-inset);
   border-bottom: 1px solid var(--home-line);
   background: var(--home-surface);
 }
 
-.home-shell[data-window-controls='mac'] { --home-caption-start: 96px; }
-.home-shell[data-window-controls='windows'] { --home-caption-end: 145px; }
-.home-header {
-  padding-inline-start: max(28px, var(--home-caption-start, 0px));
-  padding-inline-end: max(28px, var(--home-caption-end, 0px));
-}
-
 .home-frame { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
 .home-frame[data-with-navigation='true'] { grid-template-columns: auto minmax(0, 1fr); }
-.home-content { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; }
+.home-content {
+  --home-content-inset: clamp(24px, 3.6cqw, 56px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+}
+.home-body { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .home-scroll { flex: 1; min-height: 0; overflow: auto; }
 .home-asset-drawer {
   position: absolute;
@@ -53,16 +53,14 @@
   box-shadow: 5px 0 18px rgb(0 0 0 / 10%);
 }
 
-.home-brand, .home-workspace, .home-search, .home-new {
+.home-workspace, .home-search, .home-new {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 40px;
+  min-height: 36px;
 }
 
-.home-brand { font-size: 18px; letter-spacing: -.4px; }
-.home-brand img { flex: none; width: 30px; height: 30px; }
 .home-search {
   width: min(100%, 430px);
   padding-inline: 13px;
@@ -92,36 +90,15 @@
   white-space: nowrap;
 }
 .home-new:hover { background: color-mix(in srgb, var(--home-accent) 86%, var(--home-ink)); }
-.home-workspace-control { position: relative; justify-self: end; min-width: 0; }
 .home-workspace {
   justify-self: end;
-  max-width: clamp(110px, 23cqw, 265px);
+  max-width: min(100%, clamp(110px, 36cqw, 265px));
   padding: 0 6px;
   border-radius: 6px;
   font-size: 12px;
 }
 .home-workspace svg { color: var(--home-accent); }
 .home-workspace strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.home-workspace-menu {
-  position: absolute;
-  inset-block-start: calc(100% + 8px);
-  inset-inline-end: 0;
-  z-index: 8;
-  display: grid;
-  width: min(240px, 70cqw);
-  max-height: min(320px, 50vh);
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid var(--home-line);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
-  background: var(--home-surface);
-  font-size: 12px;
-}
-.home-open-tabs { display: grid; padding-top: 4px; border-top: 1px solid var(--home-line); }
-.home-open-tabs > span { padding: 6px 8px; color: var(--home-muted); }
-.home-workspace-menu button { min-width: 0; padding: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; border-radius: 5px; }
-.home-workspace-menu button:hover { background: var(--home-accent-soft); }
 
 .home-inner { display: flex; flex-direction: column; width: min(100%, 1600px); min-height: 100%; margin-inline: auto; padding: 44px clamp(24px, 3.6cqw, 56px) 26px; }
 .home-dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: clamp(28px, 3cqw, 44px); flex: 1; }
@@ -209,7 +186,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .home-connect-spinner { animation: spin .8s linear infinite; }
 
-  .home-inner, .home-workspace-menu {
+  .home-inner {
     --ui-surface-enter-offset: 0 -5px;
     animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);
   }
@@ -219,7 +196,7 @@
     animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);
   }
 
-  .home-shell :is(.home-filters button, .home-host-row, .home-host-select, .home-host-edit, .home-host-open, .home-new, .home-workspace, .home-workspace-menu button, .home-search, .home-protection) {
+  .home-shell :is(.home-filters button, .home-host-row, .home-host-select, .home-host-edit, .home-host-open, .home-new, .home-workspace, .home-search, .home-protection) {
     transition-property: background-color, border-color, color;
     transition-duration: var(--ui-motion-fast);
     transition-timing-function: var(--ui-motion-ease);
@@ -231,26 +208,17 @@
   .home-inner { padding-top: 30px; }
 }
 
-@container (max-width: 750px) {
-  .home-header { grid-template-columns: minmax(0, 1fr) max-content minmax(0, max-content); }
-  .home-search { grid-column: 1 / -1; grid-row: 2; width: 100%; }
-}
-
 @container (max-width: 350px) {
   .home-header { gap: 6px; }
-  .home-brand { gap: 4px; font-size: 12px; }
-  .home-brand img { width: 22px; height: 22px; }
-  .home-workspace { max-width: 90px; padding-inline-start: 5px; }
-  .home-workspace svg { display: none; }
   .home-host-country { max-width: 23%; }
 }
 
 @container (max-width: 465px) {
   .home-header { grid-template-columns: minmax(0, 1fr) auto; }
-  .home-workspace-control { grid-column: 1 / -1; grid-row: 3; justify-self: start; max-width: 100%; }
-  .home-workspace { padding-inline-start: 0; max-width: 100%; }
-  .home-workspace-menu { inset-inline: 0 auto; }
-  .home-inner { padding-inline: 18px; }
+  .home-search { grid-column: 1 / -1; grid-row: 1; width: 100%; }
+  .home-new { justify-self: start; }
+  .home-workspace { max-width: 100%; }
+  .home-header, .home-inner { padding-inline: 18px; }
   .home-country-flag { display: none; }
   .home-host-select { gap: 7px; padding-inline: 8px; }
   .home-host-row { gap: 3px; padding-inline-end: 6px; }

@@ -1,19 +1,20 @@
 .workbench-shell {
   display: grid;
-  grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr);
+  grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+  flex: 1;
   width: 100%;
-  height: 100%;
   min-height: 0;
 }
 
 .workbench-shell[hidden] { display: none; }
 
-.workbench-shell[data-caption='mac'],
-.workbench-detached[data-caption='mac'] { --workbench-caption-start: 92px; }
-.workbench-shell[data-caption='windows'],
+.workbench-top[data-caption='mac'],
+.workbench-detached[data-caption='mac'] { --workbench-caption-start: 124px; }
+.workbench-top[data-caption='windows'],
 .workbench-detached[data-caption='windows'] { --workbench-caption-end: 144px; }
 
 .workbench-top {
+  flex: none;
   border-bottom: 1px solid var(--v2-line);
 }
 
@@ -56,6 +57,7 @@
 .workbench-header-action { border-color: var(--v2-line); }
 .workbench-home:hover, .workbench-header-action:not(:disabled):hover,
 .workbench-home[aria-current='page'] { background: var(--v2-surf); color: var(--v2-ink); }
+.workbench-home[aria-current='page'] { border-color: var(--v2-line); box-shadow: inset 0 -2px 0 var(--color-primary); }
 .workbench-header-action[aria-expanded='true'] { background: var(--primary-tint); color: var(--color-primary); }
 .workbench-header-action:disabled { opacity: .55; }
 
@@ -298,12 +300,12 @@
     animation: workbench-terminal-in 220ms var(--ui-motion-ease);
   }
 
-  .workbench-shell[data-terminal-active='true'] > :is(.workbench-top, .workbench-bottom) {
+  .workbench-shell[data-terminal-active='true'] > .workbench-bottom {
     transition: opacity 220ms var(--ui-motion-ease);
   }
 
   @starting-style {
-    .workbench-shell[data-terminal-active='true'] > :is(.workbench-top, .workbench-bottom) { opacity: .26; }
+    .workbench-shell[data-terminal-active='true'] > .workbench-bottom { opacity: .26; }
   }
 
   .workbench-asset-drawer {
@@ -351,7 +353,7 @@
   white-space: nowrap;
 }
 
-.workbench-shell button:focus-visible, .workbench-detached button:focus-visible {
+:is(.workbench-top, .workbench-shell, .workbench-detached) button:focus-visible {
   outline: 2px solid rgb(var(--primary-color));
   outline-offset: -1px;
 }

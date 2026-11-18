@@ -97,6 +97,8 @@ function AppMain() {
   const showTerminal = selectedSessionIndex === null && activeLeaf?.paneType === 'terminal' && !isVaultLocked && !isSwitching;
   const isHomeActive = selectedSessionIndex === null && !activeTabId;
   const showFullHome = isHomeActive && !isVaultLocked;
+  const caption = isFullScreen ? undefined : isMac ? 'mac'
+    : window.electronAPI?.getEnvInfo?.().platform === 'win32' ? 'windows' : undefined;
   const assetsOpen = showFullHome && !isSwitching && assetsOpenFor === activeWorkspaceId;
   const workbenchAssetsOpen = !showFullHome && !isSwitching && !isVaultLocked && workbenchAssetsFor === activeWorkspaceId;
 
@@ -248,38 +250,37 @@ function AppMain() {
           </div>
         )}
 
-        {/* Hiding the shell on Home leaves open terminal panes mounted. */}
-        <div className="workbench-shell" hidden={showFullHome} data-terminal-active={showTerminal || undefined}
-          data-caption={isFullScreen ? undefined : isMac ? 'mac' : 'windows'}>
-          <div className="workbench-top sidebar-material">
-            <TabBar
-              tabs={workspaceTabs}
-              activeTabId={activeTabId}
-              onSelectTab={selectTab}
-              onCloseTab={closeTab}
-              onHomeClick={handleHomeClick}
-              isHomeActive={isHomeActive}
-              actions={(
-                <button
-                  ref={workbenchAssetsButton}
-                  type="button"
-                  className="workbench-header-action"
-                  aria-label={t('assetFolders.assets')}
-                  title={t('assetFolders.assets')}
-                  aria-expanded={workbenchAssetsOpen}
-                  aria-controls={workbenchAssetsOpen ? 'workbench-asset-drawer' : undefined}
-                  onClick={() => setWorkbenchAssetsFor(workbenchAssetsOpen ? null : activeWorkspaceId)}
-                  disabled={isSwitching || isVaultLocked}
-                >
-                  <FolderClosed size={14} aria-hidden="true" />
-                  <span>{t('assetFolders.assets')}</span>
-                </button>
-              )}
-              onSplit={() => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
-              canSplit={splitDirection !== null}
-            />
-          </div>
+        <div className="workbench-top sidebar-material" data-caption={caption}>
+          <TabBar
+            tabs={isVaultLocked || isSwitching ? [] : workspaceTabs}
+            activeTabId={activeTabId}
+            onSelectTab={selectTab}
+            onCloseTab={closeTab}
+            onHomeClick={handleHomeClick}
+            isHomeActive={isHomeActive}
+            actions={!showFullHome && (
+              <button
+                ref={workbenchAssetsButton}
+                type="button"
+                className="workbench-header-action"
+                aria-label={t('assetFolders.assets')}
+                title={t('assetFolders.assets')}
+                aria-expanded={workbenchAssetsOpen}
+                aria-controls={workbenchAssetsOpen ? 'workbench-asset-drawer' : undefined}
+                onClick={() => setWorkbenchAssetsFor(workbenchAssetsOpen ? null : activeWorkspaceId)}
+                disabled={isSwitching || isVaultLocked}
+              >
+                <FolderClosed size={14} aria-hidden="true" />
+                <span>{t('assetFolders.assets')}</span>
+              </button>
+            )}
+            onSplit={showFullHome ? undefined : () => { if (activePaneId && splitDirection) splitPane(activePaneId, splitDirection); }}
+            canSplit={splitDirection !== null && !isSwitching && !isVaultLocked}
+          />
+        </div>
 
+        {/* The title bar stays visible while the terminal panes remain mounted on Home. */}
+        <div className="workbench-shell" hidden={showFullHome} data-terminal-active={showTerminal || undefined}>
           <div className="workbench-content">
             <BackupRestartNotice />
             <div className="workbench-session-frame">

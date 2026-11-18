@@ -187,19 +187,19 @@ describe('home dashboard data boundaries', () => {
     expect(buttons[0].disabled).toBe(false);
   });
 
-  it('offers only current workspace tabs in the workspace menu', async () => {
+  it('opens workspace management from the workspace button even when a session is open', async () => {
     mocks.tabs = [
       tab('temporary-session', 'current', terminal('temporary-pane')),
-      tab('other-workspace', 'other', terminal('other-pane')),
-      tab('torn-off', 'current', terminal('torn-pane'), true),
     ];
-    await render();
-    expect(container.querySelector('.home-workspace-menu')).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>('.home-workspace')!.click());
-    const tabs = container.querySelectorAll<HTMLButtonElement>('.home-workspace-menu .home-open-tabs button');
-    expect([...tabs].map(button => button.textContent)).toEqual(['temporary-session']);
-    await act(async () => tabs[0].click());
-    expect(mocks.setActiveTabId).toHaveBeenCalledWith('temporary-session');
+    const openCenter = vi.fn();
+    window.addEventListener('app:open-center', openCenter);
+    try {
+      await render();
+      await act(async () => container.querySelector<HTMLButtonElement>('.home-workspace')!.click());
+      expect(openCenter).toHaveBeenCalledTimes(1);
+      expect((openCenter.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ type: 'workspace', workspacePage: 'all' });
+      expect(mocks.setActiveTabId).not.toHaveBeenCalled();
+    } finally { window.removeEventListener('app:open-center', openCenter); }
   });
 
   it('searches real host names and addresses without opening a connection', async () => {

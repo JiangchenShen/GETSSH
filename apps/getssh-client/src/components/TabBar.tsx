@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, Home, Columns2, PanelsTopLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tab, PaneNode } from '../store/sessionStore';
@@ -48,6 +48,11 @@ export const TabBar: React.FC<TabBarProps> = ({
 }) => {
   const { t } = useTranslation();
   const visibleTabs = tabs.filter(tb => tb.id !== 'settings' && !tb.isTornOff);
+  const tabStrip = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    tabStrip.current?.querySelector('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId]);
 
   return (
     <header className="workbench-header drag-region">
@@ -64,7 +69,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         <Home size={15} aria-hidden="true" />{t('tabs.home')}
       </button>
 
-      <div className="workbench-tabs">
+      <nav ref={tabStrip} className="workbench-tabs" aria-label={t('welcome.home.openTabs')}>
       {visibleTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
         const status = sessionStatus(tab.paneTree);
@@ -118,7 +123,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           </div>
         );
       })}
-      </div>
+      </nav>
 
       {actions}
       {onSplit && (
