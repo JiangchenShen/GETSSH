@@ -287,6 +287,37 @@
 .workbench-pane-tools .workbench-pane-close:hover { background: color-mix(in srgb, var(--v2-down) 14%, transparent); color: var(--v2-down); }
 .workbench-toolbar-divider { width: 1px; height: 16px; margin-inline: 3px; background: var(--v2-line); }
 
+@media (prefers-reduced-motion: no-preference) {
+  /* Keep the terminal and dock at their final sizes from the first frame. */
+  .workbench-tab-view:not(:has(.management-center)),
+  .workbench-dock > :not(.workbench-dock-resizer) {
+    animation: ui-section-in var(--ui-motion-page) var(--ui-motion-ease);
+  }
+
+  .workbench-asset-drawer {
+    animation: workbench-drawer-in var(--ui-motion-page) var(--ui-motion-ease);
+  }
+
+  :is(.workbench-home, .workbench-header-action, .workbench-tab, .workbench-tab-close,
+      .workbench-footer-action, .workbench-pane-header, .workbench-pane-glyph, .workbench-pane-tools button) {
+    transition: background-color var(--ui-motion-fast) var(--ui-motion-ease),
+      border-color var(--ui-motion-fast) var(--ui-motion-ease), color var(--ui-motion-fast) var(--ui-motion-ease),
+      box-shadow var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+
+  :is(.workbench-session-dot, .workbench-split-grip, .workbench-dock-resizer) {
+    transition: background-color var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+
+  .workbench-pane-tools button[aria-pressed] > svg, .workbench-split-grip {
+    animation: ui-section-in var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+}
+
+@keyframes workbench-drawer-in {
+  from { opacity: .64; translate: -8px 0; }
+}
+
 .workbench-detached { display: flex; min-height: 0; flex-direction: column; }
 .workbench-detached-header {
   flex: none;

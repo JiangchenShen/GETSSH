@@ -124,10 +124,10 @@ export const AiConfigurationSection: React.FC<{ tab: AiConfigurationTab }> = ({ 
     }
   };
 
-  if (tab === 'mcp') return <div className="center-workbench"><McpTab /></div>;
+  if (tab === 'mcp') return <div key={tab} className="ui-section-enter center-workbench"><McpTab /></div>;
 
   return (
-    <div className="center-workbench max-w-3xl space-y-8 text-ink">
+    <div key={tab} className="ui-section-enter center-workbench max-w-3xl space-y-8 text-ink">
       {tab === 'providers' && (
         <>
           <div>

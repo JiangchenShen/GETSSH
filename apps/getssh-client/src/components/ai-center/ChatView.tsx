@@ -205,7 +205,7 @@ export const ChatView = memo(function ChatView({ onPaperPlane, onRetry, onServer
     }
   };
 
-  if (!messages.length) return <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+  if (!messages.length) return <div key={activeConversationId} className="ui-section-enter flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
     <Bot className="mb-2 h-8 w-8 text-ink-3" /><div className="text-base font-medium text-ink-2">{zh ? '想从哪里开始？' : 'Where would you like to start?'}</div>
     <p className="max-w-sm text-xs leading-relaxed text-ink-3">{zh ? '可以问服务器排障、日志分析或脚本编写。需要终端上下文时，请先选定目标。' : 'Ask about troubleshooting, logs or scripts. Select a target when you need terminal context.'}</p>
   </div>;

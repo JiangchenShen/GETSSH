@@ -120,7 +120,7 @@ export const AiCenter: React.FC = () => {
               )}
 
               {/* ── Body ── */}
-              <div className="flex-1 flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
+              <div key={isLocked || needsKey ? 'unconfigured' : view} className="ui-section-enter flex min-h-0 flex-1 flex-col overflow-hidden">
                 {isLocked || needsKey ? (
                   <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-y-auto px-4 py-5 text-center">
                     <p className="text-sm font-medium text-ink">{isLocked ? (zh ? 'AI 已关闭' : 'AI is off') : (zh ? '需要设置 API 密钥' : 'An API key is required')}</p>

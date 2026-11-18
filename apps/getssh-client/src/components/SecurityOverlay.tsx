@@ -97,8 +97,8 @@ export const SecurityOverlay: React.FC = () => {
 
   return (
     <div role="dialog" aria-modal="true" aria-label={title}
-      className="no-drag-region fixed inset-0 z-[99999] grid place-items-center bg-scrim p-4">
-      <div className="max-h-full w-full max-w-[640px] overflow-y-auto rounded-xl border border-line bg-surf text-ink shadow-2xl">
+      className="ui-motion-managed no-drag-region fixed inset-0 z-[99999] grid place-items-center bg-scrim p-4">
+      <div className="ui-dialog-enter max-h-full w-full max-w-[640px] overflow-y-auto rounded-xl border border-line bg-surf text-ink shadow-2xl">
         <header className="flex flex-wrap items-start gap-3 border-b border-line-soft px-5 py-4">
           <span className={`grid size-9 shrink-0 place-items-center rounded-md ${severity}`}>
             <ShieldAlert size={19} aria-hidden="true" />
@@ -124,7 +124,7 @@ export const SecurityOverlay: React.FC = () => {
         </section>
 
         {pwdPrompt ? (
-          <form className="grid gap-3 border-t border-line-soft px-5 py-4"
+          <form className="ui-section-enter grid gap-3 border-t border-line-soft px-5 py-4"
             onSubmit={event => { event.preventDefault(); void submitIgnore(); }}>
             <h2 className="flex items-center gap-2 text-sm font-semibold"><Key size={16} aria-hidden="true" />{t('securityLockdown.verifyTitle')}</h2>
             <p className="text-xs text-ink-3">{t('securityLockdown.verifyHint')}</p>
@@ -138,7 +138,7 @@ export const SecurityOverlay: React.FC = () => {
             </div>
           </form>
         ) : (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line-soft px-5 py-4">
+          <div className="ui-section-enter flex flex-wrap items-center justify-end gap-2 border-t border-line-soft px-5 py-4">
             <button type="button" onClick={handleIgnore} disabled={verifying} className={`${secondary} text-ink-3`}>
               <ShieldOff size={14} aria-hidden="true" />{t(isRed ? 'securityLockdown.ignoreRisk' : 'securityLockdown.ignoreWarning')}
             </button>

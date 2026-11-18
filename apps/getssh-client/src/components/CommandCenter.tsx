@@ -7,7 +7,7 @@ import { useCryptoStore } from '../store/cryptoStore';
 import { useAppStore } from '../store/appStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, useIsPresent, useReducedMotion } from 'framer-motion';
 import Fuse from 'fuse.js';
 
 import { CommandCenterList } from './command-center/CommandCenterList';
@@ -42,6 +42,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith('zh');
   const reduceMotion = useReducedMotion();
+  const isPresent = useIsPresent();
   const installedPlugins = usePluginStore(state => state.installedPlugins);
   const setCryptoMode = useCryptoStore(state => state.setCryptoMode);
   const workspaceUnprotected = useCryptoStore(state => state.workspaceUnprotected);
@@ -81,8 +82,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
   }, [isPolluted]);
 
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+    if (isOpen && isPresent) {
+      inputRef.current?.focus();
       setSearchQuery('');
       setActiveIndex(0);
       setIsActionMenuOpen(false);
@@ -91,7 +92,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       setIsAiMode(false);
       
     }
-  }, [isOpen]);
+  }, [isOpen, isPresent]);
 
   useEffect(() => {
     setDeleteConfirmId(null);
@@ -315,6 +316,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
   // Keyboard Navigation & Action Drawer
   useEffect(() => {
+    if (!isOpen || !isPresent) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       // 1. Two-Stage Escape
       if (e.key === 'Escape') {
@@ -390,7 +392,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [unifiedItems, activeIndex, isActionMenuOpen, onClose, activeDrawerIndex, isAiMode, searchQuery]);
+  }, [unifiedItems, activeIndex, isActionMenuOpen, onClose, activeDrawerIndex, isAiMode, searchQuery, isOpen, isPresent]);
 
   // Handle outside click
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -486,9 +488,10 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
       initial={reduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={reduceMotion ? undefined : { opacity: 0 }}
-      transition={{ duration: 0.16 }}
+      transition={{ duration: 0.165, ease: 'easeOut' }}
       className="center-workbench management-overlay fixed inset-0 z-[9999] flex items-start justify-center bg-scrim pt-[min(10vh,80px)]"
       data-glass={appConfig?.enableGlassmorphism ? 'true' : 'false'}
+      inert={!isOpen || !isPresent}
       onClick={handleBackdropClick}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
@@ -497,7 +500,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({ isOpen, onClose, o
           initial={reduceMotion ? false : { opacity: 0, y: 7 }}
           animate={{ opacity: 1, y: 0 }}
           exit={reduceMotion ? undefined : { opacity: 0, y: -5 }}
-          transition={{ duration: 0.16 }}
+          transition={{ duration: 0.165, ease: 'easeOut' }}
           role="dialog"
           aria-modal="true"
           aria-label={t('statusBar.commandCenter', 'Command Center')}

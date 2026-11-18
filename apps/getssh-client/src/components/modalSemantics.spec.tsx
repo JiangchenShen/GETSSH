@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({ lockdown: undefined as ((info: { reason: strin
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }) }));
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => children,
+  useIsPresent: () => true,
+  useReducedMotion: () => true,
   motion: { div: ({ initial: _initial, animate: _animate, exit: _exit, transition: _transition, ...props }: any) => <div {...props} /> },
 }));
 vi.mock('../store/appStore', () => ({ useAppStore: (select: (state: any) => any) => select({ isDark: false, setIsPolluted: () => {} }) }));
@@ -47,7 +49,7 @@ it('marks the high-risk runbook confirmation as a named modal in the app shell',
   // Booting App also boots its native services. Restrict this structural check to the runbook
   // confirmation's opening tag; the other modal checks above render the actual components.
   const source = readFileSync(`${process.cwd()}/src/App.tsx`, 'utf8');
-  const confirmation = source.split('{pendingHighRiskRunbook && (')[1]?.match(/<motion\.div\s([\s\S]*?)\n\s*>/)?.[1];
+  const confirmation = source.split('{pendingHighRiskRunbook && (')[1]?.match(/<div\b[^>]*>\s*(<div\b[^>]*>)/)?.[1];
   expect(confirmation).toBeDefined();
   expect(confirmation).toMatch(/role="dialog"/);
   expect(confirmation).toMatch(/aria-modal="true"/);

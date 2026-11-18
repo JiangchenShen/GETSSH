@@ -109,11 +109,11 @@ export const SplitPane: React.FC<SplitPaneProps> = ({ children, isDark, activeTa
       </div>
       {showPanel && (
         <div
-          className={`shrink-0 relative flex flex-col ${isBottom ? 'shadow-[inset_0_1px_0_var(--color-line-soft)]' : 'shadow-[inset_1px_0_0_var(--color-line-soft)]'}`}
+          className={`workbench-dock shrink-0 relative flex flex-col ${isBottom ? 'shadow-[inset_0_1px_0_var(--color-line-soft)]' : 'shadow-[inset_1px_0_0_var(--color-line-soft)]'}`}
           style={isBottom ? { height: currentSize } : { width: currentSize }}
         >
           <div
-            className={`absolute top-0 left-0 z-50 transition-all duration-200 hover:bg-primary/70 ${isBottom
+            className={`workbench-dock-resizer absolute top-0 left-0 z-50 hover:bg-primary/70 ${isBottom
               ? 'right-0 h-px hover:h-1 -translate-y-1/2 cursor-row-resize'
               : 'bottom-0 w-px hover:w-1 -translate-x-1/2 cursor-col-resize'}`}
             onMouseDown={handleMouseDown}

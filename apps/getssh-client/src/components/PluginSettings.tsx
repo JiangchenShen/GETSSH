@@ -210,7 +210,7 @@ const PluginConfigPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
   };
   return <div className="mt-3 border-t border-line-soft pt-3">
     <button type="button" onClick={() => setOpen(!open)} disabled={saving} aria-expanded={open} className={buttonClass}><Settings2 size={13} aria-hidden="true" />{zh ? '配置插件' : 'Configure plugin'}</button>
-    {open && <div className="mt-3 max-w-xl space-y-3">
+    {open && <div className="ui-section-enter mt-3 max-w-xl space-y-3">
       {schema.map(field => <div key={field.id} className="text-xs text-ink-2">
         <label className="block">
           <span className="font-medium">{field.label}</span>

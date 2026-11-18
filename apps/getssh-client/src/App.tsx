@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { TerminalPaneRenderer } from './components/TerminalPane';
 import { FolderClosed, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 // Stores
 import { useAppStore } from './store/appStore';
@@ -215,18 +215,9 @@ function AppMain() {
         className={`w-screen h-screen overflow-hidden flex flex-col font-sans text-ink transition-[filter] duration-200 ${isAppBlurred && appConfig.privacyMode ? 'blur-2xl brightness-50 pointer-events-none' : ''} relative`}
         style={isMac ? undefined : { backgroundColor: 'var(--v2-bg)' }}
       >
-        <AnimatePresence>
-          {pendingHighRiskRunbook && (
-            <motion.div 
-               initial={{ opacity: 0, scale: 0.95 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 0.95 }}
-               role="dialog"
-               aria-modal="true"
-               aria-label="High Risk Operation"
-               className="fixed inset-0 z-[9999] flex items-center justify-center bg-scrim p-5 pointer-events-auto"
-            >
-              <div className="border border-line bg-surf rounded-xl max-w-md w-full p-5 shadow-2xl">
+        {pendingHighRiskRunbook && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-scrim p-5 pointer-events-auto">
+              <div role="dialog" aria-modal="true" aria-label="High Risk Operation" className="ui-dialog-enter border border-line bg-surf rounded-xl max-w-md w-full p-5 shadow-2xl">
                 <h3 className="text-base font-bold text-ink mb-2 flex items-center gap-2">
                   <ShieldAlert className="w-5 h-5 text-down" aria-hidden="true" /> High Risk Operation
                 </h3>
@@ -250,9 +241,8 @@ function AppMain() {
                   }}
                 />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
 
         {/* Hiding the shell on Home leaves open terminal panes mounted. */}
         <div className="workbench-shell" hidden={showFullHome}
@@ -295,7 +285,7 @@ function AppMain() {
               {workspaceTabs.map((tab) => (
                 <div 
                   key={tab.id}
-                  className="absolute inset-0 flex flex-col"
+                  className="workbench-tab-view absolute inset-0 flex flex-col"
                   style={{ display: activeTabId === tab.id ? 'flex' : 'none', zIndex: activeTabId === tab.id ? 10 : 0 }}
                 >
                   {tab.paneTree ? (

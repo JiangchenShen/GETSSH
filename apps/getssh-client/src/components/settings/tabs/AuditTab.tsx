@@ -92,7 +92,7 @@ export const AuditTab: React.FC = () => {
             <th scope="col" className="px-2 py-2 font-medium">{t('settings.auditDisconnectedAt')}</th>
             <th scope="col" className="px-2 py-2 text-right font-medium">{t('settings.auditDuration')}</th>
           </tr></thead>
-          <tbody className="text-ink-2">
+          <tbody key={page} className="ui-section-enter text-ink-2">
             {pageLogs.map(log => <tr key={log.id} className="border-b border-line-soft last:border-b-0 hover:bg-surf/60">
               <td className="max-w-36 truncate px-2 py-2 font-medium text-ink" title={log.alias}>{log.alias}</td>
               <td className="max-w-40 truncate px-2 py-2 font-mono" title={`${log.host}:${log.port}`}>{log.host}:{log.port}</td>

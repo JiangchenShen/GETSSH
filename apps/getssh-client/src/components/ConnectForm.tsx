@@ -328,7 +328,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
   ];
 
   return (
-    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="connection-workbench">
+    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="connection-workbench ui-section-enter">
       <header className="connection-header">
         <div className="min-w-0">
           <p className="connection-kicker">{session.isDraft ? t('connection.draft') : t('connection.saved')}</p>
@@ -373,12 +373,12 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
               </div>
             </div>
             {isLocal ? (
-              <div className="mt-4 flex min-h-12 items-center gap-3 rounded-md border border-line bg-surf-2 px-3 py-2">
+              <div key="local" className="ui-section-enter mt-4 flex min-h-12 items-center gap-3 rounded-md border border-line bg-surf-2 px-3 py-2">
                 <TerminalSquare className="h-5 w-5 text-primary" />
                 <div><div className="text-[12px] font-semibold">{t('connection.localReady')}</div><div className="mt-0.5 text-[10px] text-ink-3">{t('connection.protocol.localHint')}</div></div>
               </div>
             ) : (
-              <div className="connection-address mt-4 flex items-center rounded-md border border-line bg-surf-2 px-3 focus-within:border-primary">
+              <div key="remote" className="connection-address ui-section-enter mt-4 flex items-center rounded-md border border-line bg-surf-2 px-3 focus-within:border-primary">
                 <Server className={`h-5 w-5 flex-none transition-colors ${autoFlash ? 'text-primary' : 'text-ink-3'}`} />
                 <input value={localSession.host || ''} onChange={(event) => handleHostChange(event.target.value)} aria-label={t('connection.host')} placeholder="ssh://user@host:22" spellCheck={false} autoFocus={session.isDraft} className="h-12 min-w-0 flex-1 bg-transparent px-3 font-mono text-[13px] text-ink outline-none placeholder:text-ink-3" />
                 <span className="shrink-0 font-mono text-[10px] uppercase text-ink-3">{displayProtocol}</span>
@@ -407,14 +407,14 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><KeyRound className="h-4 w-4 text-primary" />{t('connection.authMethod')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.authDesc')}</p></div>
                 </div>
                 {isLocal ? (
-                  <div className="flex items-center gap-3 rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-[11px] text-ink-2"><Check className="h-4 w-4 text-ok" />{t('connection.localAuthHint')}</div>
+                  <div className="ui-section-enter flex items-center gap-3 rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-[11px] text-ink-2"><Check className="h-4 w-4 text-ok" />{t('connection.localAuthHint')}</div>
                 ) : <>
                   {!isTelnet && <div className="connection-segments mb-3" role="group" aria-label={t('connection.authMethod')}>
                     <button type="button" aria-pressed={!localSession.authType || localSession.authType === 'password'} onClick={() => handleUpdate({ authType: 'password', ...(localSession.keyId ? { keyId: null } : {}) })}>{t('connection.password')}</button>
                     <button type="button" aria-pressed={localSession.authType === 'key'} onClick={() => handleUpdate({ authType: 'key' })}>{t('connection.privateKey')}</button>
                   </div>}
                   {isTelnet || !localSession.authType || localSession.authType === 'password' ? (
-                    <div><label><span className={labelClass}>{t('connection.password')}</span><input disabled={saving} value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword && !pendingClears.password) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword && !pendingClears.password ? savedSecretHint : t('connection.password')} /></label>
+                    <div className="ui-section-enter"><label><span className={labelClass}>{t('connection.password')}</span><input disabled={saving} value={localSession.password || ''} onChange={(event) => handleUpdate({ password: secretInput(event.target.value, localSession.hasPassword && !pendingClears.password) })} className={inputClass} type="password" autoComplete="current-password" placeholder={localSession.hasPassword && !pendingClears.password ? savedSecretHint : t('connection.password')} /></label>
                       {localSession.hasPassword && localSession.id && <SavedSecretControl workspaceId={activeWorkspaceId} profileId={localSession.id} field="password" disabled={saving || !profilesReady} pendingClear={!!pendingClears.password} pendingReplacement={!!localSession.password} onClear={() => clearSecret('password')} onUndoClear={() => undoClear('password')} />}
                     </div>
                   ) : (
@@ -429,7 +429,7 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                         // A pending "clear saved password" stays '' (clear); undefined would keep the stored one.
                         handleUpdate({ authType: 'key', keyId, privateKeyPath: null, passphrase: null, password: pendingClearsRef.current.password ? '' : undefined, hasPassphrase: false });
                       }}>
-                    <div className="connection-fields">
+                    <div className="connection-fields ui-section-enter">
                       <label><span className={labelClass}>{t('connection.privateKey')}</span><div className="flex gap-2"><input value={localSession.privateKeyPath || ''} onChange={(event) => handleUpdate({ keyId: null, privateKeyPath: event.target.value })} className={`${inputClass} font-mono`} placeholder="~/.ssh/id_ed25519" /><button type="button" onClick={async () => {
                         const requestGeneration = generation.current;
                         const revision = useSessionStore.getState().sessionsRevision;
@@ -451,11 +451,11 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   <div><h3 className="flex items-center gap-2 text-[14px] font-semibold"><TerminalSquare className="h-4 w-4 text-primary" />{t('connection.tabAutomation')}</h3><p className="mt-1 text-[11px] text-ink-3">{t('connection.automationDesc')}</p></div>
                 </div>
                 {isSsh ? (
-                  <div className="connection-fields">
+                  <div key="ssh" className="connection-fields ui-section-enter">
                     <label><span className={labelClass}>{t('connection.initialDir')}</span><input value={localSession.initialDirectory || ''} onChange={(event) => handleUpdate({ initialDirectory: event.target.value })} className={`${inputClass} font-mono`} placeholder="/var/www/html" /></label>
                     <label><span className={labelClass}>{t('connection.postConnectScript')}</span><textarea value={localSession.postConnectScript || ''} onChange={(event) => handleUpdate({ postConnectScript: event.target.value })} className={`${inputClass} min-h-20 resize-y py-2.5 font-mono`} placeholder="uptime && df -h" /></label>
                   </div>
-                ) : <div className="rounded-xl border border-line-soft bg-surf px-4 py-3 text-[11px] text-ink-3">{t('connection.sshOnlyHint')}</div>}
+                ) : <div key="other" className="ui-section-enter rounded-xl border border-line-soft bg-surf px-4 py-3 text-[11px] text-ink-3">{t('connection.sshOnlyHint')}</div>}
               </section>
             </div>
 
@@ -479,13 +479,13 @@ export const ConnectForm: React.FC<ConnectFormProps> = ({
                   <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
                     <div className="min-w-0"><div className="text-[12px] font-semibold">{t('connection.keepAlive')}</div><div className="mt-0.5 text-[10px] text-ink-3">{t('connection.keepAliveDesc')}</div></div>
                     <button type="button" role="switch" aria-label={t('connection.keepAlive')} aria-checked={localSession.useKeepAlive !== false} onClick={() => handleUpdate({ useKeepAlive: localSession.useKeepAlive === false })} className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${localSession.useKeepAlive !== false ? 'border-ok/50 bg-ok' : 'border-line bg-surf-2'}`}>
-                      <span className={`absolute top-[3px] left-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${localSession.useKeepAlive !== false ? 'translate-x-5' : ''}`} />
+                      <span className={`absolute top-[3px] left-[3px] h-4 w-4 rounded-full bg-white shadow-sm motion-safe:transition-transform ${localSession.useKeepAlive !== false ? 'translate-x-5' : ''}`} />
                     </button>
                   </div>
                   {isSsh && <div className="flex items-center justify-between gap-4 py-3">
                     <div className="min-w-0"><div className="text-[12px] font-semibold">{t('connection.strictHostKey')}</div><div className="mt-0.5 text-[10px] text-ink-3">{t('connection.strictHostKeyDesc')}</div></div>
                     <button type="button" role="switch" aria-label={t('connection.strictHostKey')} aria-checked={localSession.strictHostKeyChecking === true} onClick={() => handleUpdate({ strictHostKeyChecking: localSession.strictHostKeyChecking !== true })} className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${localSession.strictHostKeyChecking === true ? 'border-ok/50 bg-ok' : 'border-line bg-surf-2'}`}>
-                      <span className={`absolute top-[3px] left-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${localSession.strictHostKeyChecking === true ? 'translate-x-5' : ''}`} />
+                      <span className={`absolute top-[3px] left-[3px] h-4 w-4 rounded-full bg-white shadow-sm motion-safe:transition-transform ${localSession.strictHostKeyChecking === true ? 'translate-x-5' : ''}`} />
                     </button>
                   </div>}
                   <div className="flex items-center justify-between gap-4 py-3 last:pb-0"><div><div className="text-[12px] font-semibold">{t('connection.route')}</div><div className="mt-0.5 text-[10px] text-ink-3">{t('connection.routeDesc')}</div></div><span className="rounded-lg border border-line bg-surf px-2.5 py-1 font-mono text-[10px] text-ink-2">{routeLabel}</span></div>

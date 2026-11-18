@@ -140,7 +140,7 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
 
   if (messages.length === 0) {
     return (
-      <div className="flex min-h-[220px] flex-1 items-center justify-center px-6 py-10 text-center text-sm text-ink-3">
+      <div className="ui-section-enter flex min-h-[220px] flex-1 items-center justify-center px-6 py-10 text-center text-sm text-ink-3">
         <div className="flex max-w-sm flex-col items-center gap-2">
           <Bot className="h-5 w-5 text-primary" aria-hidden="true" />
           <p>{t('commandCenter.aiHint', 'Ask AI a question. Tool access follows your selected agent mode.')}</p>
@@ -150,7 +150,7 @@ export const CommandCenterAiChat: React.FC<Props> = ({ isDark, sessions }) => {
   }
 
   return (
-    <div ref={scrollRef} className="flex min-h-[220px] max-h-[52vh] flex-1 flex-col overflow-y-auto px-4">
+    <div ref={scrollRef} className="ui-section-enter flex min-h-[220px] max-h-[52vh] flex-1 flex-col overflow-y-auto px-4">
       {messages.map(msg => <CommandMessageView key={msg.id} msg={msg} isDark={isDark} you={t('common.you', 'You')} thinking={t('common.thinking', 'Thinking…')} />)}
     </div>
   );

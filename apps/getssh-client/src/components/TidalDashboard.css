@@ -199,21 +199,20 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .home-inner, .home-workspace-menu {
-    animation: home-enter 170ms ease-out;
+    --ui-surface-enter-offset: 0 -5px;
+    animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);
   }
 
   .home-asset-drawer {
-    --home-enter-offset: -10px 0;
-    animation: home-enter 170ms ease-out;
+    --ui-surface-enter-offset: -10px 0;
+    animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);
   }
 
-  .home-shell :is(.home-filters button, .home-host-row, .home-host-select, .home-host-edit, .home-host-open, .home-new, .home-workspace, .home-workspace-menu button) {
-    transition: background-color 130ms ease-out, border-color 130ms ease-out, color 130ms ease-out;
+  .home-shell :is(.home-filters button, .home-host-row, .home-host-select, .home-host-edit, .home-host-open, .home-new, .home-workspace, .home-workspace-menu button, .home-search, .home-protection) {
+    transition-property: background-color, border-color, color;
+    transition-duration: var(--ui-motion-fast);
+    transition-timing-function: var(--ui-motion-ease);
   }
-}
-
-@keyframes home-enter {
-  from { opacity: .55; translate: var(--home-enter-offset, 0 -5px); }
 }
 
 @container (max-width: 900px) {

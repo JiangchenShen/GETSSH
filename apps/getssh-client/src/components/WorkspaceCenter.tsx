@@ -112,51 +112,53 @@ export const WorkspaceCenter: React.FC<{ initialPage?: WorkspacePage }> = ({ ini
 
           {error && <p role="alert" className="mb-5 rounded-md border border-down/30 bg-down/10 px-3 py-2 text-sm text-down">{error}</p>}
 
-          {page === 'all' && (
-            <div className="management-list">
-              {workspaces.length === 0 && <p className="px-5 py-8 text-sm text-ink-2">{t('workspaceCenter.noWorkspaces', 'No workspaces yet.')}</p>}
-              {workspaces.map(workspace => {
-                const isActive = workspace.id === activeWorkspaceId;
-                const isMain = workspace.isMain ?? (workspace.id === 'default');
-                const name = workspace.id === 'default' ? t('sidebar.defaultWorkspace') : workspace.name || workspace.id;
-                return (
-                  <div key={workspace.id} className="management-list-row flex min-h-17 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-3" data-current={isActive || undefined}>
-                    <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line-soft bg-surf-2" aria-hidden="true"><Layers size={15} style={{ color: workspace.themeColor || 'var(--center-accent)' }} /></span>
-                    <button type="button" onClick={() => handleSwitch(workspace.id)} disabled={!!busyId || isActive}
-                      className="min-w-0 flex-1 rounded-md px-2 py-1 text-left transition-colors hover:bg-surf disabled:cursor-default disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-[var(--center-accent)]">
-                      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium">
-                        <span className="max-w-full break-words">{name}</span>
-                        {isActive && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">{t('workspaceCenter.current', 'Current')}</span>}
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-xs text-ink-3">{workspace.id}</span>
-                    </button>
-                    {busyId === workspace.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ink-2" aria-label={t('common.loading', 'Loading')} />}
-                    {isMain ? (
-                      <span className="flex shrink-0 items-center gap-1 text-xs text-ink-3"><Star className="h-3.5 w-3.5" />{t('workspaceCenter.main', 'Main')}</span>
-                    ) : (
-                      <button type="button" onClick={() => handleSetMain(workspace.id, name)} disabled={!!busyId}
-                        className="shrink-0 rounded-md px-2 py-1.5 text-xs text-ink-2 hover:bg-surf hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--center-accent)]"
-                        title={t('workspaceCenter.setMainTooltip', 'Set as main')}>
-                        {t('workspaceCenter.setMainTooltip', 'Set as main')}
+          <div key={page} className="ui-section-enter">
+            {page === 'all' && (
+              <div className="management-list">
+                {workspaces.length === 0 && <p className="px-5 py-8 text-sm text-ink-2">{t('workspaceCenter.noWorkspaces', 'No workspaces yet.')}</p>}
+                {workspaces.map(workspace => {
+                  const isActive = workspace.id === activeWorkspaceId;
+                  const isMain = workspace.isMain ?? (workspace.id === 'default');
+                  const name = workspace.id === 'default' ? t('sidebar.defaultWorkspace') : workspace.name || workspace.id;
+                  return (
+                    <div key={workspace.id} className="management-list-row flex min-h-17 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-3" data-current={isActive || undefined}>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line-soft bg-surf-2" aria-hidden="true"><Layers size={15} style={{ color: workspace.themeColor || 'var(--center-accent)' }} /></span>
+                      <button type="button" onClick={() => handleSwitch(workspace.id)} disabled={!!busyId || isActive}
+                        className="min-w-0 flex-1 rounded-md px-2 py-1 text-left transition-colors hover:bg-surf disabled:cursor-default disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-[var(--center-accent)]">
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium">
+                          <span className="max-w-full break-words">{name}</span>
+                          {isActive && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">{t('workspaceCenter.current', 'Current')}</span>}
+                        </span>
+                        <span className="mt-0.5 block truncate font-mono text-xs text-ink-3">{workspace.id}</span>
                       </button>
-                    )}
-                    {!isMain && workspace.id !== 'default' && (
-                      <button type="button" onClick={() => handleDelete(workspace.id, name)} disabled={!!busyId}
-                        className="shrink-0 rounded-md p-2 text-ink-3 hover:bg-down/10 hover:text-down disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-down"
-                        title={t('workspaceCenter.deleteTooltip', 'Delete workspace')} aria-label={`${t('workspaceCenter.deleteTooltip', 'Delete workspace')}: ${name}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {page === 'isolation' && <IsolationRulesTab />}
-          {page === 'assetBridge' && <AssetBridgeTab />}
-          {page === 'envHooks' && <EnvironmentHooksTab />}
-          {page === 'storageAudit' && <StorageAuditTab />}
-          {page === 'export' && <ExportTab />}
+                      {busyId === workspace.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ink-2" aria-label={t('common.loading', 'Loading')} />}
+                      {isMain ? (
+                        <span className="flex shrink-0 items-center gap-1 text-xs text-ink-3"><Star className="h-3.5 w-3.5" />{t('workspaceCenter.main', 'Main')}</span>
+                      ) : (
+                        <button type="button" onClick={() => handleSetMain(workspace.id, name)} disabled={!!busyId}
+                          className="shrink-0 rounded-md px-2 py-1.5 text-xs text-ink-2 hover:bg-surf hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--center-accent)]"
+                          title={t('workspaceCenter.setMainTooltip', 'Set as main')}>
+                          {t('workspaceCenter.setMainTooltip', 'Set as main')}
+                        </button>
+                      )}
+                      {!isMain && workspace.id !== 'default' && (
+                        <button type="button" onClick={() => handleDelete(workspace.id, name)} disabled={!!busyId}
+                          className="shrink-0 rounded-md p-2 text-ink-3 hover:bg-down/10 hover:text-down disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-down"
+                          title={t('workspaceCenter.deleteTooltip', 'Delete workspace')} aria-label={`${t('workspaceCenter.deleteTooltip', 'Delete workspace')}: ${name}`}>
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {page === 'isolation' && <IsolationRulesTab />}
+            {page === 'assetBridge' && <AssetBridgeTab />}
+            {page === 'envHooks' && <EnvironmentHooksTab />}
+            {page === 'storageAudit' && <StorageAuditTab />}
+            {page === 'export' && <ExportTab />}
+          </div>
         </div>
       </main>
     </div>

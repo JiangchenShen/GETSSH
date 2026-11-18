@@ -73,7 +73,7 @@ const Divider: React.FC<{
       direction === 'hsplit' ? 'cursor-col-resize' : 'cursor-row-resize'
     }`}
   >
-    <div className={`transition-all duration-200 ease-out rounded-full ${
+    <div className={`workbench-split-grip rounded-full ${
       direction === 'hsplit' 
         ? 'w-[2px] h-8 group-hover:bg-primary/80' 
         : 'h-[2px] w-8 group-hover:bg-primary/80'

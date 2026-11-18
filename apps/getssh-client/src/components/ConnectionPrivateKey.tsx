@@ -158,7 +158,7 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, autosave
   const usesStored = !!session.keyId;
   const fileSaved = !!savedSession.id && !savedSession.isDraft && !savedSession.isQuickConnect && !!savedSession.privateKeyPath && !savedSession.keyId;
   const pendingEdits = Object.entries(session).some(([field, value]) => !['password', 'passphrase', 'hasPassword', 'hasPassphrase'].includes(field) && !Object.is(value, savedSession[field as keyof ConnectFormSession]));
-  return <div className="space-y-3">
+  return <div className="ui-section-enter space-y-3">
     <label className="block space-y-2 text-xs text-ink-2">
       <span>{copy('私钥来源', 'Key source')}</span>
       <select aria-label={copy('私钥来源', 'Key source')} disabled={disabled || !allowed} value={session.keyId || ''} onChange={event => {

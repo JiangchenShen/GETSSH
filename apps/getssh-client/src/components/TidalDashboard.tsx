@@ -262,7 +262,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
             aria-expanded={openTabs.length ? workspaceMenuOpen : undefined}
             aria-controls={workspaceMenuOpen && openTabs.length ? workspaceMenuId : undefined}
             disabled={isSwitching} onClick={() => openTabs.length ? setWorkspaceMenuOpen(!workspaceMenuOpen) : openWorkspace()}>
-            <Layers3 size={16} aria-hidden="true" /><strong>{workspaceName}</strong>
+            <Layers3 size={16} aria-hidden="true" /><strong className="ui-section-enter" key={activeWorkspaceId}>{workspaceName}</strong>
             {openTabs.length > 0 && <ChevronDown size={12} aria-hidden="true" />}
           </button>
           {workspaceMenuOpen && openTabs.length > 0 && (
@@ -305,7 +305,8 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                   )}
 
                   {!profilesReady ? <p className="home-empty" role="status">{t('welcome.home.loadingHosts')}</p> : (
-                    visibleHosts.length > 0 ? Array.from(groupedHosts, ([name, items]) => (
+                    <div className="ui-section-enter" key={JSON.stringify([activeWorkspaceId, activeGroup])}>
+                    {visibleHosts.length > 0 ? Array.from(groupedHosts, ([name, items]) => (
                       <section key={name} className="home-host-group" aria-label={groupName(name)}>
                         <h2>{groupName(name)} · {items.length}</h2>
                         <ul className="home-host-list">
@@ -346,7 +347,8 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                         <Server size={19} aria-hidden="true" />
                         <span>{t(hosts.length ? 'welcome.home.noMatchingHosts' : 'welcome.home.noHosts')}</span>
                       </div>
-                    )
+                    )}
+                    </div>
                   )}
 
                   <p className="home-host-total">{t('welcome.home.savedConnections')} <span data-testid="home-saved-count">{profilesReady ? hosts.length : '—'}</span></p>

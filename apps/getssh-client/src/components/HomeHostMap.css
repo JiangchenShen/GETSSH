@@ -80,7 +80,8 @@
   position: absolute;
   top: calc(100% + 5px);
   left: 50%;
-  display: none;
+  visibility: hidden;
+  opacity: 0;
   max-width: 160px;
   width: max-content;
   padding: 5px 9px;
@@ -97,7 +98,26 @@
 
 .home-host-map-marker[data-label-side='right'] .home-host-map-tooltip { left: 0; transform: none; }
 .home-host-map-marker[data-label-side='left'] .home-host-map-tooltip { right: 0; left: auto; transform: none; }
-.home-host-map-marker:is(:hover, :focus-visible, [data-selected='true']) .home-host-map-tooltip { display: block; }
+.home-host-map-marker:is(:hover, :focus-visible, [data-selected='true']) .home-host-map-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-host-map-marker::before {
+    transition-property: width, height, box-shadow;
+    transition-duration: var(--ui-motion-fast);
+    transition-timing-function: var(--ui-motion-ease);
+  }
+
+  .home-host-map-tooltip {
+    transition: opacity var(--ui-motion-fast) var(--ui-motion-ease), visibility 0s var(--ui-motion-fast);
+  }
+
+  .home-host-map-marker:is(:hover, :focus-visible, [data-selected='true']) .home-host-map-tooltip {
+    transition-delay: 0s;
+  }
+}
 
 .home-host-map-detail {
   display: flex;

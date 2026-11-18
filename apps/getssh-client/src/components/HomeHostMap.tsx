@@ -146,7 +146,7 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
       <div className="home-host-map-detail">
         <MapPin size={17} aria-hidden="true" />
         {!loading && expandedGroup && expandedGroup.hosts.length > 1 ? (
-          <div className="home-host-map-detail-text" id={choicesId}>
+          <div className="home-host-map-detail-text ui-section-enter" id={choicesId}>
             <strong>{regionName(expandedGroup.codes)}</strong>
             <select
               key={expandedGroup.key}
@@ -165,9 +165,9 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
           </div>
         ) : (
           <div className="home-host-map-detail-text" aria-live="polite">
-            <strong>{detail}</strong>
+            <strong className="ui-section-enter" key={detail}>{detail}</strong>
             {!loading && selected && (
-              <small>{selected.name}{selected.countryCode && ` · ${t('welcome.home.map.countryEstimate')}`}</small>
+              <small className="ui-section-enter" key={selected.id}>{selected.name}{selected.countryCode && ` · ${t('welcome.home.map.countryEstimate')}`}</small>
             )}
           </div>
         )}

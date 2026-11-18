@@ -181,7 +181,7 @@ export const McpTab: React.FC = () => {
         </button>}
       </div>
 
-      {isAdding && <section className="rounded-lg border border-line bg-panel p-4 sm:p-5">
+      {isAdding && <section className="ui-section-enter rounded-lg border border-line bg-panel p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-ink">{t('aiSettings.newMcpServer', zh ? '添加 MCP 服务' : 'New MCP server')}</h4>
           <div className="flex gap-1 rounded-md border border-line bg-surf p-0.5" aria-label={zh ? '传输方式' : 'Transport'}>

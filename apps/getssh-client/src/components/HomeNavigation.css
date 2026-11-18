@@ -72,7 +72,7 @@ button.home-navigation-item:not(:disabled):hover {
 
 @media (prefers-reduced-motion: no-preference) {
   .home-navigation-item {
-    transition: background-color 130ms ease-out, color 130ms ease-out;
+    transition: background-color var(--ui-motion-fast) var(--ui-motion-ease), color var(--ui-motion-fast) var(--ui-motion-ease);
   }
 }
 

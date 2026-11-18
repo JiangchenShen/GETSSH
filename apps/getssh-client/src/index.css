@@ -73,6 +73,9 @@
 @layer base {
   :root {
     color-scheme: light;
+    --ui-motion-fast: 130ms;
+    --ui-motion-page: 165ms;
+    --ui-motion-ease: cubic-bezier(.2, .65, .3, 1);
     /* ── v2 语义令牌 · 浅色（默认） ─────────────────────────────
        深色在下面 html.dark 里成套重定义。任何组件都不该直接写死颜色，
        一律走这里的语义名，否则换主题必然漏。 */
@@ -334,6 +337,30 @@ html[data-glass="true"] .center-workbench[data-glass="true"] .center-page-nav {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(.ui-section-enter, [aria-modal='true']:is([role='dialog'], [role='alertdialog']):not(.command-palette, .ui-motion-managed)) {
+    animation: ui-section-in var(--ui-motion-page) var(--ui-motion-ease);
+  }
+
+  .ui-dialog-enter {
+    animation: ui-surface-in var(--ui-motion-page) var(--ui-motion-ease);
+  }
+
+  :where(.home-shell, .home-header, .home-navigation, .workbench-top, .workbench-content, .workbench-footer, .management-center) {
+    transition-property: background-color, border-color, color;
+    transition-duration: var(--ui-motion-fast);
+    transition-timing-function: var(--ui-motion-ease);
+  }
+}
+
+@keyframes ui-section-in {
+  from { opacity: .64; }
+}
+
+@keyframes ui-surface-in {
+  from { opacity: .55; translate: var(--ui-surface-enter-offset, 0 5px); }
 }
 
 /* ── Window Dragging System (IPC Native) ─────────────────────────────────── */

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Search, Plus, Edit2, Zap, X, Lock, KeyRound, Folder, FolderOpen,
   FolderPlus, FolderInput, MoreHorizontal, Check, ListChecks,
-  PanelLeftClose, ChevronRight, ChevronDown,
+  PanelLeftClose, ChevronRight,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSessionStore } from '../store/sessionStore';
@@ -307,7 +307,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
           </div>
         </div>
         {movingIndex === idx && (
-          <div className="mx-2 mb-1 rounded-[7px] border border-line bg-panel px-2 py-2 space-y-1.5">
+          <div className="ui-section-enter mx-2 mb-1 rounded-[7px] border border-line bg-panel px-2 py-2 space-y-1.5">
             <label className="block text-[11px] text-ink-2" htmlFor={`move-host-${idx}`}>
               {t('assetFolders.moveHost', '移动主机')}
             </label>
@@ -343,7 +343,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
     <form
       onSubmit={submitFolderEdit}
       style={{ marginLeft: Math.min(depth, 4) * 12 }}
-      className="flex items-center gap-1 px-1 py-1"
+      className="ui-section-enter flex items-center gap-1 px-1 py-1"
     >
       <Folder className="w-3.5 h-3.5 flex-none text-ink-3" />
       <input
@@ -395,7 +395,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
               title={folder.path}
               className="min-w-0 flex-1 flex items-center gap-1.5 px-1 py-[5px] text-left text-[12px] text-ink-2 hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
             >
-              {isExpanded ? <ChevronDown className="w-3 h-3 flex-none" /> : <ChevronRight className="w-3 h-3 flex-none" />}
+              <ChevronRight aria-hidden="true" className={`w-3 h-3 flex-none motion-safe:transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
               {isExpanded ? <FolderOpen className="w-3.5 h-3.5 flex-none text-primary" /> : <Folder className="w-3.5 h-3.5 flex-none text-ink-3" />}
               <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
               <span className="font-mono text-[10px] text-ink-3">{folder.total}</span>
@@ -406,7 +406,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
           </div>
         )}
         {folderMenu === folder.path && !isRenaming && (
-          <div style={{ marginLeft: Math.min(depth, 4) * 12 + 20 }} className="mb-1 flex flex-wrap gap-x-2 gap-y-1 px-1 text-[11px]">
+          <div style={{ marginLeft: Math.min(depth, 4) * 12 + 20 }} className="ui-section-enter mb-1 flex flex-wrap gap-x-2 gap-y-1 px-1 text-[11px]">
             {confirmDelete === folder.path ? (
               <>
                 <span className="w-full text-ink-3">{t('assetFolders.deleteConfirm', '仅删除空文件夹，不会删除主机。')}</span>
@@ -600,7 +600,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
       </div>
 
       {organizing && !isVaultLocked && (
-        <div className="no-drag-region flex-none rounded-[7px] border border-line bg-panel p-2 space-y-1.5">
+        <div className="ui-section-enter no-drag-region flex-none rounded-[7px] border border-line bg-panel p-2 space-y-1.5">
           <div className="flex items-center justify-between text-[11px] text-ink-2">
             <span>{t('assetFolders.selectedCount', { count: selectedProfileIds.length, defaultValue: '已选 {{count}} 台主机' })}</span>
             <button type="button" onClick={() => { setOrganizing(false); setSelectedProfileIds([]); }} className="text-ink-3 hover:text-ink">

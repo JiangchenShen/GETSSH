@@ -25,7 +25,7 @@ export const CommandCenterList = React.forwardRef<HTMLDivElement, CommandCenterL
     : { action: 'Action', host: 'Host', plugin: 'Plugin', runbook: 'Runbook' };
 
   return (
-    <div ref={ref} className="command-palette-results min-h-0 max-h-[56vh] overflow-y-auto px-4 py-2">
+    <div ref={ref} className="ui-section-enter command-palette-results min-h-0 max-h-[56vh] overflow-y-auto px-4 py-2">
       {unifiedItems.length === 0 ? (
         <div className="flex min-h-[160px] flex-col items-center justify-center px-4 py-8 text-center">
           <SearchX className="mb-3 h-5 w-5 text-ink-3" aria-hidden="true" />

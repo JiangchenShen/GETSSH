@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { ArrowUp, ChevronRight, Download, File, FilePlus, Folder, FolderPlus, HardDrive, Link2, Lock, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isSSHConfig, useSessionStore, type PaneLeaf, type PaneNode } from '../store/sessionStore';
@@ -62,6 +62,8 @@ export const SFTPManager = ({ sessionId }: { sessionId: string, isDark: boolean 
   const [pathInputValue, setPathInputValue] = useState('');
   const [downloadingItems, setDownloadingItems] = useState<Set<string>>(new Set());
   const listingRequest = useRef(0);
+  const fileList = useRef<HTMLDivElement>(null);
+  const lastListedPath = useRef(currentPath);
   const headingId = useId();
   const promptId = useId();
 
@@ -103,6 +105,32 @@ export const SFTPManager = ({ sessionId }: { sessionId: string, isDark: boolean 
     void fetchFiles('/');
     return () => { listingRequest.current += 1; };
   }, [fetchFiles]);
+
+  useLayoutEffect(() => {
+    if (loading || isDisconnected || lastListedPath.current === currentPath) return;
+    lastListedPath.current = currentPath;
+    const list = fileList.current;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (typeof list?.animate !== 'function' || reduceMotion?.matches) return;
+
+    // The list stays mounted so changing directories preserves its scroll container and focus behavior.
+    const style = getComputedStyle(list);
+    const time = style.getPropertyValue('--ui-motion-page').trim();
+    const duration = Number.parseFloat(time) * (time.endsWith('ms') ? 1 : 1000);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const animation = list.animate({ opacity: [.64, 1] }, {
+      duration,
+      easing: style.getPropertyValue('--ui-motion-ease').trim() || 'ease-out',
+    });
+    const cancelForReducedMotion = (event: MediaQueryListEvent) => {
+      if (event.matches) animation.cancel();
+    };
+    reduceMotion?.addEventListener?.('change', cancelForReducedMotion);
+    return () => {
+      reduceMotion?.removeEventListener?.('change', cancelForReducedMotion);
+      animation.cancel();
+    };
+  }, [currentPath, isDisconnected, loading]);
 
   const pathSegments = currentPath.split('/').filter(Boolean);
   const parentPath = `/${pathSegments.slice(0, -1).join('/')}`;
@@ -261,7 +289,7 @@ export const SFTPManager = ({ sessionId }: { sessionId: string, isDark: boolean 
         {(listingError || actionError) && <p className="session-files-error" role="alert">{listingError || actionError}</p>}
         {truncated && !isDisconnected && <p className="session-files-notice" role="status">{t('sftp.truncated')}</p>}
 
-        <div className="session-files-list" aria-busy={loading && !isDisconnected}>
+        <div ref={fileList} className="session-files-list" aria-busy={loading && !isDisconnected}>
           {isDisconnected ? (
             <p className="session-files-empty"><Lock size={16} aria-hidden="true" />{t('sftp.disabledHint')}</p>
           ) : (

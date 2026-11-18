@@ -86,14 +86,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settingsActiveTab, s
             {onClose && <button type="button" onClick={onClose} aria-label={label('关闭设置', 'Close settings')} className="management-icon-button"><X className="h-4 w-4" /></button>}
           </>} />
 
-          {settingsActiveTab === 'System' && <SystemTab />}
-          {settingsActiveTab === 'Appearance' && <AppearanceTab />}
-          {settingsActiveTab === 'Terminal' && <TerminalTab />}
-          {settingsActiveTab === 'SSH' && <SSHTab />}
-          {settingsActiveTab === 'AI' && <AiIntegrationsTab />}
-          {settingsActiveTab === 'Security' && <SecurityTab />}
-          {settingsActiveTab === 'Audit' && <AuditTab />}
-          {settingsActiveTab === 'About' && <AboutTab />}
+          <div key={settingsActiveTab} className="ui-section-enter">
+            {settingsActiveTab === 'System' && <SystemTab />}
+            {settingsActiveTab === 'Appearance' && <AppearanceTab />}
+            {settingsActiveTab === 'Terminal' && <TerminalTab />}
+            {settingsActiveTab === 'SSH' && <SSHTab />}
+            {settingsActiveTab === 'AI' && <AiIntegrationsTab />}
+            {settingsActiveTab === 'Security' && <SecurityTab />}
+            {settingsActiveTab === 'Audit' && <AuditTab />}
+            {settingsActiveTab === 'About' && <AboutTab />}
+          </div>
         </div>
       </main>
     </div>

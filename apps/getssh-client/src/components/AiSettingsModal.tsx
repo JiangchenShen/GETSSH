@@ -148,7 +148,7 @@ export const AiSettingsModal: React.FC = () => {
           <span className="text-ink-3">{copy('上下文读取与命令执行仍遵循智能体模式。', 'Context and commands follow the agent mode.')}</span>
         </div>}
 
-        {activeTab === 'chat' && <div className="flex min-h-0 flex-1 flex-col">
+        {activeTab === 'chat' && <div className="ui-section-enter flex min-h-0 flex-1 flex-col">
           {!ready ? <div className="m-7 border-l-2 border-warn bg-warn/10 px-4 py-3 text-sm text-ink"><p className="font-medium">{appConfig.aiEnabled ? copy('连接模型后即可开始对话', 'Connect a model to start chatting') : copy('AI 已关闭', 'AI is off')}</p><p className="mt-1 text-xs text-ink-2">{copy('在设置中选择供应商、模型并配置凭据。', 'Choose a provider, model and credentials in Settings.')}</p><button type="button" onClick={openAiSettings} className="mt-3 text-sm font-medium text-primary hover:underline">{copy('打开 AI 配置 →', 'Open AI settings →')}</button></div>
             : <><ChatView onPaperPlane={handlePaperPlane} onRetry={handleRetry} onServerSelect={handleServerSelect} />
               <form id="ai-center-page-form" onSubmit={handleSubmit} className="management-ai-context shrink-0 space-y-3 border-t border-line bg-surf py-4">
@@ -170,9 +170,9 @@ export const AiSettingsModal: React.FC = () => {
             </>}
         </div>}
 
-        {activeTab === 'history' && <div className="flex min-h-0 flex-1 flex-col"><HistoryView /></div>}
+        {activeTab === 'history' && <div className="ui-section-enter flex min-h-0 flex-1 flex-col"><HistoryView /></div>}
 
-        {activeTab === 'prompts' && <div className="min-h-0 flex-1 overflow-y-auto">
+        {activeTab === 'prompts' && <div className="ui-section-enter min-h-0 flex-1 overflow-y-auto">
           <div className="management-content"><div className="flex flex-wrap items-center justify-between gap-3 pb-3"><p className="text-xs text-ink-2">{copy('当前角色', 'Current role')} · {allPrompts.find(item => item.id === appConfig.activePromptId)?.title || copy('默认助手', 'Default assistant')}</p><button type="button" onClick={() => setDraft({ id: `custom_${Date.now()}`, title: '', desc: '', content: '' })} className={settingButtonClass}><Plus size={14} />{copy('新建提示词', 'New prompt')}</button></div>
             <div className="management-cards">
               {allPrompts.map(item => <article key={item.id} className="management-card flex flex-wrap items-start gap-3 p-4">
@@ -191,7 +191,7 @@ export const AiSettingsModal: React.FC = () => {
           </div>
         </div>}
 
-        {activeTab === 'agents' && <div className="min-h-0 flex-1 overflow-y-auto"><div className="management-content"><p className="mb-4 text-sm leading-relaxed text-ink-2">{copy('审批请求会直接显示在对话中。', 'Approval requests appear in the conversation.')}</p><div className="management-list">{agentModes.map(mode => <button type="button" key={mode.id} onClick={() => selectAgentMode(mode.id)} aria-pressed={(appConfig.aiMode || 'readonly') === mode.id} className="management-list-row flex w-full items-start gap-3 px-4 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"><span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${(appConfig.aiMode || 'readonly') === mode.id ? 'border-primary bg-primary text-[var(--primary-ink)]' : 'border-line'}`}>{(appConfig.aiMode || 'readonly') === mode.id && <Check size={11} />}</span><span><span className="block text-sm font-medium">{copy(mode.cn, mode.en)}</span><span className="mt-1 block text-xs leading-relaxed text-ink-2">{copy(mode.cnDescription, mode.enDescription)}</span></span></button>)}</div></div></div>}
+        {activeTab === 'agents' && <div className="ui-section-enter min-h-0 flex-1 overflow-y-auto"><div className="management-content"><p className="mb-4 text-sm leading-relaxed text-ink-2">{copy('审批请求会直接显示在对话中。', 'Approval requests appear in the conversation.')}</p><div className="management-list">{agentModes.map(mode => <button type="button" key={mode.id} onClick={() => selectAgentMode(mode.id)} aria-pressed={(appConfig.aiMode || 'readonly') === mode.id} className="management-list-row flex w-full items-start gap-3 px-4 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"><span className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${(appConfig.aiMode || 'readonly') === mode.id ? 'border-primary bg-primary text-[var(--primary-ink)]' : 'border-line'}`}>{(appConfig.aiMode || 'readonly') === mode.id && <Check size={11} />}</span><span><span className="block text-sm font-medium">{copy(mode.cn, mode.en)}</span><span className="mt-1 block text-xs leading-relaxed text-ink-2">{copy(mode.cnDescription, mode.enDescription)}</span></span></button>)}</div></div></div>}
       </main>
     </div>
 

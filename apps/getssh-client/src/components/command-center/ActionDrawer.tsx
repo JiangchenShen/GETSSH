@@ -33,7 +33,7 @@ export const ActionDrawer: React.FC<ActionDrawerProps> = ({
           initial={reduceMotion ? false : { y: -4, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={reduceMotion ? undefined : { y: -4, opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.165, ease: 'easeOut' }}
           className="absolute right-3 top-[88px] z-30 flex w-[226px] flex-col rounded-lg border border-line bg-surf p-1.5 text-ink shadow-[0_12px_36px_rgba(0,0,0,0.22)]"
         >
           <div className="mb-1 border-b border-line-soft px-2.5 py-2 text-xs font-medium text-ink-2">

@@ -12,12 +12,8 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .workbench-session-frame .management-center {
-    animation: management-enter 170ms ease-out;
+    animation: ui-section-in var(--ui-motion-page) var(--ui-motion-ease);
   }
-}
-
-@keyframes management-enter {
-  from { opacity: .55; }
 }
 
 .management-center .management-main {

@@ -154,6 +154,17 @@
 .session-files-prompt input { min-width: 0; width: 100%; min-height: 29px; padding: 4px 7px; border: 1px solid var(--v2-line); border-radius: 6px; color: var(--v2-ink); background: var(--v2-bg); font: 12px/1.5 var(--files-mono); }
 .session-files-prompt .session-files-actions { justify-content: flex-end; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .session-files :is(.session-files-action, .session-files-icon, .session-files-crumbs button, .session-files-name, tbody tr) {
+    transition: background-color var(--ui-motion-fast) var(--ui-motion-ease),
+      color var(--ui-motion-fast) var(--ui-motion-ease), border-color var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+
+  .session-files-path-input, .session-files-crumbs {
+    animation: ui-section-in var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+}
+
 @container (max-width: 630px) {
   .session-files-header .session-files-action { width: 28px; padding-inline: 0; }
   .session-files-header .session-files-action span { display: none; }

@@ -228,7 +228,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
       <button type="button" disabled={busy || needsRestart || locked} onClick={() => void chooseWorkspaces()} className={settingButtonClass}>{copy('选择工作区', 'Choose workspaces')}</button>
     </SettingsRow>
     {step === 'choose' && <SettingsRow label={copy('选择要导出的工作区', 'Choose workspaces to export')} stacked>
-      <fieldset disabled={busy} className="space-y-3">
+      <fieldset disabled={busy} className="ui-section-enter space-y-3">
         {candidates.map(item => <label key={item.id} className="flex gap-3 border-b border-line-soft py-2 last:border-0">
           <input type="checkbox" className="mt-1" checked={selected.includes(item.id)} onChange={event => setSelected(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} />
           <span className="min-w-0"><span className="block text-sm text-ink">{item.name}{item.is_main ? copy(' · 主工作区', ' · Main workspace') : ''}</span>
@@ -241,13 +241,13 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
       </fieldset>
     </SettingsRow>}
     {step === 'unlock' && <SettingsRow label={copy(`解锁工作区：${candidates.find(item => item.id === failed[0])?.name ?? ''}`, `Unlock workspace: ${candidates.find(item => item.id === failed[0])?.name ?? ''}`)} description={copy('此工作区需要输入它的单独密码才能备份。', 'Enter this workspace’s own password to include it in the backup.')} stacked>
-      <form className="max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void unlockWorkspace(); }}>
+      <form className="ui-section-enter max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void unlockWorkspace(); }}>
         <label className="block text-xs text-ink-2">{copy('工作区密码', 'Workspace password')}<input autoFocus disabled={busy} type="password" autoComplete="current-password" value={workspacePassword} onChange={event => setWorkspacePassword(event.target.value)} className={`mt-1 ${settingFieldClass}`} /></label>
         {actions(copy('解锁并继续', 'Unlock and continue'), () => void unlockWorkspace(), !workspacePassword)}
       </form>
     </SettingsRow>}
     {step === 'password' && <SettingsRow label={copy('设置备份密码', 'Set a backup password')} description={copy('至少 12 个字符。这个密码用于打开备份文件，请保存到密码管理器。', 'At least 12 characters. This password opens the backup file; keep it in a password manager.')} stacked>
-      <form className="max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void exportBackup(); }}>
+      <form className="ui-section-enter max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void exportBackup(); }}>
         <label className="block text-xs text-ink-2">{copy('备份密码', 'Backup password')}<input autoFocus disabled={busy} type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} className={`mt-1 ${settingFieldClass}`} /></label>
         <label className="block text-xs text-ink-2">{copy('再次输入备份密码', 'Repeat the backup password')}<input disabled={busy} type="password" autoComplete="new-password" value={repeat} onChange={event => setRepeat(event.target.value)} className={`mt-1 ${settingFieldClass}`} /></label>
         {actions(copy('保存备份', 'Save backup'), () => void exportBackup())}
@@ -257,7 +257,7 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
       <button ref={importTrigger} type="button" disabled={busy || needsRestart || locked} onClick={() => void chooseImport()} className={settingButtonClass}>{copy('选择备份文件', 'Choose backup file')}</button>
     </SettingsRow>
     {file && !info && <SettingsRow label={file.fileName} description={copy('输入备份密码，查看文件中的工作区。', 'Enter the backup password to review its workspaces.')} stacked>
-      <form className="max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void inspectBackup(); }}>
+      <form className="ui-section-enter max-w-md space-y-3" onSubmit={event => { event.preventDefault(); void inspectBackup(); }}>
         <label className="block text-xs text-ink-2">{copy('备份密码', 'Backup password')}<input autoFocus type="password" disabled={busy} value={importPassword} autoComplete="current-password" onChange={event => setImportPassword(event.target.value)} className={`mt-1 ${settingFieldClass}`} /></label>
         {actions(copy('查看备份', 'Review backup'), () => void inspectBackup(), !importPassword)}
       </form>

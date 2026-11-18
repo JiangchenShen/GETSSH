@@ -63,6 +63,12 @@
 .connection-facts dt { color: var(--v2-ink-3); font-size: 11px; }
 .connection-facts dd { margin: 0; overflow-wrap: anywhere; font: 11px/1.5 var(--font-mono); }
 
+@media (prefers-reduced-motion: no-preference) {
+  .connection-workbench :is(.connection-button, .connection-input, .connection-address, .connection-segments button) {
+    transition: background-color var(--ui-motion-fast) var(--ui-motion-ease), border-color var(--ui-motion-fast) var(--ui-motion-ease), color var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+}
+
 @container connection (max-width: 780px) {
   .connection-columns { grid-template-columns: minmax(0, 1fr); }
 }
