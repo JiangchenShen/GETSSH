@@ -33,10 +33,10 @@ export function HostOsIcon({ osType }: { osType?: OsType }) {
   const Glyph = os?.glyph ?? Server;
 
   return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-surf-2 text-ink-2" role="img" aria-label={name} title={name}>
+    <span className="grid size-8 shrink-0 place-items-center text-ink-2" role="img" aria-label={name} title={name}>
       {os?.image
-        ? <img src={os.image} alt="" className={`size-[19px] object-contain ${osType === 'macos' ? 'dark:invert' : ''}`} />
-        : <Glyph size={17} aria-hidden="true" />}
+        ? <img src={os.image} alt="" width={22} height={22} className={`object-contain ${osType === 'macos' ? 'dark:invert' : ''}`} />
+        : <Glyph size={18} aria-hidden="true" />}
     </span>
   );
 }

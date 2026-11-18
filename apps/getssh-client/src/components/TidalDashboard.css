@@ -1,7 +1,6 @@
 .home-shell {
   --home-canvas: var(--v2-bg);
   --home-surface: var(--v2-panel);
-  --home-surface-soft: var(--v2-surf-2);
   --home-line: var(--v2-line-soft);
   --home-ink: var(--v2-ink);
   --home-muted: var(--v2-ink-3);
@@ -164,7 +163,6 @@
 }
 .home-host-select { display: flex; flex: 1; align-items: center; gap: 11px; min-width: 0; min-height: 72px; padding: 12px; border-radius: 7px; text-align: start; }
 .home-host-select:hover, .home-host-open:hover, .home-workspace:hover { background: var(--home-accent-soft); }
-.home-host-select > [role='img'] { background: var(--home-surface-soft); }
 .home-host-main { display: grid; flex: 1; min-width: 0; gap: 4px; }
 .home-host-main :is(strong, small) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-host-main strong { font-size: 12px; font-weight: 650; }
