@@ -354,7 +354,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
                   <p className="home-host-total">{t('welcome.home.savedConnections')} <span data-testid="home-saved-count">{profilesReady ? hosts.length : '—'}</span></p>
                 </section>
 
-                <HomeHostMap hosts={visibleHosts.filter(host => !host.local)} selectedId={selection?.id ?? null}
+                <HomeHostMap key={activeWorkspaceId} hosts={visibleHosts.filter(host => !host.local)} selectedId={selection?.id ?? null}
                   onSelect={selectOnMap} loading={!profilesReady || locating} />
               </div>
 

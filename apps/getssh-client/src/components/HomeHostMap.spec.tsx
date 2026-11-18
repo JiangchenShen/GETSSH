@@ -86,6 +86,26 @@ describe('map marker reachability', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it.each([[500, 2], [300, 3]])('separates France and Italy by zooming on a %ipx map, then restores the overview', async (width, steps) => {
+    await render();
+    await setWidth(width);
+    expect(markers()).toHaveLength(1);
+
+    const zoomIn = container.querySelector<HTMLButtonElement>('[aria-label="welcome.home.map.zoomIn"]')!;
+    const reset = container.querySelector<HTMLButtonElement>('.home-host-map-zoom-value')!;
+    for (let step = 0; step < steps; step++) await act(async () => zoomIn.click());
+
+    const [france, italy] = markers();
+    expect(france.getAttribute('aria-label')).toBe('France: 1 hosts');
+    expect(italy.getAttribute('aria-label')).toBe('Italy: 1 hosts');
+    await act(async () => italy.click());
+    expect(onSelect).toHaveBeenCalledWith('italy');
+
+    await act(async () => reset.click());
+    expect(reset.textContent).toBe('100%');
+    expect(markers()).toHaveLength(1);
+  });
+
   it('keeps distant countries separate and includes country names for same-country hosts', async () => {
     await render([
       ...europeanHosts,
