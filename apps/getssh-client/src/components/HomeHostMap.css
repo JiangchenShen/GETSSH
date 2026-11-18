@@ -72,8 +72,22 @@
   display: block;
   width: 100%;
   height: 100%;
-  color: color-mix(in srgb, var(--host-map-accent) 32%, var(--host-map-background));
 }
+
+.home-host-map-land {
+  fill: color-mix(in srgb, var(--host-map-accent) 7%, var(--host-map-background));
+  stroke: color-mix(in srgb, var(--home-muted) 30%, var(--host-map-background));
+  stroke-width: .65;
+  stroke-linejoin: round;
+}
+
+.home-host-map-dot { fill: color-mix(in srgb, var(--host-map-accent) 36%, var(--host-map-background)); }
+
+.home-host-map-canvas[data-zoomed='true'] .home-host-map-land {
+  stroke: color-mix(in srgb, var(--home-muted) 60%, var(--host-map-background));
+  stroke-width: 1;
+}
+.home-host-map-canvas[data-zoomed='true'] .home-host-map-dot { fill: color-mix(in srgb, var(--host-map-accent) 20%, var(--host-map-background)); }
 
 .home-host-map-marker {
   position: absolute;

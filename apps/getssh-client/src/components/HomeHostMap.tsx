@@ -76,6 +76,8 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
   const titleId = useId();
   const choicesId = useId();
   const canvasId = useId();
+  const landId = useId();
+  const dotsId = useId();
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -215,7 +217,14 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
           event.preventDefault();
         }}>
         <svg viewBox={viewBox} aria-hidden="true">
-          <path d={map.path} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          <defs>
+            <path id={landId} d={map.landPath} fillRule="evenodd" vectorEffect="non-scaling-stroke" />
+            <pattern id={dotsId} width={6 / view.zoom} height={6 / view.zoom} patternUnits="userSpaceOnUse" viewBox="0 0 6 6">
+              <circle className="home-host-map-dot" cx="3" cy="3" r="1.05" />
+            </pattern>
+          </defs>
+          <use href={`#${landId}`} className="home-host-map-land" />
+          <use href={`#${landId}`} fill={`url(#${dotsId})`} />
         </svg>
         {markers.map(group => {
           const x = (group.x - view.x) * view.zoom + 50;
@@ -233,7 +242,7 @@ export function HomeHostMap({ hosts, selectedId, onSelect, loading }: HomeHostMa
               disabled={loading}
               style={{ left: `${x}%`, top: `${y}%` }}
               data-label-side={x < 18 ? 'right' : x > 82 ? 'left' : 'center'}
-              data-label-above={y > 78 || undefined}
+              data-label-above={y > (view.zoom > 1 ? 22 : 78) || undefined}
               data-selected={selectedMarker || expanded}
               data-grouped={expandable}
               aria-label={t('welcome.home.map.marker', { location: country, count: group.hosts.length })}
