@@ -488,13 +488,15 @@ export function Terminal({ sessionId, onDisconnected, onReconnect, onDisconnecte
           ref={overlayRef}
           tabIndex={0}
           onKeyDown={handleOverlayKeyDown}
-          className="absolute top-0 left-0 w-full h-full bg-black/40 flex items-center justify-center z-10 outline-none"
+          className="absolute top-0 left-0 w-full h-full bg-scrim flex items-center justify-center z-10 outline-none"
         >
-          <div className="bg-panel text-ink px-7 py-5 rounded-2xl shadow-2xl border border-line flex flex-col items-center space-y-3">
-            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse mb-1" />
-            <span className="font-bold text-base text-red-400 tracking-wide">{t('terminal.sessionClosed')}</span>
-            <span className="text-sm opacity-75">Press <kbd className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">Enter</kbd> {t('terminal.pressEnterReconnect')}</span>
-            <span className="text-sm opacity-75">Press <kbd className="px-2 py-0.5 bg-white/10 rounded text-xs font-mono">Esc</kbd> {t('terminal.pressEscMenu')}</span>
+          <div className="bg-surf text-ink px-6 py-4 rounded-xl shadow-xl border border-line flex flex-col items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-down" />
+              <span className="font-semibold text-sm text-down">{t('terminal.sessionClosed')}</span>
+            </div>
+            <span className="text-xs text-ink-2">Press <kbd className="px-1.5 py-0.5 bg-surf-2 border border-line rounded text-[11px] font-mono text-ink">Enter</kbd> {t('terminal.pressEnterReconnect')}</span>
+            <span className="text-xs text-ink-2">Press <kbd className="px-1.5 py-0.5 bg-surf-2 border border-line rounded text-[11px] font-mono text-ink">Esc</kbd> {t('terminal.pressEscMenu')}</span>
           </div>
         </div>
       )}

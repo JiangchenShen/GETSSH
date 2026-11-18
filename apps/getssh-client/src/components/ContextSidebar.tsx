@@ -479,8 +479,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
         </button>
       </div>
 
-      <div className="no-drag-region flex items-center gap-2 h-9 px-2.5 rounded-md bg-panel/60 border border-line
-                      focus-within:border-primary/60 transition-colors">
+      <div className="no-drag-region flex items-center gap-2 h-9 px-2.5 rounded-md bg-bg border border-line
+                      focus-within:border-primary transition-colors">
         <Search className="w-3.5 h-3.5 flex-none text-ink-3" />
         <input
           value={searchQuery}
@@ -489,7 +489,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
           spellCheck={false}
           placeholder={t('sidebar.search')}
           aria-label={t('sidebar.search')}
-          className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[12.5px]
+          className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[12px]
                      text-ink placeholder:text-ink-3"
         />
       </div>
@@ -504,8 +504,8 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
             onClick={() => { setOrganizing(!organizing); setSelectedProfileIds([]); setMovingIndex(null); setFolderMenu(null); }}
             title={t('assetFolders.organize', '批量整理主机')}
             aria-label={t('assetFolders.organize', '批量整理主机')}
-            className={`w-6 h-6 rounded-md grid place-items-center hover:bg-surf hover:text-primary
-                       focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40 ${organizing ? 'text-primary bg-surf' : 'text-ink-2'}`}
+            className={`w-6 h-6 rounded-md grid place-items-center hover:bg-surf-2 hover:text-primary
+                       focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40 ${organizing ? 'text-primary bg-surf-2' : 'text-ink-2'}`}
           >
             <ListChecks className="w-4 h-4" />
           </button>
@@ -515,7 +515,7 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
             onClick={() => { setSearchQuery(''); setFolderEdit({ mode: 'create', parent: '', name: '' }); setFolderMenu(null); setFolderError(''); }}
             title={isVaultLocked ? t('sidebar.unlockVault') : t('assetFolders.newFolder', '新建文件夹')}
             aria-label={t('assetFolders.newFolder', '新建文件夹')}
-            className="w-6 h-6 rounded-md grid place-items-center text-ink-2 hover:bg-surf hover:text-primary
+            className="w-6 h-6 rounded-md grid place-items-center text-ink-2 hover:bg-surf-2 hover:text-primary
                        focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40"
           >
             <FolderPlus className="w-4 h-4" />
@@ -524,19 +524,19 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
       </div>
 
       {folderError && (
-        <div role="alert" className="no-drag-region rounded-[7px] border border-down/30 bg-down/5 px-2 py-1.5 text-[11px] text-down">
+        <div role="alert" className="no-drag-region rounded-md border border-down/30 bg-down/5 px-2 py-1.5 text-[11px] text-down">
           {folderError}
         </div>
       )}
 
       <div className="no-drag-region flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-[11px]">
         {isVaultLocked ? (
-          <div className="flex flex-col items-center gap-3.5 p-4 rounded-[10px] border border-down/25 bg-down/5">
-            <div className="w-10 h-10 rounded-[10px] grid place-items-center border border-down/25 bg-down/10">
-              <Lock className="w-[18px] h-[18px] text-down" />
+          <div className="flex flex-col items-center gap-3 p-4 rounded-lg border border-down/25 bg-down/5">
+            <div className="w-9 h-9 rounded-lg grid place-items-center border border-down/25 bg-down/10">
+              <Lock className="w-4 h-4 text-down" />
             </div>
-            <div className="flex flex-col items-center gap-1 text-center">
-              <div className="text-[11px] font-semibold tracking-[0.14em] uppercase text-down">
+            <div className="flex flex-col items-center gap-0.5 text-center">
+              <div className="text-xs font-semibold text-down">
                 {t('sidebar.vaultLocked')}
               </div>
               <div className="font-mono text-[10px] leading-relaxed text-ink-3">
@@ -546,9 +546,9 @@ export const ContextSidebar: React.FC<ContextSidebarProps> = ({
             <button
               type="button"
               onClick={() => setIsUnlockModalOpen(true)}
-              className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg
-                         border border-down/30 bg-down/10 text-[11.5px] font-medium text-down
-                         transition-colors hover:bg-down/20 hover:border-down/50"
+              className="w-full h-8 flex items-center justify-center gap-1.5 rounded-md
+                         border border-down/30 bg-down/10 text-xs font-medium text-down
+                         transition-colors hover:bg-down/15 hover:border-down/50"
             >
               <KeyRound className="w-3.5 h-3.5" />
               {t('sidebar.unlockVault')}

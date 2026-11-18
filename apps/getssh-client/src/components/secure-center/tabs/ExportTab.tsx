@@ -83,8 +83,8 @@ export const ExportTab: React.FC = () => {
       </SettingsRow>
     </SettingsSection>
 
-    {importPwdModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4" role="presentation">
-      <form role="dialog" aria-modal="true" aria-labelledby="import-json-title" onKeyDown={event => { if (event.key === 'Escape') { setImportPwdModal(false); setImportPwd(''); } }} onSubmit={event => { event.preventDefault(); setImportPwdModal(false); void importTemplate(); }} className="w-full max-w-sm rounded-xl border border-line bg-panel p-5 text-ink shadow-2xl">
+    {importPwdModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim px-4" role="presentation">
+      <form role="dialog" aria-modal="true" aria-labelledby="import-json-title" onKeyDown={event => { if (event.key === 'Escape') { setImportPwdModal(false); setImportPwd(''); } }} onSubmit={event => { event.preventDefault(); setImportPwdModal(false); void importTemplate(); }} className="w-full max-w-sm rounded-xl border border-line bg-surf p-5 text-ink shadow-2xl">
         <h3 id="import-json-title" className="text-base font-semibold">{t('settings.importTitle')}</h3>
         <p className="mt-2 text-sm leading-6 text-ink-2">{t('settings.importHint')}</p>
         <label className="mt-5 block text-xs font-medium text-ink-2">{t('settings.importPwdPlaceholder')}

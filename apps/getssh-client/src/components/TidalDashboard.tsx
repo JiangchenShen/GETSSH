@@ -158,7 +158,7 @@ export const TidalDashboard: React.FC<TidalDashboardProps> = ({ onConnect, onEdi
   const activeWorkspace = workspaces.find(workspace => workspace.id === activeWorkspaceId);
   if (isVaultLocked) {
     return (
-      <div className="absolute inset-0 z-[100] h-full w-full overflow-hidden rounded-[32px]">
+      <div className="absolute inset-0 z-[100] h-full w-full overflow-hidden bg-bg">
         <CryptoModal
           mode="locked"
           isDark={isDark}

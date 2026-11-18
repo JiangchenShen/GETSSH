@@ -144,8 +144,8 @@ export function ForceMasterPasswordChange({ onActiveChange }: { onActiveChange?:
   };
 
   if (!stage || state?.phase !== 'ready') return null;
-  return <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4">
-    <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-line bg-panel p-6 text-ink shadow-2xl">
+  return <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-scrim p-4">
+    <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-line bg-surf p-6 text-ink shadow-2xl">
       <h2 id={titleId} className="text-lg font-semibold">{stage === 'change' ? (zh ? '请更换主密码' : 'Change your master password') : stage === 'refresh' ? (zh ? '主密码已更新' : 'Master password updated') : (zh ? '创建新的恢复码' : 'Create a new recovery code')}</h2>
       <p id={descriptionId} className="mt-2 text-sm leading-relaxed text-ink-2">{stage === 'change'
         ? (zh ? '当前主密码少于 12 个字符。请设置更长的主密码后继续，之后即可导出备份。' : 'Your current master password has fewer than 12 characters. Set a longer password to continue and export backups.')

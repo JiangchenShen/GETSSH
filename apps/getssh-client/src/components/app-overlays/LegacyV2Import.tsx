@@ -265,9 +265,9 @@ export function LegacyV2Import() {
 
   if (phase !== 'ready' || mustChangePassword || isSwitching || vaultLocked || !prompt) return null;
   return (
-    <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-scrim p-4">
       <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="legacy-v2-title" aria-describedby="legacy-v2-description"
-        className="w-full max-w-md space-y-4 rounded-xl border border-line bg-panel p-6 text-ink shadow-xl">
+        className="w-full max-w-md space-y-4 rounded-xl border border-line bg-surf p-6 text-ink shadow-xl">
         <div className="space-y-2">
           <h2 id="legacy-v2-title" className="text-lg font-semibold">{zh ? '导入 GETSSH 2.0 服务器' : 'Import GETSSH 2.0 servers'}</h2>
           <p id="legacy-v2-description" className="text-sm text-ink-2">{prompt === 'password'

@@ -180,8 +180,8 @@ export function ConnectionPrivateKey({ session, savedSession, disabled, autosave
       {pendingSecretClear ? <p className="text-ink-3">{copy('有待清除的密码或口令，请先点“保存更改”，再导入私钥。', 'A password or passphrase is marked for clearing. Click “Save changes” before importing the key.')}</p> : (pendingEdits || autosavePending) && <p className="text-ink-3">{copy('等待连接更改保存后，再导入私钥。', 'Wait for connection changes to save before importing the key.')}</p>}
     </div>}
     {notice && <p role="status" className="text-xs text-ink-2">{notice}</p>}
-    {open && allowed && createPortal(<div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 p-4">
-      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="profile-key-import-title" className="w-full max-w-md space-y-4 rounded-xl border border-line bg-panel p-5 text-ink shadow-xl">
+    {open && allowed && createPortal(<div className="fixed inset-0 z-[9000] flex items-center justify-center bg-scrim p-4">
+      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="profile-key-import-title" className="w-full max-w-md space-y-4 rounded-xl border border-line bg-surf p-5 text-ink shadow-xl">
         <h3 id="profile-key-import-title" className="text-base font-semibold">{copy('导入私钥到 GETSSH', 'Import key into GETSSH')}</h3>
         <p className="text-sm text-ink-2">{copy('当前工作区中使用同一文件的服务器会一起改用导入的私钥。原文件默认保留。', 'Servers in this workspace using the same file will switch to the imported key. The original file is kept by default.')}</p>
         <form onSubmit={event => { event.preventDefault(); event.stopPropagation(); void importFile(); }} className="space-y-4">

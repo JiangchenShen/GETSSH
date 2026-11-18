@@ -46,31 +46,33 @@ class PaneErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center select-none bg-red-500/5 backdrop-blur-md">
-          <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-3">
-            <AlertTriangle size={24} />
+        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center select-none bg-bg text-ink">
+          <div className="w-10 h-10 rounded-lg bg-down/10 border border-down/25 flex items-center justify-center text-down mb-3">
+            <AlertTriangle size={20} />
           </div>
-          <h4 className="text-sm font-bold text-red-400 mb-1">
+          <h4 className="text-sm font-semibold text-down mb-1">
             {this.props.fallbackTitle || 'Panel Crashed (Isolated)'}
           </h4>
-          <p className="text-xs text-white/50 max-w-xs mb-4 font-mono break-all line-clamp-2">
+          <p className="text-xs text-ink-2 max-w-xs mb-4 font-mono break-all line-clamp-2">
             {this.state.error?.message || 'An unexpected rendering error occurred inside this pane.'}
           </p>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={this.handleRetry}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all border border-white/10"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surf hover:bg-surf-2 text-ink text-xs font-medium transition-colors border border-line"
             >
               <RefreshCw size={12} />
               Reload Pane
             </button>
             <button
+              type="button"
               onClick={() => {
                 if (window.electronAPI?.tidalClosePane) {
                   void callTidal('close crashed pane', window.electronAPI.tidalClosePane(this.props.paneId));
                 }
               }}
-              className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-semibold transition-all border border-red-500/30"
+              className="px-3 py-1.5 rounded-md bg-down/10 hover:bg-down/15 text-down text-xs font-medium transition-colors border border-down/30"
             >
               Close Pane
             </button>
@@ -153,8 +155,8 @@ class PaneRegistry {
 
     if (!renderer) {
       return (
-        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-white/40">
-          <TerminalSquare className="w-8 h-8 opacity-40 mb-2" />
+        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-bg text-ink-3">
+          <TerminalSquare className="w-7 h-7 mb-2 text-ink-3" />
           <p className="text-xs">Unknown or unmounted pane type: {key}</p>
         </div>
       );
@@ -180,15 +182,15 @@ class PaneRegistry {
 
     // 3. Welcome Pane
     this.register('welcome', () => (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-transparent min-h-0 overflow-y-auto">
-        <div className="flex flex-col items-center gap-3 text-center px-4 py-4 min-h-min shrink-0">
-          <div className="w-12 h-12 shrink-0 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-            <TerminalSquare className="w-6 h-6" />
+      <div className="w-full h-full flex flex-col items-center justify-center bg-bg min-h-0 overflow-y-auto">
+        <div className="flex flex-col items-center gap-2.5 text-center px-4 py-4 min-h-min shrink-0">
+          <div className="w-10 h-10 shrink-0 rounded-lg border border-line bg-surf flex items-center justify-center text-primary">
+            <TerminalSquare className="w-5 h-5" />
           </div>
           <div className="shrink-0">
-            <h3 className="text-base font-bold text-white">Ready to Connect</h3>
-            <p className="text-xs mt-1.5 leading-relaxed text-white/50 max-w-[220px]">
-              Press <kbd className="px-1.5 py-0.5 rounded border border-white/20 font-mono text-[10px] mx-0.5 shadow-sm bg-white/5">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-white/20 font-mono text-[10px] mx-0.5 shadow-sm bg-white/5">Option+Space</kbd> to open Command Center
+            <h3 className="text-sm font-semibold text-ink">Ready to Connect</h3>
+            <p className="text-xs mt-1 leading-relaxed text-ink-2 max-w-[230px]">
+              Press <kbd className="px-1.5 py-0.5 rounded border border-line font-mono text-[10px] mx-0.5 bg-surf text-ink-2">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded border border-line font-mono text-[10px] mx-0.5 bg-surf text-ink-2">Option+Space</kbd> to open Command Center
             </p>
           </div>
         </div>

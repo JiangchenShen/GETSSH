@@ -262,8 +262,8 @@ export function EncryptedBackupSection({ onRestartRequired }: { onRestartRequire
         {actions(copy('查看备份', 'Review backup'), () => void inspectBackup(), !importPassword)}
       </form>
     </SettingsRow>}
-    {file && info && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4" role="presentation">
-      <div ref={confirmation} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="backup-import-title" aria-describedby="backup-import-warning" className="max-h-[85vh] w-full max-w-md overflow-auto rounded-xl border border-line bg-panel p-5 text-ink shadow-2xl">
+    {file && info && <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim px-4" role="presentation">
+      <div ref={confirmation} tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby="backup-import-title" aria-describedby="backup-import-warning" className="max-h-[85vh] w-full max-w-md overflow-auto rounded-xl border border-line bg-surf p-5 text-ink shadow-2xl">
         <h3 id="backup-import-title" className="text-base font-semibold">{copy('确认导入备份', 'Confirm backup import')}</h3>
         <dl className="mt-3 space-y-1 break-all text-xs text-ink-2">
           <div><dt className="inline">{copy('文件：', 'File: ')}</dt><dd className="inline">{file.fileName}</dd></div>

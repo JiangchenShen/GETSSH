@@ -65,7 +65,7 @@ const Divider: React.FC<{
   isDark: boolean;
   style: React.CSSProperties;
   onDragStart: (e: React.PointerEvent<HTMLDivElement>) => void;
-}> = ({ direction, isDark, style, onDragStart }) => (
+}> = ({ direction, style, onDragStart }) => (
   <div
     onPointerDown={onDragStart}
     style={style}
@@ -73,11 +73,11 @@ const Divider: React.FC<{
       direction === 'hsplit' ? 'cursor-col-resize' : 'cursor-row-resize'
     }`}
   >
-    <div className={`workbench-split-grip rounded-full ${
+    <div className={`workbench-split-grip rounded-full bg-line ${
       direction === 'hsplit' 
         ? 'w-[2px] h-8 group-hover:bg-primary/80' 
         : 'h-[2px] w-8 group-hover:bg-primary/80'
-    } ${isDark ? 'bg-[#333]' : 'bg-black/20'}`} />
+    }`} />
   </div>
 );
 

@@ -233,8 +233,8 @@ export function SshKeysSection() {
       </li>)}
     </ul>
 
-    {panel && available && <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4">
-      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-xl">
+    {panel && available && <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-scrim p-4">
+      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-surf p-5 shadow-xl">
         <h3 id={titleId} className="text-base font-semibold text-ink">{panelTitle}</h3>
         <form onSubmit={submit} className="mt-4 space-y-4" aria-busy={busy}>
           {(panel.kind === 'import' || panel.kind === 'generate') && <label className="block space-y-1.5 text-sm text-ink-2"><span>{text('名称', 'Name')}</span><input value={panel.name} onChange={event => setPanel({ ...panel, name: event.target.value })} maxLength={128} required={panel.kind === 'generate'} disabled={busy} className={settingFieldClass} /></label>}
