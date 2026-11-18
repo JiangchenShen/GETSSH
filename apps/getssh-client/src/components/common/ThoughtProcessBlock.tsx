@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export function parseThoughtProcess(content: string) {
   const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
@@ -17,6 +18,8 @@ export const ThoughtProcessBlock: React.FC<{
   isDark: boolean;
   isThinkingDone: boolean;
 }> = ({ thoughtProcess, isThinkingDone }) => {
+  const { i18n } = useTranslation();
+  const zh = !i18n.language || i18n.language.startsWith('zh');
   const [collapsed, setCollapsed] = useState(isThinkingDone);
 
   return (
@@ -26,7 +29,7 @@ export const ThoughtProcessBlock: React.FC<{
         onClick={() => setCollapsed(!collapsed)}
       >
         <Brain size={12} className={!isThinkingDone ? "animate-pulse text-primary" : "text-ink-3"} />
-        <span className="flex-1">{!isThinkingDone ? '正在思考... (Thinking)' : '思考过程 (Thought Process)'}</span>
+        <span className="flex-1">{!isThinkingDone ? (zh ? '正在思考…' : 'Thinking…') : (zh ? '思考过程' : 'Thought process')}</span>
         {collapsed ? <ChevronRight size={12} className="text-ink-3" /> : <ChevronDown size={12} className="text-ink-3" />}
       </div>
       {!collapsed && (

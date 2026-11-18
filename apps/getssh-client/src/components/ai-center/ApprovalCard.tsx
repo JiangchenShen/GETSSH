@@ -79,7 +79,7 @@ export const ApprovalCard: React.FC<{
         <div className={`text-xs font-semibold flex items-center gap-1.5 ${
           isHighRisk ? 'text-down' : 'text-warn'
         }`}>
-          ⚠️ {isHighRisk ? t('ai.highRiskWarning', '高危操作警告 (HIGH RISK)') : t('ai.awaitingApproval', '等待您的执行授权')}
+          ⚠️ {isHighRisk ? t('ai.highRiskWarning', '高风险命令确认') : t('ai.awaitingApproval', '等待您的执行授权')}
         </div>
         <code className="block px-2.5 py-2 rounded-md border border-line-soft bg-bg text-xs font-mono text-ink break-all">
           {command}

@@ -7,7 +7,7 @@ export const RecBadge: React.FC<{ isRecording: boolean }> = ({ isRecording }) =>
   return (
     <div 
       className="absolute top-2 right-4 flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-down/30 bg-surf z-[60] pointer-events-auto cursor-help group"
-      title="Asciinema 底层会话审计流记录中 (Gzipped)"
+      title="正在记录终端输出（Gzip 压缩保存在本机）"
     >
       <motion.div
         className="w-1.5 h-1.5 rounded-full bg-down"
@@ -20,7 +20,7 @@ export const RecBadge: React.FC<{ isRecording: boolean }> = ({ isRecording }) =>
       
       {/* Tooltip on Hover */}
       <div className="absolute top-full mt-1.5 right-0 hidden group-hover:block w-48 p-2 text-xs text-ink-2 bg-surf border border-line rounded-md shadow-lg whitespace-normal text-left">
-        审计流记录已在底层接管，所有输出将被严格加密封存。
+        当前会话的终端输出正在记录到本机录屏目录。
       </div>
     </div>
   );
